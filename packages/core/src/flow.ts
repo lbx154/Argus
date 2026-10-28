@@ -1,11 +1,13 @@
-// The flow: the operator's message goes to the Manager; a ticket becomes tasks the Engineer and
-// the Reviewer hand between them; the Planner is called when no task is ready and something
-// came to it. Where work goes next is the hand-off's `to` and nothing else. A failed turn is
-// recorded and the flow stops, without a retry; a form Argus refuses goes back to the role once.
+// The flow: every turn ends in a letter and its addressee. The operator writes to the Manager;
+// the Manager's brief becomes one task, or goes to the Planner, who hands out one task at a
+// time; the Engineer and the Reviewer write to each other about a task. The Planner is called
+// when no task is open and something came to it. Where work goes next is the addressee and
+// nothing else; the letter is passed on as written. A failed turn is recorded and the flow
+// stops, without a retry; a hand-off Argus refuses goes back to its writer once.
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
-import type { FlowEvent, Project, Question, Status, Store, Task, TaskStatus, Ticket } from './store.js';
+import type { FlowEvent, Project, Status, Store, Task, TaskStatus } from './store.js';
 import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, taskPrompt } from './prompts.js';
 
 const ROLES: Record<Role, { form: Form; access: Access }> = {
@@ -14,15 +16,6 @@ const ROLES: Record<Role, { form: Form; access: Access }> = {
   engineer: { form: 'engineer', access: 'write' },
   reviewer: { form: 'review', access: 'read' },
 };
-
-/** The fields of a `plan` form's task the flow keeps; the rest of the brief goes into its objective. */
-interface PlannedTask {
-  title: string; objective: string; key?: string; deps?: string[]; non_goals?: string[];
-  require_independent_review?: boolean; [field: string]: unknown;
-}
-const BRIEF: [string, string][] = [
-  ['hypothesis', 'Hypothesis'], ['decision_rule', 'Decision rule'], ['acceptance_check', 'Check'], ['expected_regressions', 'Expected regressions'],
-];
 
 export interface FlowOptions {
   onEvent?: (event: FlowEvent) => void;
@@ -60,7 +53,7 @@ export class Flow {
 
   private async run(project: Project): Promise<void> {
     while (project.status === 'working' && !this.options.signal?.aborted) {
-      const task = project.tasks.find(task => task.status === 'open' && task.deps.every(dep => this.task(project, dep).status === 'done'));
+      const task = project.tasks.find(task => task.status === 'open');
       if (task) await this.work(project, task);
       else if (complete(project)) this.finish(project);
       else if (project.inbox.length) await this.plan(project);
@@ -73,71 +66,51 @@ export class Flow {
     const handoff = (await this.call(project, 'manager', null,
       resumed => managerPrompt(project, this.store.dir(project.id), message, resumed), checkManager(project)))?.handoff;
     if (!handoff) return;
-    const reply = String(handoff.fields.reply ?? '').trim();
-    if (reply) this.record(project, { type: 'message', from: 'manager', text: reply });
-    if (handoff.to === 'operator') this.ask(project, 'manager', null, handoff);
-    else if (handoff.to === 'team') this.file(project, handoff);
+    if (handoff.to === 'operator') this.ask(project, 'manager', null, handoff.letter);
+    else if (handoff.to === 'engineer' || handoff.to === 'planner') this.file(project, handoff.to, handoff.letter);
   }
 
-  /** A ticket: a direct one becomes one task; a staged one goes to the Planner. */
-  private file(project: Project, { fields }: HandOff): void {
-    const plan = fields.plan as { path: string } | undefined;
-    const goal = String(fields.goal);
-    const ticket: Ticket = {
-      goal, acceptance: list(fields.acceptance), constraints: list(fields.constraints),
-      context: [...list(fields.context), ...(plan ? [plan.path] : [])], standing: fields.lifetime === 'standing', task: null,
-    };
-    project.ticket = ticket;
-    if (fields.workflow_mode === 'staged') project.inbox.push('The Manager filed the ticket above: plan its work.');
-    else {
-      const review = fields.require_independent_review !== false;
-      ticket.task = this.add(project, { title: goal.split('\n')[0]!.slice(0, 100), objective: '', deps: [], review }).id;
-    }
+  /** A ticket, the Manager's brief: one task for the Engineer, or the Planner's to divide. */
+  private file(project: Project, to: 'engineer' | 'planner', brief: string): void {
+    project.ticket = { brief, task: null };
+    if (to === 'planner') project.inbox.push('The Manager filed the ticket above: plan its work.');
+    else project.ticket.task = this.add(project, title(brief), '').id;
     this.status(project, 'working');
   }
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
-    const check = role === 'engineer' ? checkEngineer(task) : undefined;
-    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, task, resumed), check))?.handoff;
+    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, task, resumed)))?.handoff;
     if (!handoff) return;
-    const note = String(handoff.fields.note ?? '');
-    switch (handoff.to) {
+    const { to, letter } = handoff;
+    switch (to) {
       case 'engineer': case 'reviewer':
-        Object.assign(task, { holder: handoff.to, note: { from: role, text: note } });
+        Object.assign(task, { holder: to, note: { from: role, text: letter } });
         break;
       case 'done':
-        this.settle(project, task, 'done', `Task ${task.id} is done: ${handoff.summary}`);
+        this.settle(project, task, 'done', handedTo(role, task, letter));
         break;
       case 'planner':
-        this.settle(project, task, 'returned', handedTo(role, task, handoff.summary, note));
+        this.settle(project, task, 'returned', handedTo(role, task, letter));
         break;
       case 'manager':
         this.settle(project, task, 'returned');
-        await this.manager(project, handedTo(role, task, handoff.summary, note));
+        await this.manager(project, handedTo(role, task, letter));
         break;
       case 'operator':
-        this.ask(project, role, task, handoff);
+        this.ask(project, role, task, letter);
     }
   }
 
   private async plan(project: Project): Promise<void> {
-    const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, resumed), checkPlan(project)))?.handoff;
+    const handoff = (await this.call(project, 'planner', null, resumed => plannerPrompt(project, resumed)))?.handoff;
     if (!handoff) return;
     project.inbox = [];
-    for (const { id } of list<{ id: string }>(handoff.fields.retire)) this.settle(project, this.task(project, id), 'retired');
-    if (handoff.to === 'engineer') {
-      const ids = new Map<string, string>();
-      for (const spec of list<PlannedTask>(handoff.fields.tasks)) {
-        const objective = [spec.objective, ...BRIEF.filter(([field]) => spec[field]).map(([field, label]) => `${label}: ${String(spec[field])}`),
-          spec.non_goals?.length && `Not in scope: ${spec.non_goals.join('; ')}`].filter(Boolean).join('\n');
-        const deps = (spec.deps ?? []).map(key => ids.get(key)!);
-        const task = this.add(project, { title: spec.title, objective, deps, review: spec.require_independent_review !== false });
-        if (spec.key) ids.set(spec.key, task.id);
-      }
-    } else if (handoff.to === 'done') this.finish(project);
-    else if (handoff.to === 'operator') this.ask(project, 'planner', null, handoff);
-    else await this.manager(project, handedTo('planner', null, handoff.summary, ''));
+    const { to, letter } = handoff;
+    if (to === 'engineer') this.add(project, title(letter), letter);
+    else if (to === 'done') this.finish(project);
+    else if (to === 'operator') this.ask(project, 'planner', null, letter);
+    else await this.manager(project, handedTo('planner', null, letter));
   }
 
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the flow
@@ -168,7 +141,7 @@ export class Flow {
     if (completed && threadId) project.sessions[key] = threadId;
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
     if (handoff) {
-      this.record(project, { type: 'handoff', role, ...where, to: handoff.to, summary: handoff.summary, fields: handoff.fields });
+      this.record(project, { type: 'handoff', role, ...where, to: handoff.to, letter: handoff.letter });
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, formCheck, error ?? '');
@@ -178,8 +151,8 @@ export class Flow {
     return null;
   }
 
-  private add(project: Project, spec: Pick<Task, 'title' | 'objective' | 'deps' | 'review'>): Task {
-    const task: Task = { id: `t${project.tasks.length + 1}`, ...spec, status: 'open', holder: 'engineer', note: null };
+  private add(project: Project, title: string, objective: string): Task {
+    const task: Task = { id: `t${project.tasks.length + 1}`, title, objective, status: 'open', holder: 'engineer', note: null };
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
     return task;
@@ -192,9 +165,8 @@ export class Flow {
     this.record(project, { type: 'task.settled', task: task.id, status });
   }
 
-  private ask(project: Project, role: Role, task: Task | null, { fields }: HandOff): void {
-    const { question, options } = fields.ask as Pick<Question, 'question' | 'options'>;
-    project.question = { role, task: task?.id ?? null, question, options };
+  private ask(project: Project, role: Role, task: Task | null, question: string): void {
+    project.question = { role, task: task?.id ?? null, question };
     this.status(project, 'asking');
   }
 
@@ -225,44 +197,20 @@ export class Flow {
   }
 }
 
-/** A bounded direct ticket is complete when its task is accepted and no other task is open. */
+/** A ticket for the Engineer is complete when its task is accepted and no other task is open. */
 function complete({ ticket, tasks }: Project): boolean {
-  return !!ticket && !ticket.standing && tasks.some(task => task.id === ticket.task && task.status === 'done')
-    && tasks.every(task => task.status !== 'open');
+  return !!ticket && tasks.some(task => task.id === ticket.task && task.status === 'done') && tasks.every(task => task.status !== 'open');
 }
 
-function list<T = string>(value: unknown): T[] {
-  return Array.isArray(value) ? value as T[] : [];
+/** A brief's first line names its task. */
+function title(brief: string): string {
+  return brief.trim().split('\n')[0]!.slice(0, 100);
 }
-
-// The forms' own rules, beyond what their schema can say: a returned string refuses the
-// hand-off, and the role corrects it in one more turn of its session.
 
 type Check = (handoff: HandOff) => string | null;
 
-/** A ticket is the team's whole brief, and one is worked at a time. */
-const checkManager = (project: Project): Check => ({ to, fields }) => {
-  if (to === 'team' ? !('goal' in fields && 'acceptance' in fields) : 'goal' in fields || 'acceptance' in fields) {
-    return 'to=team goes with goal and acceptance, and they only with to=team.';
-  }
-  return to === 'team' && (project.question || project.tasks.some(task => task.status === 'open'))
-    ? 'The team is still on the current ticket: answer with to=manager now, and file new work once that ticket is done.' : null;
-};
-
-const checkEngineer = (task: Task): Check => ({ to }) =>
-  to === 'done' && task.review ? 'This task requires an independent review: hand it to=reviewer.' : null;
-
-const checkPlan = (project: Project): Check => ({ to, fields }) => {
-  const tasks = list<PlannedTask>(fields.tasks);
-  if (tasks.length && to !== 'engineer') return 'tasks start only with to=engineer.';
-  if (to === 'done' && project.ticket?.standing) return 'This ticket is ongoing and never done: start the next task, or ask the operator.';
-  const keys = new Set<string>();
-  for (const task of tasks) {
-    const unknown = task.deps?.find(dep => !keys.has(dep));
-    if (unknown !== undefined) return `tasks.deps of "${task.title}": ${unknown} is not the key of a task listed before it in this call.`;
-    if (task.key !== undefined && keys.has(task.key)) return `tasks.key: ${task.key} names two tasks.`;
-    if (task.key !== undefined) keys.add(task.key);
-  }
-  const closed = list<{ id: string }>(fields.retire).find(({ id }) => project.tasks.find(task => task.id === id)?.status !== 'open');
-  return closed ? `retire: ${closed.id} is not an open task.` : null;
-};
+/** The rule the Manager's form cannot say: the team works one ticket at a time. A returned string
+ * refuses the hand-off, and the Manager corrects it in one more turn of its session. */
+const checkManager = (project: Project): Check => ({ to }) =>
+  (to === 'engineer' || to === 'planner') && (project.question || project.tasks.some(task => task.status === 'open'))
+    ? 'The team is still on the current ticket: write to=manager now, and hand on new work once that ticket is done.' : null;

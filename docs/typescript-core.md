@@ -39,27 +39,31 @@ A project is a directory `$ARGUS_HOME/projects/<id>/` with:
 `project.json` is the only place a fact lives; events record changes and are never folded
 back into state. The work itself stays in the workdir.
 
-## Roles and hand-offs
+## Roles and letters
 
-Every role's turn ends with its form as the final answer. The backend CLI holds the model to
-the form's schema (Codex `--output-schema`, Claude `--json-schema`), so a turn cannot end in
-prose that only reads like a hand-off. The form takes its fields and their descriptions from
-`packages/contracts/schemas/handoff_forms.json`, only those the flow reads, and the Manager's
-form adds `reply`, what the operator reads. Where the work goes next is the form's `to`, and
-nothing else: the host reads no prose. A form Argus refuses (its schema or its own check) goes
-back to the role once, in the same session, with the reason; refused again, or a turn that
-fails, is a failed call, recorded as such.
+A hand-off is a letter and its addressee. Every turn ends with `{ "to": ..., "letter": ... }`
+as its final answer, and the backend CLI holds the model to that shape (Codex
+`--output-schema`, Claude `--json-schema`), so a turn cannot end in prose that only reads like
+a hand-off. The addressee is the one thing the host reads: it is one of the places the role
+can write to, and routing is that and nothing else. The letter is free text, passed to its
+reader as written: they see the workspace and the letter, not the writer's conversation, so a
+letter that hands on new work is that work's whole brief. The operator reads every letter, so
+the letters are the project's timeline. A hand-off Argus refuses goes back to its writer once,
+in the same session, with the reason; refused again, or a turn that fails, is a failed call,
+recorded as such.
 
-| Role | Form | `to` |
-|---|---|---|
-| Manager | `manager` | `team` files the request as a ticket; `operator` asks; `manager`, the reply is the whole answer |
-| Planner (M2) | `plan` | `engineer` with tasks; `done`; `operator`; `manager` |
-| Engineer | `engineer` | `reviewer`; `done` (no review needed); `engineer` (keeps working); `planner`; `manager`; `operator` |
-| Reviewer | `review` | `done` accepts; `engineer` returns repairs; `planner`; `manager`; `operator` |
+| Role | Writes to |
+|---|---|
+| Manager | `engineer`: one coherent piece of work, the letter its brief (the ticket); `planner`: work in dependent steps, the letter its brief; `operator`: a question; `manager`: the letter is the answer |
+| Planner | `engineer`: the next task, the letter its brief; `manager`: the process is stuck; `operator`: a question; `done` |
+| Engineer | `reviewer`; `engineer` (keeps working); `planner`: the task is mis-scoped; `manager`: the process is stuck; `operator` |
+| Reviewer | `done` accepts; `engineer` returns repairs; `planner`; `manager`; `operator` |
 
-A project is done when the Reviewer accepts a bounded ticket's task and no other task is
-open, or when the Planner hands off `to: done`. The Manager may finish a small request in its
-own turn.
+The Planner hands out one task at a time; work that only differs in its inputs is one task,
+which the Engineer runs side by side. There are no stages: what a research project calls its
+stages is the order of the tasks the Planner writes. A project is done when the Reviewer
+accepts the task of a ticket the Manager gave the Engineer, or when the Planner writes `done`.
+The Manager may finish a small request in its own turn.
 
 ## The agent call
 
@@ -72,9 +76,9 @@ callAgent(request: AgentRequest): Promise<AgentResult>
 (`packages/core/src/types.ts`). The agent layer runs the CLI with the prompt on stdin and
 the form's schema for its final answer, reads its JSON event stream, takes only the
 backend's own completion event as success (Codex `turn.completed`, Claude `result` with
-`subtype: success`), and judges the form the turn ended with: Codex's last message, in the
-strict shape OpenAI's structured outputs take (every field required, an optional one
-nullable, a null read as left out), or Claude's `structured_output`.
+`subtype: success`), and judges the hand-off the turn ended with: Codex's last message or
+Claude's `structured_output`. The shape is already the strict one OpenAI's structured outputs
+take: both fields required, no other allowed.
 
 Usage: Codex from the session's rollout file (`token_usage_record`, per request); Claude from
 `result.usage` (input counts include cache reads and writes) with `total_cost_usd` as the cost.

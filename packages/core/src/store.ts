@@ -9,17 +9,14 @@ import { join } from 'node:path';
 import type { Backend, Role, Usage } from './types.js';
 
 export type Status = 'working' | 'asking' | 'failed' | 'idle' | 'done';
-/** `returned`: handed to the Planner or Manager, closed for the team; `retired` by the Planner. */
-export type TaskStatus = 'open' | 'done' | 'returned' | 'retired';
+/** `returned`: handed to the Planner or Manager, closed for the team. */
+export type TaskStatus = 'open' | 'done' | 'returned';
 export type Holder = 'engineer' | 'reviewer';
 
 export interface Ticket {
-  goal: string;
-  acceptance: string[];
-  constraints: string[];
-  context: string[];
-  standing: boolean;
-  /** The task a direct ticket became; its acceptance completes a bounded ticket. */
+  /** The Manager's brief, the team's whole account of the work. */
+  brief: string;
+  /** The one task a ticket for the Engineer became; its acceptance completes the ticket. */
   task: string | null;
 }
 
@@ -28,10 +25,8 @@ export interface Note { from: Role | 'operator'; text: string }
 export interface Task {
   id: string;
   title: string;
-  /** Empty for a direct ticket's task: the ticket is its brief. */
+  /** The Planner's brief; empty for a ticket's own task, whose brief is the ticket. */
   objective: string;
-  deps: string[];
-  review: boolean;
   status: TaskStatus;
   holder: Holder;
   /** What the holder reads next: the last hand-off's note, or the operator's answer. */
@@ -41,8 +36,8 @@ export interface Task {
 export interface Question {
   role: Role;
   task: string | null;
+  /** The asker's letter. */
   question: string;
-  options: { label: string; description?: string }[];
 }
 
 export interface Project {
@@ -59,18 +54,18 @@ export interface Project {
   question: Question | null;
   ticket: Ticket | null;
   tasks: Task[];
-  /** What the Planner reads at its next turn; it is called when no task is ready and this is not empty. */
+  /** What the Planner reads at its next turn; it is called when no task is open and this is not empty. */
   inbox: string[];
   /** Backend session per role: manager, planner, <task>.engineer, <task>.reviewer. */
   sessions: Record<string, string>;
 }
 
 export type FlowEvent =
-  | { type: 'message'; from: 'operator' | 'manager'; text: string }
+  | { type: 'message'; from: 'operator'; text: string }
   | { type: 'call.start'; role: Role; task?: string }
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }
-  | { type: 'handoff'; role: Role; task?: string; to: string; summary: string; fields: Record<string, unknown> }
+  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.settled'; task: string; status: TaskStatus }
   | { type: 'status'; status: Status; error?: string; question?: Question };

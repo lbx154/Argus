@@ -5,19 +5,17 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
+import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent } from '../src/store.js';
 import { Flow } from '../src/flow.js';
 
-/** One scripted turn: the role expected, and the form it ends with (no `to`: none). */
+/** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
   role: Role;
   to?: string;
-  fields?: Record<string, unknown>;
-  /** The Manager's reply, with to=manager unless `to` says otherwise. */
-  text?: string;
-  /** Hand-offs the form's check must refuse before the scripted one passes. */
-  refuse?: Omit<HandOff, 'form' | 'summary'>[];
+  letter?: string;
+  /** Addressees the hand-off's check must refuse before the scripted one passes. */
+  refuse?: string[];
   /** The operator interrupts the process during this turn. */
   interrupt?: boolean;
   /** The agent layer throws this instead of returning. */
@@ -31,16 +29,10 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     const step = steps.shift();
     assert.ok(step, `no turn scripted for the ${request.role}`);
     assert.equal(request.role, step.role);
-    for (const refused of step.refuse ?? []) {
-      assert.ok(request.check?.({ form: request.form, summary: 's', ...refused }), `${JSON.stringify(refused)} passed`);
-    }
+    for (const to of step.refuse ?? []) assert.ok(request.check?.({ form: request.form, to, letter: 'l' }), `to=${to} passed`);
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
-    const manager = step.role === 'manager';
-    const to = step.to ?? (manager && step.text !== undefined ? 'manager' : undefined);
-    const handoff = to === undefined ? null : {
-      form: request.form, to, summary: `${step.role} to ${to}`, fields: { assumptions: [], ...manager ? { reply: step.text ?? '' } : {}, ...step.fields },
-    };
+    const handoff = step.to === undefined ? null : { form: request.form, to: step.to, letter: step.letter ?? `${step.role} to ${step.to}` };
     if (handoff) assert.equal(request.check?.(handoff) ?? null, null);
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
@@ -61,52 +53,49 @@ async function setup(t: TestContext, steps: Step[], controller?: AbortController
   return { home, store, flow, id, requests, events };
 }
 
-const ticket = { goal: 'Build the CSV summary tool', acceptance: ['summary.py prints the column totals'] };
+const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.';
+const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 
 test('the Manager answers directly', async t => {
-  const { store, flow, id, requests, events } = await setup(t, [{ role: 'manager', text: '42' }]);
+  const { store, flow, id, requests, events } = await setup(t, [{ role: 'manager', to: 'manager', letter: '42' }]);
   const project = await flow.say(id, 'What is 6 times 7?');
   assert.equal(project.status, 'idle');
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
-  assert.equal(request?.form, 'manager');
-  assert.equal(request?.access, 'write');
-  assert.deepEqual(request?.readDirs, [store.dir(id)]);
+  assert.deepEqual([request?.form, request?.access, request?.readDirs], ['manager', 'write', [store.dir(id)]]);
   assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Writing for people[\s\S]*## Message\nWhat is 6 times 7\?$/);
-  assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff', 'message', 'status']);
-  assert.deepEqual(events()[4], { ...events()[4], from: 'manager', text: '42' });
+  assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff', 'status']);
+  assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'manager', letter: '42' });
 });
 
-test('a bounded ticket goes from the Engineer to the Reviewer, who accepts it', async t => {
+test("the Manager's brief becomes the Engineer's task, which the Reviewer accepts", async t => {
   const { flow, id, requests, events } = await setup(t, [
-    { role: 'manager', to: 'team', fields: ticket, text: 'The team has it.',
-      refuse: [{ to: 'team', fields: { goal: 'g' } }, { to: 'manager', fields: ticket }] },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'summary.py added; run python summary.py data.csv' },
-      refuse: [{ to: 'done', fields: { note: 'n' } }] },
-    { role: 'reviewer', to: 'done', fields: { note: 'Totals checked against the data.' } },
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added; run python summary.py data.csv' },
+    { role: 'reviewer', to: 'done', letter: 'Totals checked against the data.' },
   ]);
   const project = await flow.say(id, 'Make me a CSV summary tool');
   assert.equal(project.status, 'done');
-  assert.deepEqual(project.tasks.map(task => [task.id, task.status, task.title]), [['t1', 'done', 'Build the CSV summary tool']]);
-  assert.equal(project.ticket?.task, 't1');
+  assert.deepEqual(project.ticket, { brief, task: 't1' });
+  assert.deepEqual(project.tasks.map(task => [task.id, task.status, task.title]), [['t1', 'done', 'Build the CSV summary tool.']]);
   const [, engineer, reviewer] = requests;
   assert.deepEqual([engineer?.form, engineer?.access, engineer?.readDirs], ['engineer', 'write', undefined]);
-  assert.match(engineer?.prompt ?? '', /^You are the Argus Engineer[\s\S]*## Ticket\nBuild the CSV summary tool\n\nAcceptance:\n- summary\.py prints the column totals$/);
+  assert.match(engineer?.prompt ?? '', /^You are the Argus Engineer[\s\S]*## Ticket\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
   assert.deepEqual([reviewer?.form, reviewer?.access], ['review', 'read']);
   assert.match(reviewer?.prompt ?? '', /^You are the Argus Reviewer[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
   assert.deepEqual(events().map(event => event.type), [
-    'message', 'call.start', 'call.end', 'handoff', 'message', 'task.added',
+    'message', 'call.start', 'call.end', 'handoff', 'task.added',
     'call.start', 'call.end', 'handoff', 'call.start', 'call.end', 'handoff', 'task.settled', 'status',
   ]);
 });
 
 test('a review returns the work once, and both roles continue their sessions', async t => {
   const { flow, id, requests } = await setup(t, [
-    { role: 'manager', to: 'team', fields: ticket },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'v1' } },
-    { role: 'reviewer', to: 'engineer', fields: { note: 'Totals skip the last row.' } },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'v2 counts the last row' } },
-    { role: 'reviewer', to: 'done', fields: { note: 'ok' } },
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'v1' },
+    { role: 'reviewer', to: 'engineer', letter: 'Totals skip the last row.' },
+    { role: 'engineer', to: 'reviewer', letter: 'v2 counts the last row' },
+    { role: 'reviewer', to: 'done', letter: 'ok' },
   ]);
   assert.equal((await flow.say(id, 'Make me a CSV summary tool')).status, 'done');
   const [, , , engineer, reviewer] = requests;
@@ -117,43 +106,37 @@ test('a review returns the work once, and both roles continue their sessions', a
 });
 
 test("the Engineer's question stops the work until the operator answers", async t => {
-  const ask = { question: 'Round the totals or reject bad rows?', options: [{ label: 'round' }, { label: 'reject' }] };
-  const steps: Step[] = [
-    { role: 'manager', to: 'team', fields: ticket },
-    { role: 'engineer', to: 'operator', fields: { note: '', ask } },
-  ];
+  const question = 'Round the totals, or reject the bad rows?';
+  const steps: Step[] = [toEngineer, { role: 'engineer', to: 'operator', letter: question }];
   const { store, flow, id, requests } = await setup(t, steps);
   const asking = await flow.say(id, 'Make me a CSV summary tool');
   assert.equal(asking.status, 'asking');
-  assert.deepEqual(asking.question, { role: 'engineer', task: 't1', ...ask });
-  assert.equal(requests.length, 2);
+  assert.deepEqual(asking.question, { role: 'engineer', task: 't1', question });
   // The operator may talk to the Manager meanwhile; no new work starts while the ticket is open.
-  steps.push({ role: 'manager', text: 'The team needs your choice first.', refuse: [{ to: 'team', fields: ticket }] });
+  steps.push({ role: 'manager', to: 'manager', letter: 'The team needs your choice first.', refuse: ['engineer', 'planner'] });
   assert.equal((await flow.say(id, 'Also export a PDF')).status, 'asking');
   assert.equal(requests.length, 3);
-  steps.push({ role: 'engineer', to: 'reviewer', fields: { note: 'rounded' } }, { role: 'reviewer', to: 'done', fields: { note: 'ok' } });
+  steps.push({ role: 'engineer', to: 'reviewer', letter: 'rounded' }, { role: 'reviewer', to: 'done', letter: 'ok' });
   const done = await flow.answer(id, 'round');
-  assert.equal(done.status, 'done');
-  assert.equal(done.question, null);
+  assert.deepEqual([done.status, done.question], ['done', null]);
   assert.equal(requests[3]?.resume, 'engineer-2');
-  assert.equal(requests[3]?.prompt, '## From the operator\nYou asked the operator: Round the totals or reject bad rows?\nThey answered: round');
+  assert.equal(requests[3]?.prompt, `## From the operator\nYou asked the operator: ${question}\nThey answered: round`);
   await assert.rejects(flow.answer(id, 'again'), /no open question/);
   assert.equal(store.load(id).status, 'done');
 });
 
 const refusal = 'Argus refused your hand-off: The turn ended without the hand-off form.\nEnd your turn with the form again, corrected.';
 
-test('a refused form goes back to the role once, in its session, with why', async t => {
+test('a refused hand-off goes back to its writer once, in its session, with why', async t => {
   const { flow, id, requests } = await setup(t, [
-    { role: 'manager', to: 'team', fields: ticket }, { role: 'engineer' },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'n' } }, { role: 'reviewer', to: 'done', fields: { note: 'ok' } },
+    toEngineer, { role: 'engineer' }, { role: 'engineer', to: 'reviewer' }, { role: 'reviewer', to: 'done' },
   ]);
   assert.equal((await flow.say(id, 'Make me a CSV summary tool')).status, 'done');
   assert.deepEqual([requests[2]?.resume, requests[2]?.prompt], ['engineer-2', refusal]);
 });
 
-test('a form refused again is a failed call: recorded, and nothing runs after it', async t => {
-  const steps: Step[] = [{ role: 'manager', to: 'team', fields: ticket }, { role: 'engineer' }, { role: 'engineer' }];
+test('a hand-off refused again is a failed call: recorded, and nothing runs after it', async t => {
+  const steps: Step[] = [toEngineer, { role: 'engineer' }, { role: 'engineer' }];
   const { flow, id, requests, events } = await setup(t, steps);
   const failed = await flow.say(id, 'Make me a CSV summary tool');
   assert.equal(failed.status, 'failed');
@@ -161,7 +144,7 @@ test('a form refused again is a failed call: recorded, and nothing runs after it
   assert.equal(requests.length, 3);
   assert.deepEqual(events().slice(-3).map(event => event.type), ['call.start', 'call.end', 'status']);
   // The operator's next message continues the work, in the Engineer's session.
-  steps.push({ role: 'manager', text: 'Trying again.' }, { role: 'engineer', to: 'reviewer', fields: { note: 'n' } }, { role: 'reviewer', to: 'done', fields: { note: 'ok' } });
+  steps.push({ role: 'manager', to: 'manager', letter: 'Trying again.' }, { role: 'engineer', to: 'reviewer' }, { role: 'reviewer', to: 'done' });
   assert.equal((await flow.say(id, 'try again')).status, 'done');
   assert.deepEqual([requests[4]?.resume, requests[4]?.prompt], ['engineer-2', 'Continue the task.']);
 });
@@ -172,69 +155,51 @@ test('a call the agent layer cannot make is a failed call too', async t => {
   assert.deepEqual([project.status, project.error, requests.length], ['failed', 'spawn codex ENOENT', 1]);
 });
 
-test('a standing ticket is never done by itself: the Planner decides what comes next', async t => {
+test('the Planner hands out one task at a time and closes the ticket', async t => {
   const { flow, id, requests } = await setup(t, [
-    { role: 'manager', to: 'team', fields: { ...ticket, lifetime: 'standing' } },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'n' } },
-    { role: 'reviewer', to: 'done', fields: { note: 'ok' } },
-    { role: 'planner', to: 'engineer', refuse: [{ to: 'done', fields: {} }] },
-  ]);
-  const project = await flow.say(id, 'Keep the CSV summary tool improving');
-  assert.equal(project.status, 'idle');
-  assert.match(requests[3]?.prompt ?? '', /## Since your last turn\nTask t1 is done: reviewer to done$/);
-});
-
-test('the Planner schedules two dependent tasks and closes the ticket', async t => {
-  const tasks = [
-    { key: 'parse', title: 'Parse', objective: 'Parse data.csv', acceptance_check: 'the parser tests pass' },
-    { key: 'report', title: 'Report', objective: 'Write the totals report', deps: ['parse'] },
-  ];
-  const { flow, id, requests } = await setup(t, [
-    { role: 'manager', to: 'team', fields: { ...ticket, workflow_mode: 'staged' } },
-    { role: 'planner', to: 'engineer', fields: { tasks },
-      refuse: [{ to: 'engineer', fields: { tasks: [...tasks].reverse() } }, { to: 'done', fields: { tasks } }, { to: 'engineer', fields: { retire: [{ id: 't9', reason: 'r' }] } }] },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'parsed' } },
-    { role: 'reviewer', to: 'done', fields: { note: 'ok' } },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'reported' } },
-    { role: 'reviewer', to: 'done', fields: { note: 'ok' } },
-    { role: 'planner', to: 'done' },
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Parse data.csv\nCheck: the parser tests pass.' },
+    { role: 'engineer', to: 'reviewer', letter: 'parsed' },
+    { role: 'reviewer', to: 'done', letter: 'The parser reads every row.' },
+    { role: 'planner', to: 'engineer', letter: 'Write the totals report' },
+    { role: 'engineer', to: 'reviewer', letter: 'reported' },
+    { role: 'reviewer', to: 'done', letter: 'ok' },
+    { role: 'planner', to: 'done', letter: 'The summary tool is built and checked.' },
   ]);
   const project = await flow.say(id, 'Summarise data.csv, in stages');
   assert.equal(project.status, 'done');
-  assert.deepEqual(project.tasks.map(task => [task.id, task.deps, task.status]), [['t1', [], 'done'], ['t2', ['t1'], 'done']]);
-  const [, planner, parse, , report, , replan] = requests;
+  assert.deepEqual(project.tasks.map(task => [task.id, task.title, task.status]), [['t1', 'Parse data.csv', 'done'], ['t2', 'Write the totals report', 'done']]);
+  const [, planner, parse, , replan, report] = requests;
   assert.deepEqual([planner?.form, planner?.access, planner?.readDirs?.length], ['plan', 'read', 1]);
   assert.match(planner?.prompt ?? '', /## Tasks\n\(none yet\)\n\n## Since your last turn\nThe Manager filed the ticket above: plan its work\.$/);
-  assert.match(parse?.prompt ?? '', /## Task t1: Parse\nParse data\.csv\nCheck: the parser tests pass$/);
-  assert.equal(report?.resume, undefined);
-  assert.match(report?.prompt ?? '', /## Done before this task\n- t1 Parse\nEach is finished, and accepted by its review where it needed one\.\n\n## Task t2: Report\n/);
+  assert.match(parse?.prompt ?? '', /## Task t1: Parse data\.csv\nParse data\.csv\nCheck: the parser tests pass\.$/);
   assert.equal(replan?.resume, 'planner-2');
-  assert.match(replan?.prompt ?? '', /^## Ticket\n[\s\S]*- t1 \[done\] Parse\n- t2 \[done, after t1\] Report\n\n## Since your last turn\nTask t1 is done: reviewer to done\n\nTask t2 is done: reviewer to done$/);
+  assert.match(replan?.prompt ?? '', /^## Ticket\n[\s\S]*- t1 \[done\] Parse data\.csv\n\n## Since your last turn\nFrom the Reviewer, on task t1 \(Parse data\.csv\):\nThe parser reads every row\.$/);
+  assert.match(report?.prompt ?? '', /## Done before this task\n- t1 Parse data\.csv\nEach is finished, and accepted by its review where it needed one\.\n\n## Task t2: Write the totals report\n/);
   assert.deepEqual(project.inbox, []);
 });
 
-test('work handed to the Planner holds its dependents back, and the Planner can hand it to the Manager', async t => {
-  const tasks = [{ key: 'parse', title: 'Parse', objective: 'Parse data.csv' }, { key: 'report', title: 'Report', objective: 'Report', deps: ['parse'] }];
+test('work handed to the Planner can go on to the Manager, letter and all', async t => {
   const { flow, id, requests } = await setup(t, [
-    { role: 'manager', to: 'team', fields: { ...ticket, workflow_mode: 'staged' } },
-    { role: 'planner', to: 'engineer', fields: { tasks } },
-    { role: 'engineer', to: 'planner', fields: { note: 'The data has no totals column.' } },
-    { role: 'planner', to: 'manager', fields: { retire: [{ id: 't2', reason: 'Nothing to report without totals.' }] } },
-    { role: 'manager', text: 'The data cannot give totals; tell me which column to sum.' },
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Parse data.csv' },
+    { role: 'engineer', to: 'planner', letter: 'The data has no totals column.' },
+    { role: 'planner', to: 'manager', letter: 'Nothing to total: the operator must name a column.' },
+    { role: 'manager', to: 'manager', letter: 'The data cannot give totals; tell me which column to sum.' },
   ]);
   const project = await flow.say(id, 'Summarise data.csv, in stages');
   assert.equal(project.status, 'idle');
-  assert.deepEqual(project.tasks.map(task => task.status), ['returned', 'retired']);
-  assert.match(requests[3]?.prompt ?? '', /- t1 \[returned\] Parse\n- t2 \[open, with the Engineer, after t1\] Report\n\n## Since your last turn\nThe Engineer handed task t1 \(Parse\) to you: engineer to planner\n\nThe data has no totals column\.$/);
+  assert.deepEqual(project.tasks.map(task => task.status), ['returned']);
+  assert.match(requests[3]?.prompt ?? '', /- t1 \[returned\] Parse data\.csv\n\n## Since your last turn\nFrom the Engineer, on task t1 \(Parse data\.csv\):\nThe data has no totals column\.$/);
   assert.equal(requests[4]?.resume, 'manager-1');
-  assert.equal(requests[4]?.prompt, 'The Planner handed the work to you: planner to manager');
+  assert.equal(requests[4]?.prompt, 'From the Planner:\nNothing to total: the operator must name a column.');
 });
 
 test('a restarted process continues from project.json', async t => {
   const controller = new AbortController();
   const { home, flow, id, requests } = await setup(t, [
-    { role: 'manager', to: 'team', fields: ticket },
-    { role: 'engineer', to: 'reviewer', fields: { note: 'summary.py added' } },
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
     { role: 'reviewer', interrupt: true },
   ], controller);
   const interrupted = await flow.say(id, 'Make me a CSV summary tool');
@@ -242,7 +207,7 @@ test('a restarted process continues from project.json', async t => {
   assert.equal(interrupted.status, 'working');
   const store = new Store(home);
   assert.deepEqual(store.load(id).tasks[0]?.holder, 'reviewer');
-  const next = agent([{ role: 'manager', text: 'Carrying on.' }, { role: 'reviewer', to: 'done', fields: { note: 'ok' } }]);
+  const next = agent([{ role: 'manager', to: 'manager', letter: 'Carrying on.' }, { role: 'reviewer', to: 'done', letter: 'ok' }]);
   const project = await new Flow(store, next.callAgent).say(id, 'continue');
   assert.equal(project.status, 'done');
   assert.equal(next.requests[0]?.resume, 'manager-1');

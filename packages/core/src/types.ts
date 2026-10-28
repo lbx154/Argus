@@ -34,10 +34,10 @@ export interface AgentRequest {
 
 export interface HandOff {
   form: Form;
+  /** Who holds the work next; the only part the host reads. */
   to: string;
-  summary: string;
-  /** Every other field of the form, as the role filled it. */
-  fields: Record<string, unknown>;
+  /** Free text for them, passed on as written; the operator reads it too. */
+  letter: string;
 }
 
 export interface Usage {
