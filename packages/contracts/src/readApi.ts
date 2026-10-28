@@ -1,7 +1,7 @@
 import definition from '../schemas/read_api_protocol.json' with { type: 'json' };
 import type { ApiMeta } from './api.js';
 import type { ProjectRow, ProjectCostRow, Snapshot } from './models.js';
-import { isJsonObject } from './eventValidation.js';
+import { isJsonObject } from './schema.js';
 import { requireSnapshotContract } from './protocol.js';
 
 export const READ_API = definition;

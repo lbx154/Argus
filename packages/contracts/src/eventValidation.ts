@@ -1,24 +1,8 @@
 import { canonicalEventType } from './eventCatalog.js';
 import payload from '../schemas/event_payload_schemas.json' with { type: 'json' };
-import type { PayloadSchema } from './schema.js';
+import { isJsonObject, matchesType, type PayloadSchema } from './schema.js';
 
 const EVENT_PAYLOAD_SCHEMAS: Record<string, PayloadSchema> = payload.events;
-
-export function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function matches(value: unknown, expected: string): boolean {
-  switch (expected) {
-    case 'null': return value === null;
-    case 'string': case 'boolean': return typeof value === expected;
-    case 'integer': return typeof value === 'number' && Number.isInteger(value);
-    case 'number': return typeof value === 'number';
-    case 'object': return isJsonObject(value);
-    case 'array': return Array.isArray(value);
-    default: return true;
-  }
-}
 
 export interface EventValidation {
   valid: boolean;
@@ -53,7 +37,7 @@ export function validateEventEnvelope(
       if (!Object.hasOwn(event, field)) continue;
       const fieldValue = event[field];
       const types = Array.isArray(spec.type) ? spec.type : spec.type ? [spec.type] : [];
-      if (types.length && !types.some(type => matches(fieldValue, type))) {
+      if (types.length && !types.some(type => matchesType(fieldValue, type))) {
         errors.push(`field ${field} must be ${types.join(' or ')}`);
         continue;
       }
@@ -68,7 +52,7 @@ export function validateEventEnvelope(
       }
       if (typeof fieldValue === 'number' && spec.minimum !== undefined && fieldValue < spec.minimum) errors.push(`field ${field} must be >= ${spec.minimum}`);
       const itemType = spec.items?.type;
-      if (Array.isArray(fieldValue) && typeof itemType === 'string' && fieldValue.some(item => !matches(item, itemType))) {
+      if (Array.isArray(fieldValue) && typeof itemType === 'string' && fieldValue.some(item => !matchesType(item, itemType))) {
         errors.push(`field ${field} items must be ${itemType}`);
       }
     }

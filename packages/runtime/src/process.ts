@@ -18,6 +18,7 @@ export interface ProcessOptions {
   input: string;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
+  /** Deadlines are the caller's choice; left out, none applies. */
   wallTimeoutMs?: number;
   idleTimeoutMs?: number;
   terminateGraceMs?: number;
@@ -73,8 +74,8 @@ function positive(value: number | undefined, fallback: number, name: string): nu
 
 /** No shell interpolation; stdout/stderr and process lifetime remain independent. */
 export async function* executeProcess(options: ProcessOptions): AsyncGenerator<Line | ProcessExit> {
-  const wallMs = positive(options.wallTimeoutMs, 300_000, 'wallTimeoutMs');
-  const idleMs = positive(options.idleTimeoutMs, 60_000, 'idleTimeoutMs');
+  const wallMs = options.wallTimeoutMs === undefined ? null : positive(options.wallTimeoutMs, 0, 'wallTimeoutMs');
+  const idleMs = options.idleTimeoutMs === undefined ? null : positive(options.idleTimeoutMs, 0, 'idleTimeoutMs');
   const graceMs = positive(options.terminateGraceMs, 1_000, 'terminateGraceMs');
   const lineLimit = positive(options.maxLineBytes, 1_048_576, 'maxLineBytes');
   const channel = new LineChannel(positive(options.maxBufferedBytes, 4_194_304, 'maxBufferedBytes'));
@@ -96,7 +97,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     launchEnv = { ...process.env, ...guardian.env, PYTHONPATH: launchCwd, PYTHONIOENCODING: 'utf-8', PYTHONDONTWRITEBYTECODE: '1' };
     configuration = JSON.stringify({ protocol: PROCESS_GUARD.protocol, version: PROCESS_GUARD.version,
       command: [options.executable, ...options.args], cwd: options.cwd, env: options.env ?? process.env,
-      input: options.input, wall_ms: Math.min(2_147_483_647, wallMs + Math.min(graceMs, 10_000)), grace_ms: graceMs,
+      input: options.input, wall_ms: Math.min(2_147_483_647, (wallMs ?? 2_147_483_647) + Math.min(graceMs, 10_000)), grace_ms: graceMs,
     }) + '\n';
     if (Buffer.byteLength(configuration) > PROCESS_GUARD.max_config_bytes) throw new Error('guarded process configuration exceeds its limit');
   }
@@ -161,8 +162,8 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     killTree(false);
     escalation = setTimeout(() => killTree(true), graceMs);
   };
-  const wall = setTimeout(() => requestStop('wall_timeout', 'Runner wall-clock deadline exceeded.'), wallMs);
-  const idle = setTimeout(() => requestStop('idle_timeout', 'Runner output idle deadline exceeded.'), idleMs);
+  const wall = wallMs === null ? undefined : setTimeout(() => requestStop('wall_timeout', 'Runner wall-clock deadline exceeded.'), wallMs);
+  const idle = idleMs === null ? undefined : setTimeout(() => requestStop('idle_timeout', 'Runner output idle deadline exceeded.'), idleMs);
   const abort = (): void => requestStop('cancelled', 'Run cancelled.');
   options.signal?.addEventListener('abort', abort, { once: true });
   // Covers cancellation between the preflight and listener installation.
@@ -204,7 +205,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
       }
     };
     const data = (chunk: Buffer): void => {
-      if (!exited) idle.refresh();
+      if (!exited) idle?.refresh();
       if (!stopKind) consume(decoder.write(chunk));
     };
     const end = (): void => {

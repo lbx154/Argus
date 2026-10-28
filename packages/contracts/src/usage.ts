@@ -1,5 +1,5 @@
 import type { PricingQuote } from './accounting.js';
-import { isJsonObject } from './eventValidation.js';
+import { isJsonObject } from './schema.js';
 
 /** Normalized by the Python ledger owner before crossing the read bridge.
  * No prompts, error text, paths or provider credentials belong in this input.
