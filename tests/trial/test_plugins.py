@@ -14,8 +14,6 @@ def hosted_plugin(tmp_path, monkeypatch):
     root = tmp_path / "account"
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(root))
     monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
-    monkeypatch.setenv("ARGUS_CRYSTALPILOT_WORKSPACE", "")
-    monkeypatch.delenv("ARGUS_PLUGINS_PREINSTALL", raising=False)
     configure_plugins(root)
     workspace = root / "crystalpilot-runtime"
     calls = []
