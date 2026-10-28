@@ -1,20 +1,21 @@
 // What the operator sets on a project: its directory, its name, and the backend, model and
 // reasoning effort of all its roles; and across projects: the sidebar's pins and archive, kept in
-// $ARGUS_HOME/browser-state.json, and the trash a deleted project's directory goes to. A project's
-// record is changed only while nothing is under way on it, since the work under way holds the
-// record and writes it back.
+// $ARGUS_HOME/browser-state.json, the trash a deleted project's directory goes to, and what each
+// project has spent. A project's record is changed only while nothing is under way on it, since
+// the work under way holds the record and writes it back.
 
 import { readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { ProjectCostRow } from '@argus/contracts';
 import type { Project, Store } from '../store.js';
 import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
-import { daemon } from './views.js';
+import { daemon, projectRow } from './views.js';
 
 /** The optional API capabilities these routes give the page. */
-export const CAPABILITIES = ['project.workdir.v1'];
+export const CAPABILITIES = ['project.workdir.v1', 'project.cost-feed.v1'];
 
 /** The settings the page writes, by the Python runtime's names for them: a project has one
  * backend, model and effort, which every role uses. A model or effort is the backend's own word
@@ -77,6 +78,14 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       edit(id!, work => { if (work.workdir !== workdir) Object.assign(work, { workdir, sessions: {} }); });
       return { ok: true, workdir };
     }],
+    // The page asks every few seconds; the project list carries the same figures.
+    ['GET', /^\/api\/projects\/costs$/, () => ({
+      projects: store.list().map((work): ProjectCostRow => {
+        const { id, spend_usd = null, known_cost_usd = 0, spend_status = 'empty', usage_calls = 0, last_active } = projectRow(store, work, runs.live(work.id));
+        return { id, spend_usd, known_cost_usd, spend_status, usage_calls, premium_requests: 0, updated_at: last_active };
+      }),
+      generated_at: Date.now() / 1000,
+    })],
     ['PATCH', /^\/api\/projects\/([^/]+)$/, async ({ params: [id], body }) => {
       const name = String((await body()).name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
       edit(id!, work => { if (name) work.name = name; else delete work.name; });

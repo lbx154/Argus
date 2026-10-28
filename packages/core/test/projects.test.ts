@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Snapshot } from '@argus/contracts';
@@ -171,4 +171,21 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   // A copy in the trash of a project that is back is not restored over it.
   await cp(join(home, 'projects', sid), join(home, 'trash', `${sid}-copy`), { recursive: true });
   assert.equal((await send('POST', `/api/trash/${sid}-copy/restore`)).status, 409);
+});
+
+test('the spend of every project, which the page asks for every few seconds', async t => {
+  const { home, get, create } = await setup(t);
+  assert.ok((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.cost-feed.v1'));
+  const [spent, idle] = [await create(), await create()];
+  const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
+  for (const cost of [0.25, 0.5]) {
+    await appendFile(join(home, 'projects', spent, 'usage.jsonl'), `${JSON.stringify({ ts: 1, role: 'engineer', tokens, cost_usd: cost })}\n`);
+  }
+  const { projects, generated_at } = await get<{ projects: Record<string, unknown>[]; generated_at: number }>('/api/projects/costs');
+  assert.ok(generated_at > 0);
+  const rows = Object.fromEntries(projects.map(row => [row.id, row]));
+  const { updated_at, ...cost } = rows[spent]!;
+  assert.deepEqual(cost, { id: spent, spend_usd: 0.75, known_cost_usd: 0.75, spend_status: 'priced', usage_calls: 2, premium_requests: 0 });
+  assert.ok(Number(updated_at) > 0);
+  assert.deepEqual([rows[idle]!.usage_calls, rows[idle]!.known_cost_usd], [0, 0]);
 });
