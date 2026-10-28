@@ -71,15 +71,18 @@ turn.
 
 ## Ways of working
 
-A way of working is how a kind of work goes, kept as a folder the roles read:
-`packages/core/ways/<name>/` holds `README.md` (how the work goes, what each step delivers and
-when it is done), `skills/` (manuals, each opened when its situation comes up) and `checks/`
-(Node scripts the Engineer runs on its work and the Reviewer before it accepts). Argus only
-points at them: the Manager's prompt lists each way by its README's first line and path, every
-call may read the folder (read-only under the sandbox), and the Manager's brief names the way
-to follow. Nothing records which way a project follows, and no step is enforced. `research`
-(idea, experiment, paper, review) carries over what the Python research vertical knew, without
-its stage machine.
+A way of working is how a kind of work goes, kept as a folder the roles read: Argus's own in
+`packages/core/ways/<name>/`, the operator's in `$ARGUS_HOME/ways/<name>/`. Each holds `README.md`
+(how the work goes, what each step delivers and when it is done), `skills/` (manuals, each
+opened when its situation comes up) and `checks/` (Node scripts the Engineer runs on its work
+and the Reviewer before it accepts). Argus only points at them: the Manager's prompt lists each
+way by its README's first line and path, every call may read the folder (read-only under the
+sandbox), and the Manager's brief names the way to follow. Nothing records which way a project
+follows, and no step is enforced. Argus's own carry over what the Python verticals knew, without
+their stage machines: `research` (idea, experiment, paper, review), `software` (a change that
+builds, whose tests ran, and that does what was asked), `argus-maintenance` (changing this core)
+and `learning`, whose workspace is a new way's folder under `$ARGUS_HOME/ways/`, written as
+checks and manuals proven on a real case rather than as a skill library.
 
 ## The web cockpit
 
@@ -152,6 +155,6 @@ from one sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` i
 ## Left out
 
 Stage machines, verticals as code, completion certificates, observers, Manager supervision,
-reflection and learning, the skill library and wiki, the map and canvas, trial metering, idle
+reflection, the skill library and wiki, the map and canvas, trial metering, idle
 watchdogs, CPU liveness checks, retry ladders, provider circuits and error-text
 classification. Some may come back as plain features later; none is needed to run a project.
