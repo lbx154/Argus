@@ -14,8 +14,8 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 
 | | What works | Status |
 |---|---|---|
-| M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | in progress |
-| M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | |
+| M1 | `argus run "<request>"` in a directory: Manager, Engineer, Reviewer, done, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min) |
+| M2 | Planner for multi-task work; operator questions and answers; `argus say/answer/status` | built and tested with a scripted backend; a real multi-task run is next |
 | M3 | `argus serve`: the web cockpit's 18 essential endpoints, events over SSE, the built web UI | |
 | M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
