@@ -460,6 +460,9 @@ class PlanningCycleCompletionMixin:
                 # schedulable until the live work moves.
                 self._clear_manager_planner_feedback()
             else:
+                state.verdict = replace(
+                    verdict, error="Planner handed off instead of addressing unresolved Manager feedback",
+                )
                 if self._record_manager_feedback_no_progress(
                     "planner handed off instead of revision tasks"
                 ):
@@ -472,6 +475,26 @@ class PlanningCycleCompletionMixin:
             state.certified_operator_wait = True
             state.verdict = replace(verdict, handoff="", project_done=True)
             return self._pc_normalize_project_done(state)
+        if verdict.handoff == "engineer" and not self.memory.backlog.active():
+            reason = (
+                "No live task can receive the Engineer handoff. Plan the next "
+                "executable task, or hand the blocking decision to the Manager."
+            )
+            state.verdict = replace(verdict, error=reason)
+            self._emit({
+                "type": EventType.LIFE_PLANNER_ERROR,
+                "cycle": self._planning_cycles,
+                "error": reason,
+            })
+            if not self._persist_manager_planner_feedback(
+                stage=str(self._current_pipeline_stage() or ""),
+                reason=reason,
+                diagnostic="engineer_handoff_without_work",
+            ):
+                self._emit_status("failed to persist empty Engineer handoff rejection; retry later")
+                return PLAN_ERROR
+            self._enter_pause_backoff()
+            return PLAN_RETRY
         if revision_request is not None:
             self._emit(
                 {

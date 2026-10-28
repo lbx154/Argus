@@ -441,6 +441,7 @@ class PlanningCycleMixin(
             self._pc_invoke_planner,
             self._pc_drop_plan_behind_operator,
             self._pc_normalize_verdict,
+            self._pc_apply_stage_request,
             self._pc_handle_handoff,
             self._pc_normalize_project_done,
             self._pc_build_dedupe_index,

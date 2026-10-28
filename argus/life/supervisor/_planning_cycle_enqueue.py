@@ -235,32 +235,15 @@ class PlanningCycleEnqueueMixin:
             return False
         return not self._item_requires_independent_review(duplicate_item)
 
-    def _pc_build_pending_items(self, state: _PlanCycleState) -> Any | None:
-        # Add new tasks to the backlog.
-        #
-        # Two passes so a planner-emitted DAG can be wired up before anything is
-        # enqueued. Pass 1 builds the surviving items (after dedup / recent-
-        # failure skips, exactly as before) WITHOUT adding them yet, and records
-        # each task's local ``key`` → real ``item.id`` in ``key_map``. Pass 2
-        # resolves each task's ``deps`` (local keys → real ids) onto the item and
-        # only then adds it. A flat task (no key/deps) flows through with an empty
-        # dep list, so its enqueue is byte-for-byte identical to the old path.
-        key_map: dict[str, str] = {}
-        pending_items: list[tuple[Any, Any]] = []  # (task, item)
-        planned_tasks = list(state.verdict.new_tasks)
-        feedback_reader = getattr(self, "_load_manager_planner_feedback", None)
-        manager_feedback = feedback_reader() if callable(feedback_reader) else {}
-        manager_feedback = manager_feedback or {}
-        feedback_diagnostic = str(
-            manager_feedback.get("diagnostic") or ""
-        ).strip()
-        context_root = self._project_workdir()
-        state_reader = getattr(self, "_artifact_root", None)
-        state_root = state_reader() if callable(state_reader) else Path(context_root)
+    def _pc_apply_stage_request(self, state: _PlanCycleState) -> Any | None:
         requested_stage = str(
             getattr(state.verdict, "advance_to_stage", "") or ""
         ).strip()
         if requested_stage:
+            context_root = self._project_workdir()
+            state_reader = getattr(self, "_artifact_root", None)
+            state_root = state_reader() if callable(state_reader) else Path(context_root)
+            previous_stage = str(self._current_pipeline_stage() or "")
             try:
                 _apply_planner_stage_request(
                     state_root=Path(state_root),
@@ -289,6 +272,33 @@ class PlanningCycleEnqueueMixin:
                     return PLAN_ERROR
                 self._reset_idle_backoff()
                 return PLAN_RETRY
+            if not state.verdict.new_tasks and requested_stage != previous_stage:
+                self._reset_idle_backoff()
+                return PLAN_RETRY
+        return None
+
+    def _pc_build_pending_items(self, state: _PlanCycleState) -> Any | None:
+        # Add new tasks to the backlog.
+        #
+        # Two passes so a planner-emitted DAG can be wired up before anything is
+        # enqueued. Pass 1 builds the surviving items (after dedup / recent-
+        # failure skips, exactly as before) WITHOUT adding them yet, and records
+        # each task's local ``key`` → real ``item.id`` in ``key_map``. Pass 2
+        # resolves each task's ``deps`` (local keys → real ids) onto the item and
+        # only then adds it. A flat task (no key/deps) flows through with an empty
+        # dep list, so its enqueue is byte-for-byte identical to the old path.
+        key_map: dict[str, str] = {}
+        pending_items: list[tuple[Any, Any]] = []  # (task, item)
+        planned_tasks = list(state.verdict.new_tasks)
+        feedback_reader = getattr(self, "_load_manager_planner_feedback", None)
+        manager_feedback = feedback_reader() if callable(feedback_reader) else {}
+        manager_feedback = manager_feedback or {}
+        feedback_diagnostic = str(
+            manager_feedback.get("diagnostic") or ""
+        ).strip()
+        context_root = self._project_workdir()
+        state_reader = getattr(self, "_artifact_root", None)
+        state_root = state_reader() if callable(state_reader) else Path(context_root)
         waypoint_states = getattr(self, "_waypoint_states", None)
         route = {entry.step.id: entry.step for entry in (waypoint_states() if callable(waypoint_states) else ())}
         for task_index, task in enumerate(planned_tasks):

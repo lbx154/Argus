@@ -362,7 +362,7 @@ def test_a_handled_turn_without_new_work_keeps_report_dedup(campaign, monkeypatc
     def plan(_planner, **kwargs):
         calls.append(kwargs)
         return PlannerVerdict(
-            project_done=False, summary="Wait for the result", handoff="engineer",
+            project_done=False, summary="Wait for the result", handoff="manager",
         )
 
     monkeypatch.setattr("argus.planner.Planner.plan_next", plan)

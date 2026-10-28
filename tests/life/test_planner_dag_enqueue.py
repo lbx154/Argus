@@ -177,13 +177,59 @@ def test_rejected_stage_request_is_returned_to_planner(
         summary="advance to manuscript drafting",
     )
 
-    assert Harness()._pc_build_pending_items(state) == PLAN_RETRY
+    assert Harness()._pc_apply_stage_request(state) == PLAN_RETRY
     assert feedback == [{
         "stage": "plan",
         "reason": "ValueError: missing plan evidence",
         "diagnostic": "stage_completion_gate_failed",
     }]
     assert events[-1]["skip_category"] == "invalid_stage_transition_request"
+
+
+def test_a_stage_request_without_tasks_moves_the_stage_and_replans(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Replay of s-5dc7ab4a, 10-27 07:36: the reviewed idea asked to move on.
+
+    The Planner handed off to the Engineer with advance_to_stage=experiment and
+    no new tasks. The handoff branch returned before the stage request was read,
+    so the stage stayed at idea, no task existed, and the project sat idle for
+    13 hours. The request now runs before the handoff, and a stage that moved
+    with no tasks for it sends the Planner back to plan the new stage.
+    """
+    from argus.life.supervisor import _planning_cycle_enqueue
+
+    stage = ["idea"]
+
+    def apply(**kwargs: object) -> None:
+        stage[0] = str(kwargs["requested_stage"])
+
+    monkeypatch.setattr(_planning_cycle_enqueue, "_apply_planner_stage_request", apply)
+
+    class Harness(PlanningCycleEnqueueMixin):
+        _planning_cycles = 1
+
+        def _project_workdir(self) -> Path:
+            return tmp_path
+
+        def _artifact_root(self) -> Path:
+            return tmp_path
+
+        def _current_pipeline_stage(self) -> str:
+            return stage[0]
+
+        def _reset_idle_backoff(self) -> None:
+            pass
+
+    state = _PlanCycleState(None)
+    state.verdict = SimpleNamespace(
+        new_tasks=[], advance_to_stage="experiment", handoff="engineer",
+        summary="复用已通过的独立审查，不再追加选题或重复评议。后续先核实实时磁盘余量、授权设备及宿主预留，再确定紧凑部署方案并测量真实推理与持久记忆更新成本。",
+    )
+
+    assert Harness()._pc_apply_stage_request(state) == PLAN_RETRY
+    assert stage == ["experiment"]
 
 
 def test_all_filtered_tasks_persist_feedback_for_next_planner_cycle() -> None:

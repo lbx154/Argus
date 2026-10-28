@@ -93,7 +93,7 @@ class _ScriptedPlanner:
 # A turn that ends without handing off.
 _UNREADABLE = None
 _OUTAGE = "stream error: HTTP 503 Service Unavailable"
-_NOT_DONE_NO_TASKS = plan(summary='still thinking about the next step')
+_NOT_DONE_NO_TASKS = plan(to='manager', summary='still thinking about the next step')
 _ONE_TASK = plan(summary="one concrete step remains", advance_to_stage="delivery", tasks=[{
     "key": "write-script", "title": "Write the greeting script",
     "objective": "Write greet.py that prints hello and run it.",
