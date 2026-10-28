@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type ProjectRow, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -444,8 +444,6 @@ export default function App() {
   }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
 
-  // The project "+ 新建" just made, until a message goes to it.
-  const untouchedNewRef = useRef<string | null>(null);
   const { createDaemon, creatingDaemon } = useCreateDaemonSession({
     localCwd,
     notify,
@@ -456,26 +454,21 @@ export default function App() {
     translate: t,
     onCreated: (sid, draft) => {
       if (draft) seedDraft(sid, draft, homeRequest.current?.files ?? []);
-      else if (!homeRequest.current) untouchedNewRef.current = sid;
       if (homeRequest.current) {
         setInitialSend({ sid, ...homeRequest.current });
         homeRequest.current = null;
       }
     },
   });
-  // A new session starts as an idle conversation in the default workspace;
-  // the first message names what it is for, so there is nothing to ask up front.
-  // A project made here and left without a message is not kept (see below), and
-  // asking for a new one while looking at such a project just reuses it.
-  const startNewSession = useCallback((draft = '') => {
+  // "+ New" opens the start page, whose first message makes the project: none is made empty.
+  const [starting, setStarting] = useState(false);
+  const startNewSession = useCallback(() => {
     setWorkspaceView('activity');
     setMobileView('activity');
-    if (!draft && untouchedNewRef.current && untouchedNewRef.current === sidRef.current) {
-      setComposerFocus((value) => value + 1);
-      return;
-    }
-    void createDaemon('', '', '', draft);
-  }, [createDaemon, setWorkspaceView, setMobileView, sidRef]);
+    setStarting(true);
+    clearProjectSelection('push');
+  }, [clearProjectSelection, setWorkspaceView, setMobileView]);
+  useEffect(() => { if (activeSid) setStarting(false); }, [activeSid]);
   const startNewSessionRef = useRef(startNewSession);
   startNewSessionRef.current = startNewSession;
   useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
@@ -492,25 +485,6 @@ export default function App() {
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   // Launch settings apply to a project's first task only, and never carry over.
   const freshProject = Boolean(loadedSid) && isFreshProject(snap);
-  // Leaving a project "+ 新建" made, with nothing sent, typed or attached,
-  // removes it (reversibly, to the trash) instead of leaving another
-  // "未命名项目" in the list.
-  const previousSidRef = useRef(activeSid);
-  useEffect(() => {
-    const previous = previousSidRef.current;
-    previousSidRef.current = activeSid;
-    if (!previous || previous === activeSid || untouchedNewRef.current !== previous) return;
-    untouchedNewRef.current = null;
-    const before = queryClient.getQueryData<Parameters<typeof isFreshProject>[0]>(['snapshot', previous]);
-    const left = captureDraft(previous);
-    if (kiosk || left?.text.trim() || left?.attachments.length || left?.uploaded?.length
-      || (before && !isFreshProject(before))) return;
-    void api.deleteProject(previous).then(() => {
-      queryClient.setQueryData<{ projects: ProjectRow[]; local_cwd: string }>(['projects'], (current) => current
-        ? { ...current, projects: current.projects.filter((project) => project.id !== previous) } : current);
-      void projectsQ.refetch();
-    }).catch(() => undefined);
-  }, [activeSid, captureDraft, kiosk, projectsQ, queryClient]);
   const [askMode, setAskModeState] = useState<AskMode>(() => readAskMode(activeSid));
   useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); setAskModeState(readAskMode(activeSid)); }, [activeSid]);
   const setAskMode = useCallback((mode: AskMode) => { setAskModeState(mode); writeAskMode(activeSid, mode); }, [activeSid]);
@@ -1085,10 +1059,18 @@ export default function App() {
       // Kept in a local rather than state because React batches setManagerSteps
       // and a reply block can land in the same tick as the phase before it.
       let trail: PhaseStep[] = [];
+      // A project's first message names it and starts its work: the list and the project are
+      // read again once the server has it.
+      let named = Boolean(projects.find(project => project.id === requestSid)?.objective);
       try {
         try {
           await api.messageStream(requestSid, text, {
             onPhase: (label, role, meta) => {
+              if (!named) {
+                named = true;
+                void projectsQ.refetch();
+                void queryClient.invalidateQueries({ queryKey: ['snapshot', requestSid] });
+              }
               if (!isCurrent() || meta.heartbeat) return;
               trail = appendPhaseStep(trail, {
                 label,
@@ -1197,7 +1179,6 @@ export default function App() {
   const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver, options?: MapSendOptions): Promise<boolean> => {
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
-    if (untouchedNewRef.current === sidRef.current) untouchedNewRef.current = null;
     if (draft.missingAttachments?.length) {
       notify('error', locale === 'zh-CN' ? '刷新前的附件尚未上传。请重新选择，或在对话中移除提醒后再发送。' : 'Files selected before reloading were not uploaded. Select them again or discard their reminder in the conversation before sending.');
       return false;
@@ -1663,7 +1644,7 @@ export default function App() {
         ) : (
           <Landing
             loading={projectsQ.isLoading || Boolean(activeSid && snapQ.isLoading)}
-            hasProjects={projects.length > 0}
+            hasProjects={projects.length > 0 && !starting}
             error={
               projectsQ.isError && projects.length === 0
                 ? landingErrorText(projectsQ.error)

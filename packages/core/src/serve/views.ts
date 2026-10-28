@@ -173,7 +173,10 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
       label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null,
     })),
     last_call: null,
-    backlog: backlog(project),
+    // Letters left for the Manager when the work stopped are work Resume takes up, as a task cut off is.
+    backlog: [...backlog(project), ...live.since === null ? (project.forManager ?? []).map((letter, index) => ({
+      id: `manager-${index + 1}`, title: letter.split('\n')[0]!.slice(0, 100), objective: letter, priority: 0, deps: [], status: 'in_progress' as const,
+    })) : []],
     recent_events: [],
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<Snapshot['spend_status']>, usage_summary: summary,
     daemon_commands: null, observability: null, mission_view: null,

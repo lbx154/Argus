@@ -2,6 +2,7 @@ import { useCallback, useRef } from "react";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ApiError } from "../../../core/src/http";
 import { api } from "../api";
+import { MAP_CAPABILITY, useCapability } from "../lib/capabilities";
 
 /** What a person placed on the map: their cards, their links, and every card
  * they moved. Argus's own cards are not stored here; a task card with a
@@ -246,7 +247,7 @@ export function useCanvas(sessionId: string, enabled: boolean) {
   const query = useQuery({
     queryKey: KEY(sessionId),
     queryFn: ({ signal }) => api.mapCanvas(sessionId, signal),
-    enabled,
+    enabled: useCapability(MAP_CAPABILITY) && enabled,
     staleTime: 30_000,
   });
   const chain = useRef<Promise<unknown>>(Promise.resolve());

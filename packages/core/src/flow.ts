@@ -36,13 +36,14 @@ export class Flow {
   constructor(readonly store: Store, private readonly callAgent: CallAgent, private readonly options: FlowOptions = {}) {}
 
   /** The operator's message. The Manager reads it in its next turn, and what its letter hands on
-   * joins the work. Resolves with the Manager's hand-off, or null when the turn failed or `signal`
-   * interrupted it. */
+   * joins the work; like a letter from the team it waits in the record until a turn takes it, or
+   * `signal` withdraws it. Resolves with the Manager's hand-off, or null when the turn failed or
+   * was interrupted. */
   say(id: string, text: string, signal?: AbortSignal): Promise<HandOff | null> {
     const project = this.project(id);
     project.request ||= text;
     this.retry(project);
-    return this.manager(project, text, { signal, operator: true });
+    return this.writeToManager(project, text, { signal, operator: true });
   }
 
   /** The operator's answer to the open question goes to whoever asked it. */
@@ -138,7 +139,7 @@ export class Flow {
   }
 
   /** The Manager's turns on a project come one after another, in the order their letters came. */
-  private manager(project: Project, message: string, turn: { signal?: AbortSignal | undefined; operator?: boolean } = {}): Promise<HandOff | null> {
+  private manager(project: Project, message: string, turn: ManagerTurn = {}): Promise<HandOff | null> {
     const next = (this.managing.get(project.id) ?? Promise.resolve()).then(() => this.managerTurn(project, message, turn));
     const last: Promise<unknown> = next.catch(() => null).finally(() => {
       if (this.managing.get(project.id) === last) this.managing.delete(project.id);
@@ -147,8 +148,7 @@ export class Flow {
     return next;
   }
 
-  private async managerTurn(project: Project, message: string, { signal, operator }: { signal?: AbortSignal | undefined; operator?: boolean }):
-    Promise<HandOff | null> {
+  private async managerTurn(project: Project, message: string, { signal, operator }: ManagerTurn): Promise<HandOff | null> {
     if (signal?.aborted) return null;
     // The operator's message is recorded when the Manager takes it up, so the letter that follows is its reply.
     if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
@@ -191,22 +191,24 @@ export class Flow {
     }
   }
 
-  /** A letter from the team to the Manager stays in the record until a Manager turn takes it. */
-  private async writeToManager(project: Project, letter: string): Promise<void> {
+  /** A letter to the Manager stays in the record until a Manager turn takes it. */
+  private writeToManager(project: Project, letter: string, turn: ManagerTurn = {}): Promise<HandOff | null> {
     (project.forManager ??= []).push(letter);
     this.store.save(project);
-    await this.handOver(project, letter);
+    return this.handOver(project, letter, turn);
   }
 
   private readonly handing = new Set<string>();
 
-  private async handOver(project: Project, letter: string): Promise<void> {
+  private async handOver(project: Project, letter: string, turn: ManagerTurn = {}): Promise<HandOff | null> {
     this.handing.add(letter);
     try {
-      if (await this.manager(project, letter)) {
+      const handoff = await this.manager(project, letter, turn);
+      if (handoff || turn.signal?.aborted) {
         project.forManager?.splice(project.forManager.indexOf(letter), 1);
         this.store.save(project);
       }
+      return handoff;
     } finally {
       this.handing.delete(letter);
     }
@@ -316,6 +318,8 @@ export const openTasks = ({ tasks }: Project): Task[] => tasks.filter(task => ta
 const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
 type Check = (handoff: HandOff) => string | null;
+/** A Manager turn on the operator's message, which `signal` withdraws, or on a letter from the team. */
+type ManagerTurn = { signal?: AbortSignal | undefined; operator?: boolean };
 
 /** The rules a task's form cannot say: the operator answers one question at a time, and the
  * Planner hears only of the tasks it gave. A returned string refuses the hand-off, and its writer

@@ -22,3 +22,18 @@ it('keeps the same nodes when the page re-renders with equal content', () => {
   tree.root.findByType('a').props.onClick({ preventDefault() {} });
   expect(open).toHaveBeenCalledWith('again', 'report.md');
 });
+
+it('opens a result a reply names in backticks, and leaves other code as code', () => {
+  const open = vi.fn();
+  let tree!: ReactTestRenderer;
+  act(() => {
+    tree = create(<MarkdownContent artifacts={[{ path: 'results/ws.png' }]} onOpenArtifact={open}>
+      {'图在 `results/ws.png`，用 `python plot.py` 重画；`results/missing.png` 不在。'}
+    </MarkdownContent>);
+  });
+  const buttons = tree.root.findAllByType('button');
+  expect(buttons.map(button => button.props['data-artifact-path'])).toEqual(['results/ws.png']);
+  buttons[0]!.props.onClick();
+  expect(open).toHaveBeenCalledWith('results/ws.png');
+  expect(tree.root.findAllByType('code').map(code => code.children.join(''))).toEqual(['python plot.py', 'results/missing.png']);
+});

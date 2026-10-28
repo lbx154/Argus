@@ -116,7 +116,9 @@ describe('tool steps behind a Manager reply', () => {
 
     const replied = mergeOptimisticManagerDelta(working, 's-fast', 1, '一行。', 'web-1-argus', 2_000, 'snapshot');
     expect(replied).toHaveLength(2);
-    expect(replied[1]).toMatchObject({ text: '一行。', live: true, steps: [step] });
+    // The reply is timed by its first words, not by the empty row put up when the message was sent.
+    expect(replied[1]).toMatchObject({ text: '一行。', live: true, steps: [step], ts: 2 });
+    expect(mergeOptimisticManagerDelta(replied, 's-fast', 1, '一行，共 1 行。', 'web-1-argus', 2_500, 'snapshot')[1]).toMatchObject({ ts: 2 });
 
     const settled = settleOptimisticManagerTurn(replied, 1, 3_000);
     expect(settled[1]).toMatchObject({ live: false });

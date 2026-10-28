@@ -59,6 +59,7 @@ import {
 } from "lucide-react";
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
+import { MAP_CAPABILITY, useCapability } from "../lib/capabilities";
 import { useI18n } from "../i18n";
 import { ACTIVE, attentionTasks, buildMap, connectMap, currentTask, RELATION_KINDS, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
@@ -443,10 +444,12 @@ export function MapCanvas({
     y: number;
   } | null>(null);
   const noteClient = useQueryClient();
+  // A server that keeps no notes offers none to add.
+  const notable = useCapability(MAP_CAPABILITY) && data.kind === "live" && !readOnly;
   const notesQ = useQuery({
     queryKey: ["map-notes", sessionId],
     queryFn: ({ signal }) => api.mapNotes(sessionId, signal),
-    enabled: data.kind === "live" && !readOnly,
+    enabled: notable,
     staleTime: 60_000,
   });
   const notesScope = useMemo(
@@ -1930,7 +1933,7 @@ export function MapCanvas({
               </button>
               {data.kind === "live" && (
                 <>
-                  <button
+                  {notable && <button
                     role="menuitem"
                     onClick={() => {
                       setNoteText("");
@@ -1939,7 +1942,7 @@ export function MapCanvas({
                     }}
                   >
                     {zh ? "添加批注" : "Add a note"}
-                  </button>
+                  </button>}
                   <button
                     role="menuitem"
                     onClick={() => {

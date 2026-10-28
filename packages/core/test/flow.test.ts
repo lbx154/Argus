@@ -312,6 +312,29 @@ test("a letter for the Manager outlasts its failed turn, and reaches it when the
   assert.deepEqual(new Store(home).load(id).forManager, []);
 });
 
+test("the operator's message outlasts a Manager turn the process stopped, and reaches it when the work resumes", async t => {
+  const controller = new AbortController();
+  const { home, flow, id, events } = await setup(t, [{ role: 'manager', interrupt: true }], controller);
+  const stopped = await say(flow, id, 'What is 6 times 7?');
+  assert.deepEqual(stopped.forManager, ['What is 6 times 7?']);
+  const next = agent([{ role: 'manager', to: 'operator', letter: '42' }]);
+  const again = new Flow(new Store(home), next.callAgent);
+  again.resume(id);
+  const project = await again.settled(id);
+  assert.equal(next.requests[0]?.prompt.endsWith('## Message\nWhat is 6 times 7?'), true);
+  assert.deepEqual(project.forManager, []);
+  // Its words are in the conversation once, and the reply follows them.
+  assert.deepEqual(events().filter(event => event.type === 'message' || event.type === 'handoff').map(event => event.type), ['message', 'handoff']);
+});
+
+test('a message the operator withdraws during its Manager turn is not handed on again', async t => {
+  const { flow, id } = await setup(t, [{ role: 'manager', interrupt: true }]);
+  const withdrawn = new AbortController();
+  withdrawn.abort();
+  assert.equal(await flow.say(id, 'never mind', withdrawn.signal), null);
+  assert.deepEqual((await flow.settled(id)).forManager, []);
+});
+
 test('a failed call stays failed when a letter from the team reaches the Manager: nothing retries it', async t => {
   const { flow, id, requests } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
