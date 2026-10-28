@@ -14,6 +14,9 @@
 .starter-card svg { flex-shrink: 0; margin-top: 2px; color: rgb(var(--ink-dim)); }
 .starter-card strong { display: block; font-size: 14px; font-weight: 500; color: rgb(var(--ink)); }
 .starter-card small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.6; }
+.showcase-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.showcase-card { border: 1px solid rgb(var(--line) / .7); }
+.showcase-card em { display: block; margin-top: 6px; font-size: 11px; font-style: normal; color: rgb(var(--ink-faint)); font-variant-numeric: tabular-nums; }
 .draft-status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 4px; color: rgb(var(--ink-faint)); font-size: 12px; }
 .draft-status button { color: rgb(var(--accent-ink)); text-decoration: underline; text-underline-offset: 3px; }
 .file-browser { display: flex; flex-direction: column; padding: 12px 20px; overflow-y: auto; }
@@ -45,6 +48,7 @@
   .landing-composer { margin-top: 4px; }
   .landing-starters { margin-top: 8px; }
   .starter-grid { grid-template-columns: 1fr; gap: 0; }
+  .showcase-grid { gap: 6px; }
 }
 @media (max-width: 640px), (pointer: coarse) {
   .draft-status button, .sidebar-project-filters button { min-height: 44px; }
