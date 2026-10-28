@@ -7,8 +7,8 @@
 import { isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts';
 import type { AgentRequest, Form, HandOff } from '../types.js';
 
-const STUCK = 'the process is stuck (an environment, tool, access, credential or quota failure, or the same error repeating) and needs the Manager to debug it';
-const OPERATOR = 'only for what the operator alone can decide (a choice they reserved, requirements of theirs that conflict, words of theirs that read two ways where the reading changes the result): the letter is your question, and the work waits for the answer';
+const STUCK = 'the work is stuck and needs the Manager to get it going';
+const OPERATOR = 'only for what the operator alone can decide: the letter is your question, and the work waits for the answer';
 
 /** Whom each role can write to, and what such a letter is for. Every addressee is someone who
  * acts on it: the work is never sent to a state such as done. */
@@ -32,16 +32,13 @@ const TO: Record<Form, Record<string, string>> = {
   },
   review: {
     engineer: 'concrete in-scope repairs, named in the letter',
-    planner: 'your judgment on a task the Planner gave: accepted, only after checking each requirement and check of the task against the deliverable (tests the Engineer wrote show the code matches its reading of the task, not that the reading is right), or why the task or the plan is wrong',
-    manager: `your judgment on a task the Manager gave, as for the Planner's; or ${STUCK}`,
+    planner: 'your judgment on a task the Planner gave: accepted, or what is wrong',
+    manager: `your judgment on a task the Manager gave: accepted, or what is wrong; or ${STUCK}`,
     operator: OPERATOR,
   },
 };
 
-const LETTER = 'Your letter, sent as written. Its reader sees the workspace and this letter, not your conversation: '
-  + 'work you hand on gets its whole brief (what to deliver, how it is checked, the operator\'s limits in their words, files to read first); '
-  + 'otherwise say what changed, the decisive check and what is still missing. The operator reads every letter: '
-  + 'begin with one plain sentence in their language that stands alone.';
+const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
 
 export function formSchema(form: Form): PayloadSchema {
   const to = TO[form];
