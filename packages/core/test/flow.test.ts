@@ -74,6 +74,13 @@ test('the Manager answers directly', async t => {
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
 });
 
+test('every role hears what the model calls have cost, as the budget is kept', async t => {
+  const { store, flow, id, requests } = await setup(t, [{ role: 'manager', to: 'operator', letter: 'ok' }]);
+  writeFileSync(join(store.dir(id), 'usage.jsonl'), '{"cost_usd":0.25}\n{"cost_usd":null}\n{"cost_usd":0.05}\n{"cost_');
+  await flow.say(id, 'hello');
+  assert.match(requests[0]?.prompt ?? '', /\nModel calls so far: 4, \$0\.30, as Argus records them in usage\.jsonl\./);
+});
+
 test("the operator's ways of working, under the state root, are listed and read beside Argus's own", async t => {
   const { home, store, flow, id, requests } = await setup(t, [{ role: 'manager', to: 'operator', letter: 'ok' }]);
   const mine = join(home, 'ways', 'quant');
@@ -197,7 +204,9 @@ test('the Planner hands out one task at a time, and writes to the Manager when t
   assert.match(planner?.prompt ?? '', /## Tasks\n\(none yet\)\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
   assert.match(parse?.prompt ?? '', /## Task t1, from the Planner\nParse data\.csv\nCheck: the parser tests pass\.$/);
   assert.equal(replan?.resume, 'planner-2');
-  assert.equal(replan?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n\n## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted: the parser reads every row.');
+  // The fake calls cost nothing Argus records; a real one adds its line to usage.jsonl.
+  assert.equal(replan?.prompt, 'Model calls so far: 0, $0.00, as Argus records them in usage.jsonl. An operator\'s budget is kept in this figure; there is nothing more to verify about it.\n\n'
+    + '## Tasks\n- t1 [closed] Parse data.csv\n\n## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted: the parser reads every row.');
   assert.match(report2?.prompt ?? '', /## Earlier tasks\n- t1 Parse data\.csv\. Its last word, from the Reviewer: Accepted: the parser reads every row\.\n\n## Task t2, from the Planner\n/);
   assert.equal(manager?.prompt, 'From the Planner:\nThe summary tool is built and checked.');
   assert.deepEqual(project.inbox, []);
