@@ -3,11 +3,8 @@
 // this process. With a token (ARGUS_WEB_TOKEN) every project request needs it as a bearer.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { statSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   API_PROTOCOL, API_SERVICE, RELEASE_ID, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
@@ -15,6 +12,7 @@ import {
 import type { Project, Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { artifactInfo, artifacts, rawHeaders, sendFile, sendStatic, under } from './files.js';
+import { CAPABILITIES, directory, projectRoutes } from './projects.js';
 import { Runs, type Frame } from './runs.js';
 import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
 
@@ -37,11 +35,11 @@ const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const STARTED = new Date().toISOString();
 const BODY_LIMIT = 1 << 20;
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-interface Context {
+export interface Context {
   request: IncomingMessage;
   response: ServerResponse;
   url: URL;
@@ -50,7 +48,7 @@ interface Context {
   body(): Promise<Record<string, unknown>>;
 }
 
-type Handler = (context: Context) => unknown;
+export type Handler = (context: Context) => unknown;
 
 export async function serve(options: ServeOptions): Promise<Served> {
   const { store, token } = options;
@@ -73,7 +71,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     service: API_SERVICE,
     protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
-    capabilities: [...REQUIRED_API_CAPABILITIES],
+    capabilities: [...REQUIRED_API_CAPABILITIES, ...CAPABILITIES],
     runtime: {
       package_version: RELEASE_ID.split('+')[0]!, release_id: RELEASE_ID, pid: process.pid, started_at: STARTED,
       source_root: authenticated ? SOURCE_ROOT : '<redacted>', executable: authenticated ? process.execPath : '<redacted>',
@@ -115,12 +113,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
       local_cwd: process.cwd(),
     })],
     ['POST', /^\/api\/daemons$/, async ({ body }) => {
-      const asked = String((await body()).workdir ?? '').replace(/^~(?=$|\/)/, homedir());
-      const workdir = asked && resolve(asked);
-      if (workdir && !statSync(workdir, { throwIfNoEntry: false })?.isDirectory()) throw new HttpError(400, `workdir is not a directory: ${workdir}`);
+      const workdir = directory(String((await body()).workdir ?? ''));
       const created = store.create({ workdir, request: '', backend: options.backend, model: options.model });
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
     }],
+    ...projectRoutes(store, runs, project),
     ['GET', /^\/api\/projects\/([^/]+)\/snapshot$/, ({ params: [id] }) => snapshot(store, project(id!), runs.live(id!))],
     ['GET', /^\/api\/projects\/([^/]+)\/events$/, ({ params: [id], url }) =>
       ({ events: webEvents(readEvents(store, project(id!).id)).slice(-Number(url.searchParams.get('limit') ?? 120)) })],
