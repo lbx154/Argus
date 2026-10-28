@@ -519,6 +519,30 @@ class PlanningCycleEnqueueMixin:
             task_tags = self._planner_task_tags(task)
             task_context_refs = list(getattr(task, "context_refs", []) or [])
             if manager_decision.get("vertical") == "argus_maintenance":
+                from ...core.runtime_identity import source_root
+
+                if not (source_root() / ".git").exists():
+                    # Maintenance works in a git worktree of Argus's own
+                    # source; a release copy has none, and the task would
+                    # die on `git fetch` (s-efe9deac, 10-27).
+                    reason = (
+                        f"Argus here runs from {source_root()}, which is not a source "
+                        "checkout, so it cannot be maintained from this project; "
+                        "keep to the operator's goal and name the harness defect "
+                        "in your summary."
+                    )
+                    _record_filtered_task(
+                        state, title=task.title, category="maintenance_unavailable", reason=reason,
+                    )
+                    self._emit({
+                        "type": EventType.LIFE_PLANNER_TASK_SKIPPED,
+                        "cycle": self._planning_cycles,
+                        "title": task.title,
+                        "objective": task.objective,
+                        "skip_category": "maintenance_unavailable",
+                        "reason": reason,
+                    })
+                    continue
                 task_tags.append("framework_maintenance")
                 if "review:waived" in task_tags:
                     task_tags.remove("review:waived")

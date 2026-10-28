@@ -43,7 +43,9 @@ def test_the_planner_uses_it(tmp_path: Path) -> None:
     assert 'title="Finish and certify the current stage"' not in source
 
 
-def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path) -> None:
+def test_planner_enqueued_goal_gate_keeps_the_standing_objective(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Goal Gate rows must not force roles to recover the root goal from contracts.
 
     A live regression left `goal_contract.json` on an earlier "do not change code"
@@ -135,6 +137,9 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
         ],
     )
     harness = Harness()
+    source = tmp_path / "argus-source"
+    (source / ".git").mkdir(parents=True)
+    monkeypatch.setattr("argus.core.runtime_identity.source_root", lambda: source)
 
     harness._pc_build_dedupe_index(state)
     harness._pc_build_pending_items(state)
@@ -149,3 +154,21 @@ def test_planner_enqueued_goal_gate_keeps_the_standing_objective(tmp_path: Path)
         "stage": "change",
         "workflow_mode": "direct",
     }
+
+    # s-efe9deac (10-27): the trial runs from a release copy with no git
+    # repository. A maintenance task the Planner queued there crashed on
+    # `git fetch` and the team then asked the operator where Argus's source
+    # was. Without a checkout the task is refused back to the Planner.
+    (source / ".git").rmdir()
+    state = _PlanCycleState(None)
+    state.manager_intent = {"vertical": "argus_maintenance", "stage": "change", "workflow_mode": "direct"}
+    state.verdict = PlannerVerdict(
+        project_done=False,
+        summary="repair the repeated wake-ups",
+        new_tasks=[TaskSpec(title="Repair repeated wake-ups", objective="Patch the scheduler.")],
+    )
+    harness._pc_build_dedupe_index(state)
+    harness._pc_build_pending_items(state)
+
+    assert not state.pending_items
+    assert [row["category"] for row in state.skipped_task_feedback] == ["maintenance_unavailable"]
