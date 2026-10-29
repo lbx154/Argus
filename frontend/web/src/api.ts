@@ -314,23 +314,6 @@ export interface ModelProbeResult {
   error: string;
   duration_ms: number;
 }
-export interface AdvisorConfig {
-  schema_version: number;
-  enabled: boolean;
-  backend: string;
-  model: string;
-  effort: string;
-  timeout_seconds: number;
-  max_calls_per_turn: number;
-  max_evidence_bytes: number;
-}
-export interface AdvisorSettings {
-  saved: AdvisorConfig;
-  config: AdvisorConfig;
-  overridden_fields: string[];
-  supported_backends: string[];
-  model_options?: Array<{ backend: string; model: string }>;
-}
 export interface Turn {
   ts: number;
   role: string; // "operator" | "argus"
@@ -988,8 +971,6 @@ export const api = {
   editionDiff: (sid: string, source: string, content: string) =>
     postJson<{ diff: string; truncated: boolean }>(P(sid, '/editions/artifact/diff'), { source, content }),
   workflows: workflowClient(getJson, postJson),
-  advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
-  saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),
   liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
     const params = new URLSearchParams();
     if (after) params.set('after', after);

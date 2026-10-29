@@ -4,8 +4,6 @@ import { createContext, useContext } from 'react';
 // server declares every capability, the TypeScript core those it has.
 /** Project settings, and the model chooser that writes them. */
 export const SETTINGS_CAPABILITY = 'project.config.v1';
-/** The advisor model's settings. */
-export const ADVISOR_CAPABILITY = 'advisor.config.v1';
 /** The machine's CPU, memory and GPUs. */
 export const RESOURCES_CAPABILITY = 'system.resources.v1';
 /** The map's own records: the operator's notes and canvas, and the saved explanation of each card. */
