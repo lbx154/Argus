@@ -148,7 +148,7 @@ function EventRow({
             {r.label}
           </span>
           <TaskTag ev={ev} />
-          <span className="text-xs" style={{ color }}>{r.glyph}</span>
+          {r.glyph ? <span className="text-xs" style={{ color }}>{r.glyph}</span> : null}
           {repeat > 1 ? (
             <span
               className="rounded bg-line/60 px-1 font-mono text-[10px] tabular-nums text-ink-dim"
@@ -229,7 +229,7 @@ function FeedGroupRow({
               {group.r.label}
             </span>
             <TaskTag ev={group.latest} />
-            <span className="text-xs" style={{ color }}>{group.r.glyph}</span>
+            {group.r.glyph ? <span className="text-xs" style={{ color }}>{group.r.glyph}</span> : null}
             <span className="font-mono text-[10px] tabular-nums text-ink-faint">{group.calls}</span>
             <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="m6 3.5 4.5 4.5L6 12.5" />
