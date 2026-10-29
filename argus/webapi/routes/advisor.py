@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from ...advisor.config import AdvisorConfigError, load_advisor_config, save_advisor_config
@@ -85,9 +85,3 @@ def register_advisor_routes(app, ctx: ServerContext) -> None:
             return _settings(root)
         except AdvisorConfigError as exc:
             raise HTTPException(400, str(exc)) from exc
-
-    @app.get("/api/projects/{sid}/advisor/consultations", dependencies=[Depends(ctx.require_auth)])
-    def consultations(sid: str, limit: int = Query(default=10, ge=1, le=50)) -> dict:
-        from ...advisor.receipts import recent_receipts
-
-        return {"consultations": recent_receipts(ctx.resolve_or_404(sid), limit=limit)}
