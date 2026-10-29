@@ -2,7 +2,7 @@
 // current state (project.json, replaced atomically) and its history (events.jsonl, appended).
 // A fact lives in project.json only; events record changes and are never read back as state.
 
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -154,8 +154,16 @@ export class Store {
     replace(`${path}.${process.pid}.tmp`, path);
   }
 
+  /** The records this process has written to. */
+  private readonly written = new Set<string>();
+
   append(id: string, event: FlowEvent): void {
-    appendFileSync(join(this.dir(id), 'events.jsonl'), JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n');
+    const path = join(this.dir(id), 'events.jsonl');
+    // A line a crash cut short is ended before the first this process writes, so it alone is lost,
+    // not the line written after it.
+    const cut = !this.written.has(path) && !endsLine(path);
+    this.written.add(path);
+    appendFileSync(path, `${cut ? '\n' : ''}${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
   }
 
   list(): Project[] {
@@ -163,6 +171,17 @@ export class Store {
     try { ids = readdirSync(join(this.home, 'projects')); } catch { return []; }
     return ids.filter(id => PROJECT_ID.test(id)).map(id => this.load(id)).sort((a, b) => a.created.localeCompare(b.created));
   }
+}
+
+/** Whether a file is missing, empty, or ends its last line. */
+function endsLine(path: string): boolean {
+  let file: number;
+  try { file = openSync(path, 'r'); } catch { return true; }
+  try {
+    const { size } = fstatSync(file);
+    const last = Buffer.alloc(1);
+    return size === 0 || readSync(file, last, 0, 1, size - 1) === 1 && last[0] === 0x0a;
+  } finally { closeSync(file); }
 }
 
 const pause = new Int32Array(new SharedArrayBuffer(4));

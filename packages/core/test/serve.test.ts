@@ -818,10 +818,11 @@ test('a reading that goes on where it stopped folds the record as one whole read
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.pending_questions?.length === 1 && !snapshot.daemon.alive);
   await frames(await post(`${P}/message/stream`, { text: 'Total data2.csv too', request_id: 'r2' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[1]?.status === 'done' && !snapshot.daemon.alive);
-  // The record, appended to another project's a few bytes at a time, with a line a killed process cut short.
+  // The record, appended to another project's a few bytes at a time, with a line a killed process cut
+  // short, which the next process to write ended first.
   const record = await readFile(join(store.dir(sid), 'events.jsonl'));
   const cut = record.indexOf('\n', record.length / 2) + 1;
-  const bytes = Buffer.concat([record.subarray(0, cut), Buffer.from('{"ts":"2026-10-28T00:00:00.000Z","type":"st'), record.subarray(cut)]);
+  const bytes = Buffer.concat([record.subarray(0, cut), Buffer.from('{"ts":"2026-10-28T00:00:00.000Z","type":"st\n'), record.subarray(cut)]);
   const { id } = store.create({ workdir: '', request: '', backend: 'codex', model: null });
   const read = follow(store, id);
   const folded: EventMsg[] = [];
@@ -829,8 +830,15 @@ test('a reading that goes on where it stopped folds the record as one whole read
     await appendFile(join(store.dir(id), 'events.jsonl'), bytes.subarray(at, at + 7));
     folded.push(...read());
   }
-  assert.deepEqual(folded, webEvents(readEvents(store, id)));
-  assert.deepEqual(folded.filter(event => event.type === 'ui.argus').map(event => event.message_id), ['m0-argus', 'm11-argus', 'm26-argus']);
+  // Only the cut line is lost.
+  assert.deepEqual(folded, webEvents(readEvents(store, sid)));
+  // The next process to write ends a cut line before its own.
+  const crashed = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  await appendFile(join(store.dir(crashed.id), 'events.jsonl'), '{"ts":"2026-10-28T00:00:00.000Z","type":"st');
+  const restarted = new Store(store.home);
+  restarted.append(crashed.id, { type: 'status', status: 'idle' });
+  restarted.append(crashed.id, { type: 'status', status: 'stopped' });
+  assert.deepEqual(readEvents(store, crashed.id).map(event => event.type === 'status' && event.status), ['idle', 'stopped']);
 });
 
 test("the page is sent each project's state as it changes: the question a turn asks with the letter that asks it", { timeout: 20_000 }, async t => {
