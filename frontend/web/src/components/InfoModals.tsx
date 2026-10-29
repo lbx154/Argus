@@ -1,70 +1,22 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AdvisorSettings } from './AdvisorSettings';
 import { ModelPicker } from './ModelPicker';
 import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint, RawDisclosure } from './primitives';
 import { lastMeaningfulLine } from '../lib/rawSummary';
-import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheck, faChevronDown, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
-import {
-  conciseConfigKnobs,
-  connectionTopology,
-  type DisplayConfigKnob,
-} from '../lib/configSurface';
-import { roleLabel } from '../lib/enumLabels';
-import { agentRoleDescription, isAgentRole } from '../lib/agentRoles';
+import { faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { requestFailureText } from '../lib/requestFailure';
-import { ADVISOR_CAPABILITY, useCapability } from '../lib/capabilities';
 import { AppearanceControls } from './AppearanceControls';
 import type { ThemeMode } from './TopBar';
 import { backendLabel, configuredBackend } from '../lib/backend';
 
-const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
-  ARGUS_SKILL_MAX_ACTIVE_DAEMONS: { label: 'settings.knob.activeDaemons', doc: 'settings.knob.activeDaemonsDoc' },
-  ARGUS_SKILL_SAFE_MODE: { label: 'settings.knob.safeMode', doc: 'settings.knob.safeModeDoc' },
-  ARGUS_SKILL_OPERATOR_AVAILABLE: { label: 'settings.knob.operatorAvailable', doc: 'settings.knob.operatorAvailableDoc' },
-  ARGUS_SKILL_ENABLE_TELEGRAM: { label: 'settings.knob.telegram', doc: 'settings.knob.telegramDoc' },
-  ARGUS_SKILL_SHOW_REASONING: { label: 'settings.knob.showReasoning', doc: 'settings.knob.showReasoningDoc' },
-};
-
-const GROUP_TEXT: Record<string, string> = {
-  Limits: 'settings.group.limits',
-  Safety: 'settings.group.safety',
-  Interface: 'settings.group.interface',
-};
-
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
-
-function configSourceLabel(source: string, t: Translate): string {
-  const value = source.trim();
-  if (value === 'not applicable for this model') return t('settings.source.notApplicable');
-  if (value.startsWith('capability vault')) return t('settings.source.vaultDefault');
-  if (value.startsWith('default')) return t('settings.source.default');
-  if (value.startsWith('persisted:') || value === 'persisted') return t('settings.source.saved');
-  if (value.startsWith('ARGUS_SKILL_') || value === 'env') return t('settings.source.environment');
-  if (value.startsWith('global:')) return t('settings.source.hostConfig');
-  return t('settings.source.other');
-}
-
-function configValueLabel(knob: DisplayConfigKnob, t: Translate): string {
-  const value = knob.value.trim().toLowerCase();
-  if (['ARGUS_SKILL_SAFE_MODE', 'ARGUS_SKILL_OPERATOR_AVAILABLE', 'ARGUS_SKILL_ENABLE_TELEGRAM', 'ARGUS_SKILL_SHOW_REASONING'].includes(knob.name)) {
-    return t(['1', 'true', 'on', 'yes'].includes(value) ? 'settings.value.enabled' : 'settings.value.disabled');
-  }
-  return knob.value;
-}
-
-function effortLabel(effort: string, t: Translate): string {
-  const key = ({ low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh' } as Record<string, string>)[effort.toLowerCase()];
-  return key ? t(`settings.effort.${key}`) : effort;
-}
 
 function LoadFailure({ message, retrying, onRetry, t }: {
   message: string;
@@ -152,19 +104,13 @@ export function ConfigModal({
   const { t, locale } = useI18n();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const advisor = useCapability(ADVISOR_CAPABILITY);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingBackend, setPendingBackend] = useState('');
   const [quickConfigBusy, setQuickConfigBusy] = useState(false);
   const [quickConfigMsg, setQuickConfigMsg] = useState('');
   const [quickConfigError, setQuickConfigError] = useState(false);
-  const [name, setName] = useState('');
-  const [value, setValue] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState('');
   useEffect(() => {
-    if (!open) { setAdvancedOpen(false); setPickerOpen(false); }
+    if (!open) setPickerOpen(false);
   }, [open]);
   useEffect(() => {
     if (open && data) setPendingBackend('');
@@ -191,29 +137,6 @@ export function ConfigModal({
       setQuickConfigBusy(false);
     }
   };
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!name.trim() || !value.trim() || busy) return;
-    setBusy(true);
-    setResult('');
-    try {
-      await api.setConfig(sid, name.trim(), value.trim());
-      await refreshSettings();
-      setResult(t('settings.applied'));
-    } catch (error) {
-      setResult(requestFailureText(error, t).text);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const knobGroups = conciseConfigKnobs(data?.operator_knobs ?? []).reduce<Record<string, DisplayConfigKnob[]>>(
-    (groups, knob) => {
-      (groups[knob.group] ??= []).push(knob);
-      return groups;
-    },
-    {},
-  );
-  const connection = connectionTopology(window.location.origin, sid);
   const hasData = Boolean(data && (data.roles.length || data.operator_knobs.length));
   return (
     <>
@@ -286,111 +209,6 @@ export function ConfigModal({
                 {canOpenDesktopSettings() && <button type="button" className="compact-control px-3 py-2" onClick={() => { onClose(); openDesktopTrialSettings(); }}>{t('settings.changeTrialKey')}</button>}
               </div>
             </section>}
-
-            {advancedOpen && advisor && <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />}
-
-            <section className="settings-section">
-              <button
-                type="button"
-                aria-expanded={advancedOpen}
-                aria-controls="config-advanced-settings"
-                onClick={() => setAdvancedOpen((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 py-2 text-left hover:bg-bg/30"
-              >
-                <span>
-                  <span className="block text-sm font-semibold text-ink">{t('settings.advanced')}</span>
-                  <span className="mt-1 block text-xs text-ink-faint">{t('settings.advancedHint')}</span>
-                </span>
-                <FontAwesomeIcon icon={faChevronDown} className={`text-xs text-ink-faint transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {advancedOpen && (
-                <div id="config-advanced-settings" className="space-y-6 pt-4">
-                  <section>
-                    <h3 className="text-sm font-medium text-ink">{t('settings.connection')}</h3>
-                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-[100px_minmax(0,1fr)]">
-                      <span className="text-ink-faint">{t('settings.webApi')}</span>
-                      <code className="min-w-0 break-all text-ink-dim">{connection.webApi}</code>
-                      <span className="text-ink-faint">{t('settings.eventStream')}</span>
-                      <code className="min-w-0 break-all text-ink-dim">{connection.eventStream}</code>
-                      <span className="text-ink-faint">{t('settings.taskDaemon')}</span>
-                      <span className="text-ink-dim">{t('settings.taskDaemonValue')}</span>
-                    </div>
-                  </section>
-
-                  <form onSubmit={(event) => void submit(event)} className="settings-section">
-                    <h3 className="text-sm font-medium text-ink">{t('settings.overrideTitle')}</h3>
-                    <p className="mt-1 text-xs text-ink-faint">{t('settings.overrideHint')}</p>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                      <input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('settings.namePlaceholder')} className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
-                      <input value={value} onChange={(event) => setValue(event.target.value)} placeholder={t('settings.valuePlaceholder')} className="h-9 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue" />
-                      <button disabled={busy || !name.trim() || !value.trim()} title={t('settings.applyAdvanced')} aria-label={t('settings.applyAdvanced')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faCheck} />}</button>
-                    </div>
-                    {result ? <div className="mt-2 text-xs text-ink-dim">{result}</div> : null}
-                  </form>
-
-                  {data.roles.length > 0 && (
-                    <section>
-                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t('settings.rolesTitle')}</div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {data.roles.map((role) => (
-                          <div key={role.role} className="border-t border-line py-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-xs font-semibold text-ink">{roleLabel(role.role, t)}</div>
-                              <span className="text-[10px] text-ink-faint">{role.backend_label}</span>
-                            </div>
-                            <div className="mt-2 truncate font-mono text-[11px] text-ink-dim" title={role.model}>{role.model}</div>
-                            <div className="mt-1 flex items-center gap-2 text-[10px] text-ink-faint">
-                              <span className="truncate">{configSourceLabel(role.model_source, t)}</span>
-                              {role.reasoning_effort && (
-                                <span className="ml-auto shrink-0" style={{ color: effortColor(role.reasoning_effort) }}>
-                                  {effortLabel(role.reasoning_effort, t)}
-                                </span>
-                              )}
-                            </div>
-                            {isAgentRole(role.role) && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{agentRoleDescription(role.role, t)}</p>}
-                          </div>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-
-                  {Object.keys(knobGroups).length > 0 && (
-                    <section>
-                      <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t('settings.rawConfig')}</div>
-                      {Object.entries(knobGroups).map(([group, knobs]) => (
-                        <div key={group} className="mt-3 first:mt-0">
-                          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{t(GROUP_TEXT[group])}</div>
-                          <div className="border-t border-line">
-                            {knobs.map((knob, index) => {
-                              const copy = KNOB_TEXT[knob.name];
-                              const displayValue = configValueLabel(knob, t);
-                              return (
-                                <div key={knob.name} className={`grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] ${index ? 'border-t border-line/60' : ''}`}>
-                                  <div className="min-w-0">
-                                    <div className="text-xs font-medium text-ink-dim">{t(copy.label)}</div>
-                                    <code className="mt-0.5 block break-all text-[9px] text-ink-faint">{knob.name}</code>
-                                    <div className="mt-1 text-[10px] leading-relaxed text-ink-faint">{t(copy.doc)}</div>
-                                  </div>
-                                  <div className="text-left sm:text-right">
-                                    <div className="text-[11px] text-ink">
-                                      {displayValue}
-                                      {displayValue !== knob.value && <code className="ml-1 text-[9px] text-ink-faint">({knob.value})</code>}
-                                    </div>
-                                    <div className="mt-0.5 text-[9px] text-ink-faint">{configSourceLabel(knob.source, t)}</div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </section>
-                  )}
-
-                </div>
-              )}
-            </section>
           </div>
         )}
       </div>

@@ -6,6 +6,7 @@ import { errorText } from '../lib/format';
 import { downloadBlob } from '../lib/downloadBlob';
 import { Modal, ModalHeader } from './Modal';
 import { MarkdownContent } from './MarkdownContent';
+import { DiffLines } from './DeliveryChanges';
 import { Button } from './primitives';
 import './experience.css';
 
@@ -80,8 +81,9 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [selection, setSelection] = useState('');
-  const [compare, setCompare] = useState(false);
-  const [preview, setPreview] = useState(false);
+  // The draft is edited, read as it renders, or read as what it changes in the source file.
+  const [view, setView] = useState<'edit' | 'preview' | 'compare'>('edit');
+  const [changes, setChanges] = useState<{ diff: string; truncated: boolean } | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const initialized = useRef(false);
   const latest = query.data?.versions.at(-1)?.version ?? 0;
@@ -93,6 +95,13 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
     setSelectedVersion(edition?.version ?? -1);
     setDirty(false);
   }, [query.data, initialVersion]);
+  useEffect(() => {
+    if (view !== 'compare') return;
+    let live = true;
+    setChanges(null);
+    api.editionDiff(sid, path, content).then(result => { if (live) setChanges(result); }, problem => { if (live) setError(errorText(problem)); });
+    return () => { live = false; };
+  }, [view, sid, path, content]);
   const close = () => {
     if (!dirty || window.confirm(zh ? '尚有未保存修改，确定关闭？' : 'Discard unsaved changes?')) onClose();
   };
@@ -133,23 +142,22 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
               ? zh ? '首次修改前的源文件' : 'Source before first edit'
               : `${zh ? '未复审修改稿' : 'Unreviewed edition'} v${edition.version}`}</option>)}
           </select>
-          <label className="experience-check"><input type="checkbox" checked={compare} onChange={event => setCompare(event.target.checked)} /> {zh ? '对照源文件' : 'Compare source'}</label>
-          <Button aria-pressed={preview} onClick={() => setPreview(value => !value)}>{preview ? zh ? '继续编辑' : 'Edit' : zh ? '预览' : 'Preview'}</Button>
+          <div className="route-seg" role="radiogroup" aria-label={zh ? '查看方式' : 'View'}>
+            {([['edit', '编辑', 'Edit'], ['preview', '预览', 'Preview'], ['compare', '对比源文件', 'Compare with source']] as const).map(([mode, zhLabel, enLabel]) =>
+              <button key={mode} type="button" role="radio" aria-checked={view === mode} data-view={mode} onClick={() => setView(mode)}>{zh ? zhLabel : enLabel}</button>)}
+          </div>
           <span className="edition-save-status" role="status">{dirty ? zh ? '尚未保存' : 'Unsaved changes'
             : zh ? '内容已保存' : 'Content saved'}</span>
         </div>
-        <div className={`edition-grid ${compare ? 'is-comparing' : ''}`}>
-          {compare && <section className="edition-pane">
-            <h3>{zh ? '当前源文件 · 只读' : 'Current source · Read only'}</h3>
-            <pre aria-label={zh ? '源文件对照' : 'Original comparison'}>{query.data.original}</pre>
-          </section>}
-          <section className="edition-pane">
-          <h3>{preview ? zh ? '修改稿预览 · 未复审' : 'Edition preview · Unreviewed' : zh ? '修改稿 · 未复审' : 'Edition · Unreviewed'}</h3>
-          {preview ? <div className="edition-preview"><MarkdownContent>{content}</MarkdownContent></div> : <textarea
+        <div className="edition-pane">
+          {view === 'edit' ? <textarea
             ref={textarea} aria-label={zh ? '修改稿内容' : 'Edition content'} value={content} disabled={busy}
             onChange={event => { setContent(event.target.value); setDirty(true); }}
-            onSelect={() => { const input = textarea.current; if (input) setSelection(input.value.slice(input.selectionStart, input.selectionEnd)); }} />}
-          </section>
+            onSelect={() => { const input = textarea.current; if (input) setSelection(input.value.slice(input.selectionStart, input.selectionEnd)); }} />
+            : view === 'preview' ? <div className="edition-preview"><MarkdownContent>{content}</MarkdownContent></div>
+              : !changes ? <p role="status" className="edition-note">{zh ? '正在对比…' : 'Comparing…'}</p>
+                : changes.diff ? <DiffLines diff={changes.diff} truncated={changes.truncated} zh={zh} />
+                  : <p role="status" className="edition-note">{zh ? '和当前源文件一样，没有改动。' : 'The same as the current source file.'}</p>}
         </div>
         <p className="experience-caption">{zh ? '修改稿单独保存，不覆盖原文件。' : 'Editions are saved separately from the original.'}</p>
       </>}

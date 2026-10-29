@@ -226,6 +226,10 @@ test("a result's editions are saved beside it, never over it, and a result deliv
   const { original, versions } = await editions('artifact', 'report.md');
   assert.equal(original, report);
   assert.deepEqual(saved(versions), [[0, report, ''], [1, '# Sales\n\nNorth 12\n', ''], [2, '# Sales\n', 'shorter']]);
+  // What an edition, saved or not, changes in the file as it is.
+  assert.deepEqual(await (await save('artifact/diff', { source: 'report.md', content: '# Sales\n\nNorth 12\n' })).json(),
+    { diff: '--- a/report.md\n+++ b/report.md\n@@ -1,3 +1,3 @@\n # Sales\n \n-North 10\n+North 12\n', truncated: false });
+  assert.deepEqual(await (await save('artifact/diff', { source: 'report.md', content: report })).json(), { diff: '', truncated: false });
   // Only a text result of the workdir, small enough to edit in the page, has editions.
   for (const [source, status] of [['plot.png', 422], ['big.md', 413], ['missing.md', 404], [join(store.dir(project.id), 'project.json'), 404]] as const) {
     assert.equal((await call(`${P}/editions/artifact?${new URLSearchParams({ source })}`)).status, status, source);

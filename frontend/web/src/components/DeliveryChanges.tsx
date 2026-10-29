@@ -1,5 +1,16 @@
 import { useState } from 'react';
 import { api } from '../api';
+import './delivery.css';
+
+/** A unified diff as a reader takes it: each change headed by the line it starts on, the lines it
+ * adds and drops marked, without the diff's own headers. */
+export function DiffLines({ diff, truncated, zh }: { diff: string; truncated: boolean; zh: boolean }) {
+  return <pre className="diff-lines" aria-label={zh ? '改动' : 'Changes'}>{diff.split('\n').filter(line => line && !/^(?:---|\+\+\+) /.test(line)).map((line, index) => {
+    const at = /^@@ -\d+(?:,\d+)? \+(\d+)/.exec(line)?.[1];
+    return at ? <span key={index} className="hunk">{zh ? `第 ${at} 行` : `Line ${at}`}</span>
+      : <span key={index} className={line[0] === '+' ? 'add' : line[0] === '-' ? 'del' : undefined}>{line}{'\n'}</span>;
+  })}{truncated ? (zh ? '…（改动过长，已截断）' : '… (truncated)') : ''}</pre>;
+}
 
 /** Collapsed "what changed since the last delivery" view for one redelivered file. */
 export function DeliveryChanges({ sid, change, zh }: { sid: string; change: { path: string; before: string; after: string }; zh: boolean }) {
@@ -21,9 +32,7 @@ export function DeliveryChanges({ sid, change, zh }: { sid: string; change: { pa
       </button>
       {state.open && (state.loading ? <p>{zh ? '正在读取…' : 'Loading…'}</p>
         : state.error ? <p>{state.error}</p>
-          : <pre aria-label={zh ? '改动' : 'Changes'}>{state.diff.split('\n').map((line, index) => (
-            <span key={index} className={line.startsWith('+') && !line.startsWith('+++') ? 'add' : line.startsWith('-') && !line.startsWith('---') ? 'del' : undefined}>{line}{'\n'}</span>
-          ))}{state.truncated ? (zh ? '…（改动过长，已截断）' : '… (truncated)') : ''}</pre>)}
+          : <DiffLines diff={state.diff} truncated={state.truncated} zh={zh} />)}
     </div>
   );
 }

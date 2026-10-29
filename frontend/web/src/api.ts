@@ -297,27 +297,15 @@ export interface ConfigSnapshot {
   /** Every backend there is, by its name for the page. */
   backends?: Record<string, string>;
 }
-/** One row of the model chooser: every figure is from the price table or recorded calls. */
+/** One model the backend offers: whether it is the backend's default, and its price. */
 export interface ModelChoice {
   model: string;
-  source: string;
   default: boolean;
-  invalid: boolean;
   /** USD per million tokens; null when the price table does not list the model. */
-  price: { input: number; cached_input: number; output: number } | null;
-  /** This project's recent tasks re-priced with this model; null without data. */
-  task_estimate_usd: number | null;
-  /** Median duration of calls that answered on this machine; null without data. */
-  latency_ms: number | null;
-  latency_samples: number;
-  availability: { state: 'ok' | 'failed' | 'unknown'; at: number; reason: string };
+  price: { input: number; output: number } | null;
 }
 export interface ModelChoices {
   backend: string;
-  billing: 'token' | 'premium_request';
-  premium_request_usd: number | null;
-  /** How many of this project's tasks the per-task estimate re-prices. */
-  task_sample: number;
   options: ModelChoice[];
 }
 export interface ModelProbeResult {
@@ -325,23 +313,6 @@ export interface ModelProbeResult {
   ok: boolean;
   error: string;
   duration_ms: number;
-}
-export interface AdvisorConfig {
-  schema_version: number;
-  enabled: boolean;
-  backend: string;
-  model: string;
-  effort: string;
-  timeout_seconds: number;
-  max_calls_per_turn: number;
-  max_evidence_bytes: number;
-}
-export interface AdvisorSettings {
-  saved: AdvisorConfig;
-  config: AdvisorConfig;
-  overridden_fields: string[];
-  supported_backends: string[];
-  model_options?: Array<{ backend: string; model: string }>;
 }
 export interface Turn {
   ts: number;
@@ -996,9 +967,10 @@ export const api = {
     getJson<{ original: string; versions: Edition[] }>(P(sid, `/editions/${kind}?source=${encodeURIComponent(source)}`)),
   saveEdition: (sid: string, kind: 'artifact' | 'conversation', value: { source: string; content: string; note?: string; base_version: number; original?: string }) =>
     postJson<{ version: number; content: string }>(P(sid, `/editions/${kind}`), value),
+  /** What `content` changes in the text result `source` as it is now, as a unified diff. */
+  editionDiff: (sid: string, source: string, content: string) =>
+    postJson<{ diff: string; truncated: boolean }>(P(sid, '/editions/artifact/diff'), { source, content }),
   workflows: workflowClient(getJson, postJson),
-  advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
-  saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),
   liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
     const params = new URLSearchParams();
     if (after) params.set('after', after);

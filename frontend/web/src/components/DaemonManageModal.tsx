@@ -64,7 +64,6 @@ export function DaemonManageModal({
     <Modal open={open} onClose={() => !busy && onClose()} label={t('manage.daemon')} width="max-w-lg">
       <div className="modal-header">
         <h2>{t('topbar.manageSession')}</h2>
-        <p className="font-mono text-[11px] text-ink-faint">{sid}</p>
       </div>
       {snapshot ? <div className="border-t border-line px-6 py-4" data-testid="manage-run-info">
         <div className="text-xs font-medium text-ink-faint">{zh ? '运行信息' : 'Run details'}</div>

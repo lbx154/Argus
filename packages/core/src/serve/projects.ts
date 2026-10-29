@@ -110,14 +110,10 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       const offered = await runs.callAgent.models?.(backend, workdir) ?? [];
       const named = model && !offered.some(row => row.model === model) ? [...offered, { model, default: false }] : offered;
       return {
-        backend, billing: 'token', premium_request_usd: null, task_sample: 0,
+        backend,
         options: named.map(row => {
           const price = modelPriceFor(row.model);
-          return {
-            model: row.model, source: row.model === model ? 'current' : 'backend', default: row.default, invalid: false, task_estimate_usd: null,
-            price: price && { input: price.input_usd_per_mtok, cached_input: price.cached_input_usd_per_mtok, output: price.output_usd_per_mtok },
-            latency_ms: null, latency_samples: 0, availability: { state: 'unknown', at: 0, reason: '' },
-          };
+          return { model: row.model, default: row.default, price: price && { input: price.input_usd_per_mtok, output: price.output_usd_per_mtok } };
         }),
       };
     }],

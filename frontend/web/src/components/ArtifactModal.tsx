@@ -159,7 +159,8 @@ export function ArtifactModal({
         {delivery.summary && path && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><div className="delivery-summary-body"><MarkdownContent sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div></details>}
       </header>}
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
-      <div className={`flex shrink-0 items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
+      {/* On a phone the file's tools wrap onto their own rows under its name. */}
+      <div className={`flex shrink-0 flex-wrap items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
           <h2 className={`truncate text-sm font-semibold text-ink ${foundation || progressSnapshot ? '' : 'font-mono'}`} title={foundation?.question ?? info?.progress_source?.title ?? info?.storage_path ?? info?.path ?? path ?? ''}>
             {foundation ? readerFoundationTitle(foundation) : progressSnapshot ? info?.progress_source?.title || t('artifact.title') : info?.name ?? path ?? t('artifact.title')}
@@ -169,9 +170,10 @@ export function ArtifactModal({
               ? (zh ? '阅读问答' : 'Reading question and answer')
               : (zh ? '背景说明 · 不计作研究进展' : 'Background explanation · separate from research progress')
               : progressSnapshot ? (zh ? '保存的进展说明 · 提问来源' : 'Saved progress explanation · question source')
-                : info ? `${info.kind} · ${formatBytes(info.size)} · ${info.mime}` : zh ? '正在读取文件' : 'Loading file'}
+                : info ? formatBytes(info.size) : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
+        <div className="flex flex-wrap gap-2 max-sm:order-last max-sm:basis-full">
         {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="artifact-tool shrink-0 p-2">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
         {onEdit && path && info && canEditArtifact(info)
           && <button type="button" onClick={() => onEdit(path)} className="artifact-tool shrink-0">{zh ? '编辑与版本' : 'Edit & versions'}</button>}
@@ -186,6 +188,7 @@ export function ArtifactModal({
         >
           {downloading ? t('artifact.downloading') : t('artifact.download')}
         </button>
+        </div>
         {(!delivery || expanded) && <button
           type="button"
           aria-label={t('artifact.close')}
@@ -206,11 +209,6 @@ export function ArtifactModal({
         {artifactQ.isError ? (
           <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}
             <button type="button" className="ml-2 underline" onClick={() => void artifactQ.refetch()}>{t('common.retry')}</button></div>
-        ) : null}
-        {info?.why && !foundation && !progressSnapshot && !pdfPreview && !delivery ? (
-          <div className="mb-3 rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-dim">
-            <span className="mr-1 text-ink-faint">Reviewer:</span>{info.why}
-          </div>
         ) : null}
         {info?.kind === 'text' && !markdownPreview ? (
           <pre className="min-h-52 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">
@@ -247,7 +245,7 @@ export function ArtifactModal({
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50">
-            <img src={previewUrl} alt={info.why || info.name} className="max-h-[62vh] max-w-full object-contain" />
+            <img src={previewUrl} alt={info.name} className="max-h-[62vh] max-w-full object-contain" />
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
