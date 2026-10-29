@@ -437,6 +437,8 @@ def test_active_mission_team_message_uses_continuous_dispatch(
         return None, True, 123
 
     monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
+    # The team is working: a daemon runs this project.
+    monkeypatch.setattr(front_door, "_daemon_running", lambda _life_dir: True)
 
     result = manager_bridge.manager_message(
         sid,
@@ -450,6 +452,41 @@ def test_active_mission_team_message_uses_continuous_dispatch(
     # then what Argus told it about the running work.
     assert str(seen["enqueued"]).startswith("你怎么不动了？\n\nThe team is working now")
     assert len(memory.backlog.all()) == 1
+
+
+def test_manager_is_told_the_work_stopped_when_no_daemon_runs_it(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """2026-10-29: a deploy restarted the runtime and stopped the daemon mid-round.
+
+    The backlog still said "running", so the Manager was told the team was
+    working and answered "团队正在选定视觉研究方向…" with no daemon running.
+    """
+    from argus.daemon.state import record_host_shutdown
+
+    sid = "s-stopped01"
+    life = _make_project(tmp_path, sid)
+    memory = LifeMemory.open(life)
+    memory.backlog.add(BacklogItem.new(title="select a vision direction", objective="pick one"))
+    assert memory.backlog.claim_next() is not None
+    record_host_shutdown(life, pid=4242, started_at_iso="2026-10-29T00:00:00Z",
+                         signum=15, campaign_generation=3)
+    manager_state._STATES.clear()
+    seen: dict[str, object] = {}
+
+    def enqueue(mem, body, chat_state, **kwargs):
+        seen["enqueued"] = body
+        return None, True, 123
+
+    monkeypatch.setattr(dispatch, "enqueue_mission", enqueue)
+
+    manager_bridge.manager_message(sid, "继续做", global_root=tmp_path)
+
+    told = str(seen["enqueued"])
+    assert "The team is working now" not in told
+    assert "No background worker (daemon) is running for this project" in told
+    assert "host shutdown" in told
+    assert "select a vision direction" in told
 
 
 def test_a_failed_manager_turn_never_falls_through_to_task_dispatch(

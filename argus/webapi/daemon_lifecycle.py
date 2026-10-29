@@ -37,6 +37,7 @@ from ..daemon.life_worker import (
     _release_daemon_spawn_lock,
     _workspace_start_error,
 )
+from ..daemon.state import RESUMABLE_STOP_REASONS, clear_host_shutdown
 from ..life.memory import LifeMemory
 from ..life.role_activity import role_activity
 from . import project_state
@@ -238,6 +239,7 @@ def start_project_daemon(
     st = daemon_worker.read_daemon_status(life_dir)
     if st.alive:
         _clear_daemon_admission(life_dir)
+        clear_host_shutdown(life_dir)
         return {"rc": 0, "already_alive": True, "daemon": _daemon_dict(st)}
     try:
         config = _worker_config_from_env(life_dir, root)
@@ -258,7 +260,10 @@ def start_project_daemon(
         if (
             not continuous.enabled
             and continuous.objective.strip()
-            and continuous.done_reason.strip().lower().startswith("operator ")
+            and (
+                continuous.done_reason.strip().lower().startswith("operator ")
+                or continuous.done_reason in RESUMABLE_STOP_REASONS
+            )
         ):
             daemon_worker.write_continuous_config(
                 life_dir,
@@ -400,6 +405,8 @@ def start_project_daemon(
         )
     else:
         _clear_daemon_admission(life_dir)
+        # The interrupted work runs again; nothing is left to resume.
+        clear_host_shutdown(life_dir)
     return result
 
 

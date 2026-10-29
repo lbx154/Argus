@@ -26,6 +26,7 @@ from ..daemon import life_worker as daemon_worker
 from . import (
     daemon_lifecycle,
     daemon_upgrade,
+    host_resume,
     project_crud,
     project_state,
 )
@@ -368,6 +369,9 @@ def create_app(
     @app.on_event("startup")
     def _resume_pending_daemon_upgrades() -> None:
         daemon_upgrade.reconcile_pending_daemon_upgrades(roots)
+        # Work a host shutdown interrupted resumes with the server, here and
+        # in the hosted runtime, which builds this same app.
+        host_resume.start_host_resume_thread(roots, ctx.daemon_services.start)
         # Prime host-wide cost/usage projections before the first compact
         # snapshot. Otherwise a completed inline Manager call can momentarily
         # show project spend while global spend incorrectly appears empty.

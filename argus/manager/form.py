@@ -196,6 +196,30 @@ def team_at_work(items: Sequence[Any], *, ongoing: bool) -> str:
     )
 
 
+def team_stopped(items: Sequence[Any], *, host_shutdown: bool) -> str:
+    """Tasks recorded as running while no daemon runs this project: nobody works on them.
+
+    A backlog row stays ``running`` when its process dies; only the next daemon
+    puts it back in the queue. Told as the team at work, the Manager answered
+    "the team is selecting a direction" for a stopped project (2026-10-29: a
+    deploy restarted the runtime and stopped the daemon mid-round).
+    """
+    if not items:
+        return ""
+    lines = [f"- task {item.id}, {item.title}" for item in items]
+    why = ("a host shutdown (a restart of the server or runtime) stopped it mid-task; "
+           "its work is kept and resumes where it stopped" if host_shutdown else
+           "its work is kept and resumes where it stopped")
+    return (
+        "No background worker (daemon) is running for this project, so nobody is working "
+        "on it right now. These tasks are recorded as running but are stopped: "
+        f"{why}.\n" + "\n".join(lines) + "\n"
+        "Do not tell the operator the team is working. Say the work is stopped and offer to "
+        "resume it: the Resume (Start) button in the cockpit starts the worker again; a new "
+        "to=team ticket also starts it."
+    )
+
+
 def ticket(payload: Any) -> str:
     """The team's work order, from a ``to=team`` call."""
     sections = [payload["goal"].strip()]
@@ -210,6 +234,7 @@ def ticket(payload: Any) -> str:
 
 
 __all__ = [
-    "FILE_WHILE_TEAM_WORKS", "ConfigIntent", "config_intents", "manager_actions", "team_at_work", "ticket",
+    "FILE_WHILE_TEAM_WORKS", "ConfigIntent", "config_intents", "manager_actions", "team_at_work",
+    "team_stopped", "ticket",
     "waiting_questions",
 ]

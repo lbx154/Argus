@@ -32,7 +32,14 @@ from ..life.supervisor import global_daily_usage_summary
 # the campaign while leaving a healthy-looking daemon behind.
 DRAIN_STOP_REASON = "operator drain-stop"
 GRACEFUL_STOP_REASON = "operator stop (graceful SIGTERM/SIGINT — clock out)"
-RESUMABLE_STOP_REASONS = frozenset({DRAIN_STOP_REASON, GRACEFUL_STOP_REASON})
+# A SIGTERM no operator asked for: the host or its service manager stopped the
+# process (a deploy restarting the runtime). The work was interrupted, not
+# ended, so the next server start resumes it (see
+# ``record_host_shutdown``). It does not start with "operator " on purpose.
+HOST_SHUTDOWN_STOP_REASON = "host shutdown (SIGTERM without an operator stop — resumable)"
+RESUMABLE_STOP_REASONS = frozenset(
+    {DRAIN_STOP_REASON, GRACEFUL_STOP_REASON, HOST_SHUTDOWN_STOP_REASON}
+)
 
 try:
     import fcntl
@@ -48,6 +55,7 @@ log = logging.getLogger(__name__)
 _TEST_ALLOW_MEMORY_CONTINUOUS_ENV = "ARGUS_SKILL_DAEMON_TEST_ALLOW_MEMORY_CONTINUOUS"
 _DRAIN_REQUEST_FILE = "daemon.drain-request.json"
 _STOP_REQUEST_FILE = "daemon.stop-request.json"
+_HOST_SHUTDOWN_FILE = "daemon.host-stopped.json"
 DAEMON_UPGRADE_REQUEST_FILE = "daemon.upgrade-request.json"
 _WINDOWS_LOCK_POLL_SECONDS = 0.05
 _CONTINUOUS_RESERVE_NAMES = (
@@ -244,6 +252,71 @@ def clear_daemon_drain_request(life_dir: Path, *, pid: int) -> None:
     try:
         _daemon_drain_request_path(life_dir).unlink()
     except FileNotFoundError:
+        pass
+
+
+@dataclass(frozen=True)
+class HostShutdown:
+    """A daemon stopped by its host while it was working, not by an operator."""
+
+    pid: int
+    started_at_iso: str
+    stopped_at: float
+    signal: int
+    campaign_generation: int | None
+
+
+def record_host_shutdown(
+    life_dir: Path,
+    *,
+    pid: int,
+    started_at_iso: str,
+    signum: int,
+    campaign_generation: int | None,
+) -> None:
+    """Persist "stopped by host shutdown, resumable" for the next server start.
+
+    Written by the daemon itself from its signal handler, before the process
+    can be killed outright, and only for a SIGTERM that no operator stop
+    requested. An operator stop or pause clears it (``clear_host_shutdown``).
+    """
+    life_dir.mkdir(parents=True, exist_ok=True)
+    write_atomic(
+        life_dir / _HOST_SHUTDOWN_FILE,
+        json.dumps(
+            {
+                "schema_version": 1,
+                "pid": int(pid),
+                "started_at_iso": str(started_at_iso or ""),
+                "stopped_at": time.time(),
+                "signal": int(signum),
+                "campaign_generation": campaign_generation,
+            }
+        ),
+    )
+
+
+def read_host_shutdown(life_dir: Path) -> HostShutdown | None:
+    try:
+        payload = json.loads((life_dir / _HOST_SHUTDOWN_FILE).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+            return None
+        generation = payload.get("campaign_generation")
+        return HostShutdown(
+            pid=int(payload.get("pid") or 0),
+            started_at_iso=str(payload.get("started_at_iso") or ""),
+            stopped_at=float(payload.get("stopped_at") or 0.0),
+            signal=int(payload.get("signal") or 0),
+            campaign_generation=None if generation is None else int(generation),
+        )
+    except (FileNotFoundError, OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+
+
+def clear_host_shutdown(life_dir: Path) -> None:
+    try:
+        (life_dir / _HOST_SHUTDOWN_FILE).unlink(missing_ok=True)
+    except OSError:
         pass
 
 
@@ -1330,6 +1403,8 @@ def request_daemon_stop(life_dir: Path | None = None) -> tuple[bool, int | None]
         (resolved_dir / DAEMON_UPGRADE_REQUEST_FILE).unlink(missing_ok=True)
     except OSError:
         pass
+    # An operator stop is never resumed by a later server start.
+    clear_host_shutdown(resolved_dir)
     if not status.alive or status.pid is None:
         return False, None
     pid = status.pid
@@ -1387,6 +1462,8 @@ def stop_daemon(
     status = read_daemon_status(life_dir)
     resolved_dir = status.life_dir
     refuse_role_control_write("Stopping the Argus daemon", resolved_dir)
+    # An operator stop is never resumed by a later server start.
+    clear_host_shutdown(resolved_dir)
     if not preserve_upgrade_request:
         (resolved_dir / DAEMON_UPGRADE_REQUEST_FILE).unlink(missing_ok=True)
     if not status.alive or status.pid is None:
@@ -1564,10 +1641,10 @@ def stop_daemon(
 __all__ = [
     "DAEMON_UPGRADE_REQUEST_FILE",
     "ContinuousConfigState", "ContinuousConfigWriteAfterReplaceError",
-    "DaemonStatus", "DaemonStopRequest",
-    "clear_daemon_control_stop",
+    "DaemonStatus", "DaemonStopRequest", "HostShutdown",
+    "clear_daemon_control_stop", "clear_host_shutdown",
     "continuous_mode_error", "format_spend_status",
-    "read_daemon_control_stop",
+    "read_daemon_control_stop", "read_host_shutdown", "record_host_shutdown",
     "read_continuous_config", "read_continuous_state",
     "read_daemon_status",
     "request_daemon_control_stop", "request_daemon_stop",
