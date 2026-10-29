@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -116,40 +115,6 @@ def test_idle_bounded_instruction_settles_only_when_planner_declares_it(
         assert _visible(tmp_path, role) == [second.revision, standing.revision]
 
 
-def test_legacy_idle_subagent_report_no_longer_rides_along(tmp_path: Path) -> None:
-    # Reports are ephemeral host input since 2026-09-30; an idle one persisted
-    # by older code is revoked once, for every role. A report bound to a running
-    # mission, an ordinary idle instruction, and a report the operator pasted
-    # (with an instruction after it) once reports were ephemeral are unaffected.
-    store = OperatorContextStore(tmp_path)
-    report = "## Subagent Report: job-1\n**Event**: COMPLETED\n\n- **Description**: background task"
-    legacy = store.append(_idle_instruction(report), expected_revision=0)
-    bound = store.append(
-        _idle_instruction(report), expected_revision=1, mission_id="mission-a"
-    )
-    instruction = store.append(_idle_instruction("evaluate the parser"), expected_revision=2)
-    pasted = store.append(
-        replace(
-            _idle_instruction(report + "\n\nRerun it with seed 3."),
-            created_at="2026-10-01T00:00:00Z",
-        ),
-        expected_revision=3,
-    )
-
-    for role in ("planner", "manager"):
-        assert _visible(tmp_path, role) == [pasted.revision, instruction.revision]
-    from argus.core.operator_context import build_settleable_planner_context_block
-
-    _text, _revision, offered = build_settleable_planner_context_block(tmp_path)
-    assert offered == frozenset({instruction.revision, pasted.revision})
-    assert [
-        record.revision
-        for record in store.project("engineer", mission_id="mission-a").directives
-    ] == [bound.revision]
-    assert legacy.revision not in _visible(tmp_path)
-    assert legacy.revision in OperatorContextStore(tmp_path)._load().state["revoked"]
-
-
 def test_settlement_ignores_instructions_that_are_not_idle_planner_input(
     tmp_path: Path,
 ) -> None:
@@ -198,7 +163,6 @@ def test_compaction_drops_settled_idle_instruction_and_keeps_the_rest(
     store.acknowledge("planner", pending.revision, settle=[settled.revision])
 
     store.compact()
-    (tmp_path / "operator_context.json").unlink()
 
     restored = OperatorContextStore(tmp_path)
     assert {record.revision for record in restored.records()} == {keep.revision, pending.revision}

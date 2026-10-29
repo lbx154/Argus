@@ -132,9 +132,10 @@ def _step_from_obj(obj: Any) -> PlanStep | None:
     return None
 
 
-def _loads_json(text: str) -> Any:
-    """Best-effort JSON parse: strip a code fence, else extract the first
-    bracketed region. Returns the parsed object or ``None`` (never raises)."""
+def _loads_json(text: str, pairs: tuple[tuple[str, str], ...] = (("[", "]"), ("{", "}"))) -> Any:
+    """Best-effort JSON parse: strip a code fence, else extract the widest
+    region for each bracket pair in turn. Returns the parsed object or ``None``
+    (never raises)."""
     cleaned = (text or "").strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned).strip()
@@ -142,8 +143,7 @@ def _loads_json(text: str) -> Any:
         return json.loads(cleaned)
     except (ValueError, RecursionError):  # fall through to bracket extraction
         pass
-    # Try the widest list, then the widest object.
-    for opener, closer in (("[", "]"), ("{", "}")):
+    for opener, closer in pairs:
         start = cleaned.find(opener)
         end = cleaned.rfind(closer)
         if start != -1 and end > start:
@@ -246,12 +246,9 @@ def parse_plan_notes(text: str) -> list[str]:
 def _resolve_run_exec(
     runner: Any,
     *,
-    model: str | None = None,
-    reasoning_effort: str = "low",
-    run_label: str = "manager-plan",
-    working_dir: str | None = None,
-    dangerous_yolo: bool = True,
+    run_label: str,
     max_seconds: int | None = None,
+    **options: Any,
 ):  # noqa: ANN202 — returns a callable or None
     """Find a ``run_exec``-capable backend on ``runner`` and wrap it.
 
@@ -259,7 +256,8 @@ def _resolve_run_exec(
     the underlying backend as ``.backend`` / ``._backend`` rather than a top-level
     ``run_exec``. Test stubs and raw backends expose ``run_exec`` directly. We try
     each candidate and return a ``(prompt) -> result`` closure, or ``None`` when no
-    usable backend is found (caller then fails soft)."""
+    usable backend is found (caller then fails soft). ``options`` are passed on to
+    ``RunnerOptions``; ``max_seconds`` starts counting when the prompt is sent."""
     if runner is None:
         return None
     for candidate in (runner, getattr(runner, "backend", None),
@@ -283,11 +281,6 @@ def _resolve_run_exec(
                 _backend,
                 prompt=prompt,
                 options=RunnerOptions(
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    working_dir=working_dir,
-                    dangerous_yolo=dangerous_yolo,
-                    full_auto=not dangerous_yolo,
                     skip_git_repo_check=True,
                     external_interrupt_reason_provider=(
                         (
@@ -301,6 +294,7 @@ def _resolve_run_exec(
                         if deadline is not None
                         else None
                     ),
+                    **options,
                 ),
                 run_label=run_label,
             )
@@ -382,6 +376,7 @@ def draft_plan(
         run_label=run_label,
         working_dir=working_dir,
         dangerous_yolo=dangerous_yolo,
+        full_auto=not dangerous_yolo,
         max_seconds=max_seconds,
     )
     if run_exec is None:

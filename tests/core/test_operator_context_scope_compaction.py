@@ -115,7 +115,6 @@ def test_compaction_preserves_revision_ack_consumption_and_mission_binding(tmp_p
     store.compact()
     assert store.ledger_path.stat().st_size <= 16_000
     assert len(store.records()) == 3
-    (tmp_path / "operator_context.json").unlink()
 
     restored = OperatorContextStore(tmp_path)
     assert restored.revision == before_revision
@@ -148,7 +147,6 @@ def test_legacy_once_without_consumption_evidence_is_not_replayed(tmp_path: Path
     store = OperatorContextStore(tmp_path)
     assert store.project("engineer", consume_once=False).directives == ()
     assert json.loads(path.read_text().splitlines()[0])["format"] == "operator-context-v2"
-    (tmp_path / "operator_context.json").unlink()
     assert OperatorContextStore(tmp_path).project("engineer").directives == ()
 
 
@@ -193,11 +191,7 @@ def test_active_authority_is_not_evicted_when_capacity_is_full(tmp_path: Path) -
     assert len(store.project("engineer").directives) == 2
 
 
-@pytest.mark.parametrize("delete_cache", [False, True])
-def test_missing_canonical_source_cannot_revive_withdrawn_legacy_steering(
-    tmp_path: Path,
-    delete_cache: bool,
-) -> None:
+def test_missing_canonical_source_cannot_revive_withdrawn_legacy_steering(tmp_path: Path) -> None:
     (tmp_path / "STEERING.jsonl").write_text(
         json.dumps(
             {
@@ -216,8 +210,6 @@ def test_missing_canonical_source_cannot_revive_withdrawn_legacy_steering(
     append_revoke(tmp_path, 1, reason="withdraw", expected_revision=1)
     store.compact()
     store.ledger_path.unlink()
-    if delete_cache:
-        (tmp_path / "operator_context.json").unlink()
     with pytest.raises(ValueError, match="source is missing"):
         OperatorContextStore(tmp_path).project("engineer")
     assert not store.ledger_path.exists()

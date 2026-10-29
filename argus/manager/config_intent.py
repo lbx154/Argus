@@ -198,13 +198,13 @@ def localize_config_confirmation(line: str, *, chinese: bool) -> str:
 
 def _apply_config_intent(
     mem: Any,
-    intent: Any,
+    intents: Any,
     chat_state: dict[str, Any],
     *,
     on_confirm: Any = None,
     model_catalog: Callable[[str], Any] | None = None,
 ) -> bool:
-    """Apply a parsed ConfigIntent and persist it to its authoritative file.
+    """Apply parsed ConfigIntents and persist them to their authoritative file.
 
     Backend/model/effort and the host-global budget use knob_store.
     ``model_catalog(backend)`` returns that backend's model ids; a model id
@@ -236,8 +236,7 @@ def _apply_config_intent(
         os.environ.update(values)
         return True
 
-    intents = list(intent) if isinstance(intent, (tuple, list)) else []
-    entries = intents or [intent]
+    entries = list(intents)
     vetted: list[Any] = []
     refusals: list[str] = []
     for entry in entries:
@@ -255,185 +254,77 @@ def _apply_config_intent(
         _confirm(refusal)
     if not vetted:
         return True
-    if intents:
-        intents = vetted
-    else:
-        intent = vetted[0]
-    if intents:
-        from ..core.knobs import normalize_cockpit_knob_value
+    from ..core.knobs import normalize_cockpit_knob_value
 
-        updates: dict[str, str] = {}
-        confirmations: list[str] = []
-        manager_backend: str | None = None
-        quota_knobs = {
-            "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
-        }
-        toggle_knobs = {
-            "safe_mode": "ARGUS_SKILL_SAFE_MODE",
-            "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
-            "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
-        }
-        try:
-            for entry in intents:
-                knob = str(entry.knob)
-                roles = list(entry.roles)
-                if knob == "backend":
-                    value = normalize_cockpit_knob_value(
-                        "ARGUS_SKILL_RUNNER_BACKEND", entry.value
-                    )
-                    updates["ARGUS_SKILL_RUNNER_BACKEND"] = value
-                    manager_backend = value
-                    confirmations.append(f"Set all Argus roles' CLI backend to {value}.")
-                elif knob == "model":
-                    names = (
-                        [_ROLE_MODEL_ENVS[role] for role in roles]
-                        if roles else ["ARGUS_SKILL_MODEL", *_ROLE_MODEL_ENVS.values()]
-                    )
-                    value = normalize_cockpit_knob_value(names[0], entry.value)
-                    updates.update({name: value for name in names})
-                    confirmations.append(
-                        f"Set {' / '.join(r.title() for r in roles) if roles else 'all Argus roles'} "
-                        f"model to {value}."
-                    )
-                elif knob == "effort":
-                    target = roles or list(_ROLE_EFFORT_ENVS)
-                    value = normalize_cockpit_knob_value(
-                        _ROLE_EFFORT_ENVS[target[0]], entry.value
-                    )
-                    updates.update({_ROLE_EFFORT_ENVS[role]: value for role in target})
-                    confirmations.append(
-                        f"Set {' / '.join(r.title() for r in target)} reasoning effort "
-                        f"to {value}."
-                    )
-                elif knob in quota_knobs:
-                    match = re.search(r"\d+(?:\.\d+)?", str(entry.value))
-                    if match is None:
-                        raise ValueError(f"{knob} has no numeric value")
-                    env_var = quota_knobs[knob]
-                    value = normalize_cockpit_knob_value(env_var, match.group(0))
-                    updates[env_var] = value
-                    confirmations.append(f"Set {env_var} = {value}.")
-                elif knob in toggle_knobs:
-                    env_var = toggle_knobs[knob]
-                    value = normalize_cockpit_knob_value(env_var, entry.value)
-                    updates[env_var] = value
-                    confirmations.append(
-                        f"Set {env_var} = {value} ({'on' if value == '1' else 'off'})."
-                    )
-                else:
-                    raise ValueError(f"unsupported config knob: {knob}")
-        except (KeyError, ValueError) as exc:
-            _confirm(f"Could not apply configuration; nothing changed: {exc}")
-            return True
-        if not _set(updates):
-            return True
-        for line in confirmations:
-            _confirm(line)
-        _invalidate_manager_runner(mem, chat_state, backend=manager_backend)
-        return True
-
-    knob = intent.knob
-    roles = list(intent.roles)
-
-    if knob == "backend":
-        from ..core.knobs import normalize_cockpit_knob_value
-
-        try:
-            value = normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", intent.value)
-        except ValueError as exc:
-            _confirm(f"Could not apply backend; nothing changed: {exc}")
-            return True
-        if not _set({"ARGUS_SKILL_RUNNER_BACKEND": value}):
-            return True
-        _confirm(f"Set all Argus roles' CLI backend to {value}.")
-        _invalidate_manager_runner(mem, chat_state, backend=value)
-        return True
-
-    if knob == "model":
-        from ..core.knobs import normalize_cockpit_knob_value
-
-        names = [_ROLE_MODEL_ENVS[r] for r in roles] if roles else [
-            "ARGUS_SKILL_MODEL",
-            *_ROLE_MODEL_ENVS.values(),
-        ]
-        try:
-            values = {n: normalize_cockpit_knob_value(n, intent.value) for n in names}
-        except ValueError:
-            # An unparsed instruction must never reach _set(): it would also land
-            # in os.environ, be inherited by every child process, and outrank the
-            # knob store for the rest of this process's life.
-            _confirm(
-                f"“{intent.value}” is not a model id, so I left the model unchanged. "
-                "Name the model on its own, e.g. “engineer change to claude-opus-5”."
-            )
-            return True
-        if not _set(values):
-            return True
-        model_value = values[names[0]]
-        if roles:
-            _confirm(f"Set {' / '.join(r.title() for r in roles)} model to {model_value}.")
-        else:
-            _confirm(f"Set all Argus roles' model to {model_value}.")
-        _invalidate_manager_runner(mem, chat_state)
-        return True
-
-    if knob == "effort":
-        value = intent.value.strip().lower()
-        target = roles or list(_ROLE_EFFORT_ENVS)
-        # A reasoning-effort knob is a silent no-op on a non-reasoning model —
-        # reject with a grounded explanation instead of pretending to apply it.
-        from ..core.role_config import resolve_role_config
-
-        rcfg = {r: resolve_role_config(r, env=os.environ) for r in target}
-        applicable = [r for r in target if rcfg[r].effort is not None]
-        if not applicable:
-            models = ", ".join(sorted({rcfg[r].model for r in target}))
-            _confirm(f"Current model ({models}) is non-reasoning — reasoning effort "
-                     "does not apply, so I left it unchanged.")
-            return True
-        if not _set({_ROLE_EFFORT_ENVS[role]: value for role in applicable}):
-            return True
-        _confirm(f"Set {' / '.join(r.title() for r in applicable)} reasoning effort to {value}.")
-        _invalidate_manager_runner(mem, chat_state)
-        return True
-
-    # Host capacity limits share the knob_store write path.
+    updates: dict[str, str] = {}
+    confirmations: list[str] = []
+    manager_backend: str | None = None
     quota_knobs = {
         "max_daemons": "ARGUS_SKILL_MAX_ACTIVE_DAEMONS",
     }
-    if knob in quota_knobs:
-        m = re.search(r"\d+(?:\.\d+)?", intent.value)
-        if m is None:
-            return False
-        env_var = quota_knobs[knob]
-        from ..core.knobs import normalize_cockpit_knob_value
-
-        normalized_value = normalize_cockpit_knob_value(env_var, m.group(0))
-        if not _set({env_var: normalized_value}):
-            return True
-        _confirm(f"Set {env_var} = {normalized_value}.")
+    toggle_knobs = {
+        "safe_mode": "ARGUS_SKILL_SAFE_MODE",
+        "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
+        "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
+    }
+    try:
+        for entry in vetted:
+            knob = str(entry.knob)
+            roles = list(entry.roles)
+            if knob == "backend":
+                value = normalize_cockpit_knob_value(
+                    "ARGUS_SKILL_RUNNER_BACKEND", entry.value
+                )
+                updates["ARGUS_SKILL_RUNNER_BACKEND"] = value
+                manager_backend = value
+                confirmations.append(f"Set all Argus roles' CLI backend to {value}.")
+            elif knob == "model":
+                names = (
+                    [_ROLE_MODEL_ENVS[role] for role in roles]
+                    if roles else ["ARGUS_SKILL_MODEL", *_ROLE_MODEL_ENVS.values()]
+                )
+                value = normalize_cockpit_knob_value(names[0], entry.value)
+                updates.update({name: value for name in names})
+                confirmations.append(
+                    f"Set {' / '.join(r.title() for r in roles) if roles else 'all Argus roles'} "
+                    f"model to {value}."
+                )
+            elif knob == "effort":
+                target = roles or list(_ROLE_EFFORT_ENVS)
+                value = normalize_cockpit_knob_value(
+                    _ROLE_EFFORT_ENVS[target[0]], entry.value
+                )
+                updates.update({_ROLE_EFFORT_ENVS[role]: value for role in target})
+                confirmations.append(
+                    f"Set {' / '.join(r.title() for r in target)} reasoning effort "
+                    f"to {value}."
+                )
+            elif knob in quota_knobs:
+                match = re.search(r"\d+(?:\.\d+)?", str(entry.value))
+                if match is None:
+                    raise ValueError(f"{knob} has no numeric value")
+                env_var = quota_knobs[knob]
+                value = normalize_cockpit_knob_value(env_var, match.group(0))
+                updates[env_var] = value
+                confirmations.append(f"Set {env_var} = {value}.")
+            elif knob in toggle_knobs:
+                env_var = toggle_knobs[knob]
+                value = normalize_cockpit_knob_value(env_var, entry.value)
+                updates[env_var] = value
+                confirmations.append(
+                    f"Set {env_var} = {value} ({'on' if value == '1' else 'off'})."
+                )
+            else:
+                raise ValueError(f"unsupported config knob: {knob}")
+    except (KeyError, ValueError) as exc:
+        _confirm(f"Could not apply configuration; nothing changed: {exc}")
         return True
-
-    if knob in ("safe_mode", "show_reasoning", "telegram"):
-        env_var = {
-            "safe_mode": "ARGUS_SKILL_SAFE_MODE",
-            "show_reasoning": "ARGUS_SKILL_SHOW_REASONING",
-            "telegram": "ARGUS_SKILL_ENABLE_TELEGRAM",
-        }[knob]
-        v = intent.value.strip().lower()
-        on = v in ("on", "1", "true", "yes", "enable", "enabled",
-                   "开", "打开", "开启", "启用")
-        off = v in ("off", "0", "false", "no", "disable", "disabled",
-                    "关", "关闭", "关掉", "停用", "禁用")
-        if on == off:  # neither recognized, or contradictory — don't guess
-            return False
-        val = "1" if on else "0"
-        if not _set({env_var: val}):
-            return True
-        _confirm(f"Set {env_var} = {val} ({'on' if on else 'off'}).")
+    if not _set(updates):
         return True
-
-    return False
+    for line in confirmations:
+        _confirm(line)
+    _invalidate_manager_runner(mem, chat_state, backend=manager_backend)
+    return True
 
 __all__ = [
     "_apply_config_intent",

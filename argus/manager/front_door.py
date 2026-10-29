@@ -838,60 +838,6 @@ def prepare_manager_execution_task(
         raise ManagerHandoffError(f"Manager handoff failed: {exc}") from exc
 
 
-def _manager_divide_user_task(
-    mem: Any,
-    body: str,
-    chat_state: dict[str, Any],
-    *,
-    root_task_id: str | None = None,
-    ensure_runner: Callable[[dict[str, Any], Any], Any] | None = None,
-) -> Any:
-    """Run Manager division for an operator-submitted task before enqueue.
-
-    This is intentionally a USER-ENTRY gate. Planner-generated backlog items are
-    already the Planner's decomposition and must not be routed back through
-    Manager again.
-
-    The caller surfaces progress through the Web/TUI event stream while this
-    blocking Manager decision runs.
-    """
-    try:
-        prepared = prepare_manager_execution_task(
-            mem,
-            body,
-            chat_state,
-            root_task_id=root_task_id,
-            ensure_runner=ensure_runner,
-        )
-    except ManagerHandoffError:
-        return None
-    try:
-        with _operator_pipeline_lock(prepared):
-            division = prepared.commit(acquire_lock=False)
-            prepared.completed(division)
-            return division
-    except Exception as exc:  # noqa: BLE001
-        prepared.failed(exc)
-        return None
-
-
-def manager_execution_task(
-    mem: Any,
-    body: str,
-    chat_state: dict[str, Any],
-    *,
-    root_task_id: str | None = None,
-) -> str:
-    """Return Manager's role-clean Planner/Engineer handoff or fail closed."""
-    division = _manager_divide_user_task(
-        mem,
-        body,
-        chat_state,
-        root_task_id=root_task_id,
-    )
-    return require_manager_execution_task(division)
-
-
 def manager_bounded_handoff(
     mem: Any,
     body: str,
@@ -1351,9 +1297,7 @@ __all__ = [
     "_ensure_manager_runner",
     "_extract_chat_reply_text",
     "_life_dir_for",
-    "_manager_divide_user_task",
     "_maybe_name_session",
-    "manager_execution_task",
     "manager_bounded_handoff",
     "manager_continuous_handoff",
     "manager_ticket",

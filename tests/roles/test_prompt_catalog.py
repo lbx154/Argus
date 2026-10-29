@@ -11,10 +11,6 @@ from argus.roles.prompts import (
 from argus.roles.prompts.engineer import (
     mission_request,
 )
-from argus.roles.prompts.planner import (
-    continuous_request,
-    preview_request,
-)
 from argus.skills.vertical_select import persist_vertical
 from argus.verticals._base import load_vertical_contract
 
@@ -43,12 +39,3 @@ def test_unknown_role_operation_fails_loudly(tmp_path) -> None:
                 checklist_mode=ChecklistMode.NONE,
             )
         )
-
-
-def test_planner_preview_uses_same_vertical_banner(optimize_vertical, tmp_path) -> None:
-    persist_vertical(tmp_path, optimize_vertical)
-
-    preview = resolve_role_prompt(preview_request(tmp_path))
-    continuous = resolve_role_prompt(continuous_request(tmp_path))
-
-    assert preview.role_banner == continuous.role_banner

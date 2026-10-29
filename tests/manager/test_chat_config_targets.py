@@ -69,7 +69,7 @@ def test_model_is_vetted_against_the_backend_switched_to_in_the_same_message(hom
 def test_role_model_is_vetted_against_the_shared_backend(home, monkeypatch) -> None:
     monkeypatch.setenv("ARGUS_SKILL_PLANNER_BACKEND", "pi")  # retired, ignored
     monkeypatch.setenv("ARGUS_SKILL_RUNNER_BACKEND", "pi")
-    intent = ConfigIntent(knob="model", roles=("planner",), value="local-m")
+    intent = (ConfigIntent(knob="model", roles=("planner",), value="local-m"),)
     lines: list[str] = []
 
     assert _apply_config_intent(home, intent, {}, on_confirm=lines.append, model_catalog=_catalog)
@@ -77,14 +77,14 @@ def test_role_model_is_vetted_against_the_shared_backend(home, monkeypatch) -> N
     assert read_persisted_knobs()[_ROLE_MODEL_ENVS["planner"]] == "local-m", lines
     assert os.environ[_ROLE_MODEL_ENVS["planner"]] == "local-m"
 
-    other = ConfigIntent(knob="model", roles=("planner",), value="house-a")
+    other = (ConfigIntent(knob="model", roles=("planner",), value="house-a"),)
     assert _apply_config_intent(home, other, {}, on_confirm=lines.append, model_catalog=_catalog)
     assert read_persisted_knobs()[_ROLE_MODEL_ENVS["planner"]] == "local-m"
     assert "pi" in lines[-1]
 
 
 def test_a_backend_change_is_one_setting_for_every_role(home) -> None:
-    intent = ConfigIntent("backend", (), "copilot")
+    intent = (ConfigIntent("backend", (), "copilot"),)
     lines: list[str] = []
 
     assert _apply_config_intent(home, intent, {}, on_confirm=lines.append, model_catalog=_catalog)
@@ -98,7 +98,7 @@ def test_a_backend_change_is_one_setting_for_every_role(home) -> None:
 def test_config_change_grounding_note_is_tagged_as_config(home, tmp_path) -> None:
     import json
 
-    intent = ConfigIntent("effort", (), "high")
+    intent = (ConfigIntent("effort", (), "high"),)
     assert _apply_config_intent(home, intent, {}, on_confirm=lambda _line: None, model_catalog=_catalog)
 
     notes = [
