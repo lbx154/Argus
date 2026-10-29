@@ -52,8 +52,13 @@ describe('starting and revisiting work', () => {
     expect(chat().props.value).toContain('不编造依据');
     expect(view.root.findAllByType('button').some(node => node.props['aria-label'] === 'sidebar.create' || text(node) === 'landing.new')).toBe(false);
     await act(async () => { await chat().props.onSend('first question', []); });
-    expect(onSubmit).toHaveBeenCalledWith('first question', []);
+    // With no directory named, the project gets a new one.
+    expect(onSubmit).toHaveBeenCalledWith('first question', [], '');
     expect(chat().props.value).toContain('不编造依据');
+    // A directory on the server the operator names is where it works.
+    act(() => view.root.findByProps({ list: 'landing-workdirs' }).props.onChange({ target: { value: '  ~/repo ' } }));
+    await act(async () => { await chat().props.onSend('second question', []); });
+    expect(onSubmit).toHaveBeenLastCalledWith('second question', [], '~/repo');
   });
 
   it('lets a narrow-screen search reader return to results without opening a project', async () => {

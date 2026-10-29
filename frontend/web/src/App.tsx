@@ -1359,7 +1359,7 @@ export default function App() {
             if (selection) { openDelivery(selection.receipt, selection.path); setSidebarOpen(false); }
           }}
           resultsCount={loadedSid ? deliveryHistory.length : 0}
-          onNew={() => startNewSession()}
+          onNew={() => { startNewSession(); setSidebarOpen(false); }}
           onSearch={() => setSearchOpen(true)}
           // The trial portal owns sign-in; a token kept here is this browser's own.
           onSignOut={import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' || !holdsToken() ? undefined : signOut}
@@ -1628,17 +1628,18 @@ export default function App() {
               if (activeSid) void snapQ.refetch();
             }}
             onNew={startNewSession}
-            onSubmit={async (text, files) => {
+            onSubmit={async (text, files, workdir) => {
               if (homeRequest.current) return false;
               homeRequest.current = { text, files };
               setWorkspaceView('activity'); setMobileView('activity');
-              const created = await createDaemon('', '', '', text);
+              const created = await createDaemon('', '', workdir, text);
               if (!created) homeRequest.current = null;
               return created;
             }}
             onChoose={() => setSidebarOpen(true)}
             canCreate={!kiosk}
             creating={creatingDaemon}
+            workdirs={[...new Set(projects.map(project => project.workdir).filter((path): path is string => Boolean(path)))]}
           />
         )}
       </main>
