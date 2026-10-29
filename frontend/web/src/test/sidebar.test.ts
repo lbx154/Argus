@@ -144,7 +144,7 @@ describe('Sidebar session identity and health', () => {
   it('shares the selected task state while other rows describe only their background process', () => {
     const projects = rows.map(row => ({ ...row, daemon_alive: true, uptime_seconds: 120 }));
     const activeWork = { sessionId: 'local', connected: true, status: {
-      state: 'paused', role: '', taskId: 'author-facts', title: 'Author details',
+      state: 'paused', role: '', roles: [], taskId: 'author-facts', title: 'Author details',
       activityAt: null, activityAgeSeconds: null, reason: 'operator_input',
     } satisfies WorkStatus };
     const markup = sidebarMarkup(projects, activeWork);

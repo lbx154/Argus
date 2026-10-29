@@ -18,7 +18,7 @@ function running(): Snapshot {
     backlog: [
       { id: 'done-1', title: '整理基准', objective: '', status: 'done', priority: 1, started_ts: NOW - 5000, finished_ts: NOW - 4000 },
       { id: 'skip-1', title: '跳过的', objective: '', status: 'skipped', priority: 1 },
-      { id: 'task-2', title: '新方法第三轮训练', objective: '', status: 'running', priority: 1, started_ts: NOW - 900 },
+      { id: 'task-2', title: '新方法第三轮训练', objective: '', status: 'in_progress', priority: 1, started_ts: NOW - 900 },
       { id: 'task-3', title: '修复评测脚本', objective: '', status: 'pending', priority: 1 },
     ],
     recent_events: [],
@@ -73,18 +73,13 @@ describe('what the project is doing right now', () => {
     expect(later.lines.at(-1)).toMatchObject({ running: false });
   });
 
-  it('is honest when nothing moves: quiet first, stuck only when the daemon says so', () => {
+  it('is honest when nothing moves: it says how long it has been quiet', () => {
     const old = work.map((event) => ({ ...event, ts: Number(event.ts) - QUIET_AFTER_S - 600 }));
     const snapshot = running();
     snapshot.backlog[2].started_ts = NOW - 5000;
     const quiet = liveActivity(snapshot, null, old, NOW, 'zh-CN');
     expect(quiet.tone).toBe('quiet');
     expect(quiet.note).toMatch(/分钟没有新动作/);
-    snapshot.daemon.health = { stalled: true };
-    snapshot.roles = [];
-    const stalled = liveActivity(snapshot, null, old, NOW, 'zh-CN');
-    expect(stalled.tone).toBe('stalled');
-    expect(stalled.note).toMatch(/可能卡住了/);
   });
 
   it('counts only work, not conversation turns, as actions', () => {

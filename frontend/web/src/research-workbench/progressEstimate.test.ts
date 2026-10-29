@@ -16,7 +16,7 @@ function snapshot(overrides: { alive?: boolean; activeStatus?: string; reviewSta
   const complete = overrides.complete ?? false;
   const backlog = [
     { id: 'done', title: 'Completed task', objective: '', status: 'done', priority: 1, started_ts: 100, finished_ts: 300 },
-    { id: 'active', title: 'Current task', objective: 'Run probe', status: complete ? 'done' : overrides.activeStatus ?? 'running', priority: 2, started_ts: 900, finished_ts: complete ? 990 : null },
+    { id: 'active', title: 'Current task', objective: 'Run probe', status: complete ? 'done' : overrides.activeStatus ?? 'in_progress', priority: 2, started_ts: 900, finished_ts: complete ? 990 : null },
   ];
   const view = emptyMissionView();
   Object.assign(view.mission, { id: 'active', title: 'Current task', objective: 'Run probe', status: complete ? 'complete' : 'working', started_at: 900, completed_at: complete ? 990 : null, elapsed_seconds: 100, campaign_started_at: 100, campaign_elapsed_seconds: 900 });
@@ -31,7 +31,8 @@ function snapshot(overrides: { alive?: boolean; activeStatus?: string; reviewSta
     daemon: { alive: overrides.alive ?? true, pid: 1, uptime_seconds: 500, backend: 'pi', health: { state: overrides.alive === false ? 'stopped' : 'active', seconds_since_progress: 2 } },
     roles: [
       { role: 'planner', backend: 'pi', backend_label: 'Pi', model: 'm', effort: null, active: false, label: 'done', status: 'done', age_s: 1 },
-      { role: 'engineer', backend: 'pi', backend_label: 'Pi', model: 'm', effort: null, active: !complete, label: 'running command', status: complete ? 'done' : 'running', age_s: 1 },
+      // As the server says it: a role is at work only while the run is.
+      { role: 'engineer', backend: 'pi', backend_label: 'Pi', model: 'm', effort: null, active: !complete && overrides.alive !== false, label: 'running command', status: complete ? 'done' : 'running', age_s: 1 },
     ],
     backlog,
     recent_events: [],
@@ -101,8 +102,9 @@ describe('deriveProgressEstimate', () => {
     expect(result.taskEvents).toHaveLength(1);
     expect(result.taskEvents[0].action_summary).toBe('running probe');
     expect(result.currentDetail).toContain('run_probe.py');
-    expect(result.runtime.state).toBe('unknown');
-    expect(result.currentStep).toBe('暂时无法确认任务进度');
+    // Two tasks under way and a role at work: running, and the step is this task's own.
+    expect(result.runtime.state).toBe('running');
+    expect(result.currentStep).toBe('running probe');
   });
 
   it('does not claim current execution or grow elapsed time after the daemon stops', () => {
@@ -117,7 +119,7 @@ describe('deriveProgressEstimate', () => {
   it('reports a completed work item without inventing a passed review or a completed project', () => {
     const result = deriveProgressEstimate(snapshot({ complete: true }), events, 1_000);
     expect(result.workCompletion).toBe(1);
-    expect(result.currentStep).toBe('这一步已结束');
+    expect(result.currentStep).toBe('等待下一步工作');
     expect(result.elapsedSeconds).toBe(90);
     expect(reviewCheckpoint(result)?.status).toBe('pending');
     expect(result.review.state).toBe('pending');
@@ -264,7 +266,7 @@ describe('deriveProgressEstimate', () => {
 
   it('localizes generated explanations without changing project content', () => {
     const result = deriveProgressEstimate(snapshot({ complete: true }), events, 1_000, 'en');
-    expect(result.currentStep).toBe('This step has ended');
+    expect(result.currentStep).toBe('Waiting for the next step');
     expect(result.review.label).toBe('Conclusion awaiting review');
     expect(result.review.scope).toContain('Current work item · Round 1');
     expect(result.currentTask).toBe('Current task');

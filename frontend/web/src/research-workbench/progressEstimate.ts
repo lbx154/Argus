@@ -85,7 +85,7 @@ export function deriveProgressEstimate(snapshot: Snapshot, events: EventMsg[], n
   const text = (zh: string, en: string) => locale === 'zh-CN' ? zh : en;
   const view = snapshot.mission_view;
   const runtime = currentWorkStatus(snapshot, view, events, nowSeconds);
-  const current = currentBacklogItem(snapshot, runtime.taskId || view?.mission.id || '');
+  const current = currentBacklogItem(snapshot, view?.mission.id || runtime.taskId);
   const taskId = current?.id || view?.mission.id || '';
   const matchesView = Boolean(taskId && taskId === view?.mission.id);
   const dag = view?.dag?.length ? view.dag : snapshot.backlog;

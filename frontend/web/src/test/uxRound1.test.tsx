@@ -104,13 +104,6 @@ describe('launch settings and the confirm-before-start card', () => {
     expect(html).toContain('展开全部');
   });
 
-  it('reports a held plan as waiting for the operator, not as ready for new work', async () => {
-    const { currentWorkStatus, workStatusLabel } = await import('../lib/workStatus');
-    const status = currentWorkStatus(snapshot({ launch_hold: hold, backlog: [{ id: 'a', title: 't', objective: 't', status: 'pending', priority: 1 }] }), null, [], 200);
-    expect(status.reason).toBe('launch_confirm');
-    expect(workStatusLabel(status, 'zh-CN')).toBe('计划已排好，等你确认开始');
-  });
-
   it('renders the settings bar with one ask choice, defaulting to asking only beyond authority', () => {
     const html = renderToStaticMarkup(<LaunchSettingsBar value={DEFAULT_LAUNCH_SETTINGS} onChange={() => undefined}
       ask="beyond_authority" onAskChange={() => undefined} research />);

@@ -27,7 +27,7 @@ describe('team status and controls', () => {
     expect(teamPhase(status('running'))).toBe('running');
     expect(teamPhase(status('paused', 'operator_input'))).toBe('waiting_you');
     expect(teamPhase(status('paused', 'not_running'))).toBe('paused');
-    expect(teamPhase(status('step_finished'))).toBe('done');
+    expect(teamPhase(status('idle'))).toBe('done');
     expect(['running', 'waiting_you', 'paused', 'done'].map((phase) => teamPhaseLabel(phase as never, 'zh-CN')))
       .toEqual(['运行中', '等你回复', '已暂停', '已完成']);
   });

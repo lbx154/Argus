@@ -51,11 +51,10 @@ function LineRow({ line, zh, roleName }: { line: LiveLine; zh: boolean; roleName
  * the current step, who is on it, its latest actions, and plainly why it is
  * not moving when that is the case.
  */
-export function LiveWorkCard({ snapshot, view, events, onPause }: {
+export function LiveWorkCard({ snapshot, view, events }: {
   snapshot: Snapshot;
   view: MissionView | null | undefined;
   events: EventMsg[];
-  onPause?: () => void;
 }) {
   const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
@@ -95,10 +94,7 @@ export function LiveWorkCard({ snapshot, view, events, onPause }: {
         {expanded ? <><ChevronUp size={13} aria-hidden="true" />{zh ? '收起' : 'Less'}</> : <><ChevronDown size={13} aria-hidden="true" />{zh ? `展开过程（${activity.lines.length}）` : `Show all (${activity.lines.length})`}</>}
       </button> : null}
     </header>
-    {activity.note ? <p className="live-work-note">
-      {activity.note}
-      {activity.tone === 'stalled' && onPause ? <button type="button" onClick={onPause}>{zh ? '暂停' : 'Pause'}</button> : null}
-    </p> : null}
+    {activity.note ? <p className="live-work-note">{activity.note}</p> : null}
     {visible.length ? <ol className="live-work-lines">
       {visible.map((line) => <LineRow key={line.key} line={line} zh={zh} roleName={roleName} />)}
     </ol> : <p className="live-work-empty">{zh ? '已开始，第一批动作出现后会显示在这里。' : 'Started. The first actions will appear here.'}</p>}

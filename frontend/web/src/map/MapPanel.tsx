@@ -1235,7 +1235,7 @@ export function MapCanvas({
     paused,
     hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
     role: activePhase,
-    current: data.kind === 'live' && !['idle', 'step_finished'].includes(status.state) ? currentWork : undefined,
+    current: data.kind === 'live' && status.state !== 'idle' ? currentWork : undefined,
     zh,
   });
   const focus = (id: string) => {

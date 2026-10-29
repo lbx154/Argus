@@ -1,6 +1,5 @@
-import type { DeliveryReceipt, EventMsg, MissionView, Snapshot } from '../../../core/src/types';
+import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
 import { operatorDecisionCards } from '../../../core/src/decisions';
-import { currentWorkStatus } from './workStatus';
 import type { ProgressHealth } from './progressHealth';
 
 export type AttentionKind = 'reply' | 'done' | 'stage' | 'error';
@@ -15,11 +14,10 @@ export interface Attention {
 
 /** The one thing that needs the operator in this project, if any. Replies come first. */
 export function projectAttention({
-  snapshot, view, events = [], complete, delivery, health, zh,
+  snapshot, view, complete, delivery, health, zh,
 }: {
   snapshot: Snapshot | undefined;
   view?: MissionView | null;
-  events?: EventMsg[];
   /** The operator's whole task finished (no queued work, no standing campaign). */
   complete: boolean;
   delivery?: DeliveryReceipt | null;
@@ -47,10 +45,6 @@ export function projectAttention({
       title: health.problem === 'repeated_failures' ? (zh ? '连续几个任务没有完成' : 'Several tasks in a row did not finish') : (zh ? '很久没有新的成果' : 'No new result for a long time'),
       body: health.latestFailure?.title || '',
     };
-  }
-  const status = currentWorkStatus(snapshot, view, events);
-  if (status.reason === 'task_failed' && status.taskId) {
-    return { kind: 'error', key: `error:${status.taskId}`, title: zh ? '任务没有完成' : 'A task did not finish', body: status.title };
   }
   if (complete && view?.mission.id) {
     return { kind: 'done', key: `done:${view.mission.id}`, title: zh ? '任务已完成' : 'Task finished', body: delivery?.title || view.mission.title };

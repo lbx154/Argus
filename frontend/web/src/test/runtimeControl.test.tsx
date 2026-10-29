@@ -61,15 +61,15 @@ describe('embedded runtime control page', () => {
     expect(button('Working…').props.disabled).toBe(true);
     expect(props.controls.start).not.toHaveBeenCalled();
   });
-  it('distinguishes queued work from an interrupted active task', async () => {
+  it('offers to resume work that stopped with a task not done, queued or under way', async () => {
     const task = { id: 'task-1', title: 'A task', objective: '', status: 'pending', priority: 1 };
-    props.snapshot = { ...snap, backlog: [task] };
-    await mount();
-    expect(button('Start work').props.disabled).toBe(false);
-    props.snapshot = { ...snap, backlog: [{ ...task, status: 'in_progress' }] };
-    await act(async () => tree!.update(element()));
-    expect(JSON.stringify(tree!.toJSON())).toContain('The current task is not running');
-    expect(button('Resume').props.disabled).toBe(false);
+    for (const status of ['pending', 'in_progress']) {
+      props.snapshot = { ...snap, backlog: [{ ...task, status }] };
+      if (tree) await act(async () => tree!.update(element()));
+      else await mount();
+      expect(JSON.stringify(tree!.toJSON())).toContain('The current task is not running');
+      expect(button('Resume').props.disabled).toBe(false);
+    }
   });
   it('is a page, not a modal, with no duplicate work composer or skill entry', () => {
     const html = renderToStaticMarkup(element());

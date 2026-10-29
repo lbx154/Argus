@@ -637,12 +637,11 @@ export default function App() {
   const attention = useMemo(() => projectAttention({
     snapshot: loadedSid ? snap : undefined,
     view: missionView,
-    events: activityEvents,
     complete: operatorTaskComplete,
     delivery,
     health,
     zh: locale === 'zh-CN',
-  }), [loadedSid, snap, missionView, activityEvents, operatorTaskComplete, delivery, health, locale]);
+  }), [loadedSid, snap, missionView, operatorTaskComplete, delivery, health, locale]);
   const projectBusy = useMemo(() => {
     if (!snap?.daemon.alive) return false;
     const state = currentWorkStatus(snap, missionView, events).state;
@@ -1483,7 +1482,6 @@ export default function App() {
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}
-                    onPauseWork={snap.daemon.alive && !kiosk ? requestPauseDaemon : undefined}
                     onResumeWork={kiosk || daemonBusy ? undefined : requestStartDaemon}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded

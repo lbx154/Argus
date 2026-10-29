@@ -19,7 +19,7 @@ export interface LiveLine {
 export interface LiveActivity {
   /** Nothing to show: not running, or the conversation itself already shows the work. */
   show: boolean;
-  tone: 'working' | 'waiting' | 'quiet' | 'stalled';
+  tone: 'working' | 'waiting' | 'quiet';
   role: string;
   headline: string;
   taskTitle: string;
@@ -108,8 +108,6 @@ export function taskNow(
 
 function headlineFor(status: WorkStatus, zh: boolean, title: string): string {
   const task = shortWorkText(title, 60);
-  if (status.reason === 'provider_wait') return zh ? '模型服务繁忙，稍后自动重试' : 'The model service is busy; retrying shortly';
-  if (status.reason === 'no_recent_progress') return zh ? '暂时没有新进展' : 'No new progress for a while';
   switch (status.role) {
     case 'planner': return zh ? '正在安排下一步' : 'Planning the next step';
     case 'reviewer': return task ? (zh ? `正在审核：${task}` : `Reviewing: ${task}`) : (zh ? '正在审核结果' : 'Reviewing the result');
@@ -150,7 +148,7 @@ export function liveActivity(
   const started = taskId ? currentWorkStartedAt(snapshot, view, taskId) : Date.parse(snapshot.daemon.started_at_iso || '') / 1000 || 0;
   const own = ownEvents(events, taskId, started);
   // Hidden events (reasoning, tool output) still show the step is moving.
-  const lastAt = Math.max(status.activityAt || 0, ...own.map((event) => Number(event.ts || 0))) || null;
+  const lastAt = Math.max(0, ...own.map((event) => Number(event.ts || 0))) || null;
   // Some agents never echo a successful call, so "still running" holds only
   // for the very last action, and only while nothing at all came after it.
   const lines = linesFrom(own, locale, snapshot.session.workdir || snapshot.session.cwd).map((line, index, all) => ({
@@ -162,15 +160,8 @@ export function liveActivity(
   const quietFor = lastAt === null ? null : nowSeconds - lastAt;
   let tone: LiveActivity['tone'] = status.state === 'running' ? 'working' : 'waiting';
   let note = '';
-  if (status.reason === 'provider_wait') {
-    note = zh ? '模型服务这次没有完成请求，稍后自动重试。' : 'The model service did not complete the request; retrying shortly.';
-  } else if (lastLine?.running && quietFor !== null) {
+  if (lastLine?.running && quietFor !== null) {
     note = zh ? `命令仍在运行，已运行 ${minutes(nowSeconds - lastLine.ts, zh)}` : `The command is still running (${minutes(nowSeconds - lastLine.ts, zh)})`;
-  } else if (status.reason === 'no_recent_progress') {
-    tone = 'stalled';
-    note = quietFor !== null
-      ? zh ? `已经 ${minutes(quietFor, zh)}没有新进展，可能卡住了。可以先暂停，再调整要求。` : `No progress for ${minutes(quietFor, zh)}; it may be stuck. You can pause and adjust the request.`
-      : zh ? '一直没有收到进展，可能卡住了。可以先暂停，再调整要求。' : 'No progress has arrived; it may be stuck. You can pause and adjust the request.';
   } else if (quietFor !== null && quietFor > QUIET_AFTER_S) {
     tone = 'quiet';
     note = zh ? `${minutes(quietFor, zh)}没有新动作，可能在等命令或模型返回。` : `No new action for ${minutes(quietFor, zh)}; probably waiting on a command or the model.`;

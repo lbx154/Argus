@@ -4,7 +4,7 @@ import type { MissionRoleWorkItem } from '../../../core/src/types';
 import { workSummary } from '../lib/workSummary';
 import type { WorkStatus } from '../lib/workStatus';
 
-const status: WorkStatus = { state: 'running', role: 'engineer', taskId: 'login', title: '修复登录错误',
+const status: WorkStatus = { state: 'running', role: 'engineer', roles: ['engineer'], taskId: 'login', title: '修复登录错误',
   activityAt: 210, activityAgeSeconds: 0, reason: '' };
 const record = (id: string, detail: string, ts = 210, item_id = 'login'): MissionRoleWorkItem => ({
   id, detail, ts, item_id, role: 'engineer', title: '', kind: 'agent_message', status: 'active',
@@ -24,13 +24,13 @@ describe('human task progress', () => {
     expect(workSummary(status, view, [], 'zh-CN')).toBe('已实现并导出 format_mib：复用 _check，24 passed，sizefmt/__init__.py 已导出。');
   });
 
-  it('does not reuse a previous attempt or claim success from a failed result', () => {
+  it('does not reuse a previous attempt, and says nothing of one once the run is over', () => {
     const view = emptyMissionView();
     Object.assign(view.mission, { id: 'login', started_at: 200 });
     view.role_work = [record('old', '已修复全部问题。', 100)];
     expect(workSummary(status, view, [], 'zh-CN')).toBe('正在处理：修复登录错误');
-    expect(workSummary({ ...status, state: 'step_finished', reason: 'task_failed' }, view, [], 'zh-CN'))
-      .toBe('这一步执行未完成');
+    expect(workSummary({ ...status, state: 'paused', reason: 'not_running' }, view, [], 'zh-CN'))
+      .toBe('当前任务未在运行');
   });
 
   it('uses an explicit boot boundary even when the view has no start time', () => {
@@ -55,8 +55,8 @@ describe('human task progress', () => {
   it('reports waiting, user input and a lost connection without inventing activity', () => {
     expect(workSummary({ ...status, state: 'paused', reason: 'operator_input' }, null, [], 'zh-CN'))
       .toBe('有个问题在等你回答');
-    expect(workSummary({ ...status, state: 'waiting', reason: 'no_recent_progress' }, null, [], 'zh-CN'))
-      .toBe('暂时没有收到新的进展');
+    expect(workSummary({ ...status, state: 'waiting', reason: 'awaiting_next_step' }, null, [], 'zh-CN'))
+      .toBe('等待下一步工作');
     expect(workSummary(status, null, [], 'zh-CN', false)).toBe('实时连接已断开');
   });
 });

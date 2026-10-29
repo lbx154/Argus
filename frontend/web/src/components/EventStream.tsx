@@ -823,7 +823,7 @@ const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [stri
  * A task in the conversation: one line on where it stands, and its results.
  * What its roles said is the team's progress below, said there once.
  */
-function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDelivery, onPause }: {
+function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDelivery }: {
   block: Extract<TimelineBlock, { kind: 'task' }>;
   state: TaskCardState;
   title: string;
@@ -831,7 +831,6 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDeliv
   view?: MissionView | null;
   events: EventMsg[];
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
-  onPause?: () => void;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -859,7 +858,6 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDeliv
         </div>
         {activity?.note ? <p className="mt-1 pl-[17px] text-xs text-ink-faint">
           {activity.note}
-          {activity.tone === 'stalled' && onPause ? <button type="button" onClick={onPause} className="ml-2 text-blue-sky">{zh ? '暂停' : 'Pause'}</button> : null}
         </p> : null}
       </div>
       {block.deliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
@@ -1006,7 +1004,6 @@ export function EventStream({
   historyStatus = 'ready',
   historyRefreshing = false,
   refreshingKept = false,
-  onPauseWork,
   onRetryHistory,
   onCompose,
   rememberPosition = false,
@@ -1032,7 +1029,6 @@ export function EventStream({
   /** Showing content kept from an earlier visit while it refreshes. */
   refreshingKept?: boolean;
   /** Offered on a running task's card when it looks stuck. */
-  onPauseWork?: () => void;
   onRetryHistory?: () => void;
   onCompose?: (text: string) => void;
   rememberPosition?: boolean;
@@ -1302,7 +1298,7 @@ export function EventStream({
               />;
               return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={blockTitle(block)}
                 snapshot={snapshot} view={missionView} events={deferredEvents}
-                onOpenDelivery={onOpenDelivery} onPause={onPauseWork} />;
+                onOpenDelivery={onOpenDelivery} />;
             })}
             {/* The team's progress: each role, what it does now or did last, its work a click away. */}
             {timeline.workRows.length || snapshot?.roles.some(role => role.last) ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}

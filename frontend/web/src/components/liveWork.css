@@ -1,6 +1,5 @@
 /* The work in progress, pinned above the composer while the project runs. */
 .live-work { margin: 0 auto 8px; max-width: 896px; border: 1px solid rgb(var(--line)); border-radius: 12px; background: rgb(var(--surface)); padding: 9px 12px; font-size: 12px; color: rgb(var(--ink-dim)); animation: live-work-enter 220ms cubic-bezier(.32,.72,0,1); }
-.live-work[data-tone='stalled'] { border-color: rgb(var(--warn) / .55); }
 .live-work-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .live-work-title { min-width: 0; flex: 1; }
 .live-work-headline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; color: rgb(var(--ink)); }
@@ -14,13 +13,10 @@
 .live-work-pulse::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: rgb(var(--blue) / .35); animation: live-work-ring 1.6s ease-out infinite; }
 .live-work[data-tone='waiting'] .live-work-pulse > span { background: rgb(var(--warn)); }
 .live-work[data-tone='waiting'] .live-work-pulse::before { background: rgb(var(--warn) / .3); animation-duration: 2.6s; }
-.live-work[data-tone='quiet'] .live-work-pulse > span, .live-work[data-tone='stalled'] .live-work-pulse > span { background: rgb(var(--ink-faint)); }
-.live-work[data-tone='quiet'] .live-work-pulse::before, .live-work[data-tone='stalled'] .live-work-pulse::before { animation: none; opacity: 0; }
-.live-work[data-tone='stalled'] .live-work-pulse > span { background: rgb(var(--warn)); }
+.live-work[data-tone='quiet'] .live-work-pulse > span { background: rgb(var(--ink-faint)); }
+.live-work[data-tone='quiet'] .live-work-pulse::before { animation: none; opacity: 0; }
 
-.live-work-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 6px 0 0 24px; color: rgb(var(--ink-dim)); line-height: 1.5; }
-.live-work[data-tone='stalled'] .live-work-note { color: rgb(var(--warn)); }
-.live-work-note button { border-radius: 8px; border: 1px solid rgb(var(--line)); padding: 2px 8px; color: rgb(var(--ink)); }
+.live-work-note { margin: 6px 0 0 24px; color: rgb(var(--ink-dim)); line-height: 1.5; }
 .live-work-empty { margin: 6px 0 0 24px; color: rgb(var(--ink-faint)); }
 
 .live-work-lines { margin: 6px 0 0 24px; padding: 0; list-style: none; display: grid; gap: 3px; }
