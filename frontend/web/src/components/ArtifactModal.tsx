@@ -55,6 +55,10 @@ export function ArtifactModal({
   const linked = [...artifacts, ...files.map((file) => ({ path: file.path }))];
   const artifactQ = useArtifact(sid, path);
   const info = artifactQ.data;
+  // A result is named by its own title: the letter's first line, else its main file's first heading, else that file's name.
+  const main = delivery?.primary_target?.path ?? null;
+  const mainQ = useArtifact(sid, delivery?.title ? null : main);
+  const deliveryTitle = delivery?.title || /^#+\s+(.+)$/m.exec(mainQ.data?.preview ?? '')?.[1]?.trim() || main?.split('/').at(-1) || '';
   const foundation = info?.source === 'reader_foundation' ? info.reader_foundation : undefined;
   const progressSnapshot = info?.source === 'progress_snapshot';
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
@@ -145,7 +149,7 @@ export function ArtifactModal({
       {delivery && !expanded && <header className="delivery-header">
         <div className="delivery-heading"><span className="delivery-mark"><PackageCheck size={22} /></span><div>
           {!isStagePackage(delivery) && <p>{zh ? '交付成果' : 'Your results'}</p>}
-          <h2>{t(deliveryHeadingKey(delivery))}</h2>
+          <h2>{deliveryTitle || t(deliveryHeadingKey(delivery))}</h2>
         </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
