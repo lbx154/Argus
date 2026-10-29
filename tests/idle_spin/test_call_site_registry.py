@@ -82,7 +82,7 @@ REGISTRY: tuple[Site, ...] = (
     Site(
         r"manager-rewrite", FOREGROUND,
         "Rewrites one operator prompt on request.",
-        ("argus/webapi/manager_bridge.py:1212", "argus/manager/prompt_rewrite.py:239"),
+        ("argus/webapi/manager_bridge.py:1212", "argus/manager/prompt_rewrite.py:154"),
         ("manager-rewrite",),
     ),
     Site(
@@ -94,7 +94,7 @@ REGISTRY: tuple[Site, ...] = (
     Site(
         r"manager-plan", FOREGROUND,
         "Default of draft_plan; every caller passes its own label.",
-        ("argus/manager/plan_mode.py:349",),
+        ("argus/manager/plan_mode.py:343",),
         ("manager-plan",),
     ),
     Site(
@@ -272,7 +272,6 @@ PASS_THROUGH = {
     ("argus/manager/_stage_ops.py", "write_prose", "run_label"),
     ("argus/manager/plan_mode.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/plan_mode.py", "draft_plan", "run_label"),
-    ("argus/manager/prompt_rewrite.py", "_resolve_run_exec._call", "run_label"),
     ("argus/manager/prompt_rewrite.py", "rewrite_prompt", "run_label"),
     ("argus/webapi/map_model.py", "_run_map_turn", "run_label"),
     ("argus/webapi/map_model.py", "run_map_model", "run_label"),

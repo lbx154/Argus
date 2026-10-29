@@ -20,13 +20,12 @@ rewrite is never auto-sent — the operator always sees it first.
 """
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..roles.prompts.manager import build_prompt_rewrite_prompt
-from .plan_mode import _clean
+from .plan_mode import _clean, _extract_text, _loads_json, _resolve_run_exec
 
 
 @dataclass
@@ -55,25 +54,6 @@ class PromptRewrite:
     @property
     def ok(self) -> bool:
         return bool(self.rewritten.strip()) and not self.error
-
-
-def _loads_json(text: str) -> Any:
-    """Best-effort JSON parse: strip a code fence, else take the widest object."""
-    cleaned = (text or "").strip()
-    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
-    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
-    try:
-        return json.loads(cleaned)
-    except (ValueError, RecursionError):  # fall through to bracket extraction
-        pass
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start != -1 and end > start:
-        try:
-            return json.loads(cleaned[start : end + 1])
-        except (ValueError, RecursionError):
-            return None
-    return None
 
 
 def _string_list(value: Any) -> list[str]:
@@ -142,7 +122,7 @@ def parse_rewrite_text(text: str) -> PromptRewrite:
     if named is not None:
         return named
 
-    obj = _loads_json(raw)
+    obj = _loads_json(raw, pairs=(("{", "}"),))
     if isinstance(obj, dict):
         rewritten = ""
         for key in ("rewritten", "rewrite", "prompt", "text", "result"):
@@ -165,60 +145,6 @@ def parse_rewrite_text(text: str) -> PromptRewrite:
     if body.startswith("{") or not body:
         return PromptRewrite(original="", rewritten="")
     return PromptRewrite(original="", rewritten=body)
-
-
-def _extract_text(result: Any) -> str:
-    """Pull the model's reply text out of a RunnerResult-shaped object."""
-    msg = getattr(result, "last_agent_message", None)
-    if not msg:
-        msgs = getattr(result, "agent_messages", None) or []
-        msg = msgs[-1] if msgs else ""
-    return str(msg or "")
-
-
-def _resolve_run_exec(
-    runner: Any,
-    *,
-    model: str | None = None,
-    reasoning_effort: str = "low",
-    run_label: str = "manager-rewrite",
-):  # noqa: ANN202 — returns a callable or None
-    """Find a ``run_exec``-capable backend on ``runner`` and wrap it.
-
-    Mirrors ``plan_mode._resolve_run_exec``: the cockpit hands us its high-level
-    runner, test stubs hand us a raw backend. Returns ``None`` when no usable
-    backend exists so the caller can fail soft.
-    """
-    if runner is None:
-        return None
-    for candidate in (
-        runner,
-        getattr(runner, "backend", None),
-        getattr(runner, "_backend", None),
-    ):
-        if candidate is None:
-            continue
-        run_exec = getattr(candidate, "run_exec", None)
-        if not callable(run_exec):
-            continue
-
-        def _call(prompt: str, _backend=candidate):  # noqa: ANN001
-            from ..core.models import RunnerOptions
-            from ..core.run_gateway import run_exec as gateway_run_exec
-
-            return gateway_run_exec(
-                _backend,
-                prompt=prompt,
-                options=RunnerOptions(
-                    model=model,
-                    reasoning_effort=reasoning_effort,
-                    skip_git_repo_check=True,
-                ),
-                run_label=run_label,
-            )
-
-        return _call
-    return None
 
 
 def _failed(original: str, reason: str) -> PromptRewrite:
