@@ -218,8 +218,9 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.equal(part.status, 206);
   assert.equal(part.headers.get('content-range'), 'bytes 2-5/10');
   assert.equal(await part.text(), '2345');
+  // A page is sent as what it is, sandboxed: a script in it runs in no origin.
   const download = await call(`${P}/artifact/raw?path=page.html&download=true`);
-  assert.equal(download.headers.get('content-type'), 'text/plain; charset=utf-8');
+  assert.deepEqual([download.headers.get('content-type'), download.headers.get('content-security-policy')], ['text/html; charset=utf-8', 'sandbox']);
   assert.equal(download.headers.get('content-disposition'), "attachment; filename*=UTF-8''page.html");
   // Outside the workdir by either separator or an absolute path; hidden, also by its Windows short name.
   const record = join(home, 'projects', sid, 'project.json');
@@ -482,8 +483,8 @@ test('a robot model opens in 3D, with the meshes it names read from beside it', 
   await writeFile(join(workdir, 'leg', 'meshes', 'thigh.stl'), 'solid thigh');
 
   assert.equal((await get(`${P}/artifact?path=leg/urdf/leg.urdf`)).kind, 'model');
-  // XML may carry a script: it is never sent as a document of this origin.
-  assert.equal((await call(`${P}/artifact/raw?path=leg/urdf/leg.urdf`)).headers.get('content-type'), 'text/plain; charset=utf-8');
+  // XML may carry a script: it is never a document of this origin.
+  assert.equal((await call(`${P}/artifact/raw?path=leg/urdf/leg.urdf`)).headers.get('content-security-policy'), 'sandbox');
   const asset = (ref: string) => call(`${P}/artifact/model-asset?${new URLSearchParams({ path: 'leg/urdf/leg.urdf', ref })}`);
   for (const ref of ['../meshes/thigh.stl', 'package://leg/meshes/thigh.stl', 'package://other/meshes/thigh.stl']) {
     const found = await asset(ref);
@@ -749,7 +750,7 @@ test('attached files land in the workdir, and the message that carries them says
   assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
 });
 
-test('an uploaded HTML file opens through the sandboxed preview and downloads as inert text', async t => {
+test('an uploaded HTML file opens through the sandboxed preview and is sent raw as a sandboxed page', async t => {
   const { call, post } = await setup(t, []);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
@@ -763,7 +764,7 @@ test('an uploaded HTML file opens through the sandboxed preview and downloads as
   const page = await call(`${P}/artifact/preview/page?${query}`);
   assert.match(page.headers.get('content-security-policy') ?? '', /sandbox/);
   const raw = await call(`${P}/artifact/raw?${query}`);
-  assert.match(raw.headers.get('content-type') ?? '', /^text\/plain/);
+  assert.equal(raw.headers.get('content-security-policy'), 'sandbox');
   assert.equal(await raw.text(), '<h1>Material HTML</h1>');
 });
 

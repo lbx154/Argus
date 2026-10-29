@@ -214,13 +214,11 @@ export function modelAssets(model: string, ref: string): string[] {
   ];
 }
 
-/** How a result is sent: never as a page of this origin, which holds the cockpit's token. */
+/** How a result is sent: as what it is, so that an SVG shows as an image, but never as a page of
+ * this origin, which holds the cockpit's token: a page or XML that carries a script runs sandboxed. */
 export function rawHeaders(file: string, download: boolean, path = file): Record<string, string> {
-  const [kind, mime] = typeOf(file, path);
-  // XML, an SVG or a URDF among them, may carry a script as a page does.
-  const active = kind === 'html' || mime.includes('xml');
   return {
-    'content-type': active ? 'text/plain; charset=utf-8' : mime, 'x-content-type-options': 'nosniff',
+    'content-type': typeOf(file, path)[1], 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox',
     ...(download ? { 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(basename(path))}` } : {}),
   };
 }
