@@ -810,19 +810,6 @@ export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
   return blocks;
 }
 
-const CALL_KINDS = new Set(['tool_use', 'command_execution', 'file_change', 'tool_result']);
-
-/** The latest thing a role said about the task, as one plain line (never a command). */
-function latestNarrative(rows: ActivityRow[], locale: Locale, workspace: string) {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = rows[index];
-    if (!ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number]) || CALL_KINDS.has(String(row.ev.kind || ''))) continue;
-    const line = rowText(row.ev, row.r, locale, workspace).text.split('\n')
-      .map(part => part.replace(/[*#`>_]/g, '').trim()).find(Boolean);
-    if (line) return { role: row.r.role, text: line };
-  }
-  return null;
-}
 
 type TaskCardState = 'running' | 'done' | 'failed' | 'skipped' | 'paused' | 'idle';
 
@@ -834,9 +821,8 @@ const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [stri
 };
 
 /**
- * A task in the conversation: while it runs, one plain line on what is
- * happening now and a way to the full progress; once settled, its result in
- * one line with the process folded underneath.
+ * A task in the conversation: one line on where it stands, and its results.
+ * What its roles said is the team's progress below, said there once.
  */
 function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDelivery, onPause }: {
   block: Extract<TimelineBlock, { kind: 'task' }>;
@@ -848,9 +834,8 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDeliv
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   onPause?: () => void;
 }) {
-  const { locale, t } = useI18n();
+  const { locale } = useI18n();
   const zh = locale === 'zh-CN';
-  const workspace = useContext(WorkspaceContext);
   const [now, setNow] = useState(() => Date.now() / 1_000);
   const running = state === 'running';
   useEffect(() => {
@@ -860,8 +845,6 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDeliv
   }, [running]);
   const activity = useMemo(() => running && snapshot ? liveActivity(snapshot, view, events, now, locale) : null,
     [events, locale, now, running, snapshot, view]);
-  const said = useMemo(() => latestNarrative(block.rows, locale, workspace), [block.rows, locale, workspace]);
-  const saidLine = said ? `${roleLabel(said.role, t)}：${said.text}` : '';
   const label = state === 'running' || state === 'idle' ? '' : TASK_STATE_LABEL[state][zh ? 0 : 1];
   return (
     <section data-task-work={block.taskId || 'project'} data-state={state}
@@ -870,15 +853,9 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDeliv
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="status-dot" data-tone={running ? 'running' : state === 'done' ? 'done' : state === 'failed' ? 'failed' : 'idle'} aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate" role={running ? 'status' : undefined}>
-            {running
-              ? <>
-                <span className="text-ink-dim">{activity?.headline || (zh ? `正在进行：${title}` : `Working on: ${title}`)}</span>
-                {saidLine ? <span className="text-ink-faint"> · {saidLine}</span> : null}
-              </>
-              : <>
-                <span className="text-ink-dim">{label ? `${label}：${title}` : title}</span>
-                {!label && saidLine ? <span className="text-ink-faint"> · {zh ? '最近：' : 'Latest: '}{saidLine}</span> : null}
-              </>}
+            <span className="text-ink-dim">{running
+              ? activity?.headline || (zh ? `正在进行：${title}` : `Working on: ${title}`)
+              : label ? `${label}：${title}` : title}</span>
           </span>
         </div>
         {activity?.note ? <p className="mt-1 pl-[17px] text-xs text-ink-faint">
