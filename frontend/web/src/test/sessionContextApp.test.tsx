@@ -119,8 +119,6 @@ beforeEach(async () => {
   // Fail closed: no unmocked test request can reach a user backend or provider.
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected request outside the synthetic fixture'); }));
   vi.spyOn(api, 'cancelMessage').mockResolvedValue({ requested: true, status: 'cancelled' });
-  vi.spyOn(api, 'browserDraft').mockResolvedValue({ value: {}, revision: 0 });
-  vi.spyOn(api, 'saveBrowserDraft').mockImplementation(async (_sid, value, revision) => ({ value, revision: revision + 1 }));
   vi.spyOn(api, 'projectIndex').mockImplementation(async () => fixture.index.data as Awaited<ReturnType<typeof api.projectIndex>>);
   vi.spyOn(api, 'artifact').mockImplementation(async (sid, path) => ({ path, name: 'report.md', kind: 'markdown', mime: 'text/markdown', why: 'Synthetic fixture', exists: true, size: 1, mtime: 1, preview: `${sid} ONLY` }));
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -330,7 +328,6 @@ describe('App session composer ownership', () => {
     const send = vi.spyOn(api, 'messageStream').mockResolvedValue();
     // A server that declares only what every server has, as the TypeScript core does.
     await act(async () => { renderer.update(<Capabilities.Provider value={['manager.sse.v1']}>{mountedApp()}</Capabilities.Provider>); });
-    expect(props().modelControl).toBeUndefined();
     expect(renderer.root.findByType(ComposerRuntime).props.onOpenSettings).toBeUndefined();
     expect(props().settings).toBeUndefined();
     expect(props().onRouteOverrideChange).toBeUndefined();

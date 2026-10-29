@@ -13,7 +13,6 @@ import { WorkspaceShell } from './components/WorkspaceShell';
 import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRootsContext } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { ContinuousSwitch } from './components/ContinuousSwitch';
-import { ModelPickerButton } from './components/ModelPicker';
 import { promptHistory, type PromptSources } from './lib/promptCompletion';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
@@ -70,9 +69,8 @@ import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
-import { useSyncedDraft } from './useSyncedDraft';
 import { hostedTrialBuild } from './lib/verticalStore';
-import { ArtifactEditor, ConversationEditor, DeviceAccess, DraftSyncStatus, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
+import { ArtifactEditor, ConversationEditor, DeviceAccess, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
@@ -340,12 +338,8 @@ export default function App() {
     rewriting, setText: setComposerDraft, setAttachments: setComposerAttachments,
     capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
     beginRewrite, finishRewrite, drop: dropSessionDraft,
-    rememberUploaded, removeUploaded, replace: replaceDraft,
+    rememberUploaded, removeUploaded,
   } = useSessionComposer(selectedSid);
-  const syncedDraft = useSyncedDraft(selectedSid, {
-    text: composerDraft, attachments: composerAttachments, revision: 0,
-    missingAttachments, uploaded: composerUploaded,
-  }, captureDraft, replaceDraft);
   // Chosen files upload at once, one after another; sending waits only for
   // what is still on its way. Removing a file cancels or deletes it.
   const draftUploadCallbacks = useRef({ rememberUploaded, captureDraft });
@@ -1561,15 +1555,11 @@ export default function App() {
                         started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={openSettings} /> : undefined}
-                      modelControl={openSettings && activeSid && !kiosk ? <ModelPickerButton sid={snap.session.id} onOpenSettings={openSettings} /> : undefined}
                       continuousControl={activeSid && continuous ? <ContinuousSwitch enabled={keepsGoing(continuous)} pending={actions.setContinuous.isPending} onToggle={toggleContinuous} /> : undefined}
                     />
-                    {(composerDraft || composerAttachments.length > 0 || missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
-                      {draftStorageError
-                        ? <span>{locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'}</span>
-                        : <DraftSyncStatus sync={syncedDraft} />}
+                    {(missingAttachments.length > 0 || (draftStorageError && composerDraft)) && <div className="draft-status" role="status">
+                      {draftStorageError && composerDraft ? <span>{locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'}</span> : null}
                       {missingAttachments.length > 0 && <><span className="text-warn">{locale === 'zh-CN' ? '刷新前的附件尚未上传，请重新选择：' : 'Unuploaded files must be selected again: '}{missingAttachments.join('、')}</span><button type="button" onClick={dismissMissingAttachments}>{locale === 'zh-CN' ? '不再使用这些附件' : 'Discard missing attachments'}</button></>}
-                      {composerDraft && <button type="button" onClick={() => setComposerDraft('')}>{locale === 'zh-CN' ? '清空文字草稿' : 'Clear text draft'}</button>}
                     </div>}
                     </div>
                   </div>

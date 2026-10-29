@@ -454,23 +454,6 @@ select optgroup {
   font-size: 0.75rem;
 }
 
-.composer-runtime {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: 4px 12px;
-  padding: 6px 4px;
-  color: rgb(var(--ink-dim));
-  font-size: 11px;
-  line-height: 1.5;
-}
-.composer-runtime-model { min-width: 0; overflow-wrap: anywhere; }
-.composer-runtime button { flex-shrink: 0; color: rgb(var(--blue)); text-decoration: underline; text-underline-offset: 3px; }
-.composer-runtime button:focus-visible { outline: 2px solid rgb(var(--blue)); outline-offset: 3px; }
-.composer-runtime button.composer-runtime-model { flex-shrink: 1; color: inherit; text-decoration: none; text-align: left; cursor: pointer; }
-.composer-runtime button.composer-runtime-model:hover { color: rgb(var(--blue)); text-decoration: underline; }
-.composer-runtime-next { color: rgb(var(--gold)); }
 
 .session-card {
   border: 1px solid transparent;
@@ -761,7 +744,6 @@ select optgroup {
 [data-compact-viewport='true'] .composer-dock .map-composer { padding-top: 6px; padding-bottom: 6px; }
 [data-compact-viewport='true'] .composer-dock .map-composer textarea { max-height: 56px; }
 [data-compact-viewport='true'] .composer-dock .composer-controls { padding-top: 0; }
-[data-compact-viewport='true'] .composer-dock .composer-runtime { padding-top: 2px; padding-bottom: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   .composer-dock,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, type SetStateAction } from 'react';
-import type { BrowserDraftValue, UploadedAttachment } from './api';
+import type { UploadedAttachment } from './api';
 
 interface CompletedFile {
   file?: File;
@@ -176,8 +176,6 @@ export function useSessionComposer(sid: string | null) {
     draft: sid ? read(sid) : EMPTY,
     storageError: Boolean(sid && storageErrors.current.get(sid)),
     seed: (id: string, text: string, attachments: File[] = []) => put(id, { text, attachments }),
-    replace: (id: string, value: BrowserDraftValue) => put(id, { text: value.text, attachments: [],
-      missingAttachments: value.attachments, uploaded: value.uploaded.map(attachment => ({ attachment })) }),
     dismissMissingAttachments: () => {
       if (sid) put(sid, { ...(drafts.current.get(sid) ?? EMPTY), missingAttachments: [] });
     },

@@ -527,23 +527,6 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   assert.deepEqual([names.includes('linked'), names.includes('odd'), names.includes('bench')], [false, false, true]);
 });
 
-test('each project keeps the composer draft, and a save over a revision it never saw is refused', async t => {
-  const { home, call, get, post } = await setup(t, []);
-  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
-  const D = `/api/projects/${sid}/browser-draft`;
-  assert.deepEqual(await get(D), { value: {}, revision: 0 });
-  const value = { text: 'Total the columns', attachments: ['data.csv'], uploaded: [] };
-  assert.deepEqual(await (await post(D, { value, revision: 0 })).json(), { value, revision: 1 });
-  assert.deepEqual(await get(D), { value, revision: 1 });
-  assert.deepEqual(JSON.parse(await readFile(join(home, 'projects', sid, 'draft.json'), 'utf8')), { value, revision: 1 });
-  // Another device's save over revision 0, which it saw before this one.
-  assert.equal((await post(D, { value: { text: 'Other' }, revision: 0 })).status, 409);
-  assert.equal((await post(D, { value: { text: 'x'.repeat(130 * 1024) }, revision: 1 })).status, 413);
-  assert.equal((await post(D, { value: 'Total', revision: 1 })).status, 400);
-  assert.deepEqual(await get(D), { value, revision: 1 });
-  assert.equal((await call('/api/projects/p-00000000/browser-draft')).status, 404);
-});
-
 test('a message typed while a reply is under way is answered after it', async t => {
   const { get, post } = await setup(t, [{ role: 'manager', hang: true }, { role: 'manager', to: 'manager', letter: 'Both answered.' }]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };

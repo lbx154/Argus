@@ -31,13 +31,20 @@
 .map-send:not(:disabled):hover { background: rgb(var(--accent-hover)); }
 .composer-controls { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; padding: 4px 0 0; color: rgb(var(--ink-faint)); font-size: 12px; }
 .composer-controls:empty { display: none; }
-.composer-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; }
+/* Under the message box, one quiet row of pills: what the work runs on, then what to do with the draft. */
+.composer-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 8px; }
 .composer-meta:empty { display: none; }
-.composer-meta .composer-options { margin-top: 4px; }
 .composer-meta .composer-options[open] { flex-basis: 100%; }
-.composer-model-chip { min-height: var(--control-height); max-width: 100%; padding: 4px 8px; border-radius: var(--radius-control); color: rgb(var(--ink-dim)); font-size: 12px; overflow-wrap: anywhere; text-align: left; }
-.composer-model-chip:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
-.composer-model-chip:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
+.composer-runtime { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.composer-model, .composer-rewrite { display: inline-flex; align-items: center; gap: 6px; min-width: 0; height: 26px; padding: 0 10px; border: 1px solid rgb(var(--line) / 70%); border-radius: 999px; background: transparent; color: rgb(var(--ink-dim)); font-size: 12px; line-height: 1; white-space: nowrap; transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease; }
+button.composer-model:hover, .composer-rewrite:hover:not(:disabled) { border-color: rgb(var(--line)); background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
+:is(.composer-model, .composer-rewrite):focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
+.composer-model-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--ink-faint) / 50%); }
+.composer-model-dot[data-running] { background: rgb(var(--ok)); animation: pulse 2s ease-in-out infinite; }
+.composer-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.composer-model-meta { color: rgb(var(--ink-faint)); }
+.composer-model-next { color: rgb(var(--gold)); }
+@media (prefers-reduced-motion: reduce) { .composer-model-dot[data-running] { animation: none; } }
 .composer-continuous { display: inline-flex; align-items: center; gap: 6px; min-height: var(--control-height); max-width: 100%; margin-right: auto; padding: 4px 8px; border-radius: var(--radius-control); color: rgb(var(--ink-dim)); font-size: 12px; text-align: left; }
 .composer-continuous:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 .composer-continuous:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
@@ -48,8 +55,7 @@
 .composer-continuous[aria-checked="true"] .composer-continuous-track::after { transform: translateX(11px); }
 .composer-continuous-hint { color: rgb(var(--ink-faint)); overflow-wrap: anywhere; }
 @media (max-width: 640px) { .composer-continuous-hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
-.composer-rewrite { min-height: var(--control-height); padding: 4px 8px; margin-left: auto; border-radius: var(--radius-control); color: rgb(var(--ink-faint)); font-size: 12px; }
-.composer-rewrite:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
+.composer-rewrite { margin-left: auto; }
 .composer-rewrite:disabled { opacity: .5; }
 .composer-controls :is(button, select) { min-height: 28px; border-radius: 8px; padding: 4px 8px; background: transparent; }
 .composer-controls :is(button, select):hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
@@ -82,7 +88,3 @@
   .route-seg button, .composer-controls .route-seg button { min-height: 44px; }
 }
 
-/* Connection settings stay available without crowding the message box. */
-.composer-runtime-details { position: relative; font-size: 11px; color: rgb(var(--ink-dim)); }
-.composer-runtime-details summary { cursor: pointer; }
-.composer-runtime-details > div { position: absolute; z-index: 20; bottom: calc(100% + 8px); left: 0; padding: 10px 12px; min-width: 220px; max-width: min(380px, 75vw); white-space: normal; line-height: 1.6; border: 1px solid rgb(var(--line)); border-radius: 10px; background: rgb(var(--panel-raised)); box-shadow: var(--shadow-lift); }

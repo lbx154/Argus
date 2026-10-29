@@ -311,19 +311,3 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
  * The visible way into the chooser beside the composer: names the model the
  * roles are set to (or how many differ) and opens the sheet.
  */
-export function ModelPickerButton({ sid, onOpenSettings }: { sid: string; onOpenSettings?: () => void }) {
-  const { t } = useI18n();
-  const { data } = useConfig(sid, true);
-  const [open, setOpen] = useState(false);
-  if (!data || data.trial_mode) return null;
-  const models = [...new Set(data.roles
-    .filter(row => (CHOOSER_ROLES as string[]).includes(row.role))
-    .map(row => (unset(row.model) ? t('models.none') : row.model)))];
-  const label = models.length > 1 ? t('models.mixed', { count: models.length }) : models[0] ?? t('models.none');
-  return <>
-    <button type="button" className="composer-model-chip" data-open-model-picker title={t('models.title')} onClick={() => setOpen(true)}>
-      {t('models.chip', { model: label })}
-    </button>
-    <ModelPicker sid={sid} open={open} onClose={() => setOpen(false)} onOpenSettings={onOpenSettings} />
-  </>;
-}

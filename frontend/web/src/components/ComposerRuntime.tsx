@@ -16,10 +16,10 @@ const LAST_CALL_CURRENT_S = 6 * 3600;
 const unset = (value: string | null | undefined) => !value || ['auto', 'inherit', 'default'].includes(value.toLowerCase());
 
 /**
- * What the work is actually running on: the newest real call's backend, model
- * and effort. When settings now ask for something else (just applied, not yet
- * used by a call), say what the next call will use. Clicking opens the model
- * chooser, which links on to the full settings.
+ * What the work runs on, as one quiet chip under the message box: the newest
+ * real call's model and effort, a dot that lights while the team works, and,
+ * when settings now ask for something else, what the next call will use.
+ * Clicking opens the model chooser, which links on to the full settings.
  */
 export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings }: {
   sid: string;
@@ -52,21 +52,27 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
   const next = nextBackend || nextModel
     ? [backendLabel(nextBackend || configured!.backend, t), nextModel || configured!.model || 'auto'].join(' · ')
     : '';
-  const label = <>
-    {trial ? (zh ? '试用' : 'Trial') : backend ? backendLabel(backend, t) : (zh ? '模型信息待确认' : 'Model information unavailable')}
-    {model ? ` · ${model}` : ''}{effort ? ` · ${effort}` : ''}
-    {!trial && !actual && running && role?.active ? ` · ${isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role}` : ''}
+  const effortName = effort ? ({ low: zh ? '低' : 'low', medium: zh ? '中' : 'medium', high: zh ? '高' : 'high' } as Record<string, string>)[effort] ?? effort : '';
+  const shown = trial ? 'GPT-5.5' : model && !unset(model) ? model : (zh ? '自动' : 'Automatic');
+  // Everything else about the run is a hover away: the backend, and the role at work.
+  const detail = [
+    trial ? (zh ? '试用' : 'Trial') : backend ? backendLabel(backend, t) : '',
+    !trial && !actual && running && role?.active ? (isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role) : '',
+  ].filter(Boolean).join(' · ');
+  const title = [detail, actual
+    ? (zh ? '最近一次调用实际用的模型；点击选择模型' : 'The model the latest call actually used; click to choose a model')
+    : (zh ? '当前设置的模型；点击选择模型' : 'The configured model; click to choose a model')].filter(Boolean).join('\n');
+  const chip = <>
+    <span className="composer-model-dot" data-running={running || undefined} aria-hidden="true" />
+    <span className="composer-model-name">{shown}</span>
+    {effortName ? <span className="composer-model-meta">{effortName}</span> : null}
+    {next ? <span className="composer-model-next" data-runtime-next>{zh ? `下次：${next}` : `next call: ${next}`}</span> : null}
   </>;
-  const title = actual
-    ? (zh ? '最近一次模型调用实际使用的后端、模型和推理强度；点击选择模型' : 'Backend, model and effort the latest model call actually used; click to choose a model')
-    : (zh ? '当前配置的后端与模型；点击选择模型' : 'Configured backend and model; click to choose a model');
   return <div className="composer-runtime" aria-label={zh ? '当前后端与模型' : 'Current backend and model'}>
     {onOpenSettings && !trial
-      ? <button type="button" className="composer-runtime-model" onClick={() => setPickerOpen(true)} title={title} data-runtime-open-models>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</button>
-      : <span className="composer-runtime-model" title={trial ? undefined : title}>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</span>}
-    <details className="composer-runtime-details"><summary>{zh ? '运行信息' : 'Runtime details'}</summary><div>{label}</div></details>
-    {next ? <span className="composer-runtime-next" data-runtime-next>{zh ? `下次使用：${next}` : `next call: ${next}`}</span> : null}
-    {trial && canOpenDesktopSettings() ? <button type="button" onClick={openDesktopTrialSettings}>
+      ? <button type="button" className="composer-model" onClick={() => setPickerOpen(true)} title={title} data-runtime-open-models>{chip}</button>
+      : <span className="composer-model" title={title}>{chip}</span>}
+    {trial && canOpenDesktopSettings() ? <button type="button" className="composer-model" onClick={openDesktopTrialSettings}>
       {zh ? '更换 Key' : 'Change Key'}
     </button> : null}
     {onOpenSettings && !trial && <ModelPicker sid={sid} open={pickerOpen} onClose={() => setPickerOpen(false)} onOpenSettings={onOpenSettings} />}

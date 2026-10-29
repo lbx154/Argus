@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { Sparkles } from 'lucide-react';
 import type { MessageRouteOverride } from '../api';
 import { isImeComposing } from '../lib/ime';
 import { spinnerFrame } from '../lib/soul';
@@ -50,7 +51,7 @@ function clipProjectName(name: string): string {
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, rewriting = false,
-  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, modelControl, continuousControl, pendingNote, projectName,
+  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote, projectName,
   settings, completion,
 }: {
   value: string;
@@ -72,7 +73,6 @@ export function ChatBox({
   /** Shown under the input, like the map composer's runtime line. */
   footer?: ReactNode;
   /** Always-visible model control beside the folded task settings. */
-  modelControl?: ReactNode;
   /** Always-visible continuous-work switch for the current project. */
   continuousControl?: ReactNode;
   /** The project a message goes to, named in the placeholder so it is never in doubt. */
@@ -295,17 +295,16 @@ export function ChatBox({
       }} />
     {completion ? <span className="sr-only" role="status">{whole && t('completion.ghostHint', { text: whole })}</span> : null}
     <div className="composer-meta">
-    {(settings || onRouteOverrideChange || footer) && <details className="composer-options">
-      <summary>{settings || onRouteOverrideChange ? zh ? '任务设置与模型' : 'Task settings and model' : zh ? '模型' : 'Model'}{routeOverride === 'chat' ? zh ? ' · 仅对话' : ' · Chat only' : routeOverride === 'task' ? zh ? ' · 研究任务' : ' · Research task' : ''}</summary>
+    {footer}
+    {continuousControl}
+    {(settings || onRouteOverrideChange) && <details className="composer-options">
+      <summary>{zh ? '任务设置' : 'Task settings'}{routeOverride === 'chat' ? zh ? ' · 仅对话' : ' · Chat only' : routeOverride === 'task' ? zh ? ' · 研究任务' : ' · Research task' : ''}</summary>
       {settings}
       {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
-      {footer}
     </details>}
-    {continuousControl}
-    {modelControl}
     {onRewrite && value.trim() ? <button type="button" className="composer-rewrite" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
       title={`Ctrl/⌘+R · ${t('chat.rewriteHint')}`} aria-label={t('chat.rewriteLabel')} aria-keyshortcuts="Control+R Meta+R">
-      {rewriting ? `${spinnerFrame(thinkTick)} ${t('chat.rewriting')}` : t('chat.rewrite')}
+      {rewriting ? spinnerFrame(thinkTick) : <Sparkles size={13} aria-hidden="true" />}{rewriting ? t('chat.rewriting') : t('chat.rewrite')}
     </button> : null}
     </div>
   </div>;

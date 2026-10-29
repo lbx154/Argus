@@ -7,25 +7,7 @@ import { downloadBlob } from '../lib/downloadBlob';
 import { Modal, ModalHeader } from './Modal';
 import { MarkdownContent } from './MarkdownContent';
 import { Button } from './primitives';
-import type { useSyncedDraft } from '../useSyncedDraft';
 import './experience.css';
-
-export function DraftSyncStatus({ sync }: { sync: ReturnType<typeof useSyncedDraft> }) {
-  const zh = useI18n().locale === 'zh-CN';
-  if (sync.status === 'conflict') return <div className="experience-notice" role="status">
-    <span>{zh ? '另一设备有不同草稿。两份都没有覆盖，请选择：' : 'Another device has a different draft. Neither was overwritten. Choose:'}</span>
-    <Button onClick={() => sync.resolve(true)}>{zh ? '使用另一设备草稿' : 'Use other device draft'}</Button>
-    <Button onClick={() => sync.resolve(false)}>{zh ? '保留此处草稿并同步' : 'Keep and sync this draft'}</Button>
-  </div>;
-  if (sync.status === 'error') return <div className="experience-notice" role="status">
-    <span>{zh ? '草稿仅保存在本机，尚未同步：' : 'Draft saved locally, not synced: '}{sync.error}</span>
-    <Button onClick={sync.retry}>{zh ? '重试同步' : 'Retry sync'}</Button>
-  </div>;
-  return <span className="text-xs text-ink-faint" role="status">{sync.status === 'loading'
-    ? zh ? '正在读取同步草稿…' : 'Loading synced draft…'
-    : sync.status === 'saving' || sync.pending ? zh ? '正在同步草稿…' : 'Syncing draft…'
-      : zh ? '草稿已同步' : 'Draft synced'}</span>;
-}
 
 export function HistorySearch({ open, onClose, onChoose }: {
   open: boolean; onClose: () => void; onChoose: (result: SearchResult) => void;

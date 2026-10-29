@@ -1022,12 +1022,6 @@ async function explanationResponse<T>(path: string, body: unknown, onProgress?: 
   return terminal.result as T;
 }
 
-export interface BrowserDraftValue {
-  text: string;
-  attachments: string[];
-  uploaded: UploadedAttachment[];
-}
-export interface BrowserState { value: Partial<BrowserDraftValue>; revision: number }
 export interface ProjectPreference { pinned: boolean; archived: boolean; followup: boolean }
 export interface Edition { version: number; content: string; note: string; created: number }
 export interface SearchResult {
@@ -1038,9 +1032,6 @@ export interface SearchResult {
 
 export const api = {
   pairingLink: () => postJson<{ path: string; expires_in: number }>('/api/pairing-links'),
-  browserDraft: (sid: string) => getJson<BrowserState>(P(sid, '/browser-draft')),
-  saveBrowserDraft: (sid: string, value: BrowserDraftValue, revision: number) =>
-    postJson<BrowserState>(P(sid, '/browser-draft'), { value, revision }),
   organization: () => getJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization'),
   organize: (sid: string, field: keyof ProjectPreference, value: boolean) =>
     postJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization', { sid, field, value }),

@@ -13,7 +13,6 @@ import {
 import { PROJECT_ID, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachments } from './attachments.js';
-import { drafts } from './drafts.js';
 import { artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { library } from './library.js';
 import { preview } from './preview.js';
@@ -146,7 +145,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ({ rc: 0, command_id: body.command_id ?? '', command_status: 'applied', daemon: daemon(project(id), runs.live(id)) });
 
   const routes: [string, RegExp, Handler][] = [
-    ...drafts(store, project), ...trash(store, runs, project), ...attachments(project),
+    ...trash(store, runs, project), ...attachments(project),
     ['GET', /^\/api\/application-brand$/, () => BRAND],
     // The brand is Argus's own, so its manifest is the one the page was built with.
     ['GET', /^\/api\/application-brand\/manifest\.webmanifest$/, ({ request, response }) => {
