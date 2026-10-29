@@ -99,9 +99,9 @@ test('a project has its own backend, model and effort, which the settings change
   assert.deepEqual(config.operator_knobs.map(knob => [knob.name, knob.value]), [['ARGUS_SKILL_RUNNER_BACKEND', 'codex'], ['ARGUS_SKILL_MODEL', '']]);
   // The backends the page offers are those there are.
   assert.deepEqual(config.backends, { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' });
-  type Choices = { backend: string; options: { model: string; source: string; default: boolean }[] };
-  assert.deepEqual((await get<Choices>(`${P}/model-choices`)).options.map(({ model, source, default: chosen }) => [model, source, chosen]),
-    [['gpt-a', 'backend', true], ['gpt-b', 'backend', false]]);
+  type Choices = { backend: string; options: { model: string; default: boolean }[] };
+  assert.deepEqual((await get<Choices>(`${P}/model-choices`)).options.map(({ model, default: chosen }) => [model, chosen]),
+    [['gpt-a', true], ['gpt-b', false]]);
   // A model is tried with a short turn of its own, apart from the Manager's session.
   const probe = await (await send('POST', `${P}/model-choices/probe`, { model: 'gpt-b' })).json() as { model: string; ok: boolean; error: string };
   assert.deepEqual([probe.model, probe.ok, probe.error], ['gpt-b', true, '']);

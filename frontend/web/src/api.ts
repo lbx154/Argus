@@ -297,27 +297,15 @@ export interface ConfigSnapshot {
   /** Every backend there is, by its name for the page. */
   backends?: Record<string, string>;
 }
-/** One row of the model chooser: every figure is from the price table or recorded calls. */
+/** One model the backend offers: whether it is the backend's default, and its price. */
 export interface ModelChoice {
   model: string;
-  source: string;
   default: boolean;
-  invalid: boolean;
   /** USD per million tokens; null when the price table does not list the model. */
-  price: { input: number; cached_input: number; output: number } | null;
-  /** This project's recent tasks re-priced with this model; null without data. */
-  task_estimate_usd: number | null;
-  /** Median duration of calls that answered on this machine; null without data. */
-  latency_ms: number | null;
-  latency_samples: number;
-  availability: { state: 'ok' | 'failed' | 'unknown'; at: number; reason: string };
+  price: { input: number; output: number } | null;
 }
 export interface ModelChoices {
   backend: string;
-  billing: 'token' | 'premium_request';
-  premium_request_usd: number | null;
-  /** How many of this project's tasks the per-task estimate re-prices. */
-  task_sample: number;
   options: ModelChoice[];
 }
 export interface ModelProbeResult {
