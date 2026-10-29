@@ -51,6 +51,8 @@ import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { resumableTaskIds } from '../lib/resumable';
+import { milestoneLines, type MilestoneLine } from '../lib/milestones';
+import { TeamMilestones } from './TeamMilestones';
 
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
@@ -62,7 +64,10 @@ type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 type ConversationGroup = { key: string; operator?: ActivityRow; rows: ActivityRow[] };
 // One card per task, where its work started; '' collects work that names no task.
 type TaskBlock = { key: string; taskId: string; rows: ActivityRow[]; deliveries: DeliveryReceipt[] };
-export type TimelineBlock = ({ kind: 'thread' } & ConversationGroup) | ({ kind: 'task' } & TaskBlock);
+// What the team recorded between two messages (``MissionView.milestones``).
+type MilestoneBlock = { key: string; lines: MilestoneLine[] };
+export type TimelineBlock = ({ kind: 'thread' } & ConversationGroup) | ({ kind: 'task' } & TaskBlock)
+  | ({ kind: 'milestones' } & MilestoneBlock);
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
 
 /** The project root the agents work in; a command's path in it reads from there. */
@@ -756,13 +761,31 @@ export function foldedContinuationRuns(rows: Array<{ key: string; ev: EventMsg }
  * A chat reply stays directly under the message it answers, so a task that
  * started while it was being written follows it; a task report is that work's
  * outcome, so the card comes first and the thread continues after it.
+ * The team's milestones sit in time order between them, one block per
+ * stretch between messages; a reply in progress keeps them until it lands.
  */
-export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
+export function conversationTimeline(rows: ActivityRow[], milestones: MilestoneLine[] = []): TimelineBlock[] {
   const blocks: TimelineBlock[] = [];
   const tasks = new Map<string, Extract<TimelineBlock, { kind: 'task' }>>();
   let latestTask = '';
   let held: ActivityRow[] = [];
+  let heldMilestones: MilestoneLine[] = [];
   let awaitingReply = false;
+  const pending = [...milestones].sort((left, right) => left.ts - right.ts);
+  const addMilestones = (lines: MilestoneLine[]) => {
+    if (!lines.length) return;
+    const last = blocks.at(-1);
+    if (last?.kind === 'milestones') last.lines.push(...lines);
+    // Named after what it follows, so a later line joining it keeps it the same block.
+    else blocks.push({ kind: 'milestones', key: `milestones-after-${last?.key ?? 'start'}`, lines: [...lines] });
+  };
+  const reach = (ts: number) => {
+    let due = 0;
+    while (due < pending.length && pending[due].ts <= ts) due += 1;
+    const lines = pending.splice(0, due);
+    if (awaitingReply) heldMilestones.push(...lines);
+    else addMilestones(lines);
+  };
   const addWork = (row: ActivityRow) => {
     // A note that names no task belongs to the task in hand.
     const taskId = eventTaskId(row.ev) || latestTask;
@@ -780,8 +803,11 @@ export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
   const release = () => {
     held.forEach(addWork);
     held = [];
+    addMilestones(heldMilestones);
+    heldMilestones = [];
   };
   rows.forEach((row) => {
+    reach(Number(row.ev.ts) || 0);
     if (row.ev.type === 'ui.operator') {
       release();
       blocks.push({ kind: 'thread', key: row.key, operator: row, rows: [] });
@@ -800,6 +826,13 @@ export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
     }
   });
   release();
+  reach(Infinity);
+  release();
+  // A task's card already says it started.
+  const carded = new Set(blocks.flatMap(block => block.kind === 'task' && block.taskId ? [block.taskId] : []));
+  blocks.forEach((block) => {
+    if (block.kind === 'milestones') block.lines = block.lines.filter(line => line.kind !== 'task_started' || !carded.has(line.itemId));
+  });
   // A receipt a reply already shows is not repeated under the work.
   const seen = new Set(rows.filter(row => row.ev.type === 'ui.argus')
     .map(row => deliveryFromEvent(row.ev)?.delivery_id).filter(Boolean));
@@ -1166,13 +1199,20 @@ export function EventStream({
   }, [deferredEvents, deferredView, showReasoning, filter, query, skipFirst, locale, workspace]);
 
   const rows = baseRows;
+  const roots = useContext(WorkspaceRootsContext);
+  const sessionId = useContext(SessionIdContext) ?? snapshot?.session.id ?? null;
+  const milestones = useMemo(
+    // A filtered or searched feed shows only what matched.
+    () => filter === 'all' && !query.trim() ? milestoneLines(deferredView?.milestones ?? [], locale, [...roots, workspace]) : [],
+    [deferredView?.milestones, filter, locale, query, roots, workspace],
+  );
   const timeline = useMemo(() => {
-    const blocks = conversationTimeline(rows.list);
+    const blocks = conversationTimeline(rows.list, milestones).filter(block => block.kind !== 'milestones' || block.lines.length);
     const tasks = blocks.filter((block) => block.kind === 'task');
     const latest = [...tasks].sort((left, right) => Number(left.rows.at(-1)?.ev.ts ?? 0) - Number(right.rows.at(-1)?.ev.ts ?? 0)).at(-1);
     const workRows = rows.list.filter((row) => row.ev.type !== 'ui.operator' && row.ev.type !== 'ui.argus');
     return { blocks, latestTask: latest?.key, workRows };
-  }, [rows.list]);
+  }, [milestones, rows.list]);
   // The full progress feed opens beside the conversation instead of above it.
   const [workOpen, setWorkOpen] = useState(false);
   // A result card opens its own task's log; elsewhere the drawer shows all work.
@@ -1366,6 +1406,8 @@ export function EventStream({
         ) : (
           <>
             {timeline.blocks.map((block) => {
+              if (block.kind === 'milestones') return <TeamMilestones key={block.key} lines={block.lines}
+                sid={sessionId} onOpenArtifact={onOpenArtifact} />;
               if (block.kind === 'thread') return <ConversationThread
                 key={block.key}
                 group={block}

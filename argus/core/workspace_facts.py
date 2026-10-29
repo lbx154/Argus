@@ -110,6 +110,41 @@ def tree_files(root: Path | str, *, ignore: Iterable[str] = ()) -> list[list[Any
     return files
 
 
+def files_written_since(
+    root: Path | str, since: float, *, limit: int = 15, budget: int = 20_000,
+) -> tuple[list[tuple[str, float]], int, bool]:
+    """Files under ``root`` modified at or after ``since``, newest first.
+
+    Returns up to ``limit`` ``(relative path, mtime)`` pairs, how many such
+    files the walk saw, and whether it stopped after ``budget`` entries
+    (then the count is a lower bound). The runtime's own directories are left
+    out, except ``.argus/evidence``, where the team keeps run outputs.
+    """
+    root = Path(root)
+    found: list[tuple[str, float]] = []
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        base = Path(dirpath).relative_to(root).as_posix()
+        if base == ".argus":
+            dirnames[:] = [name for name in dirnames if name == "evidence"]
+            filenames = []
+        else:
+            dirnames[:] = [name for name in dirnames if (base == "." and name == ".argus") or not _skipped(name, ())]
+        for name in filenames:
+            seen += 1
+            if seen > budget:
+                found.sort(key=lambda row: -row[1])
+                return found[:limit], len(found), True
+            try:
+                mtime = os.stat(os.path.join(dirpath, name)).st_mtime
+            except OSError:
+                continue
+            if mtime >= since:
+                found.append(((Path(base) / name).as_posix() if base != "." else name, mtime))
+    found.sort(key=lambda row: -row[1])
+    return found[:limit], len(found), False
+
+
 def workspace_facts(root: Path | str, *, ignore: Iterable[str] = ()) -> dict[str, Any]:
     """What ``root`` looks like now, leaving out ``ignore`` (relative files or dirs).
 
@@ -126,4 +161,4 @@ def workspace_facts(root: Path | str, *, ignore: Iterable[str] = ()) -> dict[str
         return {"unavailable": True}
 
 
-__all__ = ["IGNORED_NAMES", "fact_text", "tree_files", "workspace_facts"]
+__all__ = ["IGNORED_NAMES", "fact_text", "files_written_since", "tree_files", "workspace_facts"]

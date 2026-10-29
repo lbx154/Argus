@@ -980,6 +980,21 @@ button {
 .task-line-action:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 .task-line-process { margin-left: 3px; padding-left: 14px; border-left: 1px solid rgb(var(--line)); animation: appear 180ms cubic-bezier(.4, 0, .2, 1); }
 
+/* What the team recorded between messages: faint lines on a thread, newest last. */
+.team-milestones ol { margin-left: 3px; padding-left: 14px; border-left: 1px solid rgb(var(--line)); }
+.team-milestone { position: relative; display: flex; gap: 10px; padding: 4px 0; font-size: 13px; line-height: 1.5; }
+.team-milestone > .status-dot { margin-top: 6px; margin-left: -18px; box-shadow: 0 0 0 2px rgb(var(--panel)); }
+.team-milestone > .status-dot[data-tone='running'] { animation: none; }
+.team-milestone-figure { overflow: hidden; border: 1px solid rgb(var(--line)); border-radius: 8px; background: rgb(var(--surface-2)); }
+.team-milestones-fold {
+  margin: 2px 0 4px 17px;
+  border-radius: var(--radius-control);
+  padding: 2px 6px;
+  color: rgb(var(--ink-faint));
+  font-size: 12px;
+}
+.team-milestones-fold:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
+
 /* A result shows as itself, with a quiet way to open it and to see how it was made. */
 .result-card {
   overflow: hidden;

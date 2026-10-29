@@ -303,6 +303,10 @@ const SNAPSHOT_REFRESH_EVENT_TYPES = new Set([
   'life.mission.completed',
   'life.mission.failed',
   'round.review.completed',
+  // The conversation's milestones come with the snapshot's mission view.
+  'life.mission.requeued',
+  'round.start',
+  'round.main.completed',
 ]);
 
 /** Return a stable key when live state changed in a way the snapshot owns. */
