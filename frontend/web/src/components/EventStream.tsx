@@ -47,13 +47,12 @@ import type { ConversationHistoryStatus } from '../useConversationHistory';
 import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { resumableTaskIds } from '../lib/resumable';
 import { ErrorDetails } from './ErrorMessage';
 
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
 import type { ConversationRevision } from './ExperiencePanels';
-import { History, PencilLine, Play } from 'lucide-react';
+import { History, PencilLine } from 'lucide-react';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 // A thread that project work interrupted continues without its operator row.
@@ -70,8 +69,6 @@ const ConversationActionContext = createContext<((target: ConversationRevision) 
 export const SessionIdContext = createContext<string | null>(null);
 /** A task's title by its id, so a round names the task it belongs to. */
 const TaskTitleContext = createContext<(id: string) => string>(() => '');
-/** Run, offered on a task's newest receipt while that task waits to be resumed. */
-const ResumeTaskContext = createContext<(taskId: string, messageId: string) => (() => void) | undefined>(() => undefined);
 
 type RowText = ProgressText & { prose: boolean };
 
@@ -322,11 +319,8 @@ function ConversationRow({
   const roots = useContext(WorkspaceRootsContext);
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
-  const resumeFor = useContext(ResumeTaskContext);
   const operator = String(ev.type) === 'ui.operator';
   const taskReceipt = !operator && ev.mission_result === true;
-  const resume = taskReceipt && typeof ev.item_id === 'string'
-    ? resumeFor(ev.item_id, String(ev.message_id || ev.event_id || '')) : undefined;
   // Preserve the full recorded message, including research/control-like lines.
   const reportText = taskReceipt ? (typeof ev.text === 'string' ? ev.text : r.text) : r.text;
   const report = taskReceipt ? plainTaskReport(reportText, locale) : null;
@@ -408,10 +402,6 @@ function ConversationRow({
               }) : clockOf(ev)}</time></>}
             </div>
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
-            {resume ? <button type="button" data-receipt-resume onClick={resume}
-              className="brand-button brand-button-primary mt-3 inline-flex items-center gap-1.5">
-              <Play size={14} aria-hidden="true" />{t('topbar.continueRun')}
-            </button> : null}
             {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
@@ -1037,7 +1027,6 @@ export function EventStream({
   rememberPosition = false,
   onConversationAction,
   requestedMessageTs,
-  onResumeWork,
 }: {
   events: EventMsg[];
   connected: boolean;
@@ -1059,8 +1048,6 @@ export function EventStream({
   rememberPosition?: boolean;
   onConversationAction?: (target: ConversationRevision) => void;
   requestedMessageTs?: number;
-  /** Run again; offered on the receipt of a task that waits to be resumed. */
-  onResumeWork?: () => void;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
@@ -1140,18 +1127,6 @@ export function EventStream({
   // Who works now, as the server knows it: several roles can at once, and none while the run is down.
   const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
     [connected, snapshot?.daemon.alive, snapshot?.roles]);
-  const resumable = useMemo(() => resumableTaskIds(snapshot), [snapshot]);
-  const resumeFor = useMemo(() => {
-    // Only a task's newest receipt offers Run; earlier ones are history.
-    const newest = new Map<string, string>();
-    for (const event of deferredEvents) {
-      if (event.type === 'ui.argus' && event.mission_result === true && typeof event.item_id === 'string') {
-        newest.set(event.item_id, String(event.message_id || event.event_id || ''));
-      }
-    }
-    return (taskId: string, messageId: string) => onResumeWork && resumable.has(taskId) && newest.get(taskId) === messageId
-      ? onResumeWork : undefined;
-  }, [deferredEvents, onResumeWork, resumable]);
   // Where a task stands is the server's word, never a guess from the record.
   const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
@@ -1254,7 +1229,6 @@ export function EventStream({
     <StepProcessContext.Provider value={stepProcess}>
     <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
-    <ResumeTaskContext.Provider value={resumeFor}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
@@ -1336,7 +1310,6 @@ export function EventStream({
         </button>
       )}
     </section>
-    </ResumeTaskContext.Provider>
     </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>
     </StepProcessContext.Provider>

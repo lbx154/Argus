@@ -93,8 +93,8 @@ export function currentWorkStatus(
   const card = operatorDecisionCards(snapshot.pending_questions ?? [], snapshot.backlog.map(item => ({ ...item })))[0];
   if (card) return { ...status, state: 'paused', reason: 'operator_input', taskId: card.item_id, title: card.task_title || card.title };
   if (snapshot.daemon.alive) return { ...status, state: 'waiting', reason: 'awaiting_next_step' };
-  // A task that failed is not done: the work stopped short of it.
-  return snapshot.backlog.some(item => item.status !== 'done') ? { ...status, state: 'paused', reason: 'not_running' } : status;
+  // Work stopped short of done is what Resume would take up, as the server says.
+  return snapshot.daemon.resumable ? { ...status, state: 'paused', reason: 'not_running' } : status;
 }
 
 export function workStatusLabel(status: WorkStatus, locale: Locale, connected = true): string {

@@ -106,24 +106,24 @@ describe('pause lets the current task finish; stop now is separate', () => {
   });
 });
 
-describe('a parked task can be resumed from the header', () => {
-  const parked = (park: string) => snapshot({
-    backlog: [{ id: 'a', title: '视频去噪', objective: 'x', status: 'parked', priority: 1,
-      outcome: { execution_status: 'paused', review_status: 'not_assessed', stage_certification: 'not_assessed',
-        resumable: true, park: { reason: park } } }],
+describe('work stopped short can be resumed from the header', () => {
+  const stopped = (resumable: boolean) => snapshot({
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, resumable },
+    backlog: [{ id: 'a', title: '视频去噪', objective: 'x', status: resumable ? 'in_progress' : 'done', priority: 1 }],
   } as Partial<Snapshot>);
 
-  it('shows Resume as the primary header action when nothing runs the parked work', () => {
-    const html = renderToStaticMarkup(<TopBar snap={parked('provider_fence')} streamOk onStart={() => undefined}
+  it('shows Resume as the primary header action when the server says there is work to take up', () => {
+    const html = renderToStaticMarkup(<TopBar snap={stopped(true)} streamOk onStart={() => undefined}
       onStop={() => undefined} onManage={() => undefined} busy={false} />);
     expect(html).toContain('data-resume-work');
     expect(html).toContain('brand-button-primary');
     expect(html).toContain('继续运行');
   });
 
-  it('does not offer Resume for a question only an answer ends', () => {
-    const html = renderToStaticMarkup(<TopBar snap={parked('operator_question')} streamOk onStart={() => undefined}
+  it('offers no run or resume on finished work', () => {
+    const html = renderToStaticMarkup(<TopBar snap={stopped(false)} streamOk onStart={() => undefined}
       onStop={() => undefined} onManage={() => undefined} busy={false} />);
     expect(html).not.toContain('data-resume-work');
+    expect(html).not.toMatch(/继续|启动|Run|Resume/);
   });
 });

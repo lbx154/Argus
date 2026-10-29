@@ -80,13 +80,12 @@ describe('work status, as the server says it', () => {
     expect(workStatusLabel(status, 'zh-CN')).toBe('等待下一步工作');
   });
 
-  it('with no run, is stopped while a task is not done, failed ones included, and idle once all are', () => {
+  it('with no run, is stopped while the server says Resume has work to take up, and idle when it has none', () => {
     const snapshot = fixture(false);
-    for (const unfinished of ['pending', 'in_progress', 'blocked', 'failed']) {
-      snapshot.backlog = [task('a', 'done'), task('b', unfinished)];
-      expect(currentWorkStatus(snapshot)).toMatchObject({ state: 'paused', reason: 'not_running' });
-    }
-    snapshot.backlog = [task('a', 'done')];
+    snapshot.backlog = [task('a', 'done'), task('b', 'in_progress')];
+    snapshot.daemon.resumable = true;
+    expect(currentWorkStatus(snapshot)).toMatchObject({ state: 'paused', reason: 'not_running' });
+    snapshot.daemon.resumable = false;
     expect(currentWorkStatus(snapshot)).toMatchObject({ state: 'idle', reason: '' });
     expect(currentWorkStatus(undefined).state).toBe('unknown');
   });

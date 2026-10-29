@@ -175,11 +175,16 @@ function usage(rows: Record<string, unknown>[]): UsageSummary {
   }));
 }
 
+/** Whether Resume has work to take up: letters to the Manager no turn took, failed turns, or the
+ * open work and the Planner's letters the operator stopped. */
+const resumable = (project: Project): boolean => Boolean(project.forManager?.length) || project.status === 'failed'
+  || project.status === 'stopped' && (openTasks(project).length > 0 || project.inbox.length > 0);
+
 export function daemon(project: Project, live: Live): Daemon {
   const { since } = live;
   return {
     // Stopped with calls under way: they end, and no other starts.
-    alive: since !== null, draining: since !== null && project.status === 'stopped', pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
+    alive: since !== null, draining: since !== null && project.status === 'stopped', resumable: since === null && resumable(project), pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
     backend_label: BACKEND_LABELS[project.backend], control_available: true,
     read_status: 'ok', read_error: '', protocol_compatible: true, protocol_error: '',
@@ -261,10 +266,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     last_call: last ? {
       backend: String(last.backend), model: String(last.model ?? ''), effort: project.effort ?? '', run_label: String(last.role), role: String(last.role), ts: Number(last.ts),
     } : null,
-    // Letters left for the Manager when the work stopped are work Resume takes up, as a task cut off is.
-    backlog: [...backlog(project), ...live.since === null ? (project.forManager ?? []).map((letter, index) => ({
-      id: `manager-${index + 1}`, title: letter.split('\n')[0]!.slice(0, 100), objective: letter, priority: 0, deps: [], status: 'in_progress' as const,
-    })) : []],
+    backlog: backlog(project),
     recent_events: [],
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<Snapshot['spend_status']>, usage_summary: summary,
     daemon_commands: null, observability: null, mission_view: null,

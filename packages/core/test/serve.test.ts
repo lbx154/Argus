@@ -411,14 +411,16 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   const stopped = await (await post(`${P}/daemon/stop`, { command_id: 'c1' })).json() as { rc: number };
   assert.equal(stopped.rc, 0);
   const paused = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
-  assert.deepEqual(paused.backlog.map(item => item.status), ['in_progress']);
+  assert.deepEqual([paused.backlog.map(item => item.status), paused.daemon.resumable], [['in_progress'], true]);
   // Talking to the Manager does not start the stopped team again.
   await frames(await post(`${P}/message/stream`, { text: 'how is it going?', request_id: 'r3' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager']);
 
   assert.equal((await (await post(`${P}/daemon/start`, { command_id: 'c2' })).json() as { rc: number }).rc, 0);
-  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done');
+  // Done, there is nothing for Resume to take up.
+  const done = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
+  assert.equal(done.daemon.resumable, false);
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its backend reported no session to go on in.
   assert.equal(requests[4]!.resume, undefined);
@@ -484,7 +486,7 @@ test('pausing lets the calls under way end and starts no other, until the work r
   // The Engineer's turn ended and its letter was kept; the Reviewer waits for the work to resume.
   assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer']);
   assert.deepEqual(paused.backlog.map(item => item.status), ['in_progress']);
-  assert.equal(paused.daemon.draining, false);
+  assert.deepEqual([paused.daemon.draining, paused.daemon.resumable], [false, true]);
 
   await post(`${P}/daemon/start`, { command_id: 'c2' });
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
@@ -523,11 +525,11 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   await post(`${P}/daemon/stop`, { command_id: 'c1' });
   await reply;
   const stopped = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
-  assert.deepEqual(stopped.backlog.map(item => [item.title, item.status]), [['What is 6 times 7?', 'in_progress']]);
+  assert.equal(stopped.daemon.resumable, true);
   await post(`${P}/daemon/start`, { command_id: 'c2' });
   const answered = await eventually(() => get<{ turns: EventMsg[] }>(`${P}/transcript`), ({ turns }) => turns.length === 2);
   assert.deepEqual(answered.turns.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'], ['ui.argus', '42']]);
-  assert.deepEqual((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).backlog, []);
+  assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
   assert.equal(requests.length, 2);
 });
 

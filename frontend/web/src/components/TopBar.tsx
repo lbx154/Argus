@@ -10,7 +10,6 @@ import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { isFreshProject } from '../lib/workStatus';
-import { resumableTaskIds } from '../lib/resumable';
 import { shortcut } from '../lib/format';
 
 export type ThemeMode = 'light' | 'dark';
@@ -76,23 +75,10 @@ export function TopBar({
   const statusWords = !streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale')
     : untouched ? (locale === 'zh-CN' ? '等你开始' : 'Waiting for you to start') : workStatusLabel(work, locale);
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
-  // A foreground request (a direct answer or a one-agent task) runs without
-  // the daemon; offering "Run" then reads as if nothing had started.
-  const foregroundWork = !snap.daemon.alive && ['running', 'waiting'].includes(currentWorkStatus(snap, missionView, events).state);
-  const hasQueuedWork = snap.backlog.some(item => ['pending', 'queued', 'running', 'in_progress', 'claimed', 'paused'].includes(item.status));
   const draining = snap.daemon.alive && snap.daemon.draining === true;
-  // Work paused or cut off with nothing running it: going on is the one thing
+  // Work stopped short of done with nothing running it: going on is the one thing
   // to do here, so it is the header's primary action, not a hover control.
-  const resumable = !foregroundWork && resumableTaskIds(snap).size > 0;
-  const daemonActionLabel = externalDaemon
-    ? t('topbar.externallyManaged')
-    : draining
-    ? t('topbar.draining')
-    : snap.daemon.alive
-    ? onPause ? t('topbar.pauseTeam') : t('topbar.pauseDaemon')
-    : foregroundWork
-    ? t('topbar.working')
-    : hasQueuedWork ? t('topbar.resumeTeam') : t('topbar.runDaemon');
+  const resumable = snap.daemon.resumable === true;
   const stopNow = () => {
     if (window.confirm(t('daemon.stopConfirm'))) onStop();
   };
@@ -165,16 +151,16 @@ export function TopBar({
           >
             <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
             <span>{t('topbar.continueRun')}</span>
-          </button> : (snap.daemon.alive || foregroundWork || hasQueuedWork) && <button
+          </button> : snap.daemon.alive && <button
             type="button"
-            disabled={busy || externalDaemon || foregroundWork || draining}
-            onClick={snap.daemon.alive ? (onPause ?? stopNow) : onStart}
-            aria-label={daemonActionLabel}
-            title={externalDaemon ? t('topbar.externalDaemonHint') : snap.daemon.alive && onPause && !draining ? t('topbar.pauseAfterCurrentHint') : daemonActionLabel}
+            disabled={busy || externalDaemon || draining}
+            onClick={onPause ?? stopNow}
+            aria-label={externalDaemon ? t('topbar.externallyManaged') : draining ? t('topbar.draining') : t('topbar.pauseTeam')}
+            title={externalDaemon ? t('topbar.externalDaemonHint') : onPause && !draining ? t('topbar.pauseAfterCurrentHint') : undefined}
             className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 disabled:opacity-40"
           >
-            <FontAwesomeIcon icon={snap.daemon.alive ? faPause : faPlay} className="h-3 w-3" />
-            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : draining ? t('topbar.draining') : snap.daemon.alive ? t('topbar.pauseTeam') : foregroundWork ? t('common.working') : hasQueuedWork ? t('topbar.resumeTeam') : t('common.run')}</span>
+            <FontAwesomeIcon icon={faPause} className="h-3 w-3" />
+            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : draining ? t('topbar.draining') : t('topbar.pauseTeam')}</span>
           </button>}
           {snap.daemon.alive && onPause && !externalDaemon ? <button
             type="button"

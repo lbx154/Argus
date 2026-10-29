@@ -1089,13 +1089,9 @@ export default function App() {
                 },
               ]
             : []),
-          ...(snap?.daemon.control_available === false
-            ? []
-            : [
-                snap?.daemon.alive
-                  ? { id: 'stop', label: t('palette.stopDaemon'), group: t('palette.action'), run: requestPauseDaemon }
-                  : { id: 'start', label: t('palette.startDaemon'), group: t('palette.action'), run: requestStartDaemon },
-              ]),
+          ...(snap?.daemon.alive && snap.daemon.control_available !== false
+            ? [{ id: 'stop', label: t('palette.stopDaemon'), group: t('palette.action'), run: requestPauseDaemon }]
+            : snap?.daemon.resumable ? [{ id: 'start', label: t('palette.startDaemon'), group: t('palette.action'), run: requestStartDaemon }] : []),
         ];
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
@@ -1107,7 +1103,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
+  }, [projects, snap?.daemon.alive, snap?.daemon.resumable, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
 
   const freshFiles = deliveryCenter.fresh ? deliveryFiles(deliveryCenter.fresh) : [];
   return (
@@ -1277,7 +1273,6 @@ export default function App() {
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}
-                    onResumeWork={kiosk || daemonBusy ? undefined : requestStartDaemon}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
                     artifacts={artifactsQ.data}
@@ -1503,6 +1498,7 @@ export default function App() {
             || ''}
           alive={manageSnapQ.data?.daemon.alive
             ?? Boolean(projects.find((project) => project.id === manageTargetSid)?.daemon_alive)}
+          resumable={manageSnapQ.data?.daemon.resumable === true}
           controlAvailable={manageSnapQ.data?.daemon.control_available !== false}
           snapshot={manageSnapQ.data}
           busy={daemonBusy}

@@ -19,8 +19,6 @@ export const PHASE_TONE: Record<TeamPhase, string> = {
   running: 'running', waiting_you: 'waiting', paused: 'idle', stopped: 'failed', done: 'done', unknown: 'idle',
 };
 
-const QUEUED = ['pending', 'queued', 'running', 'in_progress', 'claimed', 'paused'];
-
 /** "暂停团队" / "继续": pauses or resumes the background team, never the Manager's reply. */
 export function TeamPauseButton({ snapshot, locale, onPause, onResume, busy = false, className = '' }: {
   snapshot: Snapshot; locale: Locale; onPause?: () => void; onResume?: () => void; busy?: boolean; className?: string;
@@ -37,8 +35,7 @@ export function TeamPauseButton({ snapshot, locale, onPause, onResume, busy = fa
       {zh ? '暂停团队' : 'Pause team'}
     </button>;
   }
-  const queued = snapshot.backlog.some((item) => QUEUED.includes(item.status));
-  if (!daemon.alive && queued && onResume) {
+  if (daemon.resumable && onResume) {
     return <button type="button" disabled={busy} onClick={onResume} className={className} data-testid="team-resume"
       title={zh ? '让后台团队继续未完成的任务。' : 'Let the background team continue its unfinished tasks.'}>
       {zh ? '继续' : 'Resume'}

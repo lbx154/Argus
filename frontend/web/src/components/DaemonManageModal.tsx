@@ -9,6 +9,7 @@ export function DaemonManageModal({
   sid,
   name,
   alive,
+  resumable,
   controlAvailable = true,
   busy,
   onClose,
@@ -22,6 +23,8 @@ export function DaemonManageModal({
   sid: string;
   name: string;
   alive: boolean;
+  /** Nothing is under way, and Resume has work to take up. */
+  resumable: boolean;
   controlAvailable?: boolean;
   busy: boolean;
   onClose: () => void;
@@ -95,7 +98,7 @@ export function DaemonManageModal({
         </label>
       </form>
 
-      <div className="border-b border-line px-6 py-5">
+      {effectiveAlive || resumable ? <div className="border-b border-line px-6 py-5">
         <div className="text-xs font-medium text-ink-faint">{t('manage.executor')}</div>
         <div className="mt-2 flex items-center justify-between gap-4">
           <div>
@@ -119,7 +122,7 @@ export function DaemonManageModal({
             {busy ? t('manage.working') : !controlAvailable ? t('common.external') : effectiveAlive ? t('manage.stopNow') : t('manage.resume')}
           </button>
         </div>
-      </div>
+      </div> : null}
 
       <div className="px-6 py-5">
         <div className="text-xs font-medium text-err">{t('manage.deleteSession')}</div>

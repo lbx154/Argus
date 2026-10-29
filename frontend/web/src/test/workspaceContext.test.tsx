@@ -46,9 +46,11 @@ describe('A3 snapshot-only session context', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps the existing runtime action for actual queued work and an active daemon', () => {
-    expect(markup(topbar({ ...snap, backlog: [{ id: 'queued', title: 'Continue work', objective: 'Continue work', status: 'pending', priority: 1 }] }))).toContain('Resume');
-    expect(markup(topbar({ ...snap, daemon: { ...snap.daemon, alive: true, pid: 1 } }))).toContain('Pause Argus');
+  it('offers Resume only for work the server says Resume takes up, and pausing a live team', () => {
+    const queued = { ...snap, backlog: [{ id: 'queued', title: 'Continue work', objective: 'Continue work', status: 'pending', priority: 1 }] };
+    expect(markup(topbar(queued))).not.toContain('Resume');
+    expect(markup(topbar({ ...queued, daemon: { ...snap.daemon, resumable: true } }))).toContain('Resume');
+    expect(markup(topbar({ ...snap, daemon: { ...snap.daemon, alive: true, pid: 1 } }))).toContain('Pause');
   });
 
   it('keeps only what the conversation, the map and the results do not show: the code, then the upkeep', () => {

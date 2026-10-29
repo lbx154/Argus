@@ -31,7 +31,7 @@ describe('team status and controls', () => {
   it('offers pause for a live team and resume for a stopped team with unfinished work', () => {
     const pause = renderToStaticMarkup(<TeamPauseButton snapshot={snap(true)} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
     expect(pause).toContain('暂停团队');
-    const resume = renderToStaticMarkup(<TeamPauseButton snapshot={snap(false, [{ status: 'paused' }])} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
+    const resume = renderToStaticMarkup(<TeamPauseButton snapshot={snap(false, [{ status: 'in_progress' }], { resumable: true })} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
     expect(resume).toContain('继续');
     expect(renderToStaticMarkup(<TeamPauseButton snapshot={snap(false, [{ status: 'done' }])} locale="zh-CN" onResume={() => {}} />)).toBe('');
     expect(renderToStaticMarkup(<TeamPauseButton snapshot={snap(true, [], { draining: true })} locale="zh-CN" onPause={() => {}} />)).toContain('disabled');

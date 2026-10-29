@@ -67,6 +67,7 @@ describe('session rename', () => {
         sid={sid}
         name="Original name"
         alive={false}
+        resumable={false}
         busy={false}
         onClose={() => undefined}
         onRename={async () => true}
@@ -83,7 +84,7 @@ describe('session rename', () => {
 
   it('says calls were unpriced or not billed instead of "no spend"', () => {
     const render = (spend_status: string) => renderToStaticMarkup(
-      <DaemonManageModal open sid={sid} name="Original name" alive={false} busy={false}
+      <DaemonManageModal open sid={sid} name="Original name" alive={false} resumable={false} busy={false}
         onClose={() => undefined} onRename={async () => true} onStart={async () => true}
         onStop={async () => true} onDelete={async () => true}
         snapshot={{ ...snapshot(), spend_usd: null, spend_status, usage_summary: { call_count: 40, known_cost_usd: 0 } } as unknown as Snapshot} />,
@@ -109,16 +110,22 @@ describe('session rename', () => {
       onDelete: async () => true,
     };
     const running = renderToStaticMarkup(
-      <DaemonManageModal {...props} alive />,
+      <DaemonManageModal {...props} alive resumable={false} />,
     );
     const stopped = renderToStaticMarkup(
-      <DaemonManageModal {...props} alive={false} />,
+      <DaemonManageModal {...props} alive={false} resumable />,
+    );
+    const done = renderToStaticMarkup(
+      <DaemonManageModal {...props} alive={false} resumable={false} />,
     );
 
     expect(running).toContain('Stop now');
     expect(running).toContain('Stop background work now');
     expect(stopped).toContain('Stopped');
     expect(stopped).toContain('Delete…');
+    // With nothing to go on with, there is nothing to resume.
+    expect(done).not.toContain('Resume');
+    expect(done).toContain('Delete…');
   });
 
   it('updates the cached session list and header from the persisted server name', () => {
