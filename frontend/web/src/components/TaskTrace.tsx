@@ -19,8 +19,6 @@ export interface TraceGroup {
   ended_ts?: number;
   entries: TraceEntry[];
   truncated?: boolean;
-  /** Where the call's raw output is kept, when the server keeps it apart. */
-  output?: string;
 }
 
 export interface TaskTraceData {
@@ -120,7 +118,6 @@ export function TaskTrace({ sessionId, taskId, zh, conclusion, running = false }
             ? <CommandsView key={index} commands={run.commands} zh={zh} />
             : <EntryView key={index} entry={run.entry} zh={zh} />)}
           {group.truncated ? <p className="text-xs text-ink-dim">{zh ? '……之后的记录已省略' : '… later records omitted'}</p> : null}
-          {group.output ? <p className="break-all text-xs text-ink-dim">{zh ? '原始输出：' : 'Raw output: '}<code>{group.output}</code></p> : null}
         </div>
       </section>)}
   </div>;
