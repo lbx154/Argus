@@ -18,10 +18,10 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   outdated model, a toy setup, or a benchmark the model already nearly solves (GSM8K for a
   current 4B model) is a result nobody will use.
 - Use the whole machine. `node <this folder>/machine.mjs` shows the GPUs with their free memory,
-  the Python ML stack and the disk; size the model, batch and number of runs to it, and run
-  independent jobs side by side. Work that generates a lot (RL rollouts, evaluation, synthetic
-  data) runs through an inference engine such as vLLM or SGLang, often ten times faster than
-  generating inside the training loop.
+  the Python ML stack and the disk; size the model, batch, threads and number of runs to it
+  together, and run independent jobs side by side. Work that generates a lot (RL rollouts,
+  evaluation, synthetic data) runs through an inference engine such as vLLM or SGLang, often ten
+  times faster than generating inside the training loop.
 - Go end to end small first: a few steps on a few dozen examples through the real evaluator, then
   scale back up to the starting point's models and scale: a pilot's small model or short run is
   never carried into the main experiment. Measure the unchanged starting point under the same
@@ -52,9 +52,9 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   - the chat template, which must match between training and inference;
   - the scorer's parsing of the answer;
   - the protocol behind the published number.
-- Before calling a gap a defect, measure the same gap between two things you trust: two seeds, two
-  correct code paths, two graders. A gap no larger is noise; a bar set before that measurement is
-  a guess, which the measurement replaces.
+- Before calling a gap a defect or a finding, measure the same gap between two things it should
+  not separate: two seeds, two correct code paths, two graders, two models of the same kind. A gap
+  no larger is noise; a bar set before that measurement is a guess, which the measurement replaces.
 - Read ten raw outputs before anything expensive: most defects show in ten generations and hide
   in an aggregate.
 - A weak first result is a defect to find, not a finding. Change one thing at a time, starting
