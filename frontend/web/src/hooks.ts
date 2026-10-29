@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { api, isAuthenticationError, openStream, type EventMsg, type ProjectIndex, type Snapshot } from './api';
+import { api, isAuthenticationError, openProjectStates, openStream, type EventMsg, type ProjectIndex, type Snapshot } from './api';
 import { eventKey } from '../../core/src/events';
+import { POLL_CAPABILITY, useCapability } from './lib/capabilities';
 import { cacheProjectName } from './lib/projectName';
 import { PageUpdateRequiredError } from './lib/pageUpdate';
 import { workspaceApi } from './research-workbench/workspaceApi';
@@ -35,29 +36,60 @@ export function snapshotPollInterval(snapshot?: Snapshot): number {
     : SNAPSHOT_POLL_MS;
 }
 
-export const useProjects = () =>
-  useQuery({
+export function useProjects() {
+  const polled = useCapability(POLL_CAPABILITY);
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: ['projects'],
     queryFn: api.projectIndex,
-    refetchInterval: (query) => projectPollInterval(query.state.data),
+    refetchInterval: (query) => polled && projectPollInterval(query.state.data),
   });
+  const listed = query.data !== undefined;
+  // A server that pushes state sends the list as the page connects, then each project's row and
+  // snapshot as it changes. It is followed once the first list is in, which it then supersedes.
+  useEffect(() => {
+    if (polled || !listed) return;
+    return openProjectStates((state) => {
+      if (state.type === 'projects') {
+        queryClient.setQueryData<ProjectIndex>(['projects'], { projects: state.projects, local_cwd: state.local_cwd });
+        // A snapshot the page holds may be older than the connection: it is read again.
+        void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+      } else {
+        const { id, row, snapshot } = state;
+        queryClient.setQueryData<ProjectIndex>(['projects'], (index) => index && {
+          ...index, projects: [...index.projects.filter((project) => project.id !== id), ...row ? [row] : []],
+        });
+        if (snapshot) queryClient.setQueryData(['snapshot', id], snapshot);
+      }
+      // The roles learn in their turns, and a turn's end is a change.
+      void queryClient.invalidateQueries({ queryKey: ['learning-status'] });
+    });
+  }, [polled, listed, queryClient]);
+  return query;
+}
 
-export const useProjectCosts = () =>
-  useQuery({
+/** Each project's spending, where the server does not push it in the project list. */
+export function useProjectCosts() {
+  const polled = useCapability(POLL_CAPABILITY);
+  return useQuery({
     queryKey: ['project-costs'],
     queryFn: ({ signal }) => api.projectCosts(signal),
+    enabled: polled,
     retry: queryRetryPolicy,
     refetchInterval: (query) => projectCostPollInterval(query.state.error),
     refetchIntervalInBackground: false,
   });
+}
 
-export const useSnapshot = (sid: string | null) =>
-  useQuery({
+export function useSnapshot(sid: string | null) {
+  const polled = useCapability(POLL_CAPABILITY);
+  return useQuery({
     queryKey: ['snapshot', sid],
     queryFn: ({ signal }) => api.snapshot(sid!, signal),
     enabled: !!sid,
-    refetchInterval: (query) => snapshotPollInterval(query.state.data),
+    refetchInterval: (query) => polled && snapshotPollInterval(query.state.data),
   });
+}
 
 export const useStatus = (sid: string | null, enabled = true) =>
   useQuery({

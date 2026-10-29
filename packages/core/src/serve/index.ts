@@ -65,14 +65,40 @@ export async function serve(options: ServeOptions): Promise<Served> {
   const { store, token, host = '127.0.0.1' } = options;
   // Whoever reaches the cockpit can run work on this machine.
   if (!token && !/^(localhost|127(\.\d+){3}|::1)$/.test(host)) throw new Error(`Serving on ${host} needs ARGUS_WEB_TOKEN.`);
+  /** The streams following each project's record, and those following every project's state. */
   const listeners = new Map<string, Set<() => void>>();
-  const runs = new Runs(store, options.callAgent, id => { for (const wake of listeners.get(id) ?? []) wake(); });
+  const watchers = new Set<(frame: Record<string, unknown>) => void>();
+  /** Projects whose state is to be sent, once what changed it has run on to its next wait: a
+   * question is added just after the letter that asks it is recorded. */
+  const due = new Set<string>();
+  const runs = new Runs(store, options.callAgent, (id, event) => {
+    for (const wake of listeners.get(id) ?? []) wake();
+    // A step changes nothing but the record.
+    if (event?.type === 'step' || !watchers.size || due.has(id)) return;
+    due.add(id);
+    setImmediate(() => {
+      due.delete(id);
+      const frame = state(id);
+      for (const send of watchers) send(frame);
+    });
+  });
 
   const project = (id: string): Project => {
     try {
       if (PROJECT_ID.test(id)) return store.load(id);
     } catch { /* not a project */ }
     throw new HttpError(404, `unknown project: ${id}`);
+  };
+  const list = () => ({
+    projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
+    local_cwd: process.cwd(),
+  });
+  /** A project's row in the list and its snapshot, as the page holds them; a deleted one's are null. */
+  const state = (id: string): Record<string, unknown> => {
+    let work: Project;
+    try { work = store.load(id); } catch { return { type: 'project', id, row: null, snapshot: null }; }
+    const live = runs.live(id);
+    return { type: 'project', id, row: projectRow(store, work, live), snapshot: snapshot(store, work, live) };
   };
   const authorized = (request: IncomingMessage): boolean => {
     if (!token) return true;
@@ -128,13 +154,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     // The page asks for the saved maps it may open beside a project's; this server keeps none.
     ['GET', /^\/api\/map-datasets$/, () => ({ datasets: [] })],
-    ['GET', /^\/api\/projects$/, () => ({
-      projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
-      local_cwd: process.cwd(),
-    })],
+    ['GET', /^\/api\/projects$/, list],
     ['POST', /^\/api\/daemons$/, async ({ body }) => {
       const workdir = directory(String((await body()).workdir ?? ''));
       const created = store.create({ workdir, request: '', backend: options.backend, model: options.model });
+      runs.changed(created.id);
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
     }],
     ...projectRoutes(store, runs, project),
@@ -155,6 +179,13 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const wake = listeners.get(id!) ?? new Set();
       listeners.set(id!, wake.add(flush));
       response.on('close', () => wake.delete(flush));
+    }],
+    // The project list, then each project's state as it changes: the page asks for none of it again.
+    ['GET', /^\/api\/projects\/stream$/, ({ response }) => {
+      const send = sse(response);
+      send({ type: 'projects', ...list() });
+      watchers.add(send);
+      response.on('close', () => watchers.delete(send));
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/transcript$/, ({ params: [id], url }) =>
       ({ turns: turns(webEvents(readEvents(store, project(id!).id))).slice(-Number(url.searchParams.get('n') ?? 30)) })],

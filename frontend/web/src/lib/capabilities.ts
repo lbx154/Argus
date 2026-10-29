@@ -16,6 +16,9 @@ export const COMMANDS_CAPABILITY = 'composer.commands.v1';
 export const LAUNCH_CAPABILITY = 'project.launch.v1';
 /** The composer's choice of Auto, Task or Chat for a message. */
 export const ROUTE_CAPABILITY = 'composer.route.v1';
+/** Project state the page asks for again every few seconds: the snapshot, the project list, costs
+ * and learning. Without it the server pushes each change (GET /api/projects/stream). */
+export const POLL_CAPABILITY = 'project.state-poll.v1';
 
 /** What the server declared; main.tsx provides it once the handshake is in. */
 export const Capabilities = createContext<readonly string[] | null>(null);

@@ -668,6 +668,34 @@ test('a reading that goes on where it stopped folds the record as one whole read
   assert.deepEqual(folded.filter(event => event.type === 'ui.argus').map(event => event.message_id), ['m0-argus', 'm10-argus', 'm25-argus']);
 });
 
+test("the page is sent each project's state as it changes: the question a turn asks with the letter that asks it", { timeout: 20_000 }, async t => {
+  const { call, get, post } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: 'Total data.csv' },
+    { role: 'engineer', hang: true },
+    { role: 'manager', to: 'engineer', letter: 'Total data2.csv' },
+    { role: 'engineer', to: 'operator', letter: 'Which encoding?', says: 'Looking.' },
+  ]);
+  type State = { type: string; row?: { id: string; daemon_alive: boolean } | null; snapshot?: Snapshot | null };
+  const live = new AbortController();
+  const sent = frames(await call('/api/projects/stream', { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Total data.csv', request_id: 'r1' }));
+  await frames(await post(`${P}/message/stream`, { text: 'Total data2.csv too', request_id: 'r2' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length));
+  await post(`${P}/daemon/stop`, {});
+  await eventually(() => call(P, { method: 'DELETE' }), response => response.status === 200);
+  const states = await sent;
+  live.abort();
+  assert.deepEqual(states[0], { type: 'projects', projects: [], local_cwd: process.cwd() });
+  assert.equal(states[1]?.row?.id, sid);
+  // Nothing is recorded after the letter while the other task works on: the question comes with it.
+  const asked = states.find(state => state.snapshot?.pending_questions?.length);
+  assert.deepEqual([asked?.row?.daemon_alive, asked?.snapshot?.daemon.draining], [true, false]);
+  assert.ok(states.some(state => state.row && !state.row.daemon_alive && state.snapshot?.daemon.alive === false));
+  assert.deepEqual(states.at(-1), { type: 'project', id: sid, row: null, snapshot: null });
+});
+
 test("each call's end is paired with its own start, when tasks run side by side", () => {
   const ts = '2026-10-28T00:00:00.000Z';
   const end = { callId: 'x', threadId: null, completed: true, error: null, model: null, usage: null, ms: 1 };

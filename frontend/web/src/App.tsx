@@ -53,7 +53,7 @@ import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
 import { COMMANDS, parseCommand } from '../../core/src/commands';
-import { COMMANDS_CAPABILITY, LAUNCH_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
+import { COMMANDS_CAPABILITY, LAUNCH_CAPABILITY, POLL_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
@@ -523,7 +523,9 @@ export default function App() {
   const artifactsQ = useArtifacts(loadedSid, true);
   const { events, connected, restored: eventsRestored, seeded: eventsSeeded } = useEventStream(loadedSid, eventView.reconnectKey);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
-  const snapshotRefreshKey = useMemo(() => snapshotRefreshEventKey(events), [events]);
+  // A server that pushes state sends the snapshot with each change itself.
+  const polled = useCapability(POLL_CAPABILITY);
+  const snapshotRefreshKey = useMemo(() => polled ? snapshotRefreshEventKey(events) : '', [events, polled]);
   useEffect(() => {
     if (!loadedSid || !artifactRefreshKey) return;
     // One tool turn can write several files back-to-back. Coalesce those
@@ -1340,7 +1342,7 @@ export default function App() {
         error={connectionError}
         onRetry={() => {
           void projectsQ.refetch();
-          void projectCostsQ.refetch();
+          if (projectCostsQ.isEnabled) void projectCostsQ.refetch();
         }}
       />
       {deliveryCenter.fresh && !deliveryCenter.selection && <div className="delivery-toast" role="status" aria-live="polite">

@@ -15,6 +15,7 @@ import type {
   ProjectCostRow,
   ProgressSourceRef,
   Role,
+  Snapshot,
   VerticalAction,
   VerticalManageResult,
   VerticalOperation,
@@ -397,6 +398,11 @@ export interface ProjectIndex {
   projects: ProjectRow[];
   local_cwd: string;
 }
+/** What a server without POLL_CAPABILITY pushes: the project list as the page connects, then each
+ * project's state as it changes; a deleted project's is null. */
+export type ProjectState =
+  | ({ type: 'projects' } & ProjectIndex)
+  | { type: 'project'; id: string; row: ProjectRow | null; snapshot: Snapshot | null };
 export interface ProjectCostIndex {
   projects: ProjectCostRow[];
   generated_at: number;
@@ -1687,6 +1693,10 @@ export function openStream(
   q.set('view', 'ui');
   return follow(`${P(sid, '/stream')}?${q}`, 'Event stream', onEvent, opts);
 }
+
+/** The project list, then each project's state as it changes, from a server without POLL_CAPABILITY. Returns a close() fn. */
+export const openProjectStates = (onState: (state: ProjectState) => void, opts: StreamOptions = {}): (() => void) =>
+  follow('/api/projects/stream', 'Project stream', (frame) => onState(frame as ProjectState), opts);
 
 /** Follow server-sent events, connecting again a second after a lost connection; a record's
  * stream is told the last event the page has (Last-Event-ID) and goes on after it. */
