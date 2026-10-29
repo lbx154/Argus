@@ -271,27 +271,29 @@ test('map updates carry each task’s holder, the latest thing said on it (not a
     { role: 'manager', to: 'operator', letter: 'All done.', open: ['unrelated.md'] },
   ]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  // The operator's message is a card of its own, before the task its answer opens.
+  const t1 = (map: ProgressMap) => map.tasks.find(task => task.id === 't1');
   const P = `/api/projects/${sid}`;
   await frames(await post(`${P}/message/stream`, { text: 'Total the columns', request_id: 'r1' }));
-  const first = await eventually(() => get<ProgressMap>(`${P}/map`), map => map.tasks[0]?.role === 'engineer' && !!map.tasks[0].latest_action);
+  const first = await eventually(() => get<ProgressMap>(`${P}/map`), map => t1(map)?.role === 'engineer' && !!t1(map)?.latest_action);
   // The command run after the sentence does not replace it.
-  assert.deepEqual(first.tasks[0]!.latest_action, { role: 'engineer', text: 'Totalling the columns.', ts: first.tasks[0]!.latest_action!.ts });
-  assert.deepEqual(first.tasks[0]!.result_paths, []);
+  assert.deepEqual(t1(first)!.latest_action, { role: 'engineer', text: 'Totalling the columns.', ts: t1(first)!.latest_action!.ts });
+  assert.deepEqual(t1(first)!.result_paths, []);
   // Later activity from another task or the Manager must not replace this task's action.
   store.append(sid, { type: 'step', role: 'engineer', task: 't2', kind: 'command', text: 'unrelated command' });
   store.append(sid, { type: 'step', role: 'manager', kind: 'message', text: 'unrelated message' });
-  assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${first.cursor}`)).tasks[0]!.latest_action, first.tasks[0]!.latest_action);
+  assert.deepEqual(t1(await get<ProgressMap>(`${P}/map?after=${first.cursor}`))!.latest_action, t1(first)!.latest_action);
   releaseEngineer();
-  const checking = await eventually(() => get<ProgressMap>(`${P}/map?after=${first.cursor}`), map => map.tasks[0]?.latest_action?.text === 'Checking the totals.');
-  assert.equal(checking.tasks[0]!.role, 'reviewer');
-  assert.equal(checking.tasks[0]!.latest_action!.role, 'reviewer');
-  assert.deepEqual(checking.tasks[0]!.result_paths, []);
+  const checking = await eventually(() => get<ProgressMap>(`${P}/map?after=${first.cursor}`), map => t1(map)?.latest_action?.text === 'Checking the totals.');
+  assert.equal(t1(checking)!.role, 'reviewer');
+  assert.equal(t1(checking)!.latest_action!.role, 'reviewer');
+  assert.deepEqual(t1(checking)!.result_paths, []);
   releaseReviewer();
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   const done = await get<ProgressMap>(`${P}/map?after=${checking.cursor}`);
-  assert.equal(done.tasks[0]!.status, 'done');
-  assert.deepEqual(done.tasks[0]!.result_paths, ['report.md', 'data.csv']);
-  assert.equal(done.tasks[0]!.latest_action!.text, 'Accepted. Ignore guessed.md in this letter.');
+  assert.equal(t1(done)!.status, 'done');
+  assert.deepEqual(t1(done)!.result_paths, ['report.md', 'data.csv']);
+  assert.equal(t1(done)!.latest_action!.text, 'Accepted. Ignore guessed.md in this letter.');
   const unchanged = await get<ProgressMap>(`${P}/map?after=${done.cursor}`);
   assert.deepEqual(unchanged.events, []);
   assert.deepEqual(unchanged.tasks, done.tasks);
@@ -328,9 +330,12 @@ test('the map shows each task and the letters written about it, and a task its c
 
   const first = await get<ProgressMap>(`${P}/map`);
   assert.equal(first.id, `live:${sid}`);
-  assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, task.pending_question]),
-    [['t1', 'Summarize the CSV.', 'blocked', 'reviewer', 'Ship it as is?']]);
+  assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, task.pending_question]), [
+    ['q0', 'Total the columns of data.csv', 'done', 'manager', undefined],
+    ['t1', 'Summarize the CSV.', 'blocked', 'reviewer', 'Ship it as is?'],
+  ]);
   assert.deepEqual(first.events.map(letter => [letter.item_id, letter.type, letter.role, letter.to, letter.text]), [
+    ['q0', 'turn.replied', 'manager', 'planner', 'Total the columns, in steps.'],
     ['t1', 'handoff', 'engineer', 'reviewer', 'report.md written'],
     ['t1', 'handoff', 'reviewer', 'operator', 'Ship it as is?'],
   ]);
@@ -342,7 +347,7 @@ test('the map shows each task and the letters written about it, and a task its c
   const later = await get<ProgressMap>(`${P}/map?after=${first.cursor}`);
   assert.deepEqual(later.events.map(letter => [letter.role, letter.to, letter.text]),
     [['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
-  const [task] = later.tasks;
+  const task = later.tasks.find(card => card.id === 't1');
   assert.deepEqual([task!.status, task!.pending_question], ['done', undefined]);
   assert.ok(task!.ts < task!.finished_ts!);
   assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${later.cursor}`)).events, []);

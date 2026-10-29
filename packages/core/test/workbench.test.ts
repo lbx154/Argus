@@ -125,6 +125,9 @@ test('the results listed are the newest files, however many the workdir has', as
   const { artifacts } = await get<{ artifacts: { path: string }[] }>(`/api/projects/${project.id}/artifacts`);
   const newest = Array.from({ length: 200 }, (_, at) => `out/${String(((249 - at) * 97) % 250).padStart(3, '0')}.txt`);
   assert.deepEqual(artifacts.map(row => row.path), newest);
+  // A workdir moved or deleted lists nothing.
+  await rm(project.workdir, { recursive: true, force: true });
+  assert.deepEqual((await get<{ artifacts: unknown[] }>(`/api/projects/${project.id}/artifacts`)).artifacts, []);
 });
 
 test('the results listed are what the project delivered and changed, not what its repository ignores', async t => {

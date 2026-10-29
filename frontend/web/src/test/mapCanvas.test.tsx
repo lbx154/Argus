@@ -233,7 +233,7 @@ it("hands an idea card to the team as a message to the Manager that quotes the c
   expect(ask).toBe("把这张卡做成任务：写一个导出");
 });
 
-it.each(["error", "cancelled"] as const)("drops the card notice and opens the conversation when a card message ends %s", async (outcome) => {
+it.each(["error", "cancelled"] as const)("drops the card notice and points to the conversation, without covering the map, when a card message ends %s", async (outcome) => {
   await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "写一个导出", position: { x: 0, y: -900 } }); });
   client.setQueryData(["map-canvas", "canvas"], server);
   const onSend = vi.fn(async (_text: string, _files?: File[], observe?: DispatchObserver) => { observe?.({ type: "settled", outcome }); return true; });
@@ -243,7 +243,8 @@ it.each(["error", "cancelled"] as const)("drops the card notice and opens the co
   await flush();
   expect(onSend).toHaveBeenCalledTimes(1);
   expect(renderer.root.findAll((n) => n.type === "span" && n.children.includes("已发给 Argus，回复在对话里"))).toHaveLength(0);
-  expect(renderer.root.findAllByProps({ className: "map-conversation nowheel nodrag nopan" })).toHaveLength(1);
+  expect(renderer.root.findAll((n) => n.type === "span" && n.children.includes("回复在对话里"))).toHaveLength(1);
+  expect(renderer.root.findAllByProps({ className: "map-conversation nowheel nodrag nopan" })).toHaveLength(0);
 });
 
 it('passes the shared conversation pagination through the map drawer to its event stream', () => {

@@ -73,42 +73,52 @@ test('map polling reads only appended bytes while task state and each reader’s
 const records = new Store(fileURLToPath(new URL('../../../frontend/web/src/test/fixtures/home', import.meta.url)));
 const at = (iso: string) => Date.parse(iso) / 1000;
 
-test('what the Manager did itself and handed over is a piece of work on the map, done, with its result and when it was done', () => {
+test('each message the Manager takes up is a question and its answer on the map, answered by its letter with the files it hands over', () => {
   const project = records.load('p-0444b8d3');
   const map = progressMap(records, project, 0);
-  assert.deepEqual(map.tasks.map(card => [card.id, card.status, card.role, card.title, card.result_paths, card.deps, card.ts, card.finished_ts]), [
-    ['d22', 'done', 'manager', '25 分钟番茄钟', ['timer.html'], [],
-      at('2026-10-29T12:05:48.023Z'), at('2026-10-29T12:07:48.872Z')],
-    ['d44', 'done', 'manager', map.tasks[1]!.title, ['timer.html'], [], at('2026-10-29T12:13:17.436Z'), at('2026-10-29T12:15:53.902Z')],
-    ['d51', 'done', 'manager', map.tasks[2]!.title, ['README.md', 'check_timer.py'], [], at('2026-10-29T12:17:48.506Z'), at('2026-10-29T12:18:33.492Z')],
-  ]);
-  // Its letter is the step on it, as a task's letters are on the task.
-  assert.deepEqual(map.events.map(letter => [letter.id, letter.item_id]), [['e22', 'd22'], ['e44', 'd44'], ['e51', 'd51']]);
+  const record = fs.readFileSync(join(records.dir(project.id), 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const said = record.filter(event => event.type === 'message');
+  const answers = record.filter(event => event.type === 'handoff');
+  assert.deepEqual(map.tasks.map(card => [card.id, 'turn_kind' in card && card.turn_kind, card.status, card.role, card.objective, card.result_paths, card.deps, card.started_ts, card.finished_ts]),
+    [['q0', ['timer.html']], ['q23', ['timer.html']], ['q45', ['README.md', 'check_timer.py']]].map(([id, paths], index) =>
+      [id, 'qa', 'done', 'manager', said[index].text, paths, [], at(said[index].ts), at(answers[index].ts)]));
+  // Named by what the operator asked, so a file handed over twice names two cards apart.
+  assert.deepEqual(map.tasks.map(card => card.title), said.map(event => event.text.split('\n')[0].slice(0, 100)));
+  // Its answer is the letter, where the map's reader of a question and its answer finds it.
+  assert.deepEqual(map.events.map(letter => [letter.id, letter.item_id, letter.type]), [['e22', 'q0', 'turn.replied'], ['e44', 'q23', 'turn.replied'], ['e51', 'q45', 'turn.replied']]);
   assert.equal(map.tasks[2]!.latest_action?.text, map.events[2]!.text);
 });
 
-test("a result the Manager hands over after the team's tasks follows the last of them", () => {
+test("the tasks a message's answer opens follow it; a result handed over from the team's work is no card of its own", () => {
   const map = progressMap(records, records.load('p-c855623c'), 0);
-  assert.deepEqual(map.tasks.map(card => [card.id, card.status, card.deps]), [['t1', 'done', []], ['t2', 'done', []], ['t3', 'done', ['t1', 't2']], ['d102', 'done', ['t3']]]);
+  assert.deepEqual(map.tasks.map(card => [card.id, 'turn_kind' in card ? card.turn_kind : 'task', card.status, card.deps]),
+    [['q0', 'qa', 'done', []], ['t1', 'task', 'done', ['q0']], ['t2', 'task', 'done', ['q0']], ['t3', 'task', 'done', ['t1', 't2']]]);
   assert.deepEqual(map.tasks.at(-1)!.result_paths, ['result.md']);
+  assert.ok(!map.events.some(letter => letter.item_id === 'q0' && letter.id === 'e102'));
 });
 
-test('a delivery follows the tasks closed since the last delivery, a question meanwhile notwithstanding; a letter to the team is no delivery', t => {
+test('a message is on the map while it is answered, and after only if its answer set work going or handed something over', t => {
   const home = fs.mkdtempSync(join(tmpdir(), 'argus-map-deliveries-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const store = new Store(home);
   const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
   project.tasks = [{ ...task, status: 'closed' }, { ...task, id: 't2', status: 'closed', after: ['t1'] }];
-  const ts = '2026-10-29T11:00:00.000Z';
-  fs.writeFileSync(join(store.dir(project.id), 'events.jsonl'), [
-    { type: 'task.closed', task: 't1' },
-    { type: 'message', from: 'operator', text: 'How is it going?' },
-    { type: 'handoff', role: 'manager', to: 'operator', letter: 'Half way.' },
-    { type: 'task.closed', task: 't2' },
-    { type: 'handoff', role: 'manager', to: 'operator', letter: 'Done.', open: ['report.md'] },
-    { type: 'handoff', role: 'manager', to: 'engineer', letter: 'Polish it.', open: ['report.md'] },
-    { type: 'handoff', role: 'manager', to: 'operator', letter: 'Polished.', open: ['report.md'] },
-  ].map(row => `${JSON.stringify({ ts, ...row })}\n`).join(''));
-  const map = progressMap(store, project, 0);
-  assert.deepEqual(map.tasks.map(card => [card.id, card.deps]), [['t1', []], ['t2', ['t1']], ['d4', ['t2']], ['d6', []]]);
+  const manager = { type: 'call.start', role: 'manager' };
+  const path = join(store.dir(project.id), 'events.jsonl');
+  let second = 0;
+  const write = (rows: object[]) => fs.appendFileSync(path, rows.map(row =>
+    `${JSON.stringify({ ts: new Date(Date.UTC(2026, 9, 29, 11, 0, second++)).toISOString(), ...row })}\n`).join(''));
+  write([
+    { type: 'message', from: 'operator', text: 'Build it.' }, manager, { type: 'handoff', role: 'manager', to: 'planner', letter: 'Plan it.' },
+    { type: 'task.added', task: project.tasks[0] }, { type: 'task.added', task: project.tasks[1] }, { type: 'task.closed', task: 't1' },
+    { type: 'message', from: 'operator', text: 'How is it going?' }, manager, { type: 'handoff', role: 'manager', to: 'operator', letter: 'Half way.' },
+    { type: 'task.closed', task: 't2' }, manager, { type: 'handoff', role: 'manager', to: 'operator', letter: 'Done.', open: ['report.md'] },
+    { type: 'message', from: 'operator', text: 'Why?' }, manager, { type: 'call.end', role: 'manager', completed: false },
+    { type: 'message', from: 'operator', text: 'Chart it.' }, manager,
+  ]);
+  const cards = () => progressMap(store, project, 0).tasks.map(card => [card.id, card.status, card.deps, card.result_paths]);
+  // A turn on a letter from the team answers no message: its result is the conversation's, not a card.
+  assert.deepEqual(cards(), [['q0', 'done', [], []], ['t1', 'done', ['q0'], []], ['t2', 'done', ['t1'], []], ['q15', 'in_progress', [], []]]);
+  write([{ type: 'handoff', role: 'manager', to: 'operator', letter: 'Here it is.', open: ['chart.png'] }]);
+  assert.deepEqual(cards().at(-1), ['q15', 'done', [], ['chart.png']]);
 });

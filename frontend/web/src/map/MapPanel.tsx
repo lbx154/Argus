@@ -290,14 +290,9 @@ export function MapCanvas({
   // Before the canvas is measured the window stands in for it, so a phone
   // lays its cards out once instead of re-placing them after the first frame.
   const narrow = (camera.canvasSize.width || window.innerWidth) < 640;
-  // A message's reply is read in the conversation, which opens beside the map;
-  // on a phone it would cover the whole map, so a notice links to it instead.
-  const showConversation = () => {
-    if (narrow) return setConversationNotice(zh ? "回复在对话里" : "The reply is in the conversation");
-    setConversationNotice("");
-    setConversationOpen(true);
-    setAgentsOpen(false);
-  };
+  // A message's reply is on its card and in the conversation; a notice links to
+  // the conversation rather than opening it over the map.
+  const showConversation = () => setConversationNotice(zh ? "回复在对话里" : "The reply is in the conversation");
   const scene = useMemo(() => {
     const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions, narrow);
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);

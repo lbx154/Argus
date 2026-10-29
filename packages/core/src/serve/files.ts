@@ -146,6 +146,8 @@ const unlisted = (name: string): boolean => name.startsWith('.') || name === 'no
  * git repository, those git lists, tracked or not ignored; elsewhere, those six folders deep. None
  * hidden, in node_modules or __pycache__. */
 export function changed(root: string, since = 0): { file: string; path: string; stat: Stats }[] {
+  // A workdir moved or deleted lists nothing.
+  if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
   const git = spawnSync('git', [...SAFE_GIT, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
     { cwd: root, env: GIT_ENV, encoding: 'utf8', maxBuffer: 1 << 28, timeout: 10_000 });
   const walk = (dir: string, depth: number): string[] => readdirSync(join(root, dir), { withFileTypes: true }).flatMap(entry => {
