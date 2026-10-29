@@ -2,11 +2,7 @@ import { roleSnapshot } from './serverSnapshot';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { EventMsg, Snapshot } from '../api';
-import { emptyMissionView } from '../../../core/src/missionView';
-import type { MissionRoleWorkItem, Role } from '../../../core/src/types';
-import { AgentActivity } from '../components/AgentActivity';
-import { EventStream } from '../components/EventStream';
-import { liveStaleness } from '../components/agentActivityModel';
+import { EventStream } from './serverSnapshot';
 import { plainCommand, plainToolLabel, readableGlob, renderFeedRows } from '../lib/feedSteps';
 
 const tool = (text: string, tool_name?: string) => ({ type: 'engineer.progress', kind: 'tool_use', text, ...(tool_name ? { tool_name } : {}) }) as unknown as EventMsg;
@@ -50,24 +46,7 @@ describe('progress in plain words', () => {
     expect(readableGlob('{pyproject.toml,setup.cfg,*.ini}', 'en')).toBe('pyproject.toml, setup.cfg and other files');
   });
 
-  it('a LIVE badge says how old its news is once it is not fresh', () => {
-    expect(liveStaleness(10, true)).toBe('');
-    expect(liveStaleness(45, true)).toBe('上次更新 45 秒前');
-    expect(liveStaleness(3 * 3600 + 5, true)).toBe('上次更新 3 小时前');
-    expect(liveStaleness(2 * 86400 + 5, true)).toBe('上次更新 2 天前');
-    expect(liveStaleness(125, false)).toBe('last update 2m ago');
-  });
 
-  it('renders the staleness next to LIVE', () => {
-    const view = emptyMissionView();
-    const now = Date.now() / 1000;
-    const rec: MissionRoleWorkItem = { id: 'a', role: 'engineer', kind: 'agent_message', detail: 'x', title: 'x', status: 'active', ts: now - 300, item_id: 't' };
-    view.role_work = [rec];
-    const role: Role = { role: 'engineer', backend: 'b', backend_label: 'B', model: 'm', effort: 'high', label: 'working', status: 'running', active: true, age_s: 1 };
-    const html = renderToStaticMarkup(<AgentActivity view={view} roles={[role]} selectedRole="engineer" />);
-    expect(html).toContain('In progress');
-    expect(html).toMatch(/上次更新 [45] 分钟前|last update [45]m ago/);
-  });
 });
 
 describe('real rows from a dogfood session', () => {
@@ -144,7 +123,7 @@ describe('real rows from a dogfood session', () => {
       { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: command, ts: 1 },
       { type: 'engineer.progress', kind: 'tool_result', agent_layer: 'engineer', text: 'Public package: /work/datefmt/datefmt/__init__.py | /usr/lib/python3/site-packages/x.py', ts: 2 },
     ] as unknown as EventMsg[];
-    const html = renderToStaticMarkup(<EventStream events={[]} snapshot={{ ...snapshot, role_events: events }} connected showReasoning={false} />);
+    const html = renderToStaticMarkup(<EventStream events={[]} snapshot={roleSnapshot(events, snapshot)} connected showReasoning={false} />);
     expect(html).toContain('data-open="false"');
     expect(html).not.toContain('rm -r --');
     expect(plainCommand(command, snapshot.session.workdir)).toBe('rm -r -- build /work/datefmt2/build && ls .');

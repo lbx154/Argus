@@ -147,7 +147,6 @@ it('keeps the open question and draft when the current task changes, then opens 
 
   act(() => renderer!.update(<TaskProbe currentTaskId="b" autoOpen={false} />));
   expect(taskSession.pendingReply?.id).toBe('decision-a');
-  expect(taskSession.pendingReply?.is_current_task).toBe(false);
   expect(renderer!.root.findByType('textarea').props.value).toBe('My answer for task a');
 
   act(() => taskSession.setPendingReplyOpen(false));

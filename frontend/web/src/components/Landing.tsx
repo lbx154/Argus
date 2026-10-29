@@ -7,7 +7,8 @@ import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { ArgusMark } from './Wordmark';
 import { ChatBox } from './ChatBox';
 import { useSessionComposer } from '../useSessionComposer';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { ErrorMessage } from './ErrorMessage';
 
 /** Full-viewport picker/empty landing shown until a daemon is selectable. */
 export function Landing({
@@ -21,6 +22,8 @@ export function Landing({
   creating = false,
   onSubmit,
   workdirs = [],
+  createError,
+  onWorkdirChange,
 }: {
   loading: boolean;
   hasProjects: boolean;
@@ -34,12 +37,16 @@ export function Landing({
   onSubmit?: (text: string, files: File[], workdir: string) => Promise<boolean>;
   /** Directories earlier projects worked in, offered as the operator types. */
   workdirs?: string[];
+  createError?: unknown;
+  onWorkdirChange?: () => void;
 }) {
   const { t, locale } = useI18n();
   const { draft, setText, setAttachments, drop } = useSessionComposer('home');
   const [focus, setFocus] = useState(0);
   const [completionSelection, setCompletionSelection] = useState(0);
   const [workdir, setWorkdir] = useState('');
+  // A new form starts with an empty directory; errors from the previous form expire with it.
+  useEffect(() => { onWorkdirChange?.(); }, [onWorkdirChange]);
   return (
     <div className="landing-page">
       <div className="landing-navigation lg:hidden">
@@ -74,11 +81,13 @@ export function Landing({
           : 'Sending creates a project. You can write at any time while the team works.'}</p>
         <label className="landing-workdir">
           <span>{locale === 'zh-CN' ? '工作目录' : 'Folder'}</span>
-          <input value={workdir} onChange={event => setWorkdir(event.target.value)} list="landing-workdirs" disabled={creating}
+          <input value={workdir} onChange={event => { setWorkdir(event.target.value); onWorkdirChange?.(); }} list="landing-workdirs" disabled={creating}
+            aria-invalid={Boolean(createError)} aria-describedby={createError ? 'landing-workdir-error' : undefined}
             spellCheck={false} autoComplete="off"
             placeholder={locale === 'zh-CN' ? '留空则新建；可填服务器上的路径，没有就创建' : 'Blank for a new folder, or a path on the server, made if missing'} />
           <datalist id="landing-workdirs">{workdirs.map(path => <option key={path} value={path} />)}</datalist>
         </label>
+        {Boolean(createError) && <div id="landing-workdir-error" role="alert" className="text-xs text-err"><ErrorMessage error={createError} /></div>}
       </div>}
       {!loading && (
         <div className="flex flex-wrap justify-center gap-2">

@@ -255,3 +255,28 @@ test('the cockpit is served beyond this machine only with a token', async t => {
   assert.equal((await fetch(`http://127.0.0.1:${port}/api/projects`)).status, 401);
   assert.equal((await fetch(`http://127.0.0.1:${port}/api/projects`, { headers: { authorization: 'Bearer secret' } })).status, 200);
 });
+
+test('directory errors distinguish files, unavailable parents and real permission failures', async t => {
+  const { home, store, send } = await setup(t);
+  const file = join(home, 'a-file');
+  await writeFile(file, 'not a directory');
+  const cases: Array<[string, string, string]> = [
+    [file, 'workdir_not_directory', 'file'],
+    [join(file, 'child'), 'workdir_not_directory', 'ENOTDIR'],
+  ];
+  if (process.platform === 'linux') cases.push(['/proc/argus-missing-parent/child', 'workdir_parent_missing', 'ENOENT']);
+  if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+    const denied = join(home, 'denied');
+    await mkdir(denied, { mode: 0o500 });
+    cases.push([denied, 'workdir_permission_denied', 'EACCES'], [join(denied, 'child'), 'workdir_permission_denied', 'EACCES']);
+  }
+  for (const [workdir, code, reason] of cases) {
+    const response = await send('POST', '/api/daemons', { workdir });
+    assert.equal(response.status, 400, workdir);
+    const body = await response.json() as { code: string; detail: string };
+    assert.equal(body.code, code, workdir);
+    assert.ok(body.detail.includes(workdir), body.detail);
+    assert.ok(body.detail.includes(reason), body.detail);
+  }
+  assert.equal(store.list().length, 0);
+});

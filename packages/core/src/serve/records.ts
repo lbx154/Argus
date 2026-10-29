@@ -1,9 +1,8 @@
-// What the record says beyond the map: a task in full, a role's letters to download, and a search
+// What the record says beyond the map: a task in full, and a search
 // of every project's request, conversation and letters, read from project.json and events.jsonl.
 
 import { NAMES } from '../prompts.js';
 import type { Note, Project, Store } from '../store.js';
-import { ROLES, type Role } from '../types.js';
 import { HttpError, type Handler } from './index.js';
 import { named as projectName, progressMap, readEvents, readRecord, conversationRows } from './views.js';
 
@@ -15,16 +14,6 @@ const named = (to: string): string => NAMES[to as Note['from']] ?? to;
 export function records(store: Store, project: (id: string) => Project): [string, RegExp, Handler][] {
   return [
     ['GET', /^\/api\/projects\/([^/]+)\/backlog\/([^/]+)$/, ({ params: [id, task] }) => ({ item: detail(store, project(id!), task!) })],
-    ['GET', /^\/api\/projects\/([^/]+)\/work-log\/download$/, ({ params: [id], url, response }) => {
-      const work = project(id!);
-      const role = url.searchParams.get('role') ?? '';
-      const task = url.searchParams.get('task_id');
-      if (!ROLES.includes(role as Role)) throw new HttpError(400, `unknown role: ${role}`, 'invalid_request');
-      const letters = readEvents(store, work.id).flatMap(event => event.type === 'handoff' && event.role === role && (!task || event.task === task)
-        ? [`## ${event.ts}, to the ${named(event.to)}${event.task ? ` on ${event.task}` : ''}\n\n${event.letter}\n`] : []);
-      response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': 'attachment; filename="work-records.md"' })
-        .end(`# The ${named(role)}'s letters${task ? ` on ${task}` : ''}\n\n${letters.join('\n') || 'None yet.\n'}`);
-    }],
     ['GET', /^\/api\/search$/, ({ url }) => search(store, url.searchParams.get('q') ?? '')],
   ];
 }
@@ -46,8 +35,20 @@ function detail(store: Store, project: Project, id: string) {
 /** Where a text is quoted for the line found at `hit`: the paragraph, list or table it is in,
  * which the page renders as Markdown; of a long one, the part around it. */
 function snippet(text: string, hit: number): string {
-  const start = text.lastIndexOf('\n\n', hit), end = text.indexOf('\n\n', hit);
-  return text.slice(Math.max(start < 0 ? 0 : start + 2, hit - 200), Math.min(end < 0 ? text.length : end, hit + 400)).trim();
+  const paragraph = text.lastIndexOf('\n\n', hit), end = text.indexOf('\n\n', hit);
+  const boundary = paragraph < 0 ? 0 : paragraph + 2;
+  let start = Math.max(boundary, hit - 200);
+  // Keep the entire word or path containing the cut, even when it is long.
+  while (start > boundary && !/\s/.test(text[start - 1]!)) start--;
+  let finish = Math.min(end < 0 ? text.length : end, hit + 400);
+  while (finish < text.length && !/\s/.test(text[finish]!)) finish++;
+  // Spaces inside Markdown code spans belong to the quoted path, not its boundary.
+  for (const code of text.slice(boundary, end < 0 ? text.length : end).matchAll(/(`+)[\s\S]*?\1/g)) {
+    const opening = boundary + code.index, closing = opening + code[0].length;
+    if (opening < start && start < closing) start = opening;
+    if (opening < finish && finish < closing) finish = closing;
+  }
+  return text.slice(start, finish).trim();
 }
 
 /** What holds every word asked, newest project first: a project's request, its conversation, and
@@ -71,10 +72,14 @@ function search(store: Store, query: string) {
         text: text.length > EXCERPT ? text.slice(Math.max(0, at - 1_000), at + EXCERPT - 1_000) : text, truncated: text.length > EXCERPT,
       });
     };
-    match(project.request, 'project');
     try {
       const events = readEvents(store, project.id);
-      for (const { type, text, ts, message_id } of conversationRows(readRecord(store, project.id), project, { since: null, calls: [], requests: [] }).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus')) {
+      const dialogue = conversationRows(readRecord(store, project.id), project, { since: null, calls: [], requests: [] }).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus');
+      // The request is the first operator message, also kept on project.json. Prefer its
+      // conversation entry so opening the hit can locate that message. Independent messages
+      // (even identical words), and the same words from another speaker, remain separate.
+      if (!dialogue.some(row => row.type === 'ui.operator' && row.text === project.request)) match(project.request, 'project', { role: 'operator' });
+      for (const { type, text, ts, message_id } of dialogue) {
         match(String(text), 'conversation', { role: type === 'ui.operator' ? 'operator' : 'argus', ts, message_id });
       }
       // The Manager's letters are the conversation's replies; the others' open the project.
@@ -83,6 +88,7 @@ function search(store: Store, query: string) {
       }
     } catch (error) {
       errors.push(`${project.id}: ${error instanceof Error ? error.message : String(error)}`);
+      match(project.request, 'project', { role: 'operator' });
     }
   }
   return { results, partial, errors };

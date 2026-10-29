@@ -1,3 +1,5 @@
+import { QueryClientProvider } from '@tanstack/react-query';
+import { roleClient, roleSnapshot } from './serverSnapshot';
 import { useEffect } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -73,8 +75,8 @@ describe('a stage result card with a robot model', () => {
     { type: 'ui.argus', text: 'Done.', ts: 2, message_id: 'm2', delivery: { ...delivery } },
   ] as unknown as EventMsg[];
   const view = (onOpenDelivery: (receipt: unknown, path?: string) => void) => <SessionIdContext.Provider value="s-robot">
-    <MapConversation events={events()} connected pending={false} zh={false} artifacts={[]}
-      onClose={() => {}} onOpenArtifact={() => {}} onOpenDelivery={onOpenDelivery as never} />
+    <QueryClientProvider client={roleClient}><MapConversation snapshot={roleSnapshot([], { work_status: undefined })} events={events()} connected pending={false} zh={false} artifacts={[]}
+      onClose={() => {}} onOpenArtifact={() => {}} onOpenDelivery={onOpenDelivery as never} /></QueryClientProvider>
   </SessionIdContext.Provider>;
 
   it('shows the model itself, keeps it mounted across polls, and opens the full viewer on it', () => {

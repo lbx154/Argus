@@ -1,13 +1,14 @@
 import type { NodeProps } from '@xyflow/react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
-import { MacroTaskNode, type MacroData, type MacroNode } from '../map/MacroTaskNode';
+import { MacroTaskNode, MapArtifactContext, type MacroData, type MacroNode } from '../map/MacroTaskNode';
 import { MapReaderContent } from '../map/MapReaderContent';
 import { layoutSubmap, type SubmapStep } from '../map/submap';
 import type { CardCopy } from '../map/presentation';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Spinner } from '../components/primitives';
 import * as i18n from '../i18n';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('@xyflow/react', async original => ({
   ...await original<typeof import('@xyflow/react')>(), Handle: () => null,
@@ -30,6 +31,50 @@ const props = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({ id: '
 } } as NodeProps<MacroNode>);
 let renderer: ReactTestRenderer | undefined;
 afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; vi.restoreAllMocks(); });
+
+it('identifies cards by task name while retaining ordinal for the arrival animation', () => {
+  const value = props({ ordinal: 27, arriving: true, copy: undefined });
+  act(() => { renderer = create(<MacroTaskNode {...value} />); });
+  expect(renderer!.root.findByProps({ 'data-testid': 'map-macro' }).props.style.animationDelay).toMatch(/\d+ms/);
+  const text = JSON.stringify(renderer!.toJSON());
+  expect(text).toContain('Recorded task');
+  expect(text).not.toContain('macro-index');
+  expect(text).not.toContain('map-card-number');
+  expect(renderer!.root.findByProps({ className: 'map-card-kind' }).children.join('')).not.toContain('27');
+});
+
+it.each([false, true])('formats workspace paths at the opened step reader, including saved prose (%s)', saved => {
+  const workspace = '/tenant/workspace with spaces';
+  const path = 'reports/中文资料/very-long-folder-name-for-mobile-layout/verification.md';
+  const record = `已核对 \`${workspace}/${path}\`，外部资料在 /other/reference.md。`;
+  const value = props({ layout: layoutSubmap(task, [], false, [{ ...step, detail: record }]),
+    copy: saved ? { version: 15, cards: { [step.id]: { ...oldCopy, detail: record } } } : undefined });
+  act(() => { renderer = create(<MapArtifactContext.Provider value={{ workspace }}><MacroTaskNode {...value} /></MapArtifactContext.Provider>); });
+  act(() => renderer!.root.findByProps({ 'data-step-id': step.id }).props.onClick());
+  const sources = renderer!.root.findByProps({ 'data-testid': 'map-reader' }).findAllByType(MarkdownContent).map(node => node.props.children).join('\n');
+  expect(sources).toContain(`\`${path}\``);
+  expect(sources).toContain('/other/reference.md');
+  expect(sources).not.toContain(workspace);
+});
+
+it('formats the live task trace at the task reader’s actual display entry', () => {
+  const workspace = '/tenant/workspace with spaces';
+  const path = 'reports/中文资料/very-long-folder-name-for-mobile-layout/verification.md';
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  // The TS map-trace endpoint returns each call's closing letter as a message entry.
+  client.setQueryData(['task-trace', 'reader-project', task.id], { task_id: task.id, groups: [
+    { call_id: 'engineer-1', role: 'engineer', entries: [{ kind: 'message', text: `已检查 ${workspace}/${path}，外部资料在 /other/reference.md。` }] },
+  ] });
+  act(() => { renderer = create(<QueryClientProvider client={client}>
+    <MapReaderContent cardKey={task.id} taskId={task.id} task={task} sessionId="reader-project" workspace={workspace} originalDetail="Task objective" />
+  </QueryClientProvider>); });
+  const text = JSON.stringify(renderer!.toJSON());
+  expect(text).toContain(path);
+  expect(text).toContain('/other/reference.md');
+  expect(text).not.toContain(workspace);
+  act(() => renderer!.unmount()); renderer = undefined;
+  client.clear();
+});
 
 it('uses the same explanation component for a historical step without borrowing the root conclusion or later evidence', () => {
   const value = props();

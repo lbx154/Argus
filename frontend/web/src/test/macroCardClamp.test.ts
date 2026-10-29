@@ -44,14 +44,14 @@ describe("atlas overview card text is line-clamped", () => {
     // ellipsis and never cuts through glyphs (2026-10-26).
     expect(design).toMatch(/calc\(\(var\(--summary-height, 300px\) - 55px - 1\.5 \* var\(--status-size\)\) \/ 4\.2\)\)\)/);
     // A failed card, or one waiting on the person, says so from afar: the
-    // state dot and word stay and grow like the title; only the task number
+    // state dot and word stay and grow like the title; only the task kind
     // hides with the rest (overview zoom made every card read as done).
     // The rest, text and result links, keeps 10.5 screen px, and is hidden
     // where it would have to outgrow the card, not shrunk to specks (2026-10-29).
     expect(scope).toMatch(/--text-size:\s*max\(14px, calc\(10\.5px \/ var\(--on-screen\)\)\)/);
     expect(scope).toMatch(/--near:\s*round\(down, min\(1, var\(--on-screen\) \/ 0\.6\), 1\)/);
     expect(design).toMatch(/\.map-card > :not\(h3\):not\(\.map-card-top\),[^{]*\.argus-map \.macro-summary > \.map-history-toggle \{ scale: var\(--near\); \}/);
-    expect(design).toMatch(/\.map-card-number \{ font-size: calc\(var\(--text-size\) \* var\(--near\)\); \}/);
+    expect(design).toMatch(/\.map-card-kind \{ font-size: calc\(var\(--text-size\) \* var\(--near\)\); \}/);
     expect(rule(".argus-map .macro-summary > .map-card-results", design)).toMatch(/max-height: calc\(var\(--near\) \* 3em\)/);
     expect(scope).toMatch(/--status-size:\s*clamp\(11\.5px, calc\(11px \/ var\(--on-screen\)\)/);
     expect(design).toMatch(/\.macro-summary \.map-status \{[^}]*font-size: var\(--status-size/);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { isCurrentTaskQuestion, operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions';
+import { operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions';
 import { api, type BacklogItem } from './api';
 import { type NoticeTone } from './components/ActionNotice';
 import { useI18n } from './i18n';
@@ -62,12 +62,8 @@ export function usePendingReplySession({
   const preferredReply = decisionCards[0] ?? null;
   const hasSnapshot = backlog !== undefined || pendingQuestions !== undefined;
   const pendingReplyOpen = openedReply !== null && openedReply.sid === activeSid;
-  // Keep the question being edited/submitted stable when the daemon moves to
-  // another task. Its current-task label can still follow the live mission.
-  const pendingReply = pendingReplyOpen ? {
-    ...openedReply.card,
-    is_current_task: isCurrentTaskQuestion(openedReply.card, currentTaskId, [...(pendingQuestions ?? []), ...(backlog ?? [])]),
-  } : preferredReply;
+  // Keep the question being edited/submitted stable when the daemon moves to another task.
+  const pendingReply = pendingReplyOpen ? openedReply.card : preferredReply;
   const setPendingReplyOpen = (open: boolean) => {
     setPendingReplyError('');
     if (!open) {

@@ -17,6 +17,7 @@ import './model.css';
 export interface ModelViewerProps {
   sid: string;
   path: string;
+  delivery?: string;
   mode?: 'full' | 'thumbnail';
   /** Files next to a URDF that close a loop the URDF tree cannot hold. */
   constraintFiles?: string[];
@@ -30,14 +31,14 @@ type LoadState =
   | { status: 'error'; message: string; failures: LoadedModel['failures'] }
   | { status: 'ready'; model: LoadedModel & { dispose(): void } };
 
-function useModel(sid: string, path: string, enabled: boolean) {
+function useModel(sid: string, path: string, enabled: boolean, delivery?: string) {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
     let loaded: (LoadedModel & { dispose(): void }) | null = null;
     setState({ status: 'loading' });
-    loadModel(sid, path, controller.signal).then((model) => {
+    loadModel(sid, path, controller.signal, delivery).then((model) => {
       if (controller.signal.aborted) { disposeObject(model.root); model.dispose(); return; }
       loaded = model;
       setState(model.shapes ? { status: 'ready', model } : { status: 'error', message: '', failures: model.failures });
@@ -48,7 +49,7 @@ function useModel(sid: string, path: string, enabled: boolean) {
       controller.abort();
       if (loaded) { disposeObject(loaded.root); loaded.dispose(); }
     };
-  }, [sid, path, enabled]);
+  }, [sid, path, enabled, delivery]);
   return state;
 }
 
@@ -85,7 +86,7 @@ function formatSize(meters: number) {
   return meters >= 1 ? `${meters.toFixed(2)} m` : `${Math.round(meters * 1000)} mm`;
 }
 
-export default function ModelViewer({ sid, path, mode = 'full', constraintFiles = [], onOpen, label }: ModelViewerProps) {
+export default function ModelViewer({ sid, path, delivery, mode = 'full', constraintFiles = [], onOpen, label }: ModelViewerProps) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const thumbnail = mode === 'thumbnail';
@@ -95,7 +96,7 @@ export default function ModelViewer({ sid, path, mode = 'full', constraintFiles 
   // A card loads its model only once it is on screen; the full viewer loads at once.
   const [seen, setSeen] = useState(!thumbnail);
   const [visible, setVisible] = useState(!thumbnail);
-  const state = useModel(sid, path, seen);
+  const state = useModel(sid, path, seen, delivery);
   const model = state.status === 'ready' ? state.model : null;
   const [hover, setHover] = useState<{ name: string; x: number; y: number } | null>(null);
   const [geometry, setGeometry] = useState<'visual' | 'collision'>('visual');

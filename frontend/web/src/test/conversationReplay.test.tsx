@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Store } from '../../../../packages/core/src/store';
 import { readEvents, snapshot, projectRecord, conversationRows, conversationPage, type Reading } from '../../../../packages/core/src/serve/views';
 import type { EventMsg } from '../api';
-import { EventStream } from '../components/EventStream';
+import { EventStream } from './serverSnapshot';
 import { mergeConversationEvents, mergeOptimisticManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
 
 // Real records: the Manager doing small work itself, and a brief it handed the Planner for three tasks.

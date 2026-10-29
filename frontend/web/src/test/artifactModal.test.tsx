@@ -4,14 +4,18 @@ import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
 import { ArtifactModal } from '../components/ArtifactModal';
 import { Modal } from '../components/Modal';
 import { PdfPreview } from '../components/PdfPreview';
+import { api } from '../api';
+import { ApiError } from '../../../core/src/http';
+import { useArtifact } from '../hooks';
 import { loadPdfEngine } from '../lib/pdfEngine';
 
-const artifact = vi.hoisted(() => ({ data: undefined as ArtifactInfo | undefined }));
-vi.mock('../hooks', () => ({ useArtifact: () => ({ data: artifact.data, isLoading: false, isError: false }) }));
+const artifact = vi.hoisted(() => ({ data: undefined as ArtifactInfo | undefined, isError: false, error: undefined as unknown }));
+vi.mock('../hooks', () => ({ useArtifact: vi.fn(() => ({ ...artifact, isLoading: false })) }));
+vi.mock('../components/HtmlPreview', () => ({ HtmlPreview: () => null }));
 vi.mock('../lib/pdfEngine', () => ({ loadPdfEngine: vi.fn(), resetPdfEngine: vi.fn() }));
 
 let tree: ReactTestRenderer | undefined;
-afterEach(() => { act(() => tree?.unmount()); tree = undefined; artifact.data = undefined; vi.unstubAllGlobals(); });
+afterEach(() => { act(() => tree?.unmount()); tree = undefined; artifact.data = undefined; artifact.isError = false; artifact.error = undefined; vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
 it('previews a project file by its name and size, edits it, and opens registered Markdown links', () => {
   artifact.data = {
@@ -84,4 +88,54 @@ it('loads a PDF again when its preview is retried', async () => {
   const retry = tree!.root.find(node => node.type === 'button' && node.children.includes('Retry preview'));
   await act(async () => retry.props.onClick());
   expect(loadPdfEngine).toHaveBeenCalledTimes(2);
+});
+
+
+it('selects delivery-specific queries, distinguishes repeated names, and offers only one zip button for one HTML file', async () => {
+  const file = { path: 'index.html', label: 'index.html', source: 'manager', why: '', delivery_number: 1 };
+  const first: DeliveryReceipt = { schema_version: 1, delivery_id: 'd1', title: 'Same title', kind: 'result', item_id: '', summary: '',
+    status: 'done', review_status: '', delivered_at: 1, targets: [file], primary_target: file };
+  const second = { ...first, delivery_id: 'd2', delivered_at: 2, targets: [{ ...file, delivery_number: 2 }], primary_target: { ...file, delivery_number: 2 } };
+  const onSelectDelivery = vi.fn();
+  // Keep the preview data absent so no browser iframe is needed to test the controls.
+  act(() => { tree = create(<ArtifactModal sid="s" path="index.html" delivery={first} deliveries={[second, first]}
+    onSelectDelivery={onSelectDelivery} onClose={() => {}} />); });
+  expect(useArtifact).toHaveBeenLastCalledWith('s', 'index.html', null, 'd1');
+  expect(tree!.root.findAllByType('option').map(option => option.children.join(''))).toEqual(['Same title · Delivery 2', 'Same title · Delivery 1']);
+  expect(tree!.root.findAll(node => node.type === 'button' && node.children.some(child => typeof child === 'string' && child.includes('(zip)')))).toHaveLength(0);
+  const select = tree!.root.findByType('select');
+  act(() => select.props.onChange({ target: { value: 'd2' } }));
+  expect(onSelectDelivery).toHaveBeenCalledWith(second);
+  // A single HTML file uses its existing page-and-assets zip; it has no Download all button.
+  artifact.data = { path: file.path, name: file.path, why: '', exists: true, kind: 'html', mime: 'text/html', size: 10, mtime: 1 };
+  act(() => tree!.update(<ArtifactModal sid="s" path="index.html" delivery={second} onClose={() => {}} />));
+  expect(useArtifact).toHaveBeenLastCalledWith('s', 'index.html', null, 'd2');
+  expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('Download page (zip)'))).toHaveLength(1);
+  expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('Download all (zip)'))).toHaveLength(0);
+});
+
+it('reports a missing saved copy and never renders current text in its place', () => {
+  artifact.isError = true;
+  artifact.error = new ApiError('The saved copy is gone', 410, 'GET', '/artifact', 'delivery_snapshot_unavailable');
+  const file = { path: 'report.md', label: 'report.md', source: 'manager', why: '', delivery_number: 1 };
+  const delivery: DeliveryReceipt = { schema_version: 1, delivery_id: 'd1', title: 'Report', kind: 'result', item_id: '', summary: 'Old explanation',
+    status: 'done', review_status: '', delivered_at: 1, targets: [file], primary_target: file };
+  act(() => { tree = create(<ArtifactModal sid="s" path="report.md" delivery={delivery} onClose={() => {}} />); });
+  expect(JSON.stringify(tree!.toJSON())).toContain('The saved copy of this delivery is no longer available.');
+  expect(tree!.root.findAllByType('pre').some(pre => pre.children.includes('Current content'))).toBe(false);
+  expect(tree!.root.find(node => node.type === 'button' && node.children.includes('Download')).props.disabled).toBe(true);
+});
+
+it('keeps the selected delivery in file downloads and archive downloads', async () => {
+  const file = { path: 'report.md', label: 'report.md', source: 'manager', why: '', delivery_number: 2 };
+  const delivery: DeliveryReceipt = { schema_version: 1, delivery_id: 'd2', title: 'Report', kind: 'result', item_id: '', summary: 'Explanation',
+    status: 'done', review_status: '', delivered_at: 2, targets: [file, { ...file, path: 'data.csv' }], primary_target: file };
+  artifact.data = { path: file.path, name: file.path, why: '', exists: true, kind: 'markdown', mime: 'text/markdown', size: 10, mtime: 1, preview: 'Saved content' };
+  const blob = vi.spyOn(api, 'artifactBlob').mockRejectedValue(new Error('stop before browser download'));
+  const bundle = vi.spyOn(api, 'artifactsBundle').mockRejectedValue(new Error('stop before browser download'));
+  act(() => { tree = create(<ArtifactModal sid="s" path="report.md" delivery={delivery} onClose={() => {}} />); });
+  await act(async () => tree!.root.find(node => node.type === 'button' && node.children.includes('Download')).props.onClick());
+  expect(blob).toHaveBeenCalledWith('s', 'report.md', true, undefined, 'd2');
+  await act(async () => tree!.root.find(node => node.type === 'button' && node.children.includes('Download all (zip)')).props.onClick());
+  expect(bundle).toHaveBeenCalledWith('s', ['report.md', 'data.csv'], 'Report', '# Report\n\nExplanation', undefined, 'd2');
 });

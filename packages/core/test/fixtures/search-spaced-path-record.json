@@ -1,0 +1,12 @@
+{
+  "request": "Please inspect `/research/My Project/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/spaceneedle/report.md` and compare the results.",
+  "events": [
+    {
+      "ts": "2026-10-29T18:17:10.858Z",
+      "type": "message",
+      "from": "operator",
+      "request_id": "r-spaces",
+      "text": "Please inspect `/research/My Project/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/complete-path-component/spaceneedle/report.md` and compare the results."
+    }
+  ]
+}

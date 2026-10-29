@@ -1,9 +1,10 @@
 import before from '../../../../packages/core/test/fixtures/conversation-fixes/before.json';
 import after from '../../../../packages/core/test/fixtures/conversation-fixes/after.json';
-import { EventStream } from '../components/EventStream';
+import { EventStream } from './serverSnapshot';
 import type { UploadedAttachment } from '../api';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { act, create } from 'react-test-renderer';
+import { describe, expect, it, vi } from 'vitest';
 import { ComposerAttachmentChip } from '../components/ComposerAttachmentChip';
 import {
   splitMessageAttachments,
@@ -107,5 +108,25 @@ describe('browser record: operator attachments', () => {
     expect(html).toContain('问题材料.csv');
     expect(html).not.toContain('Attached, in the workdir:');
     expect(html).not.toContain('aria-label="remove');
+    expect(html).not.toMatch(/✓|Uploaded|已上传/);
   });
+});
+
+it('opens a sent attachment through the existing file reader and labels the message action as editing', () => {
+  vi.stubGlobal('window', { requestAnimationFrame: () => 1, cancelAnimationFrame: vi.fn() });
+  const sent = after.requests[2];
+  const files = sent.attachments as UploadedAttachment[];
+  const open = vi.fn();
+  const edit = vi.fn();
+  let view!: ReturnType<typeof create>;
+  act(() => { view = create(<EventStream events={[{ type: 'ui.operator', text: sent.text, attachments: files, ts: 1 }]}
+    connected showReasoning={false} onOpenArtifact={open} onConversationAction={edit} />); });
+  try {
+    const file = view.root.findAllByType('button').find(node => node.children.includes(files[0].original_name))!;
+    act(() => file.props.onClick());
+    expect(open).toHaveBeenCalledExactlyOnceWith(files[0].relative_path);
+    const button = view.root.findByProps({ 'aria-label': 'Edit and resend' });
+    act(() => button.props.onClick());
+    expect(edit).toHaveBeenCalledExactlyOnceWith(sent.text);
+  } finally { act(() => view.unmount()); vi.unstubAllGlobals(); }
 });

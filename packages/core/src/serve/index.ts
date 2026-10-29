@@ -14,8 +14,8 @@ import {
 import { rewritePrompt } from '../prompts.js';
 import { PROJECT_ID, asker, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
-import { attached, attachments } from './attachments.js';
-import { artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
+import { attached, attachedFile, attachments } from './attachments.js';
+import { atDelivery, artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { library } from './library.js';
 import { preview } from './preview.js';
 import { CAPABILITIES, directory, projectRoutes } from './projects.js';
@@ -90,6 +90,20 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (PROJECT_ID.test(id)) return store.load(id);
     } catch { /* not a project */ }
     throw new HttpError(404, `unknown project: ${id}`);
+  };
+  /** A delivery names its own file; an unavailable version never falls back to the current file. */
+  const result = (work: Project, path: string, delivery?: string | null) => {
+    if (delivery == null) return under(work.workdir, path) ?? attachedFile(work, path);
+    const event = readRecord(store, work.id).delivered.get(delivery);
+    if (!event?.open?.includes(path)) {
+      throw new HttpError(404, 'no such delivered file');
+    }
+    const snapshot = event.snapshots?.find(file => file.path === path);
+    if (!snapshot) throw new HttpError(410, 'This delivery has no saved copy.', 'delivery_snapshot_unavailable');
+    const found = atDelivery(work, store.dir(work.id), snapshot);
+    if (!found) throw new HttpError(410, snapshot.stored ? 'The saved copy of this delivery is no longer available.'
+      : 'This file has changed since this delivery; no saved copy is available.', snapshot.stored ? 'delivery_snapshot_unavailable' : 'delivery_file_updated');
+    return found;
   };
   const list = () => ({
     projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
@@ -289,24 +303,32 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ['GET', /^\/api\/projects\/([^/]+)\/artifacts$/, ({ params: [id] }) => ({ artifacts: artifacts(project(id!)) })],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact$/, ({ params: [id], url }) => {
       const work = project(id!);
-      const found = under(work.workdir, url.searchParams.get('path') ?? '');
+      const path = url.searchParams.get('path') ?? '';
+      const found = result(work, path, url.searchParams.get('delivery'));
       if (!found) throw new HttpError(404, 'no such result');
       return artifactInfo(work, found, true);
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/raw$/, ({ params: [id], url, request, response }) => {
-      const found = under(project(id!).workdir, url.searchParams.get('path') ?? '');
+      const work = project(id!);
+      const path = url.searchParams.get('path') ?? '';
+      const found = result(work, path, url.searchParams.get('delivery'));
       if (!found) throw new HttpError(404, 'no such result');
-      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, url.searchParams.get('download') === 'true'));
+      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, url.searchParams.get('download') === 'true', found.path));
     }],
     // A file the 3D viewer's model names: a mesh, a texture, a glTF buffer.
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/model-asset$/, ({ params: [id], url, request, response }) => {
-      const { workdir } = project(id!);
+      const work = project(id!);
       const ref = (url.searchParams.get('ref') ?? '').replace(/\\/g, '/').split(/[?#]/)[0]!;
-      const found = modelAssets(url.searchParams.get('path') ?? '', ref).map(path => under(workdir, path)).find(found => found !== null);
+      let found: ReturnType<typeof under> = null;
+      for (const path of modelAssets(url.searchParams.get('path') ?? '', ref)) {
+        try { found = result(work, path, url.searchParams.get('delivery')); }
+        catch (error) { if (!(error instanceof HttpError) || error.status !== 404) throw error; }
+        if (found) break;
+      }
       if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
-      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, false));
+      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, false, found.path));
     }],
-    ...library(store), ...workspace(project), ...preview(project, grant), ...records(store, project), ...resources(),
+    ...library(store), ...workspace(project), ...preview(project, grant, result), ...records(store, project), ...resources(),
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

@@ -18,6 +18,17 @@ const task: MapTask = {
   status: "running",
   deps: [],
 };
+
+it('formats workspace paths before shortening the tool steps in a real map record', () => {
+  const workspace = '/fastdata/v-boxiuli/argus-work/scratch/self10/argus/.integration/t3/workspace with spaces';
+  const steps = buildSubmap(task, [{ id: 'tool', item_id: task.id, type: 'work.segment', ts: 100,
+    role: 'engineer', text: `正在核对 ${workspace}/reports/verification.md。`,
+    steps: [{ kind: 'command_execution', label: `$ cat "${workspace}/reports/verification.md"`, ts: 100 }] }], true, workspace);
+  const text = steps.map(step => [step.title, step.summary, step.detail].join('\n')).join('\n');
+  expect(text).toContain('reports/verification.md');
+  expect(text).toContain('cat "reports/verification.md"');
+  expect(text).not.toContain('/fastdata/');
+});
 const event = (
   id: string,
   type: string,

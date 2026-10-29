@@ -33,9 +33,9 @@ export const TEXT_LIMIT = 512 * 1024;
 /** The copies kept of each delivered file, the newest. */
 const COPIES = 10;
 
-export function typeOf(path: string): [ArtifactKind, string] {
+export function typeOf(file: string, path = file): [ArtifactKind, string] {
   const ext = extname(path).toLowerCase();
-  return TYPES[ext] ?? (looksText(path) ? ['text', 'text/plain; charset=utf-8'] : ['binary', 'application/octet-stream']);
+  return TYPES[ext] ?? (looksText(file) ? ['text', 'text/plain; charset=utf-8'] : ['binary', 'application/octet-stream']);
 }
 
 /** A file's first `bytes`, read without the rest: a result may be a checkpoint of gigabytes. */
@@ -103,6 +103,17 @@ export function textOf(file: string): string | null {
 export const kept = (dir: string, version: string): string | null =>
   /^[0-9a-f]{32}$/.test(version) ? textOf(join(dir, 'delivered', version)) : null;
 
+/** The existing saved text copy, or an unchanged unsaved file. Missing copies never read the workdir. */
+export function atDelivery(project: Project, dir: string, snapshot: DeliverySnapshot): ReturnType<typeof under> {
+  if (snapshot.stored) {
+    if (kept(dir, snapshot.version) === null) return null;
+    const file = join(dir, 'delivered', snapshot.version);
+    return { file, path: snapshot.path, stat: statSync(file) };
+  }
+  const found = under(project.workdir, snapshot.path);
+  return found && `${found.stat.size}:${found.stat.mtimeMs}` === snapshot.version ? found : null;
+}
+
 /** Each file of a result the Manager delivers, as it is now. A text file is copied into `dir`'s
  * delivered/ under a new version, unless it is the same as its last copy, whose version it keeps;
  * past ten copies of a file, the oldest is deleted. A file too large or not text is named by its
@@ -139,7 +150,7 @@ export function titleOf(project: Project, path: string): string {
 }
 
 export function artifactInfo(project: Project, found: { file: string; path: string; stat: Stats }, preview = false): ArtifactInfo {
-  const [kind, mime] = typeOf(found.file);
+  const [kind, mime] = typeOf(found.file, found.path);
   const info: ArtifactInfo = {
     path: found.path, name: basename(found.path), why: '', exists: true, kind, mime,
     size: found.stat.size, mtime: found.stat.mtimeMs / 1000, storage_path: join(project.workdir, found.path),
@@ -208,8 +219,8 @@ export function modelAssets(model: string, ref: string): string[] {
 }
 
 /** How a result is sent: never as a page of this origin, which holds the cockpit's token. */
-export function rawHeaders(path: string, download: boolean): Record<string, string> {
-  const [kind, mime] = typeOf(path);
+export function rawHeaders(file: string, download: boolean, path = file): Record<string, string> {
+  const [kind, mime] = typeOf(file, path);
   // XML, an SVG or a URDF among them, may carry a script as a page does.
   const active = kind === 'html' || mime.includes('xml');
   return {

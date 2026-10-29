@@ -4,11 +4,12 @@
 // that becomes the file once all of it has come. Nothing checks what a file holds.
 
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Project } from '../store.js';
+import { under } from './files.js';
 import { HttpError, type Handler } from './index.js';
 
 const LIMITS = { max_count: 5, max_bytes_per_file: 100 << 20, max_total_bytes: 500 << 20, chunk_bytes: 4 << 20 };
@@ -41,6 +42,18 @@ export function attached({ workdir }: Project, refs: unknown): UploadedAttachmen
     return { attachment_id: id!, relative_path: `.argus/attachments/${id}/${name}`, original_name, stored_name: name,
       mime, size_bytes: statSync(join(folder(workdir, id!), name)).size };
   });
+}
+
+/** Uploaded files can be opened through the file reader; other hidden files stay private. */
+export function attachedFile({ workdir }: Project, path: string) {
+  const match = /^\.argus\/attachments\/(att-[0-9a-f]{12})\/([^/\\]+)$/.exec(path);
+  if (!match) return null;
+  const dir = folder(workdir, match[1]!);
+  try {
+    if (relative(realpathSync.native(workdir), realpathSync.native(dir)).split('\\').join('/') !== `.argus/attachments/${match[1]}`) return null;
+  } catch { return null; }
+  const found = under(dir, match[2]!);
+  return found ? { ...found, path } : null;
 }
 
 export function attachments(project: (id: string) => Project): [string, RegExp, Handler][] {

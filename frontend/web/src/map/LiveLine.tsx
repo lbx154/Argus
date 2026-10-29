@@ -9,7 +9,7 @@ import type { MapTask } from './model';
 /** One quiet sentence on the card being worked on right now: who is at it and
  * for how long this run. The clock ticks on its own so the rest of the card
  * stays still. */
-export function LiveLine({ role, since, zh }: { role?: string; since?: number | null; zh: boolean }) {
+export function LiveLine({ role, since, zh, message }: { role?: string; since?: number | null; zh: boolean; message?: string }) {
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => {
     if (since == null) return;
@@ -21,7 +21,7 @@ export function LiveLine({ role, since, zh }: { role?: string; since?: number | 
     <div className="map-card-live" data-testid="map-card-live" aria-live="off">
       <i aria-hidden="true" />
       <span>
-        {roleActionLabel(role, zh)}
+        {roleActionLabel(role, zh, '', message)}
         {elapsed ? (zh ? ` · 本次已进行 ${elapsed}` : ` · ${elapsed} this run`) : ""}
       </span>
     </div>

@@ -63,7 +63,6 @@ const data: Dataset = {
 };
 const props: ComponentProps<typeof MapCanvas> = {
   data, zh: false, sessionId: "navigation", viewKey: "navigation", paused: true, readOnly: true,
-  events: [],
   snapshot: {
     session: { id: "navigation", display_name: "Navigation", objective: "", last_active: 0, cwd: "" },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
@@ -116,7 +115,8 @@ it("omits the empty status row and ambient decoration without hiding active work
 
   act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={empty}
     composer={{ ...props.composer, pending: true }} snapshot={{ ...props.snapshot, work_status: { state: "running", reason: "", role: "manager", roles: ["manager"], taskId: "", title: "", activityAt: null, foreground: true, label: { "zh-CN": "正在处理你的请求", en: "Working on your request" } } }} /></QueryClientProvider>));
-  expect(renderer.root.findByProps({ className: "map-status-text" }).children.join("")).toBe("Working on your request");
+  expect(renderer.root.findAllByProps({ className: "map-status-text" })).toHaveLength(0);
+  expect(renderer.root.findAllByProps({ className: "map-progress" })).toHaveLength(0);
 });
 
 it("keeps the explicitly opened task reader when new copy arrives and background focus changes", async () => {

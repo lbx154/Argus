@@ -40,6 +40,7 @@ function viewingArea(el: HTMLElement, detailed = false) {
   const legend = chromeRect(el, ".map-legend");
   const controls = chromeRect(el, ".react-flow__controls");
   const hideChrome = el.dataset.reading === "true" || detailed && el.clientWidth < 640;
+  const mobileDetail = el.clientWidth < 640 && (detailed || el.dataset.detailed === 'true' || el.dataset.reading === 'true');
   const left = el.clientWidth < 640 ? 20 : 50;
   const top = Math.max(
     toolbar ? toolbar.bottom - bounds.top + 20 : 85,
@@ -47,7 +48,7 @@ function viewingArea(el: HTMLElement, detailed = false) {
     !hideChrome && el.clientWidth < 640 && controls ? controls.bottom - bounds.top + 16 : 0,
   );
   const bottom = Math.max(
-    composer ? bounds.bottom - composer.top + 24 : 100,
+    mobileDetail ? 20 : composer ? bounds.bottom - composer.top + 24 : 100,
     !hideChrome && minimap ? bounds.bottom - minimap.top + 20 : 0,
     // On a wide screen the legend sits along the bottom edge, beside the
     // composer; cards fitted under it would be covered.

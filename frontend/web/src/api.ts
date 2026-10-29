@@ -632,12 +632,14 @@ async function getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
 
 const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}${path}`;
 
+const artifactParams = (path: string, delivery?: string) => new URLSearchParams({ path, ...(delivery ? { delivery } : {}) });
+
 /** URL of the served, self-sandboxing preview page for an HTML result. A
  * sandboxed iframe loads it by URL so the delivered site keeps its own styles
  * and scripts; it cannot send an auth header, so it presents the cookie that
  * `api.artifactPreview` received (a hosted portal adds the header upstream). */
-export const previewPageUrl = (sid: string, path: string): string =>
-  P(sid, `/artifact/preview/page?${new URLSearchParams({ path })}`);
+export const previewPageUrl = (sid: string, path: string, delivery?: string): string =>
+  P(sid, `/artifact/preview/page?${artifactParams(path, delivery)}`);
 export const newRequestId = (): string => globalThis.crypto?.randomUUID?.()
   ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const commandId = newRequestId;
@@ -911,19 +913,6 @@ export const api = {
       signal,
     )
       .then((r) => r.events),
-  workRecord: (sid: string, role: string, recordId: string, signal?: AbortSignal) =>
-    getJson<{ id: string; role: string; detail: string; characters: number }>(
-      P(sid, `/work-record?role=${encodeURIComponent(role)}&record_id=${encodeURIComponent(recordId)}`), signal,
-    ),
-  downloadWorkLog: async (sid: string, role: string, taskId = '') => {
-    const path = P(sid, `/work-log/download?role=${encodeURIComponent(role)}&task_id=${encodeURIComponent(taskId)}`);
-    const response = await fetch(path, { headers: authHeaders(), cache: 'no-store' });
-    await ensureResponseOk(response, 'GET', path);
-    const url = URL.createObjectURL(await response.blob());
-    const link = document.createElement('a');
-    link.href = url; link.download = 'work-records.md'; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  },
   backlogItem: (sid: string, id: string, signal?: AbortSignal) =>
     getJson<{ item: BacklogItem }>(
       P(sid, `/backlog/${encodeURIComponent(id)}`),
@@ -932,33 +921,34 @@ export const api = {
   artifacts: (sid: string, signal?: AbortSignal) =>
     getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts'), signal)
       .then((r) => r.artifacts),
-  artifact: (sid: string, path: string, signal?: AbortSignal) => {
-    const q = new URLSearchParams({ path });
+  artifact: (sid: string, path: string, signal?: AbortSignal, delivery?: string) => {
+    const q = artifactParams(path, delivery);
     return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
-  artifactPreview: (sid: string, path: string, signal?: AbortSignal) =>
+  artifactPreview: (sid: string, path: string, signal?: AbortSignal, delivery?: string) =>
     getJson<{ html: string; warnings: string[]; file_count: number; served_page?: boolean }>(
-      P(sid, `/artifact/preview?${new URLSearchParams({ path })}`), signal),
+      P(sid, `/artifact/preview?${artifactParams(path, delivery)}`), signal),
   /** One zip of listed results (each path passes the artifact allowlist). */
-  artifactsBundle: async (sid: string, paths: string[], name = '', summary = '', signal?: AbortSignal) =>
-    (await postResponse(P(sid, '/artifacts/bundle'), { paths, name, summary }, signal)).blob(),
-  artifactBundle: (sid: string, path: string, signal?: AbortSignal) =>
-    getBlob(P(sid, `/artifact/bundle?${new URLSearchParams({ path })}`), signal),
+  artifactsBundle: async (sid: string, paths: string[], name = '', summary = '', signal?: AbortSignal, delivery?: string) =>
+    (await postResponse(P(sid, '/artifacts/bundle'), { paths, name, summary, ...(delivery ? { delivery } : {}) }, signal)).blob(),
+  artifactBundle: (sid: string, path: string, signal?: AbortSignal, delivery?: string) =>
+    getBlob(P(sid, `/artifact/bundle?${artifactParams(path, delivery)}`), signal),
   artifactBlob: (
     sid: string,
     path: string,
     download = false,
     signal?: AbortSignal,
+    delivery?: string,
   ) => {
-    const q = new URLSearchParams({ path });
+    const q = artifactParams(path, delivery);
     if (download) q.set('download', 'true');
     return getBlob(P(sid, `/artifact/raw?${q}`), signal);
   },
-  artifactRawUrl: (sid: string, path: string) =>
-    P(sid, `/artifact/raw?${new URLSearchParams({ path })}`),
+  artifactRawUrl: (sid: string, path: string, delivery?: string) =>
+    P(sid, `/artifact/raw?${artifactParams(path, delivery)}`),
   /** A mesh, glTF buffer or texture a registered model references, by the reference as written. */
-  artifactModelAsset: (sid: string, path: string, ref: string, signal?: AbortSignal) =>
-    getBlob(P(sid, `/artifact/model-asset?${new URLSearchParams({ path, ref })}`), signal),
+  artifactModelAsset: (sid: string, path: string, ref: string, signal?: AbortSignal, delivery?: string) =>
+    getBlob(P(sid, `/artifact/model-asset?${new URLSearchParams({ path, ref, ...(delivery ? { delivery } : {}) })}`), signal),
   deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>
     getJson<{ path: string; available: boolean; diff: string; truncated: boolean }>(
       P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),

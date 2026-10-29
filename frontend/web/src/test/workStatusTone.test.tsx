@@ -43,4 +43,17 @@ describe('status dot tone', () => {
     expect(top).toContain('1 task in progress');
     expect(top).not.toContain('dark theme');
   });
+  it('leaves the map one project status, and uses the Manager’s words only while the server says it is replying', () => {
+    const done = project(false);
+    const header = renderToStaticMarkup(<TopBar snap={done} showStatus={false} showRunControl={false}
+      streamOk onStart={() => {}} onStop={() => {}} onManage={() => {}} busy={false} />);
+    expect(header).not.toContain('topbar-status');
+    const message = '已找到长路径的显示入口，正在检查手机详情。';
+    const replying = { ...done, work_status: { ...done.work_status!, state: 'running' as const, role: 'manager', roles: ['manager'], foreground: true } };
+    expect(renderToStaticMarkup(<WorkStatusBar snapshot={replying} managerMessage={message} connected compact />)).toContain(message);
+    expect(renderToStaticMarkup(<WorkStatusBar snapshot={replying} connected compact />)).toContain('Replying to your message');
+    const bar = renderToStaticMarkup(<WorkStatusBar snapshot={done} managerMessage={message} connected compact />);
+    expect(bar).toContain('>Done<');
+    expect(bar).not.toContain(message);
+  });
 });

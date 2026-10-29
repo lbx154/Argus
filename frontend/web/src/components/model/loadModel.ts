@@ -165,14 +165,14 @@ function soften(root: Object3D) {
   });
 }
 
-export async function loadModel(sid: string, path: string, signal?: AbortSignal): Promise<LoadedModel & { dispose(): void }> {
+export async function loadModel(sid: string, path: string, signal?: AbortSignal, delivery?: string): Promise<LoadedModel & { dispose(): void }> {
   const format = modelFormat(path);
   if (!format) throw new ModelParseError('Not a model file');
   const files = new Map<string, ArrayBuffer>();
   const failures: ModelFailure[] = [];
   const urls: string[] = [];
-  const fetchRef: Fetcher = async (ref) => (await api.artifactModelAsset(sid, path, ref, signal)).arrayBuffer();
-  const source = await (await api.artifactBlob(sid, path, false, signal)).arrayBuffer();
+  const fetchRef: Fetcher = async (ref) => (await api.artifactModelAsset(sid, path, ref, signal, delivery)).arrayBuffer();
+  const source = await (await api.artifactBlob(sid, path, false, signal, delivery)).arrayBuffer();
   const dispose = () => urls.forEach((url) => URL.revokeObjectURL(url));
 
   if (format !== 'urdf') {

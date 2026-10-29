@@ -4,7 +4,7 @@
 // changed where it is held: by the work under way on it, or on disk. Its directory and backend
 // change only while nothing is under way, since the calls under way work in them.
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import type { ProjectCostRow } from '@argus/contracts';
@@ -42,9 +42,14 @@ export function directory(asked: string): string {
     const missing: string[] = [];
     for (let dir = path; dir && !existsSync(dir); dir = dirname(dir)) missing.unshift(dir);
     for (const dir of missing) mkdirSync(dir);
-    if (path && !statSync(path).isDirectory()) throw new Error('it is not a folder');
+    if (path && !statSync(path).isDirectory()) throw new HttpError(400, `${path} is a file, not a directory`, 'workdir_not_directory');
+    if (path) accessSync(path, constants.R_OK | constants.W_OK | constants.X_OK);
   } catch (error) {
-    throw new HttpError(400, `${path} cannot be the working directory: ${error instanceof Error ? error.message : String(error)}`, 'invalid_workdir');
+    if (error instanceof HttpError) throw error;
+    const reason = (error as NodeJS.ErrnoException).code;
+    const code = reason === 'EACCES' || reason === 'EPERM' || reason === 'EROFS' ? 'workdir_permission_denied'
+      : reason === 'ENOTDIR' ? 'workdir_not_directory' : reason === 'ENOENT' ? 'workdir_parent_missing' : 'invalid_workdir';
+    throw new HttpError(400, `${path} cannot be the working directory: ${error instanceof Error ? error.message : String(error)}`, code);
   }
   return path;
 }

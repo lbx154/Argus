@@ -1,6 +1,5 @@
 export type { DecisionEvidence, DecisionOption, OperatorDecisionCard } from '../../../packages/contracts/src/decisions.js';
 import type { DecisionEvidence, DecisionOption, OperatorDecisionCard } from '../../../packages/contracts/src/decisions.js';
-import { isTerminalBacklogItem } from './backlog.js';
 
 const text = (value: unknown): string => String(value ?? '').trim();
 const genericOperatorDecisionReason = /^[a-z][a-z -]+ requires an operator-owned decision before continuing\.?$/i;
@@ -19,20 +18,6 @@ const customDecisionOption = (title: string, question: string): DecisionOption =
   };
 };
 
-/** Whether a question is the current task's own. Another task's question is
- * told apart from it only while the current task has not ended; once it has,
- * there is no other task going on to tell it from. */
-export function isCurrentTaskQuestion(
-  card: OperatorDecisionCard,
-  currentTaskId: string | null | undefined,
-  rows: ReadonlyArray<{ id?: unknown; status?: unknown }>,
-): boolean | undefined {
-  if (!currentTaskId || card.kind === 'domain_intake') return undefined;
-  if (card.item_id === currentTaskId) return true;
-  const current = rows.find(row => text(row.id) === currentTaskId);
-  return current && !isTerminalBacklogItem({ status: text(current.status) }) ? false : undefined;
-}
-
 export function operatorDecisionCards(
   pending: Array<Record<string, unknown>>,
   backlog: Array<Record<string, unknown>>,
@@ -42,7 +27,7 @@ export function operatorDecisionCards(
   const backlogById = new Map(backlog.map(row => [text(row.id), row]));
   const taskContext = (itemId: string, row: Record<string, unknown>) => {
     const owner = backlogById.get(itemId) ?? (text(row.id) === itemId ? row : undefined);
-    return { task_title: text(owner?.title) || undefined, task_status: text(owner?.status) || undefined };
+    return { task_title: text(owner?.title) || undefined };
   };
   const cards: OperatorDecisionCard[] = [];
   const seen = new Set<string>();
@@ -85,7 +70,7 @@ export function operatorDecisionCards(
         selected_option: '',
         note: '',
         ...taskContext(ownerId, row),
-        ...(intake ? { task_title: text(card.task_title), task_status: undefined } : {}),
+        ...(intake ? { task_title: text(card.task_title) } : {}),
         ...(typeof card.asked_at === 'number' && Number.isFinite(card.asked_at) && card.asked_at > 0
           ? { asked_at: card.asked_at } : {}),
       });
@@ -114,6 +99,5 @@ export function operatorDecisionCards(
     });
   }
   if (!currentTaskId) return cards;
-  const scoped = cards.map(card => ({ ...card, is_current_task: isCurrentTaskQuestion(card, currentTaskId, rows) }));
-  return [...scoped.filter(card => card.kind === 'domain_intake'), ...scoped.filter(card => card.is_current_task), ...scoped.filter(card => card.kind !== 'domain_intake' && !card.is_current_task)];
+  return [...cards.filter(card => card.kind === 'domain_intake'), ...cards.filter(card => card.kind !== 'domain_intake' && card.item_id === currentTaskId), ...cards.filter(card => card.kind !== 'domain_intake' && card.item_id !== currentTaskId)];
 }

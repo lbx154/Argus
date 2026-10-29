@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from 'react';
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { newestPerRole, type ConversationPage } from '@argus/contracts';
-import { api, openConversation, type EventMsg, type Snapshot } from './api';
+import { api, openConversation, type EventMsg } from './api';
+import { roleLogKey, type RoleLog } from './useRoleLog';
 import { mergeConversationEvents } from './lib/conversationEvents';
 
 export type ConversationHistoryStatus = 'loading' | 'error' | 'ready';
@@ -39,10 +40,10 @@ export function useConversationHistory(
           rows: [...page.rows.filter(row => !changed.has(row.row_id)), ...index === 0 ? updates : []],
         })) };
       });
-      client.setQueryData<Snapshot>(['snapshot', sid], current => current && { ...current, role_round: Number(frame.round),
-        role_events: newestPerRole([...new Map([...(current.role_events ?? []).filter(row => Number(row.event_id) >= Number(frame.round)),
+      client.setQueryData<RoleLog>(roleLogKey(sid), current => ({ round: Number(frame.round),
+        events: newestPerRole([...new Map([...(current?.events ?? []).filter(row => Number(row.event_id) >= Number(frame.round)),
           ...frame.role_events as EventMsg[]].map(row => [row.event_id, row])).values()].sort((a, b) => Number(a.event_id) - Number(b.event_id))),
-      });
+      }));
     });
   }, [sid, enabled, ready, client]);
   const events = useMemo(() => {

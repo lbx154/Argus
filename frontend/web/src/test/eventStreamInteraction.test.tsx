@@ -1,11 +1,11 @@
-import { roleSnapshot } from './serverSnapshot';
+import { roleSnapshot, setRoleLog } from './serverSnapshot';
 import type { ReactNode } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventMsg, Snapshot } from '../api';
 import { emptyMissionView } from '../../../core/src/missionView';
 import { CopyButton } from '../components/CopyButton';
-import { EventStream } from '../components/EventStream';
+import { EventStream } from './serverSnapshot';
 import { referenceText } from '../map/presentation';
 
 vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
@@ -288,9 +288,10 @@ function runtimeFixture(alive = true) {
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Working', age_s: 1, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null }],
     backlog: [{ id: 'task-a', title: 'Research task A', objective: '', status: 'running', started_ts: now - 20, priority: 1 }],
     recent_events: [], mission_view: missionView,
+    work_status: { state: alive ? 'running' : 'idle', roles: alive ? ['engineer'] : [], role: '', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } },
   };
   const events = [{ ...progress(1), item_id: 'task-a', ts: now - 1 }];
-  snapshot.role_events = events;
+  setRoleLog(snapshot.session.id, events);
   return { snapshot, missionView, events };
 }
 
@@ -322,14 +323,14 @@ it('preserves a recorded reply and its copy action, including runtime-like resea
 describe('server conversation rows and role channel', () => {
   it('keeps server question, answer and completed task in their supplied order', () => {
     const { snapshot } = runtimeFixture();
-    snapshot.role_events = [progress(5, 'This round only')];
+    setRoleLog(snapshot.session.id, [progress(5, 'This round only')]);
     const events: EventMsg[] = [
-      { type: 'ui.question', question_id: 'q1', agent_layer: 'engineer', text: 'Which option?', row_id: 'q1', ts: 1 },
+      { type: 'ui.question', question_id: 'q1', item_id: 'task-a', agent_layer: 'engineer', text: 'Which option?', row_id: 'q1', ts: 1 },
       { type: 'ui.operator', text: 'Option A', row_id: 'a1', ts: 3 },
       { type: 'ui.task', item_id: 'task-a', title: 'Research task A', state: 'done', row_id: 't1', ts: 4 },
     ];
     act(() => { renderer = create(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    expect(visibleText(renderer!.root)).toContain('Engineer asks:Which option?');
+    expect(visibleText(renderer!.root)).toContain('Engineer asks:Research task AWhich option?');
     expect(streamOrder()).toEqual(['thread', 'task task-a']);
     expect(visibleText(renderer!.root.findByProps({ 'data-task-work': 'task-a' }))).toBe('Done: Research task A');
     expect(visibleText(work())).toContain('This round only');
@@ -347,16 +348,16 @@ describe('server conversation rows and role channel', () => {
     expect(visibleText(work())).toContain('Current answer');
   });
 
-  it('keeps role progress quiet when disconnected or stopped', () => {
-    const value = runtimeFixture(false);
+  it('folds the conversation role bar when work ends or disconnects, while keeping the saved log', () => {
+    const value = runtimeFixture();
     const show = (connected: boolean) => <EventStream {...value} connected={connected} showReasoning={false} />;
     act(() => { renderer = create(show(true), { createNodeMock: nodeMock }); });
-    expect(roleGroup().props['data-active']).toBe('false');
-    value.snapshot.daemon.alive = true;
-    act(() => renderer!.update(show(true)));
     expect(roleGroup().props['data-active']).toBe('true');
     act(() => renderer!.update(show(false)));
-    expect(roleGroup().props['data-active']).toBe('false');
+    expect(renderer!.root.findAllByProps({ 'data-project-work': true })).toHaveLength(0);
+    value.snapshot.work_status = { ...value.snapshot.work_status!, state: 'idle', roles: [] };
+    act(() => renderer!.update(show(true)));
+    expect(renderer!.root.findAllByProps({ 'data-project-work': true })).toHaveLength(0);
   });
 });
 
@@ -471,6 +472,7 @@ it('shows the task of each record after a running role is opened', () => {
   const events = [progress(1, 'Checking primes.py.'), progress(2, 'Checking fib.py.')].map((event, i) => ({ ...event, item_id: `t${i + 1}` }));
   const snapshot = roleSnapshot(events, {
     daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'codex' },
+    work_status: { state: 'running', roles: ['engineer'], role: '', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } },
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Engineer', age_s: null, backend: 'codex', backend_label: 'Codex', model: '', effort: null, tasks: ['t1', 't2'] }],
     backlog: ['primes', 'fib'].map((name, i) => ({ id: `t${i + 1}`, title: `Write ${name}.py`, objective: '', status: 'in_progress', priority: 1 })),
   });
@@ -479,4 +481,20 @@ it('shows the task of each record after a running role is opened', () => {
   act(() => roleGroup().findAllByType('button')[0].props.onClick());
   expect(visibleText(roleGroup().findByProps({ 'data-row-task': 't1' }))).toBe('Write primes.py');
   expect(visibleText(roleGroup().findByProps({ 'data-row-task': 't2' }))).toBe('Write fib.py');
+});
+
+it('keeps raw commands out of a running role header and its task headings until commands are requested', () => {
+  const command = 'cat /private/raw-command-should-stay-hidden.txt';
+  const snapshot = roleSnapshot([{ ...progress(1, command), kind: 'command_execution', item_id: 't1' }], {
+    roles: [{ role: 'engineer', active: false, tasks: ['t1'], backend: 'codex', backend_label: 'Codex', model: '', effort: null, label: '', status: 'idle', age_s: null }],
+    work_status: { state: 'running', roles: ['engineer'], role: 'engineer', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } },
+  });
+  act(() => { renderer = create(<EventStream events={[]} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
+  expect(roleGroup().props['data-active']).toBe('true');
+  expect(visibleText(roleGroup())).toContain('Running a command');
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain(command);
+  act(() => roleGroup().findAllByType('button')[0].props.onClick());
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain(command);
+  act(() => roleGroup().findByProps({ 'data-command-toggle': true }).props.onClick());
+  expect(visibleText(roleGroup())).toContain(command);
 });

@@ -292,7 +292,7 @@
   justify-content: space-between;
   padding: 12px 16px 9px;
 }
-.map-card-number {
+.map-card-kind {
   font-size: 11px;
   font-family: "Geist Mono Variable", monospace;
   color: rgb(var(--ink-faint));

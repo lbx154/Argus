@@ -71,3 +71,18 @@ it('distinguishes a missing credential from an invalid token link even after the
   expect(location.search).toBe('');
   expect(renderToStaticMarkup(<ConnectionProblemBanner error={{ status: 401 }} onRetry={() => {}} />)).toContain('这个链接无效或已过期');
 });
+
+it('deletes with one click and keeps deletion disabled while busy or running', async () => {
+  const remove = vi.fn(async () => true);
+  const props = { open: true, sid: 'p-fixture', name: 'Before', alive: false, resumable: false, busy: false,
+    onClose: vi.fn(), onRename: async () => false, onStart: async () => false, onDelete: remove };
+  act(() => { view = create(<DaemonManageModal {...props} />); });
+  const button = () => view!.root.findAllByType('button').find(node => node.children.includes('Delete'))!;
+  await act(async () => button().props.onClick());
+  expect(remove).toHaveBeenCalledOnce();
+  expect(JSON.stringify(view!.toJSON())).not.toContain('Confirm delete');
+  for (const state of [{ busy: true }, { alive: true }]) {
+    act(() => view!.update(<DaemonManageModal {...props} {...state} />));
+    expect(button().props.disabled).toBe(true);
+  }
+});

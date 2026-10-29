@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import replay from '../../../../packages/core/test/fixtures/conversation-fixes/after.json';
 import { webEvents, type Recorded } from '../../../../packages/core/src/serve/views';
-import { EventStream } from '../components/EventStream';
+import { EventStream } from './serverSnapshot';
 import { ResearchCanvas } from '../components/ResearchCanvas';
 import { deliveryHeadingKey } from '../lib/deliveryKind';
 import { createElement } from 'react';
@@ -227,4 +227,36 @@ it('browser record: a Manager answer with a file is a neutral result in chat and
   expect(files).toContain('Latest result');
   expect(files).toContain('Result');
   expect(chat + files).not.toContain('Task completed');
+});
+
+it('replays per-file delivery occurrences, including unchanged text, in conversation cards and selectors', async () => {
+  const { default: fixture } = await import('../../../../packages/core/test/fixtures/delivery-versions/record.json');
+  const { deliveryOptionLabel, deliveryFileUpdated } = await import('../components/deliveryPresentation');
+  const events = webEvents(fixture.text.events as Recorded[]);
+  const receipts = events.flatMap(row => row.delivery ? [row.delivery as DeliveryReceipt] : []);
+  const markup = renderToStaticMarkup(createElement(EventStream, { events, connected: true, showReasoning: false }));
+  expect(markup).toContain('Delivery 1');
+  expect(markup).toContain('Delivery 2');
+  expect(markup).toContain('Delivery 3');
+  expect(receipts[2].targets.map(file => file.delivery_number)).toEqual([3, 2]);
+  expect(receipts[1].snapshots?.[0].version).toBe(receipts[2].snapshots?.[0].version);
+  expect(receipts.map(receipt => deliveryOptionLabel(receipt, true))).toEqual([
+    '版本报告 · 第 1 次交付', '版本报告 · report.md 第 2 次交付 · data.csv 第 1 次交付', '版本报告 · report.md 第 3 次交付 · data.csv 第 2 次交付',
+  ]);
+  expect(deliveryFileUpdated(receipts[0], receipts, 'report.md')).toBe(false);
+});
+
+it('marks a superseded binary on its old card', async () => {
+  const { default: fixture } = await import('../../../../packages/core/test/fixtures/delivery-versions/record.json');
+  const { deliveryFileUpdated } = await import('../components/deliveryPresentation');
+  const events = webEvents(fixture.binary.events as Recorded[]);
+  const receipts = events.flatMap(row => row.delivery ? [row.delivery as DeliveryReceipt] : []);
+  expect(deliveryFileUpdated(receipts[0], receipts, 'data.bin')).toBe(true);
+  expect(deliveryFileUpdated(receipts[1], receipts, 'data.bin')).toBe(false);
+  // Arrival order and equal timestamps do not replace the per-file record order.
+  expect(deliveryFileUpdated({ ...receipts[0], delivered_at: receipts[1].delivered_at }, [...receipts].reverse(), 'data.bin')).toBe(true);
+  const markup = renderToStaticMarkup(createElement(EventStream, { events, connected: true, showReasoning: false }));
+  expect(markup.match(/Updated by a later delivery/g)).toHaveLength(1);
+  const unchanged = { ...receipts[1], snapshots: receipts[0].snapshots };
+  expect(deliveryFileUpdated(receipts[0], [receipts[0], unchanged], 'data.bin')).toBe(false);
 });

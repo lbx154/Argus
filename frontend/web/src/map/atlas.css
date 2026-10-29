@@ -6,7 +6,7 @@
 .map-macro[data-history=true] { background: color-mix(in srgb, var(--map-paper) 94%, rgb(var(--line))); box-shadow: none; }
 .map-macro[data-completed-now=true] { animation: atlas-complete 1400ms ease-out; }
 .macro-summary .map-card { background: transparent; border-radius: 9px; }
-.map-card-number { color: rgb(var(--ink-faint)); font-size: 10px; letter-spacing: .08em; }
+.map-card-kind { color: rgb(var(--ink-faint)); font-size: 10px; letter-spacing: .08em; }
 .map-card h3 { font-size: 16px; line-height: 1.45; font-weight: 600; letter-spacing: -.015em; margin-bottom: 10px; }
 /* The overview card is centred in a fixed frame: clamp by line count so long asks never clip mid-glyph or run into the footer. */
 .macro-summary .map-card h3 { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }

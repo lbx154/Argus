@@ -375,7 +375,7 @@ export default function App() {
     );
   }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
-  const { createDaemon, creatingDaemon } = useCreateDaemonSession({
+  const { createDaemon, creatingDaemon, createError, clearCreateError } = useCreateDaemonSession({
     localCwd,
     notify,
     onFocusComposer: () => setComposerFocus((value) => value + 1),
@@ -1094,6 +1094,7 @@ export default function App() {
                 onStop={stopWork}
                 pending={messagePending}
                 showRunControl={workspaceView !== 'map'}
+                showStatus={workspaceView !== 'map'}
                 onManage={() => activeSid && requestManageSession(activeSid)}
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
@@ -1303,6 +1304,8 @@ export default function App() {
             onChoose={() => setSidebarOpen(true)}
             canCreate={!kiosk}
             creating={creatingDaemon}
+            createError={createError}
+            onWorkdirChange={clearCreateError}
             workdirs={[...new Set(projects.map(project => project.workdir).filter((path): path is string => Boolean(path)))]}
           />
         )}

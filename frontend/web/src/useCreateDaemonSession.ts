@@ -1,5 +1,5 @@
 import { type QueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { createSessionFast } from './lib/createDaemonFlow';
 import { api, type ProjectRow } from './api';
 import { type NoticeTone } from './components/ActionNotice';
@@ -27,6 +27,8 @@ export function useCreateDaemonSession({
   onCreated,
 }: UseCreateDaemonSessionOptions) {
   const [creatingDaemon, setCreatingDaemon] = useState(false);
+  const [createError, setCreateError] = useState<unknown>(null);
+  const clearCreateError = useCallback(() => setCreateError(null), []);
   const creatingDaemonRef = useRef(false);
 
   const createDaemon = async (
@@ -38,6 +40,7 @@ export function useCreateDaemonSession({
     if (creatingDaemonRef.current) return false;
     creatingDaemonRef.current = true;
     setCreatingDaemon(true);
+    setCreateError(null);
     try {
       const { created: result, startCampaign } = await createSessionFast(
         api,
@@ -90,7 +93,7 @@ export function useCreateDaemonSession({
       }
       return true;
     } catch (error) {
-      notify('error', translate ? translate('new.createFailed', { error: errorText(error) }) : `Could not create the project: ${errorText(error)}`, error);
+      setCreateError(error);
       return false;
     } finally {
       creatingDaemonRef.current = false;
@@ -101,5 +104,7 @@ export function useCreateDaemonSession({
   return {
     createDaemon,
     creatingDaemon,
+    createError,
+    clearCreateError,
   };
 }

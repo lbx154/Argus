@@ -1,6 +1,6 @@
 import { ErrorMessage } from './ErrorMessage';
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { deliveryFiles, previousDeliveryVersion } from './deliveryPresentation';
+import { deliveryFiles, previousDeliveryVersion, deliveryNumberLabel, deliveryOptionLabel, deliveryFileUpdated } from './deliveryPresentation';
 import { DeliveryChanges } from './DeliveryChanges';
 import { PackageCheck, Maximize2, Minimize2 } from 'lucide-react';
 import './delivery.css';
@@ -53,7 +53,10 @@ export function ArtifactModal({
   const files = delivery ? deliveryFiles(delivery) : [];
   /** What a link in the summary or a Markdown file may open here. */
   const linked = [...artifacts, ...files.map((file) => ({ path: file.path }))];
-  const artifactQ = useArtifact(sid, path);
+  const deliveryId = delivery?.delivery_id;
+  const selectedFile = files.find(file => file.path === path);
+  const updated = Boolean(delivery && path && deliveryFileUpdated(delivery, deliveries, path));
+  const artifactQ = useArtifact(sid, path, null, deliveryId);
   const info = artifactQ.data;
   // A result is named as the server named it when it was delivered.
   const deliveryTitle = delivery?.title || delivery?.primary_target?.path.split('/').at(-1) || '';
@@ -81,13 +84,13 @@ export function ArtifactModal({
     setPreviewError(null);
     if (!sid || !path || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
     if (info.kind === 'pdf') {
-      setPreviewUrl(api.artifactRawUrl(sid, path));
+      setPreviewUrl(api.artifactRawUrl(sid, path, deliveryId));
       return;
     }
     let alive = true;
     let objectUrl = '';
     const controller = new AbortController();
-    api.artifactBlob(sid, path, false, controller.signal).then(
+    api.artifactBlob(sid, path, false, controller.signal, deliveryId).then(
       (blob) => {
         if (!alive) return;
         objectUrl = URL.createObjectURL(blob);
@@ -100,7 +103,7 @@ export function ArtifactModal({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [sid, path, info?.kind]);
+  }, [sid, path, info?.kind, deliveryId]);
 
   // A page downloads with the files it loads, so it opens as it shows here.
   const website = info?.kind === 'html';
@@ -109,7 +112,7 @@ export function ArtifactModal({
     setDownloading(true);
     setPreviewError(null);
     try {
-      const blob = website ? await api.artifactBundle(sid, path) : await api.artifactBlob(sid, path, true);
+      const blob = website ? await api.artifactBundle(sid, path, undefined, deliveryId) : await api.artifactBlob(sid, path, true, undefined, deliveryId);
       downloadBlob(blob, website ? `${info.name.replace(/\.html?$/i, '')}-website.zip` : info.name);
     } catch (error) {
       setPreviewError(error);
@@ -124,7 +127,7 @@ export function ArtifactModal({
     setPreviewError(null);
     try {
       const summary = delivery.summary ? `# ${delivery.title}\n\n${delivery.summary}` : '';
-      downloadBlob(await api.artifactsBundle(sid, files.map((file) => file.path), delivery.title, summary), `${delivery.title || 'argus-results'}.zip`);
+      downloadBlob(await api.artifactsBundle(sid, files.map((file) => file.path), delivery.title, summary, undefined, deliveryId), `${delivery.title || 'argus-results'}.zip`);
     } catch (error) {
       setPreviewError(error);
     } finally {
@@ -151,13 +154,13 @@ export function ArtifactModal({
           <h2>{deliveryTitle || t(deliveryHeadingKey(delivery))}</h2>
         </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
-          {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
+          {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{deliveryOptionLabel(receipt, zh)}</option>)}
         </select> : null}
-        {files.length > 0 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : zh ? '下载全部（zip）' : 'Download all (zip)'}</button></div> : null}
+        {files.length > 1 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : zh ? '下载全部（zip）' : 'Download all (zip)'}</button></div> : null}
         {/* With a file open the summary folds above it; with none it is the page. */}
-        {delivery.summary && path && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><div className="delivery-summary-body"><MarkdownContent sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div></details>}
+        {delivery.summary && path && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><div className="delivery-summary-body"><MarkdownContent delivery={deliveryId} sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div></details>}
       </header>}
-      {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
+      {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span><small>{deliveryNumberLabel(file, zh)}</small>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
       {/* On a phone the file's tools wrap onto their own rows under its name. */}
       <div className={`flex shrink-0 flex-wrap items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
@@ -165,12 +168,12 @@ export function ArtifactModal({
             {info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">
-            {info ? formatBytes(info.size) : zh ? '正在读取文件' : 'Loading file'}
+            {selectedFile && deliveryNumberLabel(selectedFile, zh)}{selectedFile?.delivery_number ? ' · ' : ''}{info ? formatBytes(info.size) : artifactQ.isError ? (zh ? '此交付文件不可用' : 'Delivered file unavailable') : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 max-sm:order-last max-sm:basis-full">
         {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="artifact-tool shrink-0 p-2">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
-        {onEdit && path && info && canEditArtifact(info)
+        {!delivery && onEdit && path && info && canEditArtifact(info)
           && <button type="button" onClick={() => onEdit(path)} className="artifact-tool shrink-0">{zh ? '编辑与版本' : 'Edit & versions'}</button>}
         {onRevise && path && <button type="button" disabled={!info} onClick={() => onRevise(path)}
           className="artifact-tool shrink-0 disabled:opacity-50">{zh ? '继续修改' : 'Revise'}</button>}
@@ -197,8 +200,9 @@ export function ArtifactModal({
         ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-bg/40'
         : 'flex min-h-64 max-h-[72vh] flex-col overflow-x-hidden overflow-y-auto bg-bg/40 p-3 scroll-thin sm:p-4'
       }>
-        {!path && delivery && <div className="m-auto p-6 text-sm text-ink-dim"><MarkdownContent sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div>}
+        {!path && delivery && <div className="m-auto p-6 text-sm text-ink-dim"><MarkdownContent delivery={deliveryId} sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div>}
         {delivery && sid && (() => { const change = previousDeliveryVersion(delivery, deliveries, path); return change ? <DeliveryChanges key={`${change.before}:${change.after}`} sid={sid} change={change} zh={zh} /> : null; })()}
+        {updated && <p role="status" className="mb-3 text-sm text-warn">{zh ? '已被后来的交付更新' : 'Updated by a later delivery'}</p>}
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
           <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · <ErrorMessage error={artifactQ.error} />
@@ -212,7 +216,7 @@ export function ArtifactModal({
         ) : null}
         {info && markdownPreview ? (
           <div className="min-h-52 overflow-auto rounded-lg border border-line bg-bg p-4 text-sm text-ink-dim scroll-thin">
-            {reviewDocument && <div className="mb-4 border-b border-line pb-3 text-xs leading-5 text-ink-faint" role="status">
+            {reviewDocument && !delivery && <div className="mb-4 border-b border-line pb-3 text-xs leading-5 text-ink-faint" role="status">
               {reviewActivity === 'revising'
                 ? (zh ? '正在根据这份意见修改论文，修改后的版本尚待复审。' : 'The paper is being revised against this opinion; the revised version awaits review.')
                 : reviewActivity === 'reviewing'
@@ -220,7 +224,7 @@ export function ArtifactModal({
                   : (zh ? '这是最近保存的审稿意见，文件更新后会自动刷新。' : 'This is the latest saved review. Changes to this file appear automatically.')}
               {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
             </div>}
-            <MarkdownContent sid={sid} basePath={path || ''} artifacts={linked} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
+            <MarkdownContent delivery={deliveryId} sid={sid} basePath={path || ''} artifacts={linked} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
             {info.truncated ? <p role="status" className="mt-3 border-t border-line pt-2 text-xs text-ink-faint">
               {t('artifact.truncated')} · {t('artifact.downloadHint')}
             </p> : null}
@@ -233,7 +237,7 @@ export function ArtifactModal({
         {info?.kind === 'html' ? (
           <div className={`flex flex-1 overflow-hidden rounded-lg border border-line ${delivery ? 'min-h-0' : 'min-h-[60vh]'}`}>
 
-            <HtmlPreview sid={sid} path={path} html={info.preview || ''} title={`HTML preview: ${info.name}`} />
+            <HtmlPreview delivery={deliveryId} sid={sid} path={path} html={info.preview || ''} title={`HTML preview: ${info.name}`} />
           </div>
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
@@ -264,7 +268,7 @@ export function ArtifactModal({
         ) : null}
         {info && modelPreview && sid && path ? (
           <div className="flex min-h-0 flex-1 flex-col">
-            <ModelPreview key={path} sid={sid} path={path} constraintFiles={info.constraint_files} />
+            <ModelPreview delivery={deliveryId} key={`${path}:${deliveryId}`} sid={sid} path={path} constraintFiles={info.constraint_files} />
           </div>
         ) : null}
         {info?.kind === 'binary' && !modelPreview ? (

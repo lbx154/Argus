@@ -13,6 +13,8 @@ export function ComposerAttachmentChip({
   removeLabel,
   onRemove,
   disabled = false,
+  sent = false,
+  onOpen,
 }: {
   file?: File;
   /** A file uploaded before a reload, when only the project copy remains. */
@@ -20,6 +22,9 @@ export function ComposerAttachmentChip({
   removeLabel?: string;
   onRemove?: () => void;
   disabled?: boolean;
+  /** Sent messages show the saved file, while drafts show upload progress. */
+  sent?: boolean;
+  onOpen?: () => void;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -45,7 +50,7 @@ export function ComposerAttachmentChip({
   const name = file?.name ?? uploaded?.original_name ?? '';
   const size = file?.size ?? uploaded?.size_bytes ?? 0;
   const status = file ? uploads?.status(file) : undefined;
-  const phase = uploaded ? 'ready' : status?.phase;
+  const phase = sent ? undefined : uploaded ? 'ready' : status?.phase;
   const percent = uploadPercent(status);
   const progress = phase === 'queued' ? (zh ? '等待上传' : 'Waiting to upload')
     : phase === 'uploading' ? `${zh ? '上传中' : 'Uploading'} ${percent}% · ${formatBytes(status?.loaded ?? 0)}/${formatBytes(size)}`
@@ -67,7 +72,7 @@ export function ComposerAttachmentChip({
         />
       ) : null}
       <div className="min-w-0 flex-1">
-        <div className="truncate font-medium text-ink">{name}</div>
+        <div className="truncate font-medium text-ink">{sent && onOpen ? <button type="button" className="underline underline-offset-2" onClick={onOpen}>{name}</button> : name}</div>
         <div className={`truncate ${phase === 'failed' ? 'text-err' : phase === 'ready' ? 'text-ok' : 'text-ink-faint'}`} role={phase === 'failed' ? 'alert' : undefined}>
           {phase === 'uploading' || phase === 'retrying' ? progress
             : [size ? formatBytes(size) : '', progress || (file ? attachmentMime(file) : uploaded?.mime), failure].filter(Boolean).join(' · ')}

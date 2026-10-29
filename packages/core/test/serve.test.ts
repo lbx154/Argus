@@ -164,7 +164,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.equal(asking.spend_usd, 0.03);
   // With no model chosen, each role shows the one its last call ran on.
   assert.deepEqual([asking.roles.find(role => role.role === 'engineer')?.model, asking.last_call?.role, asking.last_call?.model], ['fake-model', 'reviewer', 'fake-model']);
-  assert.ok(asking.role_events?.some(row => row.text === 'Ship it as is?'));
+  assert.equal('role_events' in asking, false);
+  assert.equal('role_round' in asking, false);
   assert.equal(asking.work_status?.label['zh-CN'], '等你回答 1 个问题');
   const card = (asking.pending_questions![0] as { operator_decision: { id: string; question: string; options: unknown[] } }).operator_decision;
   assert.deepEqual([card.question, card.options], ['Ship it as is?', []]);
@@ -703,6 +704,18 @@ test('attached files land in the workdir, and the message that carries them says
   });
   assert.equal(notes!.stored_name, 'notes.md');
   assert.equal(await readFile(join(workdir, csv!.relative_path), 'utf8'), 'a,b\n1,2\n');
+  const opened = `${P}/artifact/raw?${new URLSearchParams({ path: csv!.relative_path })}`;
+  assert.equal(await (await call(opened)).text(), 'a,b\n1,2\n');
+  assert.equal((await get<{ path: string }>(`${P}/artifact?${new URLSearchParams({ path: csv!.relative_path })}`)).path, csv!.relative_path);
+  await writeFile(join(workdir, '.argus', 'secret.txt'), 'private');
+  assert.equal((await call(`${P}/artifact/raw?path=.argus/secret.txt`)).status, 404);
+  assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/../../secret.txt`)).status, 404);
+  if (process.platform !== 'win32') {
+    const link = join(workdir, csv!.relative_path, '..', 'linked.csv');
+    await symlink(join(workdir, '.argus', 'secret.txt'), link);
+    assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/linked.csv`)).status, 404);
+    await rm(link);
+  }
 
   // A large file in parts, each appended where the last ended.
   const begun = await (await post(`${P}/attachments/uploads`, { name: 'weights.bin', mime: 'application/octet-stream', size_bytes: 6 })).json() as UploadState;
@@ -737,6 +750,24 @@ test('attached files land in the workdir, and the message that carries them says
   assert.deepEqual(message && { text: message.text, request_id: message.request_id, attachments: message.attachments },
     { text: 'Use these', request_id: 'browser-upload', attachments: files });
   assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
+});
+
+test('an uploaded HTML file opens through the sandboxed preview and downloads as inert text', async t => {
+  const { call, post } = await setup(t, []);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  const form = new FormData();
+  form.append('files', new Blob(['<h1>Material HTML</h1>'], { type: 'text/plain' }), 'material.html');
+  const { attachments: [file] } = await (await call(`${P}/attachments`, { method: 'POST', body: form })).json() as { attachments: Attachment[] };
+  const query = new URLSearchParams({ path: file!.relative_path });
+  const preview = await call(`${P}/artifact/preview?${query}`);
+  assert.equal(preview.status, 200);
+  assert.match((await preview.json() as { html: string }).html, /<h1>Material HTML<\/h1>/);
+  const page = await call(`${P}/artifact/preview/page?${query}`);
+  assert.match(page.headers.get('content-security-policy') ?? '', /sandbox/);
+  const raw = await call(`${P}/artifact/raw?${query}`);
+  assert.match(raw.headers.get('content-type') ?? '', /^text\/plain/);
+  assert.equal(await raw.text(), '<h1>Material HTML</h1>');
 });
 
 test('a stream connected again is sent every line after the last it had, however many came meanwhile', async t => {
@@ -844,10 +875,10 @@ test('a result the Manager hands the operator shows as its result card, its file
   assert.deepEqual(reply!.delivery, {
     schema_version: 1, delivery_id: 'd0', kind: 'result', item_id: '', title: 'The totals report done',
     summary: '# The [totals report](/work/report/index.html) **done**\nIt checks against data.csv.', status: 'done', review_status: '', delivered_at: Date.parse(ts) / 1000,
-    primary_target: { path: 'report/index.html', label: 'index.html', source: 'manager', why: '' },
+    primary_target: { path: 'report/index.html', label: 'index.html', source: 'manager', why: '', delivery_number: 1 },
     targets: [
-      { path: 'report/index.html', label: 'index.html', source: 'manager', why: '' },
-      { path: 'figures/totals.png', label: 'totals.png', source: 'manager', why: '' },
+      { path: 'report/index.html', label: 'index.html', source: 'manager', why: '', delivery_number: 1 },
+      { path: 'figures/totals.png', label: 'totals.png', source: 'manager', why: '', delivery_number: 1 },
     ],
     snapshots,
   });
@@ -859,7 +890,7 @@ test('validation errors identify the reason without making the browser parse Eng
   const file = join(home, 'web', 'index.html');
   const response = await post('/api/daemons', { workdir: file });
   assert.equal(response.status, 400);
-  assert.equal((await response.json() as { code: string }).code, 'invalid_workdir');
+  assert.equal((await response.json() as { code: string }).code, 'workdir_not_directory');
   // A folder that cannot be made anywhere is refused at once, under /proc too, where a recursive mkdir never returns.
   for (const workdir of [join(file, 'deeper', 'still'), ...process.platform === 'linux' ? ['/proc/argus-nope/x'] : []]) {
     assert.equal((await post('/api/daemons', { workdir })).status, 400, workdir);
@@ -906,7 +937,11 @@ test('row stream, refreshed conversation and current-round role log share one pr
   assert.equal(refreshed.rows[question + 1]!.text, '42');
   assert.equal(refreshed.rows[question + 2]!.state, 'done');
   const ended = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
-  assert.deepEqual(roles, ended.role_events);
+  const replay = frames(await call(`${P}/stream?view=rows&after=${Number(sent.at(-1)!.cursor)}`), () => true);
+  const initial = (await replay)[0]!;
+  assert.deepEqual(roles, initial.role_events);
+  assert.equal('role_events' in ended, false);
+  assert.equal('role_round' in ended, false);
   assert.ok(!roles.some(row => row.text === 'Read the setup.'));
   // The answer names its asker, as the decision card does.
   assert.ok(readEvents(store, sid).some(event => event.type === 'message' && `${event.to}-${event.task}` === card.id));

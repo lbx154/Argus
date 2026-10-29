@@ -57,6 +57,7 @@ export type MacroData = MapCard & {
   copy?: Pick<MapCopy, "cards" | "version">;
   readCopy?: (nodeId: string, key: string | null) => void;
   live: boolean;
+  managerMessage?: string;
   paused?: boolean;
   growthDelay?: number;
   dispatchState?: 'receiving' | 'landed';
@@ -97,6 +98,7 @@ export const MapNotesContext = createContext<{
 export const MapArtifactContext = createContext<{
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
+  workspace?: string;
 }>({});
 const KINDS: Record<StepKind, [string, string]> = {
   plan: ["计划", "Plan"],
@@ -193,7 +195,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   data,
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
-  const { artifacts, onOpenArtifact } = useContext(MapArtifactContext);
+  const { artifacts, onOpenArtifact, workspace } = useContext(MapArtifactContext);
   const cardNotes = useContext(MapNotesContext).notes[task.id] ?? [];
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
@@ -408,9 +410,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           aria-label={`${title} · ${task.turn_kind === 'qa' ? (zh ? '查看回答' : 'Read answer') : zh ? "放大任务" : "Explore task"}`}
         >
           <div className="map-card-top">
-            <span className="map-card-number">
+            <span className="map-card-kind">
               {task.turn_kind === 'qa' ? (zh ? "问答" : "Q&A") : isLastPart ? (zh ? "任务" : "MISSION") : (zh ? "历史" : "HISTORY")}
-              {" "}{String(ordinal).padStart(2, "0")}
               {!isLastPart && ` · ${data.part}/${data.partCount}`}
               {replaced && (
                 <span className="map-card-replaced" data-testid="map-card-replaced" title={replacedTitle}>
@@ -490,7 +491,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             return (
               <div className="map-card-stages">
                 {live
-                  ? <LiveLine role={task.role} since={task.started_ts} zh={zh} />
+                  ? <LiveLine role={task.role} since={task.started_ts} zh={zh} message={data.managerMessage} />
                   : isLastPart && chip ? null
                   : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
               </div>
@@ -540,9 +541,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         }}
       >
         <header className="macro-heading">
-          <span className="macro-index">
-            {String(ordinal).padStart(2, "0")}
-          </span>
           <div>
             <small>
               {data.partCount > 1
@@ -732,6 +730,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <h3><MarkdownExcerpt>{stepCopy(detail)?.title || detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
               <MapReaderContent cardKey={detail.id} taskId={task.id} card={stepCopy(detail)} task={task}
+                workspace={workspace}
                 originalDetail={detail.detail || noDetails(zh)}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
             </div>

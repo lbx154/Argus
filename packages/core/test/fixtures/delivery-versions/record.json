@@ -1,0 +1,288 @@
+{
+  "text": {
+    "events": [
+      {
+        "ts": "2026-10-29T18:40:20.947Z",
+        "type": "message",
+        "from": "operator",
+        "text": "交付第一版报告",
+        "request_id": "c4ec4c9c-30ed-4e6f-94ab-cac1519d65ce"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.063Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "# 版本报告\n\n第一版：报告数值为 10。打开 [报告](report.md)。",
+        "open": [
+          "report.md"
+        ],
+        "snapshots": [
+          {
+            "path": "report.md",
+            "version": "835ea28b56464776a06180b9853569d1",
+            "size": 37,
+            "stored": true
+          }
+        ],
+        "title": "版本报告",
+        "answers": "c4ec4c9c-30ed-4e6f-94ab-cac1519d65ce"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.070Z",
+        "type": "message",
+        "from": "operator",
+        "text": "把数值改为20，并增加数据表",
+        "request_id": "992d4396-e088-4edc-aec5-843675d2d183"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.171Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "# 版本报告\n\n第二版：报告数值为 20，附数据表。打开 [报告](report.md)。",
+        "open": [
+          "report.md",
+          "data.csv"
+        ],
+        "snapshots": [
+          {
+            "path": "report.md",
+            "version": "e63043ad0dc5413498cb5aa419492634",
+            "size": 37,
+            "stored": true
+          },
+          {
+            "path": "data.csv",
+            "version": "32d3eccb24b14e57afd485b3f8ca752b",
+            "size": 9,
+            "stored": true
+          }
+        ],
+        "title": "版本报告",
+        "answers": "992d4396-e088-4edc-aec5-843675d2d183"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.177Z",
+        "type": "message",
+        "from": "operator",
+        "text": "内容不变，再次交付",
+        "request_id": "22b630a9-e9a6-40e3-a0fc-08fff9d1f8eb"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.276Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "# 版本报告\n\n第三次交付：内容保持第二版的数值 20。",
+        "open": [
+          "report.md",
+          "data.csv"
+        ],
+        "snapshots": [
+          {
+            "path": "report.md",
+            "version": "e63043ad0dc5413498cb5aa419492634",
+            "size": 37,
+            "stored": true
+          },
+          {
+            "path": "data.csv",
+            "version": "32d3eccb24b14e57afd485b3f8ca752b",
+            "size": 9,
+            "stored": true
+          }
+        ],
+        "title": "版本报告",
+        "answers": "22b630a9-e9a6-40e3-a0fc-08fff9d1f8eb"
+      }
+    ],
+    "copies": {
+      "835ea28b56464776a06180b9853569d1": "# 版本报告\n\n第一版数值：10\n",
+      "e63043ad0dc5413498cb5aa419492634": "# 版本报告\n\n第二版数值：20\n",
+      "32d3eccb24b14e57afd485b3f8ca752b": "value\n20\n"
+    }
+  },
+  "binary": {
+    "events": [
+      {
+        "ts": "2026-10-29T18:40:21.292Z",
+        "type": "message",
+        "from": "operator",
+        "text": "交付原始数据",
+        "request_id": "2e59ab23-ad86-4ff9-9ea3-3034e81b5e1b"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.373Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "第一版二进制数据。",
+        "open": [
+          "data.bin"
+        ],
+        "snapshots": [
+          {
+            "path": "data.bin",
+            "version": "11:1793299221286.4116",
+            "size": 11,
+            "stored": false
+          }
+        ],
+        "title": "data.bin",
+        "answers": "2e59ab23-ad86-4ff9-9ea3-3034e81b5e1b"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.379Z",
+        "type": "message",
+        "from": "operator",
+        "text": "更新原始数据",
+        "request_id": "260fd8f3-caa7-4556-9107-172876f9ec9a"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.498Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "第二版二进制数据。",
+        "open": [
+          "data.bin"
+        ],
+        "snapshots": [
+          {
+            "path": "data.bin",
+            "version": "18:1793299221375.4143",
+            "size": 18,
+            "stored": false
+          }
+        ],
+        "title": "data.bin",
+        "answers": "260fd8f3-caa7-4556-9107-172876f9ec9a"
+      }
+    ],
+    "copies": {}
+  },
+  "html": {
+    "events": [
+      {
+        "ts": "2026-10-29T18:40:21.509Z",
+        "type": "message",
+        "from": "operator",
+        "text": "交付单页网页",
+        "request_id": "290b7819-f347-44fd-a8e8-bfa319b53576"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.608Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "第一版网页，标题为旧版网页。",
+        "open": [
+          "index.html"
+        ],
+        "snapshots": [
+          {
+            "path": "index.html",
+            "version": "ba185fdd4ec644beaffa0492f5963176",
+            "size": 102,
+            "stored": true
+          }
+        ],
+        "title": "同名网页",
+        "answers": "290b7819-f347-44fd-a8e8-bfa319b53576"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.615Z",
+        "type": "message",
+        "from": "operator",
+        "text": "更新单页网页",
+        "request_id": "8851670d-b8f0-4bcb-bcb2-63516f6a1f99"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.712Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "第二版网页，标题为新版网页。",
+        "open": [
+          "index.html"
+        ],
+        "snapshots": [
+          {
+            "path": "index.html",
+            "version": "7fda8052c5044664a1c95ede6a31cf9a",
+            "size": 102,
+            "stored": true
+          }
+        ],
+        "title": "同名网页",
+        "answers": "8851670d-b8f0-4bcb-bcb2-63516f6a1f99"
+      }
+    ],
+    "copies": {
+      "ba185fdd4ec644beaffa0492f5963176": "<!doctype html><html><head><title>同名网页</title></head><body><h1>旧版网页</h1></body></html>",
+      "7fda8052c5044664a1c95ede6a31cf9a": "<!doctype html><html><head><title>同名网页</title></head><body><h1>新版网页</h1></body></html>"
+    }
+  },
+  "missing": {
+    "events": [
+      {
+        "ts": "2026-10-29T18:40:21.720Z",
+        "type": "message",
+        "from": "operator",
+        "text": "交付会被清理的副本",
+        "request_id": "2697093a-f69a-4975-8045-0b617d587c8e"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.831Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "第一版副本，数值 100。",
+        "open": [
+          "report.md"
+        ],
+        "snapshots": [
+          {
+            "path": "report.md",
+            "version": "c63625e8a1144daaab0d395d3f3e2409",
+            "size": 30,
+            "stored": true
+          }
+        ],
+        "title": "丢失的副本",
+        "answers": "2697093a-f69a-4975-8045-0b617d587c8e"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.837Z",
+        "type": "message",
+        "from": "operator",
+        "text": "再次交付副本",
+        "request_id": "5d507e55-312e-4556-9372-3e30a719796d"
+      },
+      {
+        "ts": "2026-10-29T18:40:21.942Z",
+        "type": "handoff",
+        "role": "manager",
+        "to": "operator",
+        "letter": "第二版副本，数值 200。",
+        "open": [
+          "report.md"
+        ],
+        "snapshots": [
+          {
+            "path": "report.md",
+            "version": "54f5ebed73c74fa8a4c02b30945bea95",
+            "size": 30,
+            "stored": true
+          }
+        ],
+        "title": "丢失的副本",
+        "answers": "5d507e55-312e-4556-9372-3e30a719796d"
+      }
+    ],
+    "copies": {
+      "54f5ebed73c74fa8a4c02b30945bea95": "# 丢失的副本\n\n新值 200\n"
+    }
+  }
+}

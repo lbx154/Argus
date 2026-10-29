@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api, type EventMsg } from '../api';
+import { roleSnapshot } from './serverSnapshot';
 import { useConversationHistory } from '../useConversationHistory';
 
 vi.mock('../api', async importOriginal => ({ ...await importOriginal<typeof import('../api')>(), openConversation: vi.fn(() => () => {}) }));
@@ -133,4 +134,65 @@ it('adds an answered pair absent from the current page and uses the same paging 
   expect(request).toHaveBeenCalledWith('b', 30, expect.any(AbortSignal));
   expect(latest.pagination.hasOlder).toBe(false);
   expect(latest.events.map(row => row.text)).toEqual(['Original request', 'Later Manager reply', 'Which seed?', '424242']);
+});
+
+it('keeps first-frame and appended role logs independent of snapshots and isolated through project switches', async () => {
+  const { openConversation } = await import('../api');
+  const { useRoleLog, roleLogKey } = await import('../useRoleLog');
+  const { ProjectRoleLogs } = await import('../components/EventStream');
+  let log!: ReturnType<typeof useRoleLog>;
+  const snap = roleSnapshot([], {
+    session: { id: 'a', display_name: '', objective: '', cwd: '', last_active: 1 },
+    roles: [], work_status: { state: 'running', roles: ['engineer'], role: 'engineer', taskId: '', title: '', reason: '', foreground: false,
+      activityAt: null, label: { 'zh-CN': '', en: '' } },
+  });
+  function Surfaces({ sid, done = false }: { sid: string; done?: boolean }) {
+    useConversationHistory(sid, true, [], null);
+    log = useRoleLog(sid);
+    const snapshot = { ...snap, session: { ...snap.session, id: sid },
+      work_status: done ? { ...snap.work_status!, state: 'idle' as const, roles: [] } : snap.work_status };
+    return <><div data-surface="conversation"><ProjectRoleLogs snapshot={snapshot} connected /></div>
+      <div data-surface="map"><ProjectRoleLogs snapshot={snapshot} connected details /></div></>;
+  }
+  const surfaces = (sid: string, done = false) => <QueryClientProvider client={client}><Surfaces sid={sid} done={done} /></QueryClientProvider>;
+  client.setQueryData(['conversation', 'a'], cached('A'));
+  client.setQueryData(['conversation', 'b'], cached('B'));
+  act(() => { renderer = create(surfaces('a')); });
+  const initialA = vi.mocked(openConversation).mock.calls.at(-1)!;
+  expect(initialA.slice(0, 2)).toEqual(['a', 1]);
+  const event = (event_id: number, text: string): EventMsg => ({ type: 'engineer.progress', agent_layer: 'engineer', kind: 'agent_message', event_id, ts: event_id, text });
+  // The first rows frame includes logs older than the conversation cursor, even without a snapshot cache.
+  const receiveA = initialA[2];
+  act(() => receiveA({ type: 'ui.projection', cursor: 9, round: 0, rows: [], role_events: [event(0, 'First saved finding')] }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  expect(log.events.map(row => row.text)).toEqual(['First saved finding']);
+  expect(client.getQueryData(['snapshot', 'a'])).toBeUndefined();
+  act(() => receiveA({ type: 'ui.projection', cursor: 10, round: 0, rows: [], role_events: [event(10, 'Streamed finding')] }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  const text = (node: import('react-test-renderer').ReactTestInstance): string => node.children.map(child => typeof child === 'string' ? child : text(child)).join('');
+  const words = () => text(renderer!.root);
+  expect(words().match(/Streamed finding/g)).toHaveLength(2);
+  const saved = log;
+  client.setQueryData(['snapshot', 'a'], snap);
+  client.setQueryData(['snapshot', 'a'], { ...snap, session: { ...snap.session, last_active: 20 } });
+  expect(client.getQueryData(roleLogKey('a'))).toEqual(saved);
+  act(() => renderer!.update(surfaces('b')));
+  expect(log.events).toEqual([]);
+  const receiveB = vi.mocked(openConversation).mock.calls.at(-1)![2];
+  act(() => receiveA({ type: 'ui.projection', cursor: 11, round: 0, rows: [], role_events: [event(11, 'Late A finding')] }));
+  act(() => receiveB({ type: 'ui.projection', cursor: 4, round: 3, rows: [], role_events: [event(4, 'Only B finding')] }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  expect(log.events.map(row => row.text)).toEqual(['Only B finding']);
+  expect(words()).not.toContain('A finding');
+  act(() => renderer!.update(surfaces('a')));
+  expect(log.events.at(-1)?.text).toBe('Late A finding');
+  const reconnect = vi.mocked(openConversation).mock.calls.at(-1)![2];
+  act(() => reconnect({ type: 'ui.projection', cursor: 13, round: 12, rows: [], role_events: [event(13, 'New round finding')] }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  expect(log).toEqual({ round: 12, events: [event(13, 'New round finding')] });
+  act(() => renderer!.update(surfaces('a', true)));
+  const conversation = renderer!.root.findByProps({ 'data-surface': 'conversation' });
+  expect(conversation.findAllByProps({ 'data-project-work': true })).toHaveLength(0);
+  expect(words().match(/New round finding/g)).toHaveLength(1);
+  expect(log.events).toHaveLength(1);
 });

@@ -16,6 +16,7 @@ import { isPauseStatus, parkReason, settledStatus, stopClause } from "../../../c
 import { plainStopSentence } from "../lib/plainStatus";
 import { roleLabel } from "../lib/enumLabels";
 import { translate } from "../i18n";
+import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 export { humanizeHarnessNote, TECHNICAL_MARKER } from "../lib/harnessNotes";
 
 export const MAP_FRAME = { width: 1440, height: 1080 };
@@ -24,6 +25,7 @@ export const MAX_STEPS_PER_CARD = 12;
 export interface MapCard {
   id: string;
   task: MapTask;
+  /** Stable task order for arrival animations and replay, never a display number. */
   ordinal: number;
   part: number;
   partCount: number;
@@ -341,6 +343,7 @@ export function buildSubmap(
   task: MapTask,
   events: MapEvent[],
   zh: boolean,
+  workspace?: string,
 ): SubmapStep[] {
   const turn = task.kind === "turn";
   const rows: SubmapStep[] = [
@@ -350,7 +353,7 @@ export function buildSubmap(
       title: turn
         ? zh ? (task.turn_kind === 'qa' ? '你提出的问题' : "你提出的要求") : "What you asked"
         : zh ? "任务目标" : "Task goal",
-      detail: task.objective || task.title,
+      detail: relativizeWorkspacePaths(task.objective || task.title, workspace),
       status: "recorded",
       source: "task",
       eventIds: [],
@@ -361,6 +364,11 @@ export function buildSubmap(
   let lastReview: MapEvent | undefined;
   const sorted = events
     .filter((e) => e.item_id === task.id)
+    // Format before sentence and command shortening, which could otherwise
+    // cut through a long workspace prefix and lose the relative file name.
+    .map(event => ({ ...event, text: relativizeWorkspacePaths(event.text || '', workspace),
+      steps: event.steps?.map(step => ({ ...step, label: relativizeWorkspacePaths(step.label, workspace),
+        tool: step.tool ? relativizeWorkspacePaths(step.tool, workspace) : step.tool })) }))
     .sort((a, b) => a.ts - b.ts);
   for (const e of sorted) {
     if (seen.has(e.id)) continue;
@@ -1023,13 +1031,14 @@ export function layoutScene(
   links = connectMap(graph, [], zh),
   expandedMissions?: ReadonlySet<string>,
   narrow = false,
+  workspace?: string,
 ) {
   const cards: MapCard[] = [];
   const layouts: Record<string, SubmapLayout> = {};
   const continuations: MapLink[] = [];
   const lastCard = new Map<string, string>();
   for (const [ordinal, task] of graph.tasks.entries()) {
-    const steps = buildSubmap(task, events, zh);
+    const steps = buildSubmap(task, events, zh, workspace);
     const scope = task.status === "done" ? completionScope(latestMissionCompletion(task, events), zh) : "";
     const conclusion = task.kind === "turn" ? "" : taskConclusion(steps, zh, ACTIVE.has(task.status));
     const pages = stepPages(steps);

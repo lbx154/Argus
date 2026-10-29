@@ -46,3 +46,26 @@ export function previousDeliveryVersion(receipt: DeliveryReceipt, receipts: Deli
   }
   return null;
 }
+
+/** Each path has its own occurrence count, supplied by the server's record fold. */
+export const deliveryNumberLabel = (file: DeliveryTarget, zh: boolean): string =>
+  file.delivery_number ? (zh ? `第 ${file.delivery_number} 次交付` : `Delivery ${file.delivery_number}`) : '';
+
+export function deliveryOptionLabel(receipt: DeliveryReceipt, zh: boolean): string {
+  const files = deliveryFiles(receipt);
+  return [receipt.title, ...files.map(file => [files.length > 1 ? file.label || file.path : '', deliveryNumberLabel(file, zh)].filter(Boolean).join(' '))].filter(Boolean).join(' · ');
+}
+
+/** No copy was kept of this file, and a later delivery names a different version of it. */
+export function deliveryFileUpdated(receipt: DeliveryReceipt, receipts: DeliveryReceipt[], path: string): boolean {
+  const snapshot = receipt.snapshots?.find(file => file.path === path);
+  if (snapshot?.stored) return false;
+  const file = deliveryFiles(receipt).find(file => file.path === path);
+  return receipts.some(other => {
+    if (other.delivery_id === receipt.delivery_id) return false;
+    const next = deliveryFiles(other).find(file => file.path === path);
+    if (!next || !(file?.delivery_number && next.delivery_number
+      ? next.delivery_number > file.delivery_number : other.delivered_at > receipt.delivered_at)) return false;
+    return !snapshot || other.snapshots?.find(file => file.path === path)?.version !== snapshot.version;
+  });
+}

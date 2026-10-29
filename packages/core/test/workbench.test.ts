@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, rm, truncate, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -306,7 +306,7 @@ test('what changed between two deliveries reads as a unified diff, changes far a
   assert.deepEqual([rows[2], rows[3], rows[5003], rows.length], ['@@ -1,5000 +1,5000 @@', '-a0', '+b0', 10004]);
 });
 
-test('a task in full, a role\'s letters to download, and a search of every project\'s record', async t => {
+test('a task in full and a search of every project\'s record', async t => {
   const { store, project, call, get } = await setup(t);
   const { id } = project;
   const end = (role: 'manager' | 'engineer' | 'reviewer', task: string | undefined, error: string | null) => store.append(id, {
@@ -347,21 +347,16 @@ test('a task in full, a role\'s letters to download, and a search of every proje
   assert.deepEqual([asking.status, asking.pending_question, asking.last_error, asking.finished_ts], ['blocked', 'Which years?', 'codex exited with code 1', null]);
   assert.equal((await call(`${P}/backlog/t9`)).status, 404);
 
-  const log = await call(`${P}/work-log/download?role=engineer&task_id=t1`);
-  assert.match(log.headers.get('content-disposition') ?? '', /^attachment/);
-  const text = await log.text();
-  assert.match(text, /^# The Engineer's letters on t1\n\n## \S+, to the Reviewer on t1\n\nchart\.png drawn from sales\.csv\n$/);
-  assert.equal((await call(`${P}/work-log/download?role=nobody`)).status, 400);
+  assert.equal((await call(`${P}/work-log/download?role=engineer&task_id=t1`)).status, 404);
 
   // Every word asked, in the request, the conversation (the Manager's letters are its replies) and the team's letters.
   const { results } = await get<{ results: Record<string, unknown>[] }>('/api/search?q=CHART%20sales');
   assert.deepEqual(results.map(({ sid, kind, role, snippet }) => [sid, kind, role, snippet]), [
-    [id, 'project', undefined, 'Chart the sales by region.'],
     [id, 'conversation', 'operator', 'Chart the sales by region.'],
     [id, 'conversation', 'argus', chart.objective],
     [id, 'project', 'engineer', 'chart.png drawn from sales.csv'],
   ]);
-  assert.equal(results[1]!.message_id, 'm0-operator');
+  assert.equal(results[0]!.message_id, 'm0-operator');
   // A project is named as the project list names it; a match is quoted with the table it is in, whole.
   assert.equal(results[0]!.title, 'Sales chart');
   assert.equal((await get<{ results: { snippet: string }[] }>('/api/search?q=north')).results[0]!.snippet,
@@ -400,4 +395,173 @@ test('the resources panel reads the CPUs and memory, and the GPUs nvidia-smi lis
   const [, failed] = await accelerators();
   assert.deepEqual([failed!.kind, failed!.status], ['cuda', 'inaccessible']);
   assert.match(failed!.detail!, /NVIDIA-SMI has failed/);
+});
+
+// Captured from the served cockpit: the request was returned three times and its path
+// began "mponent/". The Manager really repeated the words, so that speaker stays.
+test('search quotes complete paths and keeps one hit per recorded message', async t => {
+  const { store, project, get } = await setup(t);
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/search-path-record.json', import.meta.url), 'utf8'));
+  project.request = fixture.request;
+  store.save(project);
+  await writeFile(join(store.dir(project.id), 'events.jsonl'), fixture.events.map((event: unknown) => JSON.stringify(event)).join('\n') + '\n');
+  type Hit = { sid: string; kind: string; role: string; snippet: string; message_id?: string };
+  const search = () => get<{ results: Hit[]; partial: boolean }>('/api/search?q=needle');
+  const first = await search();
+  assert.deepEqual(first.results.map(hit => [hit.role, hit.kind]), [['operator', 'conversation'], ['argus', 'conversation']]);
+  assert.ok(first.results.every(hit => hit.snippet.startsWith('/research/complete-path-component/')));
+  assert.ok(first.results.every(hit => hit.snippet.includes('/needle/report.md')));
+  assert.equal(first.results[0]!.message_id, 'm0-operator');
+  // Identical words later, from another role, or in another project are independent hits.
+  store.append(project.id, { type: 'message', from: 'operator', request_id: 'r2', text: fixture.request });
+  store.append(project.id, { type: 'handoff', role: 'engineer', task: 't1', to: 'reviewer', letter: fixture.request });
+  const other = store.create({ request: fixture.request, workdir: project.workdir, backend: 'codex', model: null });
+  const next = await search();
+  assert.equal(next.results.length, 5);
+  assert.equal(next.results.filter(hit => hit.sid === project.id && hit.role === 'operator').length, 2);
+  assert.ok(next.results.some(hit => hit.sid === other.id && hit.role === 'operator' && hit.kind === 'project'));
+  assert.ok(next.results.some(hit => hit.role === 'engineer'));
+  assert.equal(next.partial, false);
+});
+
+// Reviewer reproduction: a space inside an inline-code path was treated as the excerpt boundary.
+test('search keeps a backtick-quoted path with spaces whole', async t => {
+  const { store, project, get } = await setup(t);
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/search-spaced-path-record.json', import.meta.url), 'utf8'));
+  project.request = fixture.request;
+  store.save(project);
+  await writeFile(join(store.dir(project.id), 'events.jsonl'), fixture.events.map((event: unknown) => JSON.stringify(event)).join('\n') + '\n');
+  const { results } = await get<{ results: { snippet: string }[] }>('/api/search?q=spaceneedle');
+  assert.equal(results.length, 1);
+  assert.ok(results[0]!.snippet.startsWith('`/research/My Project/'), results[0]!.snippet);
+  const path = fixture.request.slice(fixture.request.indexOf('`'), fixture.request.lastIndexOf('`') + 1);
+  assert.ok(results[0]!.snippet.includes(path), results[0]!.snippet);
+});
+
+test('recorded deliveries count occurrences per file and preview their saved text through every result route', async t => {
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/delivery-versions/record.json', import.meta.url), 'utf8')) as {
+    text: { events: import('../src/serve/views.js').Recorded[]; copies: Record<string, string> };
+  };
+  const { store, project, get, call } = await setup(t, { 'report.md': '# 版本报告\n\n第二版数值：20\n', 'data.csv': 'value\n20\n' });
+  const dir = store.dir(project.id);
+  await mkdir(join(dir, 'delivered'));
+  for (const [version, content] of Object.entries(fixture.text.copies)) await writeFile(join(dir, 'delivered', version), content);
+  const eventsFile = join(dir, 'events.jsonl');
+  // Read once, then append: the same fold drives initial pages, the live stream and later pages.
+  const { follow } = await import('../src/serve/views.js');
+  const next = follow(store, project.id);
+  await writeFile(eventsFile, fixture.text.events.slice(0, 2).map(event => JSON.stringify(event)).join('\n') + '\n');
+  const firstBatch = next();
+  await writeFile(eventsFile, fixture.text.events.map(event => JSON.stringify(event)).join('\n') + '\n');
+  const rest = next();
+  const receipts = [...firstBatch, ...rest].flatMap(event => event.delivery ? [event.delivery as import('@argus/contracts').DeliveryReceipt] : []);
+  assert.deepEqual(receipts.map(receipt => receipt.targets.map(file => [file.path, file.delivery_number])), [
+    [['report.md', 1]], [['report.md', 2], ['data.csv', 1]], [['report.md', 3], ['data.csv', 2]],
+  ]);
+  assert.equal(receipts[1]!.snapshots![0]!.version, receipts[2]!.snapshots![0]!.version, 'unchanged content reuses its copy but counts as another delivery');
+  const P = `/api/projects/${project.id}`;
+  const page = await get<import('@argus/contracts').ConversationPage>(`${P}/conversation?limit=1`);
+  assert.equal((page.rows[0]!.delivery as import('@argus/contracts').DeliveryReceipt).targets[0]!.delivery_number, 3, 'a page does not reset occurrence counts');
+  for (const [index, value] of [[0, 10], [1, 20], [2, 20]] as const) {
+    const delivery = receipts[index]!.delivery_id;
+    const q = new URLSearchParams({ path: 'report.md', delivery });
+    const info = await get<import('@argus/contracts').ArtifactInfo>(`${P}/artifact?${q}`);
+    assert.equal(info.kind, 'markdown');
+    assert.match(info.preview!, new RegExp(`数值：${value}`));
+    const raw = await call(`${P}/artifact/raw?${q}&download=true`);
+    assert.match(raw.headers.get('content-disposition')!, /report.md/);
+    assert.match(await raw.text(), new RegExp(`数值：${value}`));
+    const bundle = await call(`${P}/artifacts/bundle`, { method: 'POST', body: JSON.stringify({ paths: ['report.md'], delivery }) });
+    assert.equal(bundle.status, 200);
+    assert.match(unzip(Buffer.from(await bundle.arrayBuffer()))['report.md']!, new RegExp(`数值：${value}`));
+  }
+  await rm(join(project.workdir, 'report.md'));
+  assert.match((await get<{ preview: string }>(`${P}/artifact?path=report.md&delivery=${receipts[0]!.delivery_id}`)).preview, /数值：10/);
+  const version = receipts[0]!.snapshots![0]!.version;
+  await rm(join(dir, 'delivered', version));
+  for (const route of ['artifact', 'artifact/raw']) {
+    const response = await call(`${P}/${route}?path=report.md&delivery=${receipts[0]!.delivery_id}`);
+    assert.equal(response.status, 410);
+    assert.equal((await response.json() as { code: string }).code, 'delivery_snapshot_unavailable');
+  }
+  assert.equal((await call(`${P}/artifact?path=data.csv&delivery=${receipts[0]!.delivery_id}`)).status, 404, 'a delivery cannot read other workspace files');
+  assert.equal((await call(`${P}/artifact?path=report.md&delivery=d999`)).status, 404);
+});
+
+test('delivered HTML, nested resources, model assets and downloads use their own copies; unsaved versions fail explicitly', async t => {
+  const { store, project, call, get } = await setup(t, {
+    'index.html': '<h1>Old page</h1><link rel="stylesheet" href="style.css"><img src="unlisted.png">',
+    'style.css': 'body { color: red }', 'unlisted.png': 'current image', 'data.bin': 'old\0',
+    'robot.urdf': '<robot name="old"/>', 'mesh.obj': 'v 0 0 1\n', 'legacy.md': 'now',
+  });
+  const paths = ['index.html', 'style.css', 'data.bin', 'robot.urdf', 'mesh.obj'];
+  const first = keep(project, store.dir(project.id), paths);
+  store.append(project.id, { type: 'handoff', role: 'manager', to: 'operator', letter: 'Old page', open: paths, snapshots: first });
+  const P = `/api/projects/${project.id}`;
+  assert.equal(await (await call(`${P}/artifact/raw?path=data.bin&delivery=d0`)).text(), 'old\0');
+  await writeFile(join(project.workdir, 'index.html'), '<h1>New page</h1>');
+  await writeFile(join(project.workdir, 'style.css'), 'body { color: blue }');
+  await writeFile(join(project.workdir, 'data.bin'), 'updated binary\0');
+  await writeFile(join(project.workdir, 'mesh.obj'), 'v 9 9 9\n');
+  const second = keep(project, store.dir(project.id), paths);
+  store.append(project.id, { type: 'handoff', role: 'manager', to: 'operator', letter: 'New page', open: paths, snapshots: second });
+  const old = await get<{ html: string; warnings: string[] }>(`${P}/artifact/preview?path=index.html&delivery=d0`);
+  assert.match(old.html, /Old page/);
+  assert.ok(old.html.includes(Buffer.from('body { color: red }').toString('base64')));
+  assert.equal(old.warnings.length, 1, 'resources outside this delivery are reported, never loaded from current files');
+  assert.match(await (await call(`${P}/artifact/preview/page?path=index.html&delivery=d0`)).text(), /Old page/);
+  assert.match(await (await call(`${P}/artifact/preview/page?path=index.html&delivery=d1`)).text(), /New page/);
+  const files = unzip(Buffer.from(await (await call(`${P}/artifact/bundle?path=index.html&delivery=d0`)).arrayBuffer()));
+  assert.match(files['index.html']!, /Old page/);
+  assert.equal(files['style.css'], 'body { color: red }');
+  assert.equal(files['unlisted.png'], undefined);
+  const model = await call(`${P}/artifact/model-asset?path=robot.urdf&ref=package://robot/mesh.obj&delivery=d0`);
+  assert.equal(model.status, 200);
+  assert.equal(await model.text(), 'v 0 0 1\n');
+  for (const route of ['artifact', 'artifact/raw']) {
+    const response = await call(`${P}/${route}?path=data.bin&delivery=d0`);
+    assert.equal(response.status, 410);
+    assert.equal((await response.json() as { code: string }).code, 'delivery_file_updated');
+  }
+  assert.equal(await (await call(`${P}/artifact/raw?path=data.bin&delivery=d1`)).text(), 'updated binary\0');
+  store.append(project.id, { type: 'handoff', role: 'manager', to: 'operator', letter: 'No snapshot', open: ['legacy.md'] });
+  assert.equal((await call(`${P}/artifact?path=legacy.md&delivery=d2`)).status, 410);
+});
+
+test('a delivered model stops at its first available mesh candidate and reports that candidate’s own failure', async t => {
+  const fixture = JSON.parse(await readFile(new URL('./fixtures/delivery-versions/model-candidates.json', import.meta.url), 'utf8')) as {
+    events: import('../src/serve/views.js').Recorded[];
+    copies: Record<string, string>;
+    files: Record<string, { base64: string; mtime: number }>;
+    originalRoot: { base64: string; mtime: number };
+  };
+  const { store, project, call } = await setup(t);
+  const dir = store.dir(project.id);
+  await mkdir(join(dir, 'delivered'));
+  for (const [version, content] of Object.entries(fixture.copies)) await writeFile(join(dir, 'delivered', version), content);
+  for (const [path, file] of Object.entries(fixture.files)) {
+    await mkdir(dirname(join(project.workdir, path)), { recursive: true });
+    await writeFile(join(project.workdir, path), Buffer.from(file.base64, 'base64'));
+    await utimes(join(project.workdir, path), file.mtime, file.mtime);
+  }
+  await writeFile(join(dir, 'events.jsonl'), fixture.events.map(event => JSON.stringify(event)).join('\n') + '\n');
+  const { webEvents } = await import('../src/serve/views.js');
+  const receipt = webEvents(fixture.events).find(event => event.delivery)!.delivery as import('@argus/contracts').DeliveryReceipt;
+  const P = `/api/projects/${project.id}`;
+  const raw = (path: string) => call(`${P}/artifact/raw?${new URLSearchParams({ path, delivery: receipt.delivery_id })}`);
+  const asset = () => call(`${P}/artifact/model-asset?${new URLSearchParams({ path: 'robot/robot.urdf', ref: 'package://robot/mesh.stl', delivery: receipt.delivery_id })}`);
+  assert.equal((await raw('robot/mesh.stl')).status, 200);
+  assert.equal((await raw('mesh.stl')).status, 410, 'a later candidate was updated, independently of the model’s mesh');
+  const found = await asset();
+  assert.equal(found.status, 200, 'the first candidate wins before the unrelated updated candidate is read');
+  assert.deepEqual(Buffer.from(await found.arrayBuffer()), Buffer.from(fixture.files['robot/mesh.stl']!.base64, 'base64'));
+
+  // Make the later candidate readable, then invalidate the selected mesh: its own failure must propagate.
+  await writeFile(join(project.workdir, 'mesh.stl'), Buffer.from(fixture.originalRoot.base64, 'base64'));
+  await utimes(join(project.workdir, 'mesh.stl'), fixture.originalRoot.mtime, fixture.originalRoot.mtime);
+  await writeFile(join(project.workdir, 'robot/mesh.stl'), Buffer.concat([Buffer.from(fixture.files['robot/mesh.stl']!.base64, 'base64'), Buffer.from([0])]));
+  assert.equal((await raw('mesh.stl')).status, 200);
+  const unavailable = await asset();
+  assert.equal(unavailable.status, 410);
+  assert.equal((await unavailable.json() as { code: string }).code, 'delivery_file_updated');
 });

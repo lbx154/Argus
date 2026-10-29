@@ -38,8 +38,12 @@ export const named = ({ name, request }: Project): string => name || request.spl
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it, named as
  * it was when delivered (a record from before then, by the letter's first line). */
-function delivered({ letter, open = [], snapshots, title, ts }: Extract<Recorded, { type: 'handoff' }>, line: number): DeliveryReceipt {
-  const targets = open.map(path => ({ path, label: basename(path), source: 'manager', why: '' }));
+function delivered({ letter, open = [], snapshots, title, ts }: Extract<Recorded, { type: 'handoff' }>, line: number, counts: Map<string, number>): DeliveryReceipt {
+  const targets = [...new Set(open)].map(path => {
+    const delivery_number = (counts.get(path) ?? 0) + 1;
+    counts.set(path, delivery_number);
+    return { path, label: basename(path), source: 'manager', why: '', delivery_number };
+  });
   return {
     schema_version: 1, delivery_id: `d${line}`, kind: 'result', item_id: '', title: title ?? firstLine(letter),
     summary: letter, status: 'done', review_status: '', delivered_at: seconds(ts), primary_target: targets[0] ?? null, targets,
@@ -70,15 +74,17 @@ export const readEvents = (store: Store, id: string): Recorded[] =>
 
 /** Where a fold of the record has got to: the next line, the operator's messages to the Manager not
  * yet answered (by request, at their line), the one the Manager's turn under way answers, and the
- * call under way of each role on each task, which tasks run side by side. A Manager turn and its
- * letter name the message they answer: nothing here is inferred from the order of the record. */
-export interface Fold { line: number; asked: Map<string, number>; turn: string | null; calls: Map<string, string> }
+ * call under way of each role on each task, which tasks run side by side, and how often each file
+ * has been delivered. A Manager turn and its letter name the message they answer: nothing here is
+ * inferred from the order of the record. */
+export interface Fold { line: number; asked: Map<string, number>; turn: string | null; calls: Map<string, string>; deliveries: Map<string, number> }
 
 /** The record in the cockpit's event vocabulary, folded on from `fold`. `event_id` is the line,
  * so a replay and the live stream agree; a reply's message id names the operator message it answers. */
-export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map() }): EventMsg[] {
+export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() }): EventMsg[] {
   const rows: EventMsg[] = [];
   const { calls } = fold;
+  const counts = fold.deliveries;
   for (const event of events) {
     const line = fold.line++;
     const row = (type: string, fields: Record<string, unknown>): void => {
@@ -111,7 +117,7 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new
           const at = event.answers === undefined ? undefined : fold.asked.get(event.answers);
           row('ui.argus', {
             agent_layer: 'manager', to: event.to, text: event.letter, message_id: `m${at ?? line}-argus`,
-            ...at === undefined ? {} : { request_id: event.answers }, ...event.open ? { delivery: delivered(event, line) } : {},
+            ...at === undefined ? {} : { request_id: event.answers }, ...event.open ? { delivery: delivered(event, line, counts) } : {},
           });
           if (event.answers) fold.asked.delete(event.answers);
         } else if (event.role === 'planner') {
@@ -144,7 +150,7 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new
  * cockpit events of the lines appended since the last, the first call those of all. */
 export function follow(store: Store, id: string): () => EventMsg[] {
   const path = join(store.dir(id), 'events.jsonl');
-  const fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map() };
+  const fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() };
   let offset = 0;
   return () => {
     const { rows, end } = jsonLines(path, offset);
@@ -223,11 +229,13 @@ export interface Reading {
   calls: Set<string>;
   tasks: Map<string, { title: string; closed: boolean; line: number; ts: number }>;
   questions: Map<string, EventMsg>;
+  /** The results the Manager handed over, by delivery (`d` and its line), each with its files as delivered. */
+  delivered: Map<string, Extract<Recorded, { type: 'handoff' }>>;
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
-  end: 0, fold: { line: 0, asked: new Map(), turn: null, calls: new Map() }, rows: new Map(),
-  roleEvents: [], round: 0, status: '', activityAt: null, calls: new Set(), tasks: new Map(), questions: new Map(),
+  end: 0, fold: { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() }, rows: new Map(),
+  roleEvents: [], round: 0, status: '', activityAt: null, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
 }): Reading {
   for (const event of events) {
     const line = reading.fold.line;
@@ -286,6 +294,7 @@ export function projectRecord(events: Recorded[], reading: Reading = {
     else if (event.type === 'call.end' && !event.completed && event.task) move(event.task);
 
     if (event.type === 'call.end') reading.calls.add(event.callId);
+    if (event.type === 'handoff' && event.role === 'manager' && event.open) reading.delivered.set(`d${line}`, event);
     if (event.type === 'step' || event.type === 'handoff' || event.type === 'call.start' || event.type === 'call.end') {
       // Task lifecycle announcements have no author and never enter a role's log.
       const log = event.type === 'handoff' ? { type: 'engineer.progress', ts, event_id: line,
@@ -383,7 +392,6 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
-    role_events: reading.roleEvents, role_round: reading.round,
     work_status: projectStatus(project, live, reading.activityAt),
     roles: ROLES.map(role => {
       const under = live.calls.filter(call => call.role === role);

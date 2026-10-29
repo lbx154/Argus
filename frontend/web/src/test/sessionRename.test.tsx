@@ -119,13 +119,13 @@ describe('session rename', () => {
 
     // Stopping is the header's one Stop; here, a running project cannot be deleted.
     expect(running).not.toMatch(/Stop now|Resume/);
-    expect(running).toMatch(/<button[^>]*disabled=""[^>]*>Delete…/);
+    expect(running).toMatch(/<button[^>]*disabled=""[^>]*>Delete/);
     expect(stopped).toContain('Stopped');
     expect(stopped).toContain('Resume');
-    expect(stopped).toContain('Delete…');
+    expect(stopped).toContain('Delete');
     // With nothing to go on with, there is nothing to resume.
     expect(done).not.toContain('Resume');
-    expect(done).toContain('Delete…');
+    expect(done).toContain('Delete');
   });
 
   it('updates the cached session list and header from the persisted server name', () => {

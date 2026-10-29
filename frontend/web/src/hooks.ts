@@ -116,14 +116,16 @@ export const useArtifact = (
   sid: string | null,
   path: string | null,
   version: string | number | null = null,
+  delivery?: string,
 ) =>
   useQuery({
-    queryKey: ['artifact', sid, path, version],
-    queryFn: ({ signal }) => api.artifact(sid!, path!, signal),
+    queryKey: ['artifact', sid, path, version, delivery],
+    queryFn: ({ signal }) => api.artifact(sid!, path!, signal, delivery),
     enabled: !!sid && !!path,
+    retry: delivery ? false : undefined,
     // The Reviewer edits this same file every round. Keep an open opinion
     // current without remounting the page or reloading PDF previews.
-    refetchInterval: (query) => path && /(?:^|[\\/])REVIEW\.md$/i.test(path)
+    refetchInterval: (query) => !delivery && path && /(?:^|[\\/])REVIEW\.md$/i.test(path)
       && !isAuthenticationError(query.state.error) ? 2_000 : false,
   });
 

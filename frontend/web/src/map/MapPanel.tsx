@@ -9,7 +9,8 @@ import { Button } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
 import { MapReaderContent } from './MapReaderContent';
 import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
-import { AgentActivity } from '../components/AgentActivity';
+import { ProjectRoleLogs } from '../components/EventStream';
+import { useRoleLog } from '../useRoleLog';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
 import { attentionSummary, splitDraft } from './presentation';
@@ -81,7 +82,7 @@ import "./atlas.css";
 import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { livePollInterval, mapIsPaused, mergeMapProgress } from "./incremental";
-import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
+import { latestManagerMessage } from "../lib/taskLanguage";
 import { taskFigures } from "./cardFigure";
 import { MapCardFigureContext } from "./cardContext";
 import { COUNTED_OUT } from '../lib/projectOverview';
@@ -156,7 +157,6 @@ export function MapCanvas({
   activePhase,
   snapshot,
   currentTaskId,
-  events,
   pendingLabel,
   readOnly,
   sessionId,
@@ -174,7 +174,6 @@ export function MapCanvas({
   activePhase?: string;
   snapshot: Snapshot;
   currentTaskId?: string | null;
-  events: EventMsg[];
   pendingLabel?: string;
   readOnly: boolean;
   viewKey: string;
@@ -283,14 +282,15 @@ export function MapCanvas({
   // Before the canvas is measured the window stands in for it, so a phone
   // lays its cards out once instead of re-placing them after the first frame.
   const narrow = (camera.canvasSize.width || window.innerWidth) < 640;
+  const workspace = snapshot.session.workdir || snapshot.session.cwd;
   // A message's reply is on its card and in the conversation; a notice links to
   // the conversation rather than opening it over the map.
   const showConversation = () => setConversationNotice(zh ? "回复在对话里" : "The reply is in the conversation");
   const scene = useMemo(() => {
-    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions, narrow);
+    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions, narrow, workspace);
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
-  }, [graph, data.events, zh, links, expandedMissions, narrow]);
+  }, [graph, data.events, zh, links, expandedMissions, narrow, workspace]);
   // The canvas: what a person placed, linked and moved. Moved cards keep
   // their place; Argus's own cards are laid out around people's cards. It is
   // edited once read: a server that keeps none leaves the map as laid out.
@@ -416,6 +416,10 @@ export function MapCanvas({
     (ref: CardReference) => {
       if (readOnly) return;
       const c = composerRef.current;
+      if (camera.canvasSize.width < 640) {
+        setReadingCopy(null);
+        camera.back();
+      }
       c.onChange(referenceText(ref) + c.value);
       window.setTimeout(
         () =>
@@ -425,7 +429,7 @@ export function MapCanvas({
         0,
       );
     },
-    [readOnly],
+    [readOnly, camera.canvasSize.width, camera.back],
   );
   const [menu, setMenu] = useState<{
     ref: CardReference;
@@ -604,6 +608,7 @@ export function MapCanvas({
           readOnly,
           connectable: editable,
           live: data.kind === "live",
+          managerMessage: card.task.role === 'manager' && ACTIVE.has(card.task.status) ? pendingLabel : undefined,
           paused,
           seenCards,
           restoring: !!savedView.current?.camera && !initialFit.current,
@@ -628,6 +633,7 @@ export function MapCanvas({
     quote,
     data.id,
     data.kind,
+    pendingLabel,
     readOnly,
     editable,
     paused,
@@ -1179,34 +1185,28 @@ export function MapCanvas({
   ).length;
   const cyclic = graph.links.some((link) => link.cycle);
   const counted = useMemo(() => data.tasks.filter((task) => !COUNTED_OUT.has(task.status)), [data.tasks]);
-  // One pass, one bucket per task: the strip must partition, not double-count
-  // a failed task that also carries a question.
+  // Counts used by the historical map's single status sentence.
   const tally = useMemo(() => {
     const ended = new Set(scene.cards.filter((card) => card.completionScope).map((card) => card.task.id));
-    const buckets = { done: 0, ended: 0, running: 0, question: 0, review_unavailable: 0, held: 0, failed: 0, other: 0 };
+    const buckets = { done: 0, ended: 0, running: 0, review_unavailable: 0, held: 0 };
     for (const task of counted) {
       if (ended.has(task.id)) buckets.ended++;
       else if (task.status === "done") buckets.done++;
       else if (ACTIVE.has(task.status)) buckets.running++;
-      else if (task.pending_question) buckets.question++;
       else if (statusKey(task) === "review_unavailable") buckets.review_unavailable++;
       else if (statusKey(task) === "held") buckets.held++;
-      else if (statusKey(task) === "failed") buckets.failed++;
-      else buckets.other++;
     }
     return buckets;
   }, [counted, scene.cards]);
   const complete = tally.done;
   // The writer's reader-language account of a task's outcome, when cached.
   const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
-  const status = currentWorkStatus(snapshot);
-  const currentWork = workStatusLabel(status, zh ? 'zh-CN' : 'en');
   const decisionCards = useMemo(() => operatorDecisionCards(snapshot.pending_questions ?? [],
     snapshot.backlog.map((item) => ({ ...item })), currentTaskId), [snapshot.pending_questions, snapshot.backlog, currentTaskId]);
   const overview = useMemo(() => projectOverview({
     tasks: data.tasks, decisions: decisionCards,
   }), [data.tasks, decisionCards]);
-  const statusSentence = data.kind === 'live' ? currentWork : mapStatusSentence({
+  const statusSentence = data.kind === 'live' ? '' : mapStatusSentence({
     total: counted.length,
     qa: counted.filter(task => task.turn_kind === 'qa').length,
     complete,
@@ -1287,8 +1287,9 @@ export function MapCanvas({
     return () => window.removeEventListener("keydown", onKey);
   }, [showOverview, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds]);
   const artifactScope = useMemo(
-    () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact }),
-    [actions.artifacts, actions.onOpenArtifact],
+    () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact,
+      workspace: snapshot.session.workdir || snapshot.session.cwd }),
+    [actions.artifacts, actions.onOpenArtifact, snapshot.session.workdir, snapshot.session.cwd],
   );
   // One reveal strip, rendered in the layout for datasets and floating over
   // the canvas during a live replay, so the canvas never resizes and the
@@ -1371,20 +1372,12 @@ export function MapCanvas({
       {/* The second header line: one sentence on where the work stands, and,
           when something waits on the reader, a link straight to it. */}
       {(statusSentence || attention.length > 0) && <div className="map-status-row">
-        {/* How the tasks divide, as one thin bar ahead of the sentence that says
-            it in words: the eye takes the proportion, the sentence the detail. */}
-        {data.tasks.length > 0 && (
-          <span className="map-progress" aria-hidden="true">
-            {(["done", "ended", "running", "question", "review_unavailable", "held", "failed", "other"] as const).map((bucket) =>
-              tally[bucket] > 0 ? <i key={bucket} data-bucket={bucket} style={{ flexGrow: tally[bucket] }} /> : null)}
-          </span>
-        )}
         <p className="map-status-line" role="status">
           {(composer.pending || (!paused && activePhase)) ? <i className="map-live-dot" aria-hidden /> : null}
-          <span className="map-status-text">{statusSentence}</span>
+          {statusSentence && <span className="map-status-text">{statusSentence}</span>}
           {attention.length > 0 && (
             <>
-              <span className="map-status-sep" aria-hidden>·</span>
+              {statusSentence && <span className="map-status-sep" aria-hidden>·</span>}
               <button
                 type="button"
                 className="map-attention-link"
@@ -1495,11 +1488,13 @@ export function MapCanvas({
               <button type="button" aria-label={zh ? "知道了，不再提示" : "Got it, hide this tip"} title={zh ? "知道了，不再提示" : "Got it, hide this tip"} onClick={dismissCanvasHint}>×</button>
             </div>
           )}
-          {conversationOpen && <MapConversation events={actions.conversationEvents} pagination={actions.conversationPagination} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
+          {conversationOpen && <MapConversation snapshot={snapshot} events={actions.conversationEvents} pagination={actions.conversationPagination} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
-            <AgentActivity sid={snapshot.session.id} view={snapshot.mission_view} roles={snapshot.roles} events={events}
-              taskId={focusedNode?.data.task.id || snapshot.mission_view?.mission.id || undefined}
-              paused={paused && !composer.pending} onClose={() => setAgentsOpen(false)} />
+            <header className="mb-3 flex items-center justify-between text-sm font-semibold">
+              <span>{zh ? '工作详情' : 'Work details'}</span>
+              <button type="button" className="rounded p-2" onClick={() => setAgentsOpen(false)} aria-label={zh ? '关闭工作详情' : 'Close work details'}><X size={17} /></button>
+            </header>
+            <ProjectRoleLogs snapshot={snapshot} connected={actions.connected} details taskId={focusedNode?.data.task.id} />
           </aside>}
           {flight && !readOnly && <MapDispatchMotion flight={flight} canvas={canvasRef} zh={zh} historical={composer.historical}
             onReveal={(taskId) => { if (data.tasks.some((task) => task.id === taskId)) camera.fit(); }}
@@ -1992,7 +1987,7 @@ export function MapCanvas({
         </div>
       </div>
       {data.kind !== "live" && playbackStrip}
-      <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={readingTask?.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"}>
+      <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={readingTask?.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} width="max-w-3xl map-task-modal">
         {readingTask && (readingRequest || readingTask.turn_kind === 'qa') ? <>
           <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : copy?.cards[readingTask.id]?.title || readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
@@ -2009,6 +2004,7 @@ export function MapCanvas({
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
               sessionId={data.kind === 'live' ? sessionId : undefined} zh={zh}
+              workspace={artifactScope.workspace}
               originalDetail={readingTask.turn_kind === 'qa'
                 ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.summary || (zh ? '尚无回答。' : 'No answer recorded.'))
                 : readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
@@ -2137,6 +2133,8 @@ export const MapPanel = memo(function MapPanel({
     staleTime: Infinity,
     retry: false,
   });
+  const roleLog = useRoleLog(snapshot.session.id);
+  const managerMessage = latestManagerMessage(roleLog.events);
   const client = useQueryClient();
   // The whole map is one answer; each read asks only for what came after the last.
   const liveKey = ["map-live", snapshot.session.id];
@@ -2230,8 +2228,9 @@ export const MapPanel = memo(function MapPanel({
   // The team line lives at the top of the canvas, beside the overview, so it
   // stays in view when the composer is folded away.
   const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} connected={connected !== false} compact
+    managerMessage={managerMessage}
     pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
-  [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy]);
+  [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy, managerMessage]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
              onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,
@@ -2366,8 +2365,7 @@ export const MapPanel = memo(function MapPanel({
             actions={actions}
             snapshot={snapshot}
             currentTaskId={currentTaskId}
-            events={events}
-            pendingLabel={snapshot.role_events?.filter(event => event.agent_layer === 'manager' && event.kind === 'agent_message').at(-1)?.text as string | undefined}
+            pendingLabel={managerMessage}
             viewKey={viewKey}
             paused={paused}
             sessionId={snapshot.session.id}

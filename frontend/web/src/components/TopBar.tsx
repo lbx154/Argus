@@ -23,6 +23,7 @@ export function TopBar({
   onStop,
   pending = false,
   showRunControl = true,
+  showStatus = true,
   onManage,
   onOpenSessions,
   mobileView,
@@ -41,6 +42,8 @@ export function TopBar({
   pending?: boolean;
   /** The map already carries this control beside its team status. */
   showRunControl?: boolean;
+  /** The map carries the project's status beside its run control. */
+  showStatus?: boolean;
   onManage: () => void;
   onOpenSessions?: () => void;
   mobileView?: 'activity' | 'preview';
@@ -88,7 +91,7 @@ export function TopBar({
       <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 tracking-[-0.005em] text-ink" title={snap.session.display_name || snap.session.id}>
         {snap.session.display_name || t('sidebar.unnamedSession')}
       </div>
-      <div className="topbar-status min-w-0 items-center text-xs text-ink-faint">
+      {showStatus && <div className="topbar-status min-w-0 items-center text-xs text-ink-faint">
         <span
           className="status-dot"
           data-tone={!streamOk || snapshotStale ? 'idle' : PHASE_TONE[phase]}
@@ -100,7 +103,7 @@ export function TopBar({
         {activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{formatRelativeTime(activityAt, locale)}</time></> : null}
         {spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
         <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>
-      </div>
+      </div>}
       <div className="topbar-actions flex shrink-0 items-center gap-2 sm:gap-3">
         {onOpenSessions ? (
           <button type="button" onClick={onOpenSessions} aria-label={t('topbar.openSessions')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">

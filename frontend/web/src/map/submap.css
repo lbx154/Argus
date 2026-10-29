@@ -79,13 +79,6 @@
   align-items: center;
   gap: 22px;
 }
-.macro-index {
-  color: #8ca3b6;
-  font:
-    18px "Geist Mono Variable",
-    monospace;
-  letter-spacing: 0.5px;
-}
 .macro-heading > div {
   min-width: 0;
   flex: 1;
@@ -543,6 +536,7 @@
   color: rgb(var(--ink));
 }
 .macro-reader > h3 {
+  overflow-wrap: anywhere;
   font-size: 18px;
   line-height: 1.4;
   font-weight: 600;
@@ -559,6 +553,16 @@
   overflow-wrap: anywhere;
   /* Comfortable measure: content holds a centered ~64ch column in wide readers. */
   padding-inline: max(0px, calc((100% - 64ch) / 2));
+}
+.map-task-modal {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .map-canvas-wrap[data-detailed="true"] .map-composer-dock {
+    visibility: hidden;
+    pointer-events: none;
+  }
 }
 .macro-reader-markdown p {
   margin: 0 0 12px;

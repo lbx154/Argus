@@ -1,3 +1,4 @@
+import { useRoleLog } from '../useRoleLog';
 import { splitMessageAttachments } from '../lib/attachments';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import type { UploadedAttachment } from '../api';
@@ -22,7 +23,7 @@ import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
 import { EmptyHint } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
-import { deliveryFiles } from './deliveryPresentation';
+import { deliveryFileUpdated, deliveryNumberLabel, deliveryFiles } from './deliveryPresentation';
 
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i;
 import { ModelThumbnail } from './ModelPreview';
@@ -311,7 +312,7 @@ function ConversationRow({
   const text = draft && references.length ? draft.text : reportText;
   // A question's numbered options become buttons; typing a free answer still works.
   const asked = !operator ? splitReplyOptions(reportText) : null;
-  const rewriteLabel = locale === 'zh-CN' ? '改写后重发' : 'Rewrite and resend';
+  const rewriteLabel = locale === 'zh-CN' ? '编辑后重发' : 'Edit and resend';
   const rowRef = useRef<HTMLElement>(null);
   useGsapMotion(rowRef, (gsap, reduceMotion) => {
     if (!rowRef.current) return;
@@ -336,7 +337,7 @@ function ConversationRow({
         <div className="flex items-end justify-end gap-2">
           <div className="conversation-message">
             {message?.attachments.length ? <div className="mb-2 space-y-2" aria-label={locale === 'zh-CN' ? '附件' : 'Attachments'}>
-              {message.attachments.map(file => <ComposerAttachmentChip key={file.attachment_id} uploaded={file} />)}
+              {message.attachments.map(file => <ComposerAttachmentChip key={file.attachment_id} uploaded={file} sent onOpen={onOpenArtifact ? () => onOpenArtifact(file.relative_path) : undefined} />)}
             </div> : null}
             {references.length ? <div className="mb-2 space-y-2">
               {references.map((reference, index) => <blockquote
@@ -362,7 +363,7 @@ function ConversationRow({
               <span className="min-w-0 truncate" title={reportText || undefined}>{reportText || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
             </div> : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
               : ev.status === 'failed' ? <p className="text-sm text-err">{locale === 'zh-CN' ? '回复中断，请查看错误提示后继续运行。' : 'Reply interrupted. Check the error before resuming.'}</p>
-              : reportText ? <div><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
+              : reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
           </div>
         </div>
       )}
@@ -370,8 +371,7 @@ function ConversationRow({
         <time>{clockOf(ev)}</time>
         <div className="conversation-tools">
         {reportText ? <CopyButton text={reportText} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" /> : null}
-        {/* A question is rewritten and sent again, its new answer kept beside the first;
-            the answers so far are read from the same place. */}
+        {/* The operator edits the message in the composer before sending it again. */}
         {rewritePrompt && onAction && operator && <button type="button" aria-label={rewriteLabel} title={rewriteLabel} onClick={() => onAction(rewritePrompt)}><PencilLine size={14} /><span>{rewriteLabel}</span></button>}
         </div>
       </div>}
@@ -407,13 +407,12 @@ function RoleLogGroup({
   // The collapsed header says what the role concluded, or at work what it does now: what it
   // said since the operator last wrote on the tasks the server says it is on, else its newest step.
   const taskTitle = useContext(TaskTitleContext);
-  const workspace = useContext(WorkspaceContext);
   const doing = useCallback((on: ActivityRow[]) => {
     const now = on;
     const step = now.filter(row => isCallRow(row.ev) && row.ev.kind !== 'tool_result').at(-1);
     return roleSaid(now, locale, taskTitle) || (!step ? '' : step.ev.kind === 'command_execution'
-      ? `${zh ? '运行 ' : 'Running '}${plainCommand(step.r.text, workspace)}` : plainToolLabel(step.ev, locale));
-  }, [locale, zh, taskTitle, workspace]);
+      ? (zh ? '正在运行命令' : 'Running a command') : plainToolLabel(step.ev, locale));
+  }, [locale, zh, taskTitle]);
   const headline = useMemo(() => active
     ? doing(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows)
     : roleHeadline(rows, locale, taskTitle) || '', [active, doing, tasks, rows, locale, taskTitle]);
@@ -552,6 +551,33 @@ function RoleLogCollection({ rows, active, tasks }: {
   );
 }
 
+/** Both surfaces read the rows stream's project cache and the server's work status. */
+export function ProjectRoleLogs({ snapshot, connected, showReasoning = false, details = false, taskId }: {
+  snapshot: Snapshot; connected: boolean; showReasoning?: boolean; details?: boolean; taskId?: string;
+}) {
+  const { locale } = useI18n();
+  const log = useRoleLog(snapshot.session.id);
+  const workspace = snapshot.session.workdir || snapshot.session.cwd || '';
+  const titles = useMemo(() => new Map(snapshot.backlog.map(item => [item.id, item.title || ''])), [snapshot.backlog]);
+  const title = useCallback((id: string) => titles.get(id) ?? '', [titles]);
+  const rows = useMemo(() => renderFeedRows(taskId ? log.events.filter(event => eventTaskId(event) === taskId) : log.events,
+    { locale, showReasoning, workspace }).list, [log.events, taskId, locale, showReasoning, workspace]);
+  const working = (connected && snapshot.work_status?.state === 'running' ? snapshot.work_status.roles : [])
+    .filter(role => !taskId || snapshot.roles.find(row => row.role === role)?.tasks?.includes(taskId));
+  if (!details && !working.length) return null;
+  return <WorkspaceContext.Provider value={workspace}><TaskTitleContext.Provider value={title}>
+    <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
+      className={details ? '' : 'mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]'}>
+      <div className="overflow-hidden rounded-lg border border-line/70">
+        <RoleLogCollection rows={rows} key={`${snapshot.session.id}:${log.round}:${taskId ?? ''}`}
+          active={role => working.includes(role)}
+          tasks={role => snapshot.roles.find(row => row.role === role)?.tasks ?? []} />
+        {details && !rows.length && !working.length ? <p className="px-4 py-3 text-xs text-ink-faint">{locale === 'zh-CN' ? '本轮暂无工作记录' : 'No work recorded this round'}</p> : null}
+      </div>
+    </section>
+  </TaskTitleContext.Provider></WorkspaceContext.Provider>;
+}
+
 export function deliveryFromEvent(event: EventMsg): DeliveryReceipt | null {
   const delivery = event.delivery;
   if (!delivery || typeof delivery !== 'object' || Array.isArray(delivery)) return null;
@@ -588,9 +614,11 @@ function fileGlyph(path: string): string {
  */
 function DeliveryCard({
   delivery,
+  deliveries,
   onOpen,
 }: {
   delivery: DeliveryReceipt;
+  deliveries: DeliveryReceipt[];
   onOpen?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
   const { t, locale } = useI18n();
@@ -602,9 +630,11 @@ function DeliveryCard({
   // just a button. A model wins over a picture: it is the thing itself, and
   // the picture is usually a render of it. Without a project to load it from,
   // it stays in the file list.
-  const visual = sid ? files.find((file) => modelFormat(file.path)) ?? files.find((file) => IMAGE_FILE.test(file.path)) : undefined;
+  const previewable = files.filter(file => !deliveryFileUpdated(delivery, deliveries, file.path));
+  const visual = sid ? previewable.find((file) => modelFormat(file.path)) ?? previewable.find((file) => IMAGE_FILE.test(file.path)) : undefined;
   const others = files.filter(file => file !== visual);
   const listed = others.slice(0, 3);
+  const updatedFiles = files.filter(file => deliveryFileUpdated(delivery, deliveries, file.path));
   return (
     <aside
       data-delivery-kind={delivery.kind}
@@ -612,10 +642,10 @@ function DeliveryCard({
       className="result-card mx-auto my-4 w-[calc(100%-2rem)] max-w-full sm:w-[calc(100%-3rem)] lg:max-w-[760px]"
     >
       {visual && sid && modelFormat(visual.path) ? <div className="result-card-preview result-card-model" data-delivery-model={visual.path}>
-        <ModelThumbnail sid={sid} path={visual.path} label={visual.label}
+        <ModelThumbnail delivery={delivery.delivery_id} sid={sid} path={visual.path} label={visual.label}
           onOpen={onOpen ? () => onOpen(delivery, visual.path) : undefined} />
       </div> : visual && sid ? <div className="result-card-preview" data-delivery-thumbnail={visual.path}>
-        <WorkspaceImage sid={sid} path={visual.path} src={visual.path} alt={visual.label || visual.path}
+        <WorkspaceImage delivery={delivery.delivery_id} sid={sid} path={visual.path} src={visual.path} alt={visual.label || visual.path}
           className="max-h-64 w-auto max-w-full object-contain"
           onOpen={onOpen ? () => onOpen(delivery, visual.path) : undefined} />
         <span className="sr-only">{zh ? '点击查看大图' : 'Click to view full size'}</span>
@@ -626,12 +656,15 @@ function DeliveryCard({
           {t(deliveryHeadingKey(delivery))}
         </div>
         <div className="result-card-title" title={delivery.title}>{delivery.title}</div>
+        {visual && <p className="text-xs text-ink-faint">{deliveryNumberLabel(visual, zh)}</p>}
         {listed.length ? <ul className="result-card-files">
           {listed.map(file => <li key={file.path} title={file.path}>
             <span aria-hidden="true">{fileGlyph(file.path)}</span>{file.label || file.path.split('/').pop()}
+            <small>{deliveryNumberLabel(file, zh)}</small>
           </li>)}
           {others.length > listed.length ? <li className="text-ink-faint">{zh ? `另有 ${others.length - listed.length} 个文件` : `${others.length - listed.length} more files`}</li> : null}
         </ul> : null}
+        {!!updatedFiles.length && <p className="text-xs text-warn" role="status">{zh ? '已被后来的交付更新' : 'Updated by a later delivery'} · {updatedFiles.map(file => file.label || file.path).join('、')}</p>}
         {onOpen ? <div className="result-card-actions">
           <button type="button" onClick={() => onOpen(delivery)} className="result-card-open"
             aria-label={t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}>
@@ -675,17 +708,19 @@ function TaskWorkCard({ event }: { event: EventMsg }) {
 }
 
 /** Render one row in the order supplied by the server. */
-function ConversationItem({ row, artifacts, onOpenArtifact, onOpenDelivery }: {
+function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDelivery }: {
   row: ActivityRow;
+  deliveries: DeliveryReceipt[];
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
   const { locale, t } = useI18n();
-  const reply = <ConversationRow ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact}
+  const delivery = deliveryFromEvent(row.ev);
+  const openArtifact = delivery && onOpenDelivery ? (path: string) => onOpenDelivery(delivery, path) : onOpenArtifact;
+  const reply = <ConversationRow ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={openArtifact}
     rewritePrompt={row.ev.type === 'ui.operator' ? row.r.text : undefined} />;
   const to = String(row.ev.to ?? '');
-  const delivery = deliveryFromEvent(row.ev);
   return <section className="conversation-thread">
     {to === 'planner' || to === 'engineer' ? <details className="conversation-brief mx-auto w-full max-w-full px-6 py-1.5 lg:max-w-[808px]" data-testid="conversation-brief">
       <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
@@ -693,7 +728,7 @@ function ConversationItem({ row, artifacts, onOpenArtifact, onOpenDelivery }: {
         <span className="text-ink">{row.r.text.split('\n')[0]!.replace(/^#+\s*/, '')}</span>
       </summary>{reply}
     </details> : reply}
-    {delivery && <DeliveryCard delivery={delivery} onOpen={onOpenDelivery} />}
+    {delivery && <DeliveryCard delivery={delivery} deliveries={deliveries} onOpen={onOpenDelivery} />}
   </section>;
 }
 
@@ -757,6 +792,7 @@ export function EventStream({
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
+  const deliveries = useMemo(() => deferredEvents.flatMap(event => { const receipt = deliveryFromEvent(event); return receipt ? [receipt] : []; }), [deferredEvents]);
   useEffect(() => {
     if (requestedMessageTs === undefined) { searchSeen.current = undefined; return; }
     if (searchSeen.current === requestedMessageTs) return;
@@ -791,11 +827,6 @@ export function EventStream({
 
   const rows = useMemo(() => renderFeedRows(deferredEvents.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus'),
     { locale, showReasoning, workspace }), [deferredEvents, locale, showReasoning, workspace]);
-  const roleRows = useMemo(() => renderFeedRows(snapshot?.role_events ?? [], { locale, showReasoning, workspace }).list,
-    [snapshot?.role_events, locale, showReasoning, workspace]);
-  const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
-    [connected, snapshot?.daemon.alive, snapshot?.roles]);
-  const roleRound = snapshot?.role_round ?? 0;
   const rowById = new Map(rows.list.map(row => [row.ev, row]));
   const loadEarlier = useRef({ hasOlder, loadingOlder, onLoadOlder });
   loadEarlier.current = { hasOlder, loadingOlder, onLoadOlder };
@@ -952,24 +983,18 @@ export function EventStream({
               const key = String(event.row_id ?? event.message_id ?? event.event_id);
               if (event.type === 'ui.task') return <TaskWorkCard key={key} event={event} />;
               if (event.type === 'ui.question') return <section key={key} data-conversation-question={String(event.question_id)} className="mx-auto w-full px-6 py-3 lg:max-w-[808px]">
-                <p className="mb-1 text-xs font-semibold text-ink-dim">{locale === 'zh-CN' ? `${roleLabel(String(event.agent_layer), t)}问：` : `${roleLabel(String(event.agent_layer), t)} asks:`}</p>
+                <p className="mb-1 text-xs font-semibold text-ink-dim">{locale === 'zh-CN' ? `${roleLabel(String(event.agent_layer), t)}问：` : `${roleLabel(String(event.agent_layer), t)} asks:`}{eventTaskId(event) ? <span className="ml-2" data-question-task={eventTaskId(event)}>{taskTitle(eventTaskId(event)) || eventTaskId(event)}</span> : null}</p>
                 <MarkdownContent>{String(event.text)}</MarkdownContent>
               </section>;
               const row = rowById.get(event);
-              return row ? <ConversationItem key={key} row={row}
+              return row ? <ConversationItem key={key} row={row} deliveries={deliveries}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} onOpenDelivery={onOpenDelivery} /> : null;
             })}
 
           </>
         )}
             {/* The team's progress: each role, what it does now or did last, its work a click away. */}
-            {roleRows.length || working.size ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
-              className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
-              <div className="overflow-hidden rounded-lg border border-line/70">
-                <RoleLogCollection rows={roleRows} active={role => working.has(role)} key={String(roleRound)}
-                  tasks={role => snapshot?.roles.find(row => row.role === role)?.tasks ?? []} />
-              </div>
-            </section> : null}
+            {snapshot ? <ProjectRoleLogs snapshot={snapshot} connected={connected} showReasoning={showReasoning} /> : null}
         </div>
       </div>
       {!following && (

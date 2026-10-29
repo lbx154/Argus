@@ -387,10 +387,13 @@ export function ResearchCanvas({
     ? null
     : previewArtifacts.find((item) => item.path === effectivePath)
       ?? (filesFirst ? null : completed ? completionArtifact : preferred);
+  const previewDelivery = !filesFirst && missionView?.delivery && selected
+    && deliveryFiles(missionView.delivery).some(file => file.path === selected.path) ? missionView.delivery.delivery_id : undefined;
   const artifactQ = useArtifact(
     sid,
     selected?.exists ? selected.path : null,
     selected?.mtime ?? null,
+    previewDelivery,
   );
   const info = artifactQ.data;
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
@@ -408,13 +411,13 @@ export function ResearchCanvas({
     setPreviewError(null);
     if (!sid || !selected || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
     if (info.kind === 'pdf') {
-      setPreviewUrl(api.artifactRawUrl(sid, selected.path));
+      setPreviewUrl(api.artifactRawUrl(sid, selected.path, previewDelivery));
       return;
     }
     let alive = true;
     let objectUrl = '';
     const controller = new AbortController();
-    api.artifactBlob(sid, selected.path, false, controller.signal).then(
+    api.artifactBlob(sid, selected.path, false, controller.signal, previewDelivery).then(
       (blob) => {
         if (!alive) return;
         objectUrl = URL.createObjectURL(blob);
@@ -427,7 +430,7 @@ export function ResearchCanvas({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [sid, selected?.path, info?.kind, info?.mtime]);
+  }, [sid, selected?.path, info?.kind, info?.mtime, previewDelivery]);
 
   const delivery: DeliveryReceipt | null = missionView?.delivery ?? null;
   const deliveryTargetPath = delivery?.primary_target?.path ?? '';
@@ -448,7 +451,7 @@ export function ResearchCanvas({
     setDownloading(true);
     setDownloadError('');
     try {
-      const blob = await api.artifactBlob(sid, selected.path, true);
+      const blob = await api.artifactBlob(sid, selected.path, true, undefined, previewDelivery);
       downloadBlob(blob, selected.name);
     } catch (downloadError) {
       setDownloadError((downloadError as Error).message);
@@ -599,7 +602,7 @@ export function ResearchCanvas({
         ) : null}
         {info && markdownPreview ? (
           <div className="min-h-0 flex-1 overflow-auto p-5 text-sm text-ink-dim scroll-thin">
-            <MarkdownContent sid={sid} basePath={info.path} artifacts={artifacts} onOpenArtifact={selectPreviewPath}>{info.preview || '(empty file)'}</MarkdownContent>
+            <MarkdownContent delivery={previewDelivery} sid={sid} basePath={info.path} artifacts={artifacts} onOpenArtifact={selectPreviewPath}>{info.preview || '(empty file)'}</MarkdownContent>
           </div>
         ) : null}
         {info?.kind === 'json' ? <JsonPreview value={info.preview || ''} /> : null}
@@ -607,7 +610,7 @@ export function ResearchCanvas({
           <TablePreview value={info.preview || ''} delimiter={info.name.endsWith('.tsv') ? '\t' : ','} />
         ) : null}
         {info?.kind === 'html' && !info.truncated ? (
-          <HtmlPreview sid={sid} path={info.path} html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
+          <HtmlPreview delivery={previewDelivery} sid={sid} path={info.path} html={info.preview || ''} title={`Live HTML preview: ${info.name}`} />
         ) : null}
         {info?.kind === 'html' && info.truncated ? (
           <div className="m-auto max-w-sm px-8 text-center text-sm text-warn">
@@ -634,7 +637,7 @@ export function ResearchCanvas({
         ) : null}
         {info && sid && (info.kind === 'model' || modelFormat(info.path)) ? (
           <div className="flex min-h-0 flex-1 flex-col p-2">
-            <ModelPreview key={info.path} sid={sid} path={info.path} constraintFiles={info.constraint_files} />
+            <ModelPreview delivery={previewDelivery} key={`${info.path}:${previewDelivery}`} sid={sid} path={info.path} constraintFiles={info.constraint_files} />
           </div>
         ) : null}
         {info?.kind === 'binary' && !modelFormat(info.path) ? (

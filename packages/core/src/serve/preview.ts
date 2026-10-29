@@ -21,13 +21,15 @@ const POLICY = "default-src 'none'; script-src 'unsafe-inline' data: blob:; styl
 const deflate = promisify(deflateRaw);
 
 /** `grant` lets in the preview page, which a frame loads by URL and so without the bearer. */
-export function preview(project: (id: string) => Project, grant: (response: ServerResponse) => void): [string, RegExp, Handler][] {
+export function preview(project: (id: string) => Project, grant: (response: ServerResponse) => void, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>): [string, RegExp, Handler][] {
   const html = ({ params: [id], url }: Context) => {
-    const { workdir } = project(id!);
-    const found = under(workdir, url.searchParams.get('path') ?? '');
-    if (!found || typeOf(found.file)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
+    const work = project(id!);
+    const path = url.searchParams.get('path') ?? '';
+    const delivery = url.searchParams.get('delivery');
+    const found = result(work, path, delivery);
+    if (!found || typeOf(found.file, found.path)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
     if (found.stat.size > PAGE_BYTES) throw new HttpError(413, 'This page is too large to preview; download it instead.', 'preview_too_large');
-    return { found, ...page(workdir, found.path, readFileSync(found.file, 'utf8')) };
+    return { found, ...page(found.path, readFileSync(found.file, 'utf8'), path => result(work, path, delivery)) };
   };
   return [
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, context => {
@@ -54,14 +56,15 @@ export function preview(project: (id: string) => Project, grant: (response: Serv
       sendZip(context.response, 'argus-website.zip', entries);
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/artifacts\/bundle$/, async ({ params: [id], body, response }) => {
-      const { paths, name, summary } = await body();
+      const { paths, name, summary, delivery } = await body();
+      if (delivery != null && typeof delivery !== 'string') throw new HttpError(400, 'invalid delivery');
       if (!Array.isArray(paths) || !paths.length) throw new HttpError(400, 'no results named', 'input_required');
-      const { workdir } = project(id!);
+      const work = project(id!);
       const entries = new Map<string, string | Buffer>();
       const missing: string[] = [];
       let bytes = 0;
       for (const path of new Set(paths.map(path => String(path).trim()).filter(Boolean))) {
-        const found = under(workdir, path);
+        const found = result(work, path, delivery);
         if (!found) missing.push(path);
         else if ((bytes += found.stat.size) > BUNDLE_BYTES) throw new HttpError(413, 'These results are too large for one archive; download them one by one.', 'archive_too_large');
         else entries.set(found.path, found.file);
@@ -78,7 +81,7 @@ export function preview(project: (id: string) => Project, grant: (response: Serv
 /** The page with each local file it names (a src or poster, a link's href, a CSS url()) inlined as
  * a data: URL, a stylesheet's own url()s from where it is, and the files so inlined. A file outside
  * the workdir, hidden, missing or past the size limit is left out, and named in a warning. */
-function page(workdir: string, path: string, html: string) {
+function page(path: string, html: string, result: (path: string) => ReturnType<typeof under>) {
   const warnings: string[] = [];
   const files: NonNullable<ReturnType<typeof under>>[] = [];
   const inlined = new Map<string, string>();
@@ -92,12 +95,17 @@ function page(workdir: string, path: string, html: string) {
     if (!inlined.has(file)) {
       // Taken before it is read, so a stylesheet that leads back to itself gets nothing.
       inlined.set(file, 'data:,');
-      const found = under(workdir, file);
+      let found: ReturnType<typeof under>;
+      try { found = result(file); }
+      catch (error) {
+        if (!(error instanceof HttpError) || ![404, 410].includes(error.status)) throw error;
+        found = null;
+      }
       if (!found || (bytes += found.stat.size) > PAGE_BYTES) warnings.push(`Could not include local resource: ${ref}`);
       else {
         files.push(found);
         const data = found.path.endsWith('.css') ? Buffer.from(css(readFileSync(found.file, 'utf8'), found.path)) : readFileSync(found.file);
-        inlined.set(file, `data:${typeOf(found.file)[1].split(';')[0]};base64,${data.toString('base64')}`);
+        inlined.set(file, `data:${typeOf(found.file, found.path)[1].split(';')[0]};base64,${data.toString('base64')}`);
       }
     }
     return inlined.get(file)!;

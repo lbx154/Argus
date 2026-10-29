@@ -142,7 +142,7 @@
   margin: 0 0 9px;
   flex-shrink: 0;
 }
-.argus-map .macro-summary .map-card-number {
+.argus-map .macro-summary .map-card-kind {
   font-family: "Geist Mono Variable", ui-monospace, monospace;
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -420,7 +420,7 @@
   letter-spacing: -0.006em;
   color: var(--ink-1);
 }
-.argus-map .macro-summary .map-card-number {
+.argus-map .macro-summary .map-card-kind {
   color: var(--ink-3);
 }
 
@@ -480,26 +480,6 @@
 .argus-map .map-status-row {
   gap: 12px;
 }
-.argus-map .map-progress {
-  display: flex;
-  flex: 0 0 132px;
-  gap: 2px;
-  height: 4px;
-}
-.argus-map .map-progress i {
-  display: block;
-  min-width: 3px;
-  flex-basis: 0;
-  border-radius: 2px;
-  background: var(--ink-4);
-}
-.argus-map .map-progress i[data-bucket="done"] { background: var(--pig-malachite); }
-.argus-map .map-progress i[data-bucket="ended"] { background: var(--ink-3); }
-.argus-map .map-progress i[data-bucket="running"] { background: var(--pig-indigo); }
-.argus-map .map-progress i[data-bucket="question"] { background: var(--pig-gamboge); }
-.argus-map .map-progress i[data-bucket="failed"] { background: var(--pig-vermilion); }
-.argus-map .map-progress i[data-bucket="review_unavailable"] { background: var(--pig-ochre); }
-.argus-map .map-progress i[data-bucket="held"] { background: var(--pig-ochre); opacity: .6; }
 
 .argus-map .map-final-review {
   display: flex;
@@ -667,7 +647,7 @@
 .argus-map .macro-summary .map-card:hover,
 .argus-map .macro-summary .map-card:active { border: 0; outline: 0; box-shadow: none !important; background: transparent; transform: none; }
 .argus-map .macro-summary .map-card .map-card-top { padding: 0 0 10px; gap: 10px; justify-content: flex-start; }
-.argus-map .macro-summary .map-card .map-card-number { letter-spacing: .04em; color: rgb(var(--ink-faint)); }
+.argus-map .macro-summary .map-card .map-card-kind { letter-spacing: .04em; color: rgb(var(--ink-faint)); }
 .argus-map .macro-summary .map-status {
   margin-left: auto; padding: 0; border-radius: 0; background: none; font-size: var(--status-size, 11.5px); font-weight: 500;
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -715,8 +695,8 @@
 }
 .argus-map .macro-summary :is(.map-card-said, .map-card-live, .map-card-stages > span,
   .map-card-bottom, .map-card-results button, .map-history-toggle) { font-size: var(--text-size); }
-/* The number shares a row with the state: hidden, it takes no room from it. */
-.argus-map .macro-summary .map-card .map-card-number { font-size: calc(var(--text-size) * var(--near)); }
+/* The card kind shares a row with the state: hidden, it takes no room from it. */
+.argus-map .macro-summary .map-card .map-card-kind { font-size: calc(var(--text-size) * var(--near)); }
 /* Three whole lines always fit the card (its height less the status row and
    padding, over 3 × 1.35 lines), so the clamp ends on an ellipsis instead of
    the card cutting through a line of glyphs. */

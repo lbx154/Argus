@@ -47,7 +47,6 @@ const data: Dataset = {
 const openArtifact = vi.fn();
 const props: ComponentProps<typeof MapCanvas> = {
   data, zh: true, sessionId: "canvas", viewKey: "canvas", paused: true, readOnly: false,
-  events: [],
   snapshot: {
     session: { id: "canvas", display_name: "Canvas", objective: "", last_active: 0, cwd: "" },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },

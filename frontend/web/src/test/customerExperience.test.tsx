@@ -63,8 +63,8 @@ describe('starting and revisiting work', () => {
   it('lets a narrow-screen search reader return to results without opening a project', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('window', Object.assign(new EventTarget(), { localStorage, setTimeout, clearTimeout }));
-    const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, snippet: 'Needle in `code`', text: 'Full recorded answer' };
-    const request = { ...result, kind: 'project' as const, snippet: 'Find the **Needle**', text: 'Find the Needle' };
+    const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, role: 'engineer', snippet: 'Needle in `code`', text: 'Full recorded answer' };
+    const request = { ...result, kind: 'project' as const, role: 'operator', snippet: 'Find the **Needle**', text: 'Find the Needle' };
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
     client.setQueryData(['history-search', 'Needle'], { results: [request, result], partial: false, errors: [] });
     const onChoose = vi.fn();
@@ -78,6 +78,7 @@ describe('starting and revisiting work', () => {
       // The project is named once over its results, which read without Markdown's marks.
       expect(view.root.findAllByProps({ className: 'search-project' }).map(text)).toEqual(['Matching project']);
       expect(text(view.root)).toContain('Needle in code');
+      expect(view.root.findAllByType('small').map(text)).toEqual(['role.operator', 'role.engineer']);
       expect(text(view.root)).not.toContain('`');
       act(() => button('Needle in code').props.onClick());
       expect(text(view.root)).toContain('Full recorded answer');

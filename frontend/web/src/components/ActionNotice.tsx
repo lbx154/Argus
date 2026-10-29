@@ -42,7 +42,7 @@ export function ActionNotice({
     <div
       role={notice.tone === 'error' ? 'alert' : 'status'}
       aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
-      className={`fixed left-4 right-4 top-16 z-[70] flex items-start gap-2 rounded-md border bg-panel px-3 py-2.5 shadow-glow sm:left-auto sm:max-w-md lg:top-[108px] ${colors}`}
+      className={`fixed left-4 right-4 top-[108px] z-[70] flex items-start gap-2 rounded-md border bg-panel px-3 py-2.5 shadow-glow sm:left-auto sm:max-w-md ${colors}`}
     >
       <span aria-hidden="true" className="mt-px shrink-0">
         {notice.tone === 'error' ? '!' : notice.tone === 'success' ? '✓' : 'i'}

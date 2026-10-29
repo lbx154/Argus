@@ -54,7 +54,6 @@ describe('operator decision cards', () => {
     }], [{ id: 'item-1', title: 'Prepare the sleep-study manuscript', status: 'paused_operator' }], 'item-1');
     expect(row.title).toBe('Choose a fallback');
     expect(row.task_title).toBe('Prepare the sleep-study manuscript');
-    expect(row.task_status).toBe('paused_operator');
     const html = renderToStaticMarkup(<PendingReplyDialog reply={row} open busy={false} onClose={vi.fn()} onSubmit={vi.fn()} />);
     expect(html).toContain('Task: Prepare the sleep-study manuscript');
     expect(html).toContain('title="Prepare the sleep-study manuscript"');
@@ -122,16 +121,15 @@ describe('operator decision cards', () => {
 
     expect(rows.map(row => row.item_id)).toEqual(['current', 'old', 'another']);
     expect(rows.map(row => row.status)).toEqual(['pending', 'pending', 'pending']);
-    expect(rows.map(row => row.is_current_task)).toEqual([true, false, false]);
     expect(rows[1].question).toContain('trial_tpm_exceeded');
     expect(JSON.stringify(pending)).toBe(before);
     expect(operatorDecisionCards(pending, [], 'missing').map(row => row.item_id)).toEqual(['old', 'another', 'current']);
 
     const html = renderToStaticMarkup(<PendingBanner questions={pending} backlog={[]} currentTaskId="current" onAnswer={vi.fn()} />);
     expect(html).toContain('Submission facts');
-    expect(html).toContain('Current task');
-    expect(html).toContain('Awaiting your reply');
-    expect(html).toContain('Paused');
+    expect(html).not.toContain('Current task');
+    expect(html).not.toContain('Awaiting your reply');
+    expect(html).not.toContain('Paused');
     expect(html).toContain('+2');
     expect(html).not.toContain('trial_tpm_exceeded');
   });
@@ -149,9 +147,9 @@ describe('operator decision cards', () => {
     const banner = renderToStaticMarkup(<PendingBanner questions={pending} backlog={running} currentTaskId="another-task" onAnswer={vi.fn()} />);
     for (const html of [dialog, banner]) {
       expect(html).toContain(card.title);
-      expect(html).toContain('Another task awaiting input');
-      expect(html).toContain('Awaiting your reply');
-      expect(html).toContain('Paused');
+      expect(html).not.toContain('Another task awaiting input');
+      expect(html).not.toContain('Awaiting your reply');
+      expect(html).not.toContain('Paused');
       expect(html).toContain(`dateTime="${new Date(askedAt * 1000).toISOString()}"`);
     }
     expect(dialog).not.toContain('before work resumes');
@@ -159,19 +157,6 @@ describe('operator decision cards', () => {
     expect(unknown.asked_at).toBeUndefined();
     const unknownHtml = renderToStaticMarkup(<PendingReplyDialog reply={unknown} open busy={false} onClose={vi.fn()} onSubmit={vi.fn()} />);
     expect(unknownHtml).not.toContain('<time');
-  });
-
-  it('calls a question another task’s only while the current task is still under way', () => {
-    // Trial s-36ca9747: the one open question read "其他待处理任务" because the
-    // last task to run, long finished, was still "the current task".
-    const pending = [{ id: 'asked', title: 'Settle the byte unit', status: 'parked', operator_decision: { ...card, item_id: 'asked' } }];
-    const finished = [{ id: 'percent', title: 'Add format_percent', objective: '', status: 'done', priority: 0 }];
-    expect(operatorDecisionCards(pending, finished, 'percent')[0].is_current_task).toBeUndefined();
-    const html = renderToStaticMarkup(<PendingBanner questions={pending} backlog={finished} currentTaskId="percent" onAnswer={vi.fn()} />);
-    expect(html).not.toContain('Another task awaiting input');
-    expect(html).not.toContain('Current task');
-    const running = [{ ...finished[0], status: 'running' }];
-    expect(operatorDecisionCards(pending, running, 'percent')[0].is_current_task).toBe(false);
   });
 
   it('asks the question in the banner and leaves the reason to the card it opens', () => {
@@ -220,7 +205,6 @@ it('renders a workflow choice as options with optional details and no blocked-ta
   } }], [], 'old-task');
   const html = renderToStaticMarkup(<PendingReplyDialog reply={row} open busy={false} error="Please retry" onClose={vi.fn()} onSubmit={vi.fn()} />);
   expect(row.kind).toBe('domain_intake');
-  expect(row.is_current_task).toBeUndefined();
   expect(html).toContain('Choose how to proceed');
   expect(html).toContain('Do it directly');
   expect(html).toContain('Build a specialist workflow');

@@ -95,6 +95,8 @@ export interface MissionOutcomeDimensions {
 
 /** One safe, workspace-relative file selected for a completed delivery. */
 export interface DeliveryTarget {
+  /** Delivery occurrences of this path, including unchanged content, counted from the record. */
+  delivery_number?: number;
   path: string;
   label: string;
   source: string;
@@ -368,10 +370,6 @@ export interface Snapshot {
   };
   daemon: Daemon;
   roles: Role[];
-  /** The server's current-round role log, each role's newest `ROLE_LOG` entries, and canonical project status. */
-  role_events?: EventMsg[];
-  /** The line of the operator message the round began with. */
-  role_round?: number;
   work_status?: ProjectWorkStatus;
   /** The newest model call this project opened: what it actually ran on. */
   last_call?: { backend: string; model: string; effort: string; run_label: string; role?: string; ts: number } | null;

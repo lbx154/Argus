@@ -89,15 +89,15 @@ export function artifactPathFromHref(
 }
 
 /** A workspace image shown inline; clicking it opens the file viewer when one is wired. */
-export function WorkspaceImage({ src, alt, sid, path, onOpen, className = 'my-2 h-auto max-w-full rounded-lg' }: {
-  src?: string; alt?: string; sid?: string | null; path?: string | null; onOpen?: () => void; className?: string;
+export function WorkspaceImage({ src, alt, sid, path, onOpen, delivery, className = 'my-2 h-auto max-w-full rounded-lg' }: {
+  src?: string; alt?: string; sid?: string | null; path?: string | null; onOpen?: () => void; className?: string; delivery?: string;
 }) {
-  const image = <MarkdownImage src={src} alt={alt} sid={sid} path={path} className={className} />;
+  const image = <MarkdownImage delivery={delivery} src={src} alt={alt} sid={sid} path={path} className={className} />;
   return onOpen ? <button type="button" onClick={onOpen} title={alt || path || undefined}
     className="block max-w-full cursor-zoom-in rounded-lg text-left">{image}</button> : image;
 }
 
-function MarkdownImage({ src, alt, sid, path, className = 'my-2 h-auto max-w-full rounded-lg' }: { src?: string; alt?: string; sid?: string | null; path?: string | null; className?: string }) {
+function MarkdownImage({ src, alt, sid, path, delivery, className = 'my-2 h-auto max-w-full rounded-lg' }: { src?: string; alt?: string; sid?: string | null; path?: string | null; className?: string; delivery?: string }) {
   const [failed, setFailed] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   useEffect(() => {
@@ -106,7 +106,7 @@ function MarkdownImage({ src, alt, sid, path, className = 'my-2 h-auto max-w-ful
     if (!sid || !path) return;
     const controller = new AbortController();
     let objectUrl = '';
-    api.artifactBlob(sid, path, false, controller.signal).then(blob => {
+    api.artifactBlob(sid, path, false, controller.signal, delivery).then(blob => {
       if (controller.signal.aborted) return;
       objectUrl = URL.createObjectURL(blob);
       setPreviewUrl(objectUrl);
@@ -115,7 +115,7 @@ function MarkdownImage({ src, alt, sid, path, className = 'my-2 h-auto max-w-ful
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [sid, path, src]);
+  }, [sid, path, src, delivery]);
   if (failed || !src) {
     return <span className="text-xs text-ink-faint">Image unavailable{alt ? ` · ${alt}` : ''}</span>;
   }
@@ -137,6 +137,7 @@ export function MarkdownContent({
   artifacts = [],
   onOpenArtifact,
   basePath = '',
+  delivery,
   sid,
 }: {
   children: string;
@@ -144,14 +145,15 @@ export function MarkdownContent({
   onOpenArtifact?: (path: string) => void;
   basePath?: string;
   sid?: string | null;
+  delivery?: string;
 }) {
   const { t, locale } = useI18n();
   // The renderers keep their identity across renders: a new function per
   // render is a new component type to React, which remounts every node of the
   // message whenever the page polls (flicker, lost selection, reloaded
   // images). They read the current props from here.
-  const live = useRef({ artifacts, onOpenArtifact, basePath, sid, locale, t });
-  live.current = { artifacts, onOpenArtifact, basePath, sid, locale, t };
+  const live = useRef({ artifacts, onOpenArtifact, basePath, sid, delivery, locale, t });
+  live.current = { artifacts, onOpenArtifact, basePath, sid, delivery, locale, t };
   const rehypePlugins = useMemo(() => markdownRehypePlugins(locale === 'zh-CN'), [locale]);
   const components = useMemo((): Components => ({
     h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
@@ -253,7 +255,7 @@ export function MarkdownContent({
       // yet is still a workspace file, not a path on this web server.
       const path = artifactPathFromHref(src, live.current.artifacts, live.current.basePath)
         ?? (live.current.sid && src && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src) ? localFileReference(src) || null : null);
-      return <WorkspaceImage src={src} alt={alt} sid={live.current.sid} path={path} onOpen={path && live.current.onOpenArtifact ? () => live.current.onOpenArtifact?.(path) : undefined} />;
+      return <WorkspaceImage src={src} alt={alt} delivery={live.current.delivery} sid={live.current.sid} path={path} onOpen={path && live.current.onOpenArtifact ? () => live.current.onOpenArtifact?.(path) : undefined} />;
     },
   }), []);
   return (

@@ -35,13 +35,11 @@ export function DaemonManageModal({
   const zh = locale === 'zh-CN';
   const spend = snapshot ? spendEstimateLabel({ spendUsd: typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : null, spendStatus: snapshot.spend_status }, zh) : '';
   const [draftName, setDraftName] = useState(name);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [resumed, setResumed] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraftName(name);
-      setConfirmDelete(false);
       setResumed(false);
     }
   }, [open, name, sid]);
@@ -108,31 +106,14 @@ export function DaemonManageModal({
         <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
           {t('manage.deleteHint')}
         </p>
-        {!confirmDelete ? (
-          <button
-            type="button"
-            disabled={busy || alive}
-            onClick={() => setConfirmDelete(true)}
-            className="mt-3 rounded border border-err/40 px-3 py-1.5 text-xs text-err hover:bg-err/10 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {t('manage.delete')}
-          </button>
-        ) : (
-          <div className="mt-3 flex items-center justify-between gap-3 rounded border border-err/40 bg-err/5 p-3">
-            <span className="text-xs text-ink-dim">{t('manage.confirmQuestion')}</span>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setConfirmDelete(false)} className="rounded px-2 py-1 text-xs text-ink-faint hover:bg-surface">{t('common.cancel')}</button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void onDelete()}
-                className="rounded bg-err px-3 py-1 text-xs font-medium text-bg disabled:opacity-50"
-              >
-                {t('manage.confirmDelete')}
-              </button>
-            </div>
-          </div>
-        )}
+        <button
+          type="button"
+          disabled={busy || alive}
+          onClick={() => void onDelete()}
+          className="mt-3 rounded border border-err/40 px-3 py-1.5 text-xs text-err hover:bg-err/10 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {t('manage.delete')}
+        </button>
       </div>
     </Modal>
   );

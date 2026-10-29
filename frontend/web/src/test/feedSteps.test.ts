@@ -17,7 +17,8 @@ import {
   type FeedStep,
 } from '../lib/feedSteps';
 import { translate } from '../i18n';
-import { EventStream, partitionRoleRows } from '../components/EventStream';
+import { EventStream } from './serverSnapshot';
+import { partitionRoleRows } from '../components/EventStream';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -376,10 +377,10 @@ describe('EventStream renders folded rows', () => {
     const reviewer = { role: 'reviewer', backend: 'codex', backend_label: 'Codex', model: '', effort: null, active: true, label: 'Reviewer', status: 'running', age_s: null, tasks: ['t1', 't2'] };
     const snapshot = { session: { id: 's' }, daemon: { alive: true }, roles: [reviewer], backlog: [task('t1', 'Write primes.py'), task('t2', 'Write fib.py')] } as unknown as Snapshot;
     const html = renderToStaticMarkup(createElement(EventStream, {
-      events: [], snapshot: { ...snapshot, role_events: [
+      events: [], snapshot: roleSnapshot([
         said('Checking primes.py.', { agent_layer: 'reviewer', item_id: 't1' }),
         said('Checking fib.py.', { agent_layer: 'reviewer', item_id: 't2' }),
-      ] },
+      ], { ...snapshot, work_status: { state: 'running', roles: ['reviewer'], role: 'reviewer', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } } }),
       connected: true,
       showReasoning: false,
     }));

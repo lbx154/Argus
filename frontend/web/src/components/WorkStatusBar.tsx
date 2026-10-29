@@ -4,12 +4,14 @@ import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
+import { roleActionLabel } from '../lib/taskLanguage';
 
 /** Shared, factual status for the conversation and its progress panel. */
-export function WorkStatusBar({ snapshot, connected, compact = false, pending, onStopWork, onResumeTeam, teamBusy }: {
+export function WorkStatusBar({ snapshot, connected, compact = false, pending, onStopWork, onResumeTeam, teamBusy, managerMessage }: {
   snapshot?: Snapshot; connected: boolean; compact?: boolean;
   /** A message sent is waiting for its reply. */
   pending?: boolean; onStopWork?: () => void; onResumeTeam?: () => void; teamBusy?: boolean;
+  managerMessage?: string;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -33,7 +35,9 @@ export function WorkStatusBar({ snapshot, connected, compact = false, pending, o
     : seconds < 60 ? (zh ? '刚刚有进展' : 'Progress in the last minute')
       : seconds < 3600 ? (zh ? `${Math.floor(seconds / 60)} 分钟前有进展` : `Progress ${Math.floor(seconds / 60)} min ago`)
         : (zh ? `${Math.floor(seconds / 3600)} 小时前有进展` : `Progress ${Math.floor(seconds / 3600)} hr ago`);
-  const label = workStatusLabel(status, locale);
+  const label = status.state === 'running' && status.role === 'manager'
+    ? roleActionLabel('manager', zh, '', managerMessage)
+    : workStatusLabel(status, locale);
   const tone = !connected ? 'idle' : PHASE_TONE[phase];
   return <div className="work-status shrink-0 px-4 py-2 text-xs sm:px-5" data-testid="work-status" data-state={status.state}>
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

@@ -10,12 +10,14 @@ import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { DiffLines } from './DeliveryChanges';
 import { Button } from './primitives';
 import { ErrorDetails } from './ErrorMessage';
+import { roleLabel } from '../lib/enumLabels';
 import './experience.css';
 
 export function HistorySearch({ open, onClose, onChoose }: {
   open: boolean; onClose: () => void; onChoose: (result: SearchResult) => void;
 }) {
-  const zh = useI18n().locale === 'zh-CN';
+  const { locale, t } = useI18n();
+  const zh = locale === 'zh-CN';
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<SearchResult | null>(null);
@@ -54,7 +56,8 @@ export function HistorySearch({ open, onClose, onChoose }: {
           key={`${result.sid}:${result.kind}:${result.line ?? result.path ?? index}:${result.version ?? ''}`}>
           {result.sid !== all[index - 1]?.sid && <h3 className="search-project">{result.title}</h3>}
           <button type="button" aria-pressed={selected === result} onClick={() => setSelected(result)} className={selected === result ? 'is-selected' : ''}>
-            <small>{result.kind === 'conversation' ? zh ? '对话记录' : 'Conversation'
+            <small>{result.role ? roleLabel(result.role, t)
+              : result.kind === 'conversation' ? zh ? '对话记录' : 'Conversation'
               : result.kind === 'edition' ? zh ? `修改稿 v${result.version}` : `Edition v${result.version}`
                 : result.kind === 'artifact' ? result.path : zh ? '项目' : 'Project'}</small>
             <span><MarkdownExcerpt>{result.snippet}</MarkdownExcerpt></span>

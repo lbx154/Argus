@@ -6,6 +6,7 @@ import type { DeliveryReceipt, Snapshot } from '../../../core/src/types';
 import { emptyMissionView } from '../../../core/src/missionView';
 import App from '../App';
 import { api } from '../api';
+import { ApiError } from '../../../core/src/http';
 import { ChatBox } from '../components/ChatBox';
 import { ComposerRuntime } from '../components/ComposerRuntime';
 import { ContinuousSwitch } from '../components/ContinuousSwitch';
@@ -189,6 +190,44 @@ describe('App session composer ownership', () => {
     expect(renderer.root.findByType(Landing).props.hasProjects).toBe(false);
     await act(async () => { await renderer.root.findByType(Landing).props.onSubmit('Total the columns of data.csv', []); });
     expect(create).toHaveBeenCalledTimes(1);
+  });
+  it('keeps creation errors beside the directory until it changes or creation succeeds', async () => {
+    const failure = new ApiError('permission denied', 400, 'POST', '/api/daemons', 'workdir_permission_denied');
+    const create = vi.spyOn(api, 'createDaemon').mockRejectedValue(failure);
+    await act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    const landing = () => renderer.root.findByType(Landing);
+    await act(async () => { expect(await landing().props.onSubmit('Keep this draft', [], '/denied')).toBe(false); });
+    expect(landing().props.createError).toBe(failure);
+    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
+    act(() => landing().props.onWorkdirChange());
+    expect(landing().props.createError).toBeNull();
+    await act(async () => { await landing().props.onSubmit('Keep this draft', [], '/denied'); });
+    expect(landing().props.createError).toBe(failure);
+    create.mockResolvedValue({ sid: 's-N' } as Awaited<ReturnType<typeof api.createDaemon>>);
+    await act(async () => { expect(await landing().props.onSubmit('Keep this draft', [], '/writable')).toBe(true); });
+    expect(renderer.root.findAllByType(Landing).every(node => !node.props.createError)).toBe(true);
+    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
+    await act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    expect(landing().props.createError).toBeNull();
+  });
+  it('clears the directory error when returning to a new form and keeps the failed request draft', async () => {
+    vi.spyOn(api, 'createDaemon').mockRejectedValue(new ApiError('permission denied', 400, 'POST', '/api/daemons', 'workdir_permission_denied'));
+    await act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    const landing = () => renderer.root.findByType(Landing);
+    const folder = () => landing().findByProps({ list: 'landing-workdirs' });
+    const composer = () => landing().findByType(ChatBox);
+    act(() => composer().props.onChange('Keep the failed request draft'));
+    act(() => folder().props.onChange({ target: { value: '/denied' } }));
+    await act(async () => { expect(await composer().props.onSend('Keep the failed request draft', [])).toBe(false); });
+    expect(folder().props['aria-invalid']).toBe(true);
+    expect(composer().props.value).toBe('Keep the failed request draft');
+    select('s-A');
+    expect(renderer.root.findAllByType(Landing)).toHaveLength(0);
+    await act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    expect(folder().props.value).toBe('');
+    expect(folder().props['aria-invalid']).toBe(false);
+    expect(landing().findAllByProps({ id: 'landing-workdir-error' })).toHaveLength(0);
+    expect(composer().props.value).toBe('Keep the failed request draft');
   });
   it('reads the project list again once the first message has reached the server, so the new row is named by it', async () => {
     vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {

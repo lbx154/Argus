@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { parseSSEFrames } from '../api';
 import { activeGuardianAlert } from '../lib/guardian';
 import type { EventMsg } from '../api';
-import { EventStream } from '../components/EventStream';
+import { EventStream } from './serverSnapshot';
 import { EVENT_CORPUS } from '../../../core/src/eventCorpus.generated';
 import { renderLine, type RenderContext } from '../../../core/src/eventRender';
 import { eventKey, isReasoning, mergeFragment } from '../../../core/src/events';
