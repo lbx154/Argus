@@ -111,6 +111,15 @@ export function keep(project: Project, dir: string, paths: string[]): DeliverySn
   });
 }
 
+/** A result's name: its main file's own title, a Markdown heading or an HTML title, else the file's name. */
+export function titleOf(project: Project, path: string): string {
+  const found = under(project.workdir, path);
+  const text = found && found.stat.size <= TEXT_LIMIT ? textOf(found.file) ?? '' : '';
+  const own = /\.(md|markdown)$/i.test(path) ? /^#{1,6}\s+(.+)$/m.exec(text)?.[1]
+    : /\.html?$/i.test(path) ? /<title[^>]*>([^<]*)<\/title>/i.exec(text)?.[1] : undefined;
+  return own?.trim() || basename(path);
+}
+
 export function artifactInfo(project: Project, found: { file: string; path: string; stat: Stats }, preview = false): ArtifactInfo {
   const [kind, mime] = typeOf(found.path);
   const info: ArtifactInfo = {

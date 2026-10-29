@@ -89,7 +89,7 @@ export type FlowEvent =
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }
   /** A delivered result's files (`open`), each as it was then (`snapshots`). */
-  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[] }
+  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[]; title?: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
   | ({ type: 'step'; role: Role; task?: string } & Step)

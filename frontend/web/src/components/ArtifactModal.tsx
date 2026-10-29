@@ -55,10 +55,8 @@ export function ArtifactModal({
   const linked = [...artifacts, ...files.map((file) => ({ path: file.path }))];
   const artifactQ = useArtifact(sid, path);
   const info = artifactQ.data;
-  // A result is named by its own title: the letter's first line, else its main file's first heading, else that file's name.
-  const main = delivery?.primary_target?.path ?? null;
-  const mainQ = useArtifact(sid, delivery?.title ? null : main);
-  const deliveryTitle = delivery?.title || /^#+\s+(.+)$/m.exec(mainQ.data?.preview ?? '')?.[1]?.trim() || main?.split('/').at(-1) || '';
+  // A result is named as the server named it when it was delivered.
+  const deliveryTitle = delivery?.title || delivery?.primary_target?.path.split('/').at(-1) || '';
   const foundation = info?.source === 'reader_foundation' ? info.reader_foundation : undefined;
   const progressSnapshot = info?.source === 'progress_snapshot';
   const markdownPreview = info ? isMarkdownArtifact(info) : false;

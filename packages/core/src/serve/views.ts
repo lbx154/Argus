@@ -39,12 +39,12 @@ const named = (project: Project): string => project.name || project.request.spli
 const firstLine = (text: string): string => text.split('\n')
   .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
 
-/** The result a Manager's letter hands the operator, as the page's result card shows it, named by
- * the letter's first line. */
-function delivered({ letter, open = [], snapshots, ts }: Extract<Recorded, { type: 'handoff' }>, line: number): DeliveryReceipt {
+/** The result a Manager's letter hands the operator, as the page's result card shows it, named as
+ * it was when delivered (a record from before then, by the letter's first line). */
+function delivered({ letter, open = [], snapshots, title, ts }: Extract<Recorded, { type: 'handoff' }>, line: number): DeliveryReceipt {
   const targets = open.map(path => ({ path, label: basename(path), source: 'manager', why: '' }));
   return {
-    schema_version: 1, delivery_id: `d${line}`, kind: 'task_completed', item_id: '', title: firstLine(letter),
+    schema_version: 1, delivery_id: `d${line}`, kind: 'task_completed', item_id: '', title: title ?? firstLine(letter),
     summary: letter, status: 'done', review_status: '', delivered_at: seconds(ts), primary_target: targets[0] ?? null, targets,
     ...snapshots ? { snapshots } : {},
   };

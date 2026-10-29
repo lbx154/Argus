@@ -5,8 +5,7 @@ import { ArtifactModal } from '../components/ArtifactModal';
 import { PdfPreview } from '../components/PdfPreview';
 import { loadPdfEngine } from '../lib/pdfEngine';
 
-// A delivered report.md opens with a heading; nothing else is loaded.
-vi.mock('../hooks', () => ({ useArtifact: (_sid: string, path: string | null) => ({ data: path === 'out/report.md' ? { preview: 'Intro\n\n## Primes and Fibonacci\n' } : undefined, isLoading: false, isError: false }) }));
+vi.mock('../hooks', () => ({ useArtifact: () => ({ data: undefined, isLoading: false, isError: false }) }));
 vi.mock('../lib/pdfEngine', () => ({ loadPdfEngine: vi.fn(), resetPdfEngine: vi.fn() }));
 
 let tree: ReactTestRenderer | undefined;
@@ -28,10 +27,9 @@ it('reads a delivery summary as Markdown whose links open the delivered files', 
 });
 
 it.each([
-  ['Two scripts, one report', 'out/report.md', 'Two scripts, one report'],
-  ['', 'out/report.md', 'Primes and Fibonacci'],
+  ['Primes and Fibonacci', 'out/report.md', 'Primes and Fibonacci'],
   ['', 'out/table.csv', 'table.csv'],
-])("names a result by its own title: the letter's first line, else its main file's first heading, else its name (%#)", (title, main, heading) => {
+])('names a result as the server named it, else by its main file (%#)', (title, main, heading) => {
   const delivery = {
     schema_version: 1, delivery_id: 'd1', kind: 'task_completed', item_id: '', title, status: 'done', review_status: '', delivered_at: 1, summary: '',
     targets: [{ path: main, label: main.split('/').at(-1), source: 'manager', why: '' }], primary_target: { path: main, label: main.split('/').at(-1), source: 'manager', why: '' },
