@@ -18,8 +18,8 @@ interface Step {
   letter?: string;
   /** The Planner's letters, one task each. */
   letters?: string[];
-  /** For each of the Planner's letters, the tasks its task waits for. */
-  after?: string[][];
+  /** For each of the Planner's letters, the open task it is for, or the tasks its task waits for. */
+  tasks?: { task: string; after: string[] }[];
   /** The files of a result the Manager hands the operator. */
   open?: string[];
   /** The turn ends after the turns already under way have. */
@@ -45,7 +45,7 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     if (step.throws) throw new Error(step.throws);
     const handoff = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`],
-          ...step.after ? { after: step.after } : {}, ...step.open ? { open: step.open } : {} };
+          ...step.tasks ? { tasks: step.tasks } : {}, ...step.open ? { open: step.open } : {} };
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
@@ -147,7 +147,7 @@ test('a skill from before SKILL.md, a README.md whose first line said what it wa
   assert.deepEqual([existsSync(join(dir, 'README.md')), purpose(dir)], [false, 'Backtest a trading idea: without lookahead']);
 });
 
-test("every role is shown the skills, its own in place of Argus's of the same name, and may write them when it writes", async t => {
+test("every role is shown Argus's skills and the team's beside them, and a role that writes is asked to write the team's", async t => {
   const { home, store, flow, id, requests } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letter: 'Parse data.csv' },
@@ -162,13 +162,13 @@ test("every role is shown the skills, its own in place of Argus's of the same na
   }
   await say(flow, id, 'Summarise data.csv');
   assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'write'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
-  for (const { instructions: prompt = '', readDirs, writeDirs } of requests) {
+  for (const { instructions: prompt = '', readDirs, writeDirs, access } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
     assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
-    assert.ok(prompt.includes(`\n- software: `) && !prompt.includes(join(SKILLS, 'research')));
-    assert.ok(prompt.includes(`\nThe skills are yours: when your work teaches you something later projects can use, write a new skill in ${own} or improve one there.\n`));
+    assert.ok(prompt.includes(`\n- software: `) && prompt.includes(join(SKILLS, 'research')));
+    assert.equal(prompt.includes(`\nThe skills in ${own} are the team's: when your work, or the operator's word on it, teaches something`), access === 'write');
   }
 });
 
@@ -330,7 +330,8 @@ test("tasks the Planner opens together run side by side; one's question holds up
 test('a task the Planner opens waits for the tasks it names, and starts once they have all closed', async t => {
   const { flow, id, requests, events } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
-    { role: 'planner', to: 'engineer', letters: ['Train the baseline', 'Train the method', 'Compare the two'], after: [[], [], ['t1', 't2', 't9', 't3']] },
+    { role: 'planner', to: 'engineer', letters: ['Train the baseline', 'Train the method', 'Compare the two'],
+      tasks: [{ task: '', after: [] }, { task: '', after: [] }, { task: '', after: ['t1', 't2', 't9', 't3'] }] },
     { role: 'engineer', to: 'planner', letter: 'baseline trained' },
     { role: 'engineer', later: true, to: 'planner', letter: 'method trained' },
     // The Planner reads the first letter while the method still trains.
@@ -349,6 +350,30 @@ test('a task the Planner opens waits for the tasks it names, and starts once the
     + '- t3 [open, waits for t2] Compare the two\nThe next task opened is t4.');
   // The letter that ends a task with a result names its files, kept in the record beside it.
   assert.deepEqual(events().flatMap(event => event.type === 'handoff' && event.task === 't3' ? [event.open] : []), [['results/compare.md']]);
+});
+
+test("the Planner writes to a task under way, and its holder reads the letter at their next turn", async t => {
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Train the baseline' },
+    { role: 'engineer', waits: held, to: 'engineer', letter: 'Still training.' },
+    { role: 'manager', to: 'planner', letter: 'The operator wants the newer model.' },
+    { role: 'planner', to: 'engineer', letters: ['Switch to the newer model now.'], tasks: [{ task: 't1', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'Switched; the baseline runs on the newer model.' },
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ]);
+  await flow.say(id, 'Train a baseline');
+  while (requests.length < 3) await new Promise(resolve => setImmediate(resolve));
+  await flow.say(id, 'Use the newer model');
+  // The letter opens no task; it waits on t1 for its holder's next turn.
+  while (!flow.store.load(id).tasks[0]?.unread?.length) await new Promise(resolve => setImmediate(resolve));
+  release();
+  const project = await flow.settled(id);
+  assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.unread], ['idle', 1, []]);
+  assert.equal(requests[5]?.prompt, '## From the Engineer\nStill training.\n\n## From the Planner, since the task\'s last turn\nSwitch to the newer model now.');
 });
 
 test('the operator talks to the Manager while the team works, and what it hands on runs beside the work', async t => {

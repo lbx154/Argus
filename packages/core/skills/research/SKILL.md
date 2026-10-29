@@ -20,8 +20,9 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   data) runs through an inference engine such as vLLM or SGLang, often ten times faster than
   generating inside the training loop.
 - Go end to end small first: a few steps on a few dozen examples through the real evaluator, then
-  scale. Measure the unchanged starting point under the same protocol before building the method:
-  every result is compared with it.
+  scale back up to the starting point's models and scale: a pilot's small model or short run is
+  never carried into the main experiment. Measure the unchanged starting point under the same
+  protocol before building the method: every result is compared with it.
 
 ## The claim and its evidence
 

@@ -478,8 +478,9 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
     library: 'shared', source: 'shared', scope: 'global', vertical: '', role: '', path: 'quant/SKILL.md', name: 'quant',
     description: 'Backtest a trading idea without lookahead', is_default: false, updated_at: at(1),
   });
-  // The operator's research skill takes the place of Argus's.
-  assert.deepEqual([item('research')?.source, item('research')?.description], ['shared', 'Research as this operator wants it']);
+  // The team's research skill is listed beside Argus's, which it leaves as it is.
+  assert.deepEqual(catalog.items.filter(item => item.name === 'research').map(item => item.source), ['bundled', 'shared']);
+  assert.equal(catalog.items.filter(item => item.name === 'research')[1]?.description, 'Research as this operator wants it');
   assert.deepEqual([item('software')?.library, item('software')?.path, item('software')?.is_default, item('software')?.updated_at],
     ['bundled', 'software/SKILL.md', true, null]);
 

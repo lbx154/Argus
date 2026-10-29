@@ -90,9 +90,10 @@ finish a small request in its own turn.
 
 A skill is what was learned about a kind of work, kept as a folder whose `SKILL.md` says in its
 front matter (`name`, `description`), as Codex and Claude Code write a skill, what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade
-replaces, and the roles' and the operator's in `$ARGUS_HOME/skills/<name>/`, where one takes the
-place of Argus's of the same name. It holds the pitfalls past projects hit and what good work
-looks like, not steps, files or who does what, and nothing a capable model already knows: Codex on
+replaces, and the team's (the roles' and the operator's) in `$ARGUS_HOME/skills/<name>/`, listed
+beside Argus's, a name shared or not, so that an upgrade of Argus's own reaches every project. It
+holds where good work starts, what past runs measured and what good work looks like, not steps,
+files or who does what, and nothing a capable model already knows: Codex on
 its own did a grokking study well in 15 minutes for $1.40, while an Argus project on the same study
 spent 46% of its tool-output tokens rereading the research skill's manuals.
 

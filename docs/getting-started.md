@@ -146,10 +146,11 @@ stays stopped.
 
 A skill is a folder whose `SKILL.md` says in its front matter (`name`, `description`), as
 Codex and Claude Code write a skill, what kind of work it is for.
-Argus's own are in the package (`research`, `software`, `argus-maintenance`, `learning`)
+Argus's own are in the package (`research`, `rl`, `software`, `argus-maintenance`, `learning`)
 and are replaced on upgrade; those in `~/.argus/skills/<name>/` are the roles' and yours,
-and one there takes the place of a bundled skill with the same name. Every role's prompt
-lists the skills; the Manager and the Engineer may write new ones and change existing ones.
+listed beside Argus's, a name shared or not. Every role's prompt lists the skills; the Manager
+and the Engineer may write new ones and change the team's, and the Manager writes down there
+what you teach it when you correct how the work is done.
 Argus does not reflect after a task, score, curate or record which skill a project used:
 what to write down is the roles' decision.
 

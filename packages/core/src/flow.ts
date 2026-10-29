@@ -181,8 +181,11 @@ export class Flow {
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
+    // Letters that reach the task during the turn wait for the next.
+    const taken = task.unread?.length ?? 0;
     const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, task, resumed)))?.handoff;
     if (!handoff) return;
+    task.unread?.splice(0, taken);
     const { to } = handoff;
     const letter = read(handoff);
     switch (to) {
@@ -231,9 +234,18 @@ export class Flow {
     const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project)))?.handoff;
     if (!handoff) return;
     project.inbox.splice(0, taken);
-    const { to, letters, after } = handoff;
-    // A letter to itself opens nothing: the Planner reads on when the next letter comes.
-    if (to === 'engineer') letters.forEach((letter, at) => this.open(project, 'planner', letter, after?.[at]));
+    const { to, letters, tasks } = handoff;
+    // A letter to itself opens nothing: the Planner reads on when the next letter comes; nor does
+    // one to an open task, which its holder reads at their next turn.
+    if (to === 'engineer') {
+      letters.forEach((letter, at) => {
+        const { task: id = '', after = [] } = tasks?.[at] ?? {};
+        const open = openTasks(project).find(task => task.id === id);
+        if (open) (open.unread ??= []).push({ from: 'planner', text: letter });
+        else this.open(project, 'planner', letter, after);
+      });
+      this.store.save(project);
+    }
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
     else if (to === 'manager') await this.writeToManager(project, handedTo('planner', null, read(handoff)));
   }
@@ -254,7 +266,7 @@ export class Flow {
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, project, this.store),
+        backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, TURN[role].access === 'write', project, this.store),
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),

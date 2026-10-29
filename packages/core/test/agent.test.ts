@@ -53,16 +53,19 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(judge('manager', formSchema('manager'), { ...report, open: [] }), { form: 'manager', to: 'operator', letters: ['The report is done.'] });
   assert.deepEqual(judge('review', formSchema('review', 'planner'), { ...report, to: 'planner' }),
     { form: 'review', to: 'planner', letters: ['The report is done.'], open: report.open });
-  assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [] }], open: [] }, formSchema('plan')), ['open is not allowed']);
+  assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [], task: '' }], open: [] }, formSchema('plan')), ['open is not allowed']);
   // A task's form offers its giver: the Planner, which never had a task the Manager gave, is not on its form.
   for (const form of ['engineer', 'review'] as const) {
     assert.deepEqual([formSchema(form, 'manager'), formSchema(form, 'planner')].map(({ properties }) => properties!.to!.enum!.includes('planner')), [false, true]);
   }
   // The Planner's letters to the Engineer open a task each, waiting for the tasks each names.
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [] }, formSchema('plan')), ['letters must have 1 or more items']);
-  const plan = { to: 'engineer', letters: [{ letter: 'Train the baseline', after: [] }, { letter: 'Compare with it', after: ['t3'] }] };
-  assert.deepEqual(judge('plan', formSchema('plan'), plan), { form: 'plan', to: 'engineer', letters: ['Train the baseline', 'Compare with it'], after: [[], ['t3']] });
-  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'manager', letters: [{ letter: 'Done.', after: [] }] }), { form: 'plan', to: 'manager', letters: ['Done.'] });
+  // A letter naming an open task is for whoever holds it.
+  const plan = { to: 'engineer', letters: [{ letter: 'Train the baseline', after: [], task: '' }, { letter: 'Compare with it', after: ['t3'], task: '' },
+    { letter: 'Use the newer model.', after: [], task: 't2' }] };
+  assert.deepEqual(judge('plan', formSchema('plan'), plan), { form: 'plan', to: 'engineer', letters: ['Train the baseline', 'Compare with it', 'Use the newer model.'],
+    tasks: [{ task: '', after: [] }, { task: '', after: ['t3'] }, { task: 't2', after: [] }] });
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'manager', letters: [{ letter: 'Done.', after: [], task: '' }] }), { form: 'plan', to: 'manager', letters: ['Done.'] });
   // A letter that opens a task names it in its first line, the title the progress map shows.
   for (const form of ['manager', 'plan'] as const) assert.match(String(formSchema(form).properties!.to!.description), /opens a task, [^;]*first line, a short title/);
   // Every field is required and none other allowed: the strict shape OpenAI's structured outputs take.

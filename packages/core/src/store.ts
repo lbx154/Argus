@@ -33,6 +33,8 @@ export interface Task {
   note: Note | null;
   /** The tasks it waits for: it starts once they have all closed. */
   after?: string[];
+  /** Letters to whoever holds it, written while they worked: they read them at their next turn. */
+  unread?: Note[];
 }
 
 /** A question to the operator: its asker, the task's holder or the Planner, waits for the answer. */

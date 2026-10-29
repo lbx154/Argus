@@ -15,8 +15,8 @@ export const NAMES: Record<Note['from'], string> = {
 
 /** The skill library: a folder each, whose SKILL.md says in its front matter what the skill is for,
  * as Codex, Claude Code and others write a skill. Argus's own ship in the package, and an upgrade
- * replaces them; the roles and the operator keep theirs under the state root's skills/, where one
- * takes the place of Argus's of the same name. */
+ * replaces them; the roles and the operator keep theirs under the state root's skills/, listed
+ * beside Argus's, a name shared or not. */
 export const SKILLS = fileURLToPath(new URL('../skills', import.meta.url));
 export const SKILL = 'SKILL.md';
 /** The state root's skills/, made when missing so that a role can write there. */
@@ -25,11 +25,11 @@ export function skillsHome(home: string): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
-/** Each skill's folder, by its name: a directory of its own holding a SKILL.md of its own, never
- * a link, so that what a role writes there cannot bring in a file from elsewhere. */
-export const skills = (home: string): Map<string, string> => new Map([SKILLS, skillsHome(home)].flatMap(root => readdirSync(root)
+/** Each skill's name and folder, Argus's first: a directory of its own holding a SKILL.md of its
+ * own, never a link, so that what a role writes there cannot bring in a file from elsewhere. */
+export const skills = (home: string): (readonly [string, string])[] => [SKILLS, skillsHome(home)].flatMap(root => readdirSync(root)
   .map(name => [name, resolve(root, name)] as const)
-  .filter(([, dir]) => lstatSync(dir).isDirectory() && lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile())));
+  .filter(([, dir]) => lstatSync(dir).isDirectory() && lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile()));
 /** What a skill is for: the description in its SKILL.md's front matter, plain or quoted. */
 export function purpose(dir: string): string {
   const matter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
@@ -57,23 +57,24 @@ const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
 
 /** A role's standing instructions: its rules, how every role writes, and where the work, Argus's
- * record of it and the skills are, the date and the machine. */
-export const instructions = (role: Role, project: Project, store: Store): string => join(rules(role), rules('writing'), where(project, store));
+ * record of it and the skills are, the date and the machine. A role that writes may write skills. */
+export const instructions = (role: Role, writes: boolean, project: Project, store: Store): string =>
+  join(rules(role), rules('writing'), where(project, store, writes));
 
-function where(project: Project, store: Store): string {
+function where(project: Project, store: Store, writes: boolean): string {
   const library = skillsHome(store.home);
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
     `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
-    `Skills, a folder each whose SKILL.md says in its front matter what it is for (one in ${library} takes the place of Argus's own of the same name):`,
-    ...[...skills(store.home)].map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
-    `The skills are yours: when your work teaches you something later projects can use, write a new skill in ${library} or improve one there.`,
+    `Skills, a folder each whose SKILL.md says in its front matter what it is for: when one fits your work, read its SKILL.md whole, once, and the files it links as you need them. Argus's own, then the team's in ${library}:`,
+    ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
+    writes && `The skills in ${library} are the team's: when your work, or the operator's word on it, teaches something later projects can use, write it there, in a new skill or one of the team's.`,
     KEPT.includes(project.backend)
       ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the operator stops the project).'
       : 'Your session ends with each turn, and everything you started with it.',
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
     machine(),
-  ].join('\n'));
+  ].filter(Boolean).join('\n'));
 }
 
 /** The machine the work runs on, as far as Argus knows it: what is free now is for the roles to measure. */
@@ -92,7 +93,8 @@ export const rewritePrompt = (draft: string): string => join(
 
 /** The Engineer's or Reviewer's turn on `task`, whichever holds it. */
 export function taskPrompt(project: Project, task: Task, resumed: boolean): string {
-  const note = task.note && section(`From the ${NAMES[task.note.from]}`, task.note.text);
+  const note = join(task.note && section(`From the ${NAMES[task.note.from]}`, task.note.text),
+    ...(task.unread ?? []).map(({ from, text }) => section(`From the ${NAMES[from]}, since the task's last turn`, text)));
   if (resumed) {
     const again = task.holder === 'reviewer' && task.note?.from === 'engineer'
       && 'The Engineer has worked on the task since your last judgment. Judge the current files afresh: your earlier judgment is not a fact.';
