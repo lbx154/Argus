@@ -566,6 +566,9 @@
   border-radius: 12px;
   overflow: hidden;
 }
+/* The state colours are light pastels: on dark paper they are dimmed to read as
+ * the cards do, not as lit panes. */
+[data-theme="dark"] .argus-map .react-flow__minimap-node { opacity: .45; }
 
 /* ── What a line says ───────────────────────────────────────────────────────
  * A relation that was stated (a dependency, related work, a changed plan) is

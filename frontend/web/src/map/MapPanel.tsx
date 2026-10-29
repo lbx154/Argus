@@ -120,6 +120,9 @@ const OPENING_WAIT_MS = 700;
 const NODE_TYPES = { task: MacroTaskNode, human: HumanCardView };
 const EDGE_TYPES = { relation: MapRelationEdge, human: HumanLinkView };
 const CANVAS_HINT_KEY = "argus.map.canvasHintDismissed.v1";
+/** The canvas's zoom buttons, named in the reader's language. */
+const ZH_CONTROLS = { 'controls.ariaLabel': '地图缩放', 'controls.zoomIn.ariaLabel': '放大', 'controls.zoomOut.ariaLabel': '缩小', 'controls.fitView.ariaLabel': '显示整张地图' };
+const EN_CONTROLS = { 'controls.ariaLabel': 'Map zoom', 'controls.zoomIn.ariaLabel': 'Zoom in', 'controls.zoomOut.ariaLabel': 'Zoom out', 'controls.fitView.ariaLabel': 'Show the whole map' };
 /** The map's key (ⓘ in the toolbar): what each kind of card is. */
 export const MAP_CARD_LEGEND: Array<[[string, string], string, string]> = [
   [["任务卡", "Task card"], "团队拆出来、能单独完成和验收的一件事", "one piece of work the team split out that can be finished and checked on its own"],
@@ -1758,6 +1761,7 @@ export function MapCanvas({
               selectionKeyCode={null}
               onlyRenderVisibleElements={fitted && nodesReady}
               proOptions={{ hideAttribution: true }}
+              ariaLabelConfig={zh ? ZH_CONTROLS : EN_CONTROLS}
             >
               <Background
                 variant={BackgroundVariant.Dots}
