@@ -13,9 +13,12 @@
 .delivery-download-all:disabled { opacity: .6; }
 .delivery-changes { margin: 0 0 10px; font-size: 12px; color: rgb(var(--ink-dim)); }
 .delivery-changes > button { color: rgb(var(--accent-ink)); text-decoration: underline; text-underline-offset: 3px; }
-.delivery-changes pre { margin-top: 6px; max-height: 40vh; overflow: auto; padding: 10px; border: 1px solid rgb(var(--line)); border-radius: 8px; background: rgb(var(--bg)); font: 11px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
-.delivery-changes pre .add { color: rgb(22 128 61); background: rgb(22 128 61 / .08); }
-.delivery-changes pre .del { color: rgb(190 18 60); background: rgb(190 18 60 / .08); }
+.delivery-changes .diff-lines { margin-top: 6px; max-height: 40vh; }
+.diff-lines { overflow: auto; padding: 10px; border: 1px solid rgb(var(--line)); border-radius: 8px; background: rgb(var(--bg)); font: 11px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+.diff-lines .add { color: rgb(22 128 61); background: rgb(22 128 61 / .08); }
+.diff-lines .del { color: rgb(190 18 60); background: rgb(190 18 60 / .08); }
+.diff-lines .hunk { display: block; color: rgb(var(--ink-faint)); }
+.diff-lines .hunk:not(:first-child) { margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgb(var(--line)); }
 .delivery-summary { margin-top: 8px; font-size: 13px; color: rgb(var(--ink-dim)); }
 .delivery-summary summary { cursor: pointer; width: fit-content; padding: 3px 0; color: rgb(var(--ink-faint)); }
 .delivery-summary summary:hover { color: rgb(var(--ink)); }

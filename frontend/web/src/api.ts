@@ -984,6 +984,9 @@ export const api = {
     getJson<{ original: string; versions: Edition[] }>(P(sid, `/editions/${kind}?source=${encodeURIComponent(source)}`)),
   saveEdition: (sid: string, kind: 'artifact' | 'conversation', value: { source: string; content: string; note?: string; base_version: number; original?: string }) =>
     postJson<{ version: number; content: string }>(P(sid, `/editions/${kind}`), value),
+  /** What `content` changes in the text result `source` as it is now, as a unified diff. */
+  editionDiff: (sid: string, source: string, content: string) =>
+    postJson<{ diff: string; truncated: boolean }>(P(sid, '/editions/artifact/diff'), { source, content }),
   workflows: workflowClient(getJson, postJson),
   advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
   saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),

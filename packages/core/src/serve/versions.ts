@@ -1,7 +1,8 @@
 // A result's versions. The operator's editions of a text result, or of an answer in the
 // conversation, are saved beside it and never over it, appended to the project's editions.jsonl;
-// the first is saved with what it was made from, as version 0. And what changed in a file between
-// two of its deliveries, read from the copies kept of it as delivered (`keep`).
+// the first is saved with what it was made from, as version 0. And what changed: from a text result
+// as it is to an edition of it, saved or not, or in a file between two of its deliveries, read from
+// the copies kept of it as delivered (`keep`).
 
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,6 +50,12 @@ export function versions(store: Store, project: (id: string) => Project): [strin
         `${JSON.stringify({ kind, source, version, content, note, created: Date.now() / 1000 })}\n`;
       appendFileSync(join(store.dir(work.id), 'editions.jsonl'), (latest ? '' : line(0, first, '')) + line(latest + 1, content, String(note)));
       return { version: latest + 1, content };
+    }],
+    ['POST', /^\/api\/projects\/([^/]+)\/editions\/artifact\/diff$/, async ({ params: [id], body }) => {
+      const { source, content } = await body();
+      if (typeof source !== 'string' || typeof content !== 'string') throw new HttpError(400, 'a diff is from a source to a content');
+      const diff = unified(source, original(project(id!), source), content);
+      return { diff: diff.slice(0, DIFF_CHARS), truncated: diff.length > DIFF_CHARS };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/delivery-diff$/, ({ params: [id], url }) => {
       const dir = store.dir(project(id!).id);
