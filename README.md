@@ -70,8 +70,8 @@ and 1,548 hours on the earlier Python runtime it needed a human research decisio
 
 **Skills.** Argus ships four skills in [`packages/core/skills/`](packages/core/skills):
 `research`, `software`, `argus-maintenance` and `learning`. A skill is a folder whose
-`README.md` says in its first line what kind of work it is for, and every role's prompt
-lists them. The Manager and the Engineer (and you) may write new skills and improve existing ones
+`SKILL.md` says in its front matter what kind of work it is for, as Codex and Claude Code write
+a skill, and every role's prompt lists them. The Manager and the Engineer (and you) may write new skills and improve existing ones
 in `~/.argus/skills/`, where a skill replaces the bundled one of the same name; the web page
 shows them under **Knowledge & skills** as they change. A plugin is a skill folder that
 holds a `plugin.json` (`name`, `description`, `version`, `url`): whoever installs it starts

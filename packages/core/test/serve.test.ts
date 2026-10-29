@@ -460,28 +460,29 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   };
   const before = await revision();
 
-  await write('quant/README.md', '# Backtest a trading idea without lookahead\n\nRun check.mjs.\n', 1);
+  const skill = (description: string) => `---\nname: x\ndescription: ${description}\n---\n`;
+  await write('quant/SKILL.md', `${skill('Backtest a trading idea without lookahead')}\nRun check.mjs.\n`, 1);
   await write('quant/check.mjs', 'console.log("no lookahead");\n', 2);
-  await write('research/README.md', '# Research as this operator wants it\n', 3);
+  await write('research/SKILL.md', skill('Research as this operator wants it'), 3);
   const catalog = await get<{ items: Record<string, unknown>[]; errors: unknown }>('/api/skill-library?sid=p-1');
   assert.deepEqual(catalog.errors, []);
   const item = (name: string) => catalog.items.find(item => item.name === name);
   assert.deepEqual(item('quant'), {
-    library: 'shared', source: 'shared', scope: 'global', vertical: '', role: '', path: 'quant/README.md', name: 'quant',
+    library: 'shared', source: 'shared', scope: 'global', vertical: '', role: '', path: 'quant/SKILL.md', name: 'quant',
     description: 'Backtest a trading idea without lookahead', is_default: false, updated_at: at(1),
   });
   // The operator's research skill takes the place of Argus's.
   assert.deepEqual([item('research')?.source, item('research')?.description], ['shared', 'Research as this operator wants it']);
   assert.deepEqual([item('software')?.library, item('software')?.path, item('software')?.is_default, item('software')?.updated_at],
-    ['bundled', 'software/README.md', true, null]);
+    ['bundled', 'software/SKILL.md', true, null]);
 
   const document = (library: string, path: string) => call(`/api/skill-library/document?${new URLSearchParams({ library, path })}`);
   assert.equal((await (await document('shared', 'quant/check.mjs')).json() as { content: string }).content, 'console.log("no lookahead");\n');
-  assert.equal((await (await document('bundled', 'software/README.md')).json() as { content: string }).content,
-    await readFile(join(SKILLS, 'software', 'README.md'), 'utf8'));
+  assert.equal((await (await document('bundled', 'software/SKILL.md')).json() as { content: string }).content,
+    await readFile(join(SKILLS, 'software', 'SKILL.md'), 'utf8'));
   // Only the files of the skills can be read.
   for (const [library, path] of [['shared', `../projects/${id}/project.json`], ['shared', join(home, 'projects', id, 'project.json')],
-    ['bundled', '../package.json'], ['shared', 'quant'], ['wiki', 'quant/README.md']]) {
+    ['bundled', '../package.json'], ['shared', 'quant'], ['wiki', 'quant/SKILL.md']]) {
     assert.equal((await document(library!, path!)).status, 404, `${library} ${path}`);
   }
 
@@ -491,16 +492,16 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   const { events } = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=2');
   const learned = { kind: 'learned', scope: 'global', vertical: '', source_project: '', role: '', note: '' };
   assert.deepEqual(events, [
-    { ...learned, ts: at(3), path: 'research/README.md', title: 'Research as this operator wants it' },
+    { ...learned, ts: at(3), path: 'research/SKILL.md', title: 'Research as this operator wants it' },
     { ...learned, ts: at(2), path: 'quant/check.mjs', title: 'quant/check.mjs' },
   ]);
   const changed = await revision();
   await write('quant/check.mjs', 'console.log("no lookahead, checked");\n', 60);
   assert.ok(await revision() > changed);
 
-  await write('bench/README.md', '# A workbench for crystal structures\n', 4);
+  await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
   await write('bench/plugin.json', JSON.stringify({ name: 'Bench', description: 'Solve a structure', version: '1.2', url: 'http://127.0.0.1:9100/' }), 4);
-  await write('sketch/README.md', '# A plugin not ready to open\n', 5);
+  await write('sketch/SKILL.md', skill('A plugin not ready to open'), 5);
   // A url that is not a web address is no url: the page would run it in itself.
   await write('sketch/plugin.json', JSON.stringify({ name: 'Sketch', url: 'javascript:alert(1)' }), 5);
   const { plugins } = await get<{ plugins: Record<string, unknown>[] }>('/api/plugins');
@@ -510,12 +511,12 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   const unready = await post('/api/plugins/sketch/launch', {});
   assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no http(s) url to open.` }]);
   assert.equal((await post('/api/plugins/quant/launch', {})).status, 404);
-  // A skill whose README is a link, or not a file, is no skill: it brings in nothing from elsewhere.
+  // A skill whose SKILL.md is a link, or not a file, is no skill: it brings in nothing from elsewhere.
   await writeFile(join(home, 'secret'), 'token=hunter2\n');
   await mkdir(join(own, 'linked'), { recursive: true });
   // Windows lets only some accounts make a link.
-  await symlink(join(home, 'secret'), join(own, 'linked', 'README.md')).catch(() => undefined);
-  await mkdir(join(own, 'odd', 'README.md'), { recursive: true });
+  await symlink(join(home, 'secret'), join(own, 'linked', 'SKILL.md')).catch(() => undefined);
+  await mkdir(join(own, 'odd', 'SKILL.md'), { recursive: true });
   const names = (await get<{ items: { name: string }[] }>('/api/skill-library')).items.map(item => item.name);
   assert.deepEqual([names.includes('linked'), names.includes('odd'), names.includes('bench')], [false, false, true]);
 });

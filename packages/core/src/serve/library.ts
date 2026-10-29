@@ -7,7 +7,7 @@
 import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { isJsonObject } from '@argus/contracts';
-import { purpose, SKILLS, skills, skillsHome } from '../prompts.js';
+import { purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
@@ -22,8 +22,8 @@ export function library(store: Store): [string, RegExp, Handler][] {
       items: [...skills(store.home)].map(([name, dir]) => {
         const source = dirname(dir) === SKILLS ? 'bundled' : 'shared';
         return {
-          library: source, source, scope: 'global', vertical: '', role: '', path: `${name}/README.md`, name, description: purpose(dir),
-          is_default: source === 'bundled', updated_at: source === 'bundled' ? null : statSync(join(dir, 'README.md')).mtimeMs / 1000,
+          library: source, source, scope: 'global', vertical: '', role: '', path: `${name}/${SKILL}`, name, description: purpose(dir),
+          is_default: source === 'bundled', updated_at: source === 'bundled' ? null : statSync(join(dir, SKILL)).mtimeMs / 1000,
         };
       }),
     })],
@@ -45,7 +45,7 @@ export function library(store: Store): [string, RegExp, Handler][] {
       return {
         events: changed(home).slice(0, Number(url.searchParams.get('limit') ?? 50)).map(({ path, stat }) => ({
           ts: stat.mtimeMs / 1000, kind: 'learned', scope: 'global', vertical: '', path, source_project: '', role: '', note: '',
-          title: basename(path) === 'README.md' ? purpose(join(home, dirname(path))) : path,
+          title: basename(path) === SKILL ? purpose(join(home, dirname(path))) : path,
         })),
       };
     }],

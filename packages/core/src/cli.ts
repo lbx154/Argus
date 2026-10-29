@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { callAgent } from './agent/call.js';
+import { renameSkills } from './prompts.js';
 import { serve } from './serve/index.js';
 import { Store } from './store.js';
 import { BACKENDS, type Backend } from './types.js';
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
   if (!BACKENDS.includes(backend)) throw new Error(`--backend must be one of ${BACKENDS.join(', ')}`);
   const store = new Store();
   const release = store.own();
+  renameSkills(store.home);
   // Always a token: the roles' sandbox shares this machine's network, so the cockpit's address
   // alone must not let a role, or a page the operator visits, start work.
   const token = process.env.ARGUS_WEB_TOKEN || kept(join(store.home, 'web-token'));

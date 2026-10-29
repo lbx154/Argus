@@ -144,7 +144,8 @@ stays stopped.
 
 ## Skills and plugins
 
-A skill is a folder whose `README.md` says in its first line what kind of work it is for.
+A skill is a folder whose `SKILL.md` says in its front matter (`name`, `description`), as
+Codex and Claude Code write a skill, what kind of work it is for.
 Argus's own are in the package (`research`, `software`, `argus-maintenance`, `learning`)
 and are replaced on upgrade; those in `~/.argus/skills/<name>/` are the roles' and yours,
 and one there takes the place of a bundled skill with the same name. Every role's prompt

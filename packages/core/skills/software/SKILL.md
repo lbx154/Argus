@@ -1,4 +1,7 @@
-# Changing a software project: a change that builds, whose tests ran, and that does what was asked
+---
+name: software
+description: "Changing a software project: a change that builds, whose tests ran, and that does what was asked"
+---
 
 ## Why the Reviewer builds the change itself
 

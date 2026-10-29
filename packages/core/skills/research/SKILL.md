@@ -1,4 +1,7 @@
-# Research that ends in a claim others should trust: the pitfalls past projects hit, and what good evidence looks like
+---
+name: research
+description: "Research that ends in a claim others should trust: the pitfalls past projects hit, and what good evidence looks like"
+---
 
 A measurement, a one-off script or a comparison asked for in a sentence needs none of this.
 

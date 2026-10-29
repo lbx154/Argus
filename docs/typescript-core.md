@@ -78,8 +78,8 @@ finish a small request in its own turn.
 
 ## The skill library
 
-A skill is what was learned about a kind of work, kept as a folder whose `README.md` says in its
-first line what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade
+A skill is what was learned about a kind of work, kept as a folder whose `SKILL.md` says in its
+front matter (`name`, `description`), as Codex and Claude Code write a skill, what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade
 replaces, and the roles' and the operator's in `$ARGUS_HOME/skills/<name>/`, where one takes the
 place of Argus's of the same name. It holds the pitfalls past projects hit and what good work
 looks like, not steps, files or who does what, and nothing a capable model already knows: Codex on
@@ -87,7 +87,7 @@ its own did a grokking study well in 15 minutes for $1.40, while an Argus projec
 spent 46% of its tool-output tokens rereading the research skill's manuals.
 
 The library is the roles'. Argus gives it a place, lists it and shows it, and nothing else: every
-role's prompt lists each skill by its README's first line and path and tells the role the library
+role's prompt lists each skill by its description and path and tells the role the library
 is its own, every call reads the skills, and a role that writes (the Manager, the Engineer) may
 write `$ARGUS_HOME/skills/`. When to write a skill, what to change in one and whether to install a
 plugin are the roles' to decide: there is no reflection after a task, no scoring, curating, recall

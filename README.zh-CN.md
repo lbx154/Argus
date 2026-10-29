@@ -63,7 +63,7 @@
 
 **技能。**Argus 自带四个技能，在 [`packages/core/skills/`](packages/core/skills)：
 `research`、`software`、`argus-maintenance` 和 `learning`。一个技能就是一个文件夹，它的
-`README.md` 第一行写明它适用于哪类工作；每个角色的提示词里都列出了全部技能。经理和工程师
+`SKILL.md` 开头的 frontmatter 写明它适用于哪类工作（和 Codex、Claude Code 的技能格式相同）；每个角色的提示词里都列出了全部技能。经理和工程师
 （还有你）可以在 `~/.argus/skills/` 里写新技能、改进已有技能，同名时这里的技能取代自带的；
 网页的**知识与技能**里能看到它们的变化。插件是一个带 `plugin.json`（`name`、`description`、
 `version`、`url`）的技能文件夹：谁装的谁启动，网页列出它并打开它的 `url`。Argus 不复盘、

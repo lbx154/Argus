@@ -1,8 +1,12 @@
-# Writing a skill: what later projects can use, kept as something an agent can run or recheck, and proven on a real case
+---
+name: learning
+description: "Writing a skill: what later projects can use, kept as something an agent can run or recheck, and proven on a real case"
+---
 
-A skill is a folder under `$ARGUS_HOME/skills/` (`~/.argus/skills/` by default) whose README.md
-says in its first line, one short sentence, what work it is for: that line is all a role sees of
-it until its work fits. Improve the skill that already covers the work instead of writing a second
+A skill is a folder under `$ARGUS_HOME/skills/` (`~/.argus/skills/` by default) whose SKILL.md
+opens with front matter, as Codex and Claude Code write a skill: `name`, the folder's name, and
+`description`, one short sentence in double quotes saying what work it is for. That sentence is all
+a role sees of it until its work fits. Improve the skill that already covers the work instead of writing a second
 one. To improve one of Argus's own, copy its folder there under the same name: yours takes its place.
 
 Keep only what an agent can run or recheck: a script that does a step or finds a failure (Node runs

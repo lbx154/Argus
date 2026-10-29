@@ -1,4 +1,7 @@
-# Changing Argus itself: its TypeScript core, prompts and skills, kept small and fixed at the root
+---
+name: argus-maintenance
+description: "Changing Argus itself: its TypeScript core, prompts and skills, kept small and fixed at the root"
+---
 
 The workspace is Argus's repository, and what it maintains is the TypeScript core, `packages/core`:
 `src/` (the CLI, the flow, the store, the agent calls, the web server), `prompts/` (each role's
@@ -22,7 +25,7 @@ rules follow, and each is a reason to turn a change away.
 - **One fact, one place.** A fact lives in one place, with no copy or digest of it beside it: a
   project's state is in `project.json`, and `events.jsonl` records changes without ever being
   folded back into state. A rule is written once, in a role's prompt, the hand-off form's schema
-  or a skill's README. The host reads the hand-off form's addressee and never guesses from a
+  or a skill's SKILL.md. The host reads the hand-off form's addressee and never guesses from a
   letter's text.
 - **Knowledge lives in skills.** How a kind of work goes belongs in its folder under
   `packages/core/skills/`, not in the core or the role prompts, and the core names no skill.

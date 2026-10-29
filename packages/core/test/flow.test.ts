@@ -3,13 +3,13 @@ import test, { type TestContext } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { SKILLS } from '../src/prompts.js';
+import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
@@ -96,11 +96,23 @@ test('the Manager answers directly', async t => {
   assert.deepEqual([request?.form, request?.access, request?.readDirs, request?.writeDirs],
     ['manager', 'write', [store.dir(id), SKILLS], [join(home, 'skills')]]);
   assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Where things are[\s\S]*## Message\nWhat is 6 times 7\?$/);
-  const readme = join(SKILLS, 'research', 'README.md');
-  assert.ok(request?.prompt.includes(`\n- research: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^# /, '')} (${readme})\n`));
+  const skill = join(SKILLS, 'research', 'SKILL.md');
+  assert.ok(request?.prompt.includes('\n- research: Research that ends in a claim others should trust: the pitfalls past projects hit, '
+    + `and what good evidence looks like (${skill})\n`));
   // A project with no work rests, and an answer leaves it resting.
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
+});
+
+test('a skill from before SKILL.md, a README.md whose first line said what it was for, becomes one, once', async t => {
+  const { home } = await setup(t, []);
+  const dir = join(home, 'skills', 'quant');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'README.md'), '# Backtest a trading idea: without lookahead\n\nRun check.mjs.\n');
+  renameSkills(home);
+  renameSkills(home);
+  assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), '---\nname: quant\ndescription: "Backtest a trading idea: without lookahead"\n---\n\nRun check.mjs.\n');
+  assert.deepEqual([existsSync(join(dir, 'README.md')), purpose(dir)], [false, 'Backtest a trading idea: without lookahead']);
 });
 
 test("every role is shown the skills, its own in place of Argus's of the same name, and may write them when it writes", async t => {
@@ -111,17 +123,18 @@ test("every role is shown the skills, its own in place of Argus's of the same na
     { role: 'reviewer', to: 'operator', letter: 'Is the first row a header?' },
   ]);
   const own = join(home, 'skills');
-  for (const [name, purpose] of [['quant', 'Backtest a trading idea without lookahead'], ['research', 'Research as this operator wants it']]) {
+  // A description as it stands or in quotes, as a skill for Codex or Claude Code has it.
+  for (const [name, description] of [['quant', 'Backtest a trading idea without lookahead'], ['research', '"Research as this operator wants it"']]) {
     mkdirSync(join(own, name!), { recursive: true });
-    writeFileSync(join(own, name!, 'README.md'), `# ${purpose}\n`);
+    writeFileSync(join(own, name!, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\nHow.\n`);
   }
   await say(flow, id, 'Summarise data.csv');
   assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'write'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
   for (const { prompt, readDirs, writeDirs } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
     assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
-    assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'README.md')})\n`));
-    assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'README.md')})\n`));
+    assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
+    assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- software: `) && !prompt.includes(join(SKILLS, 'research')));
     assert.ok(prompt.includes(`\nThe skills are yours: when your work teaches you something later projects can use, write a new skill in ${own} or improve one there.\n`));
   }
