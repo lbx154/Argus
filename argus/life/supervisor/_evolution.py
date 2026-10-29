@@ -107,14 +107,6 @@ class EvolutionMixin:
                 mission_result=mission_result,
                 on_event=self._emit,
             ))
-            if success:
-                from ...manager.domain_tidy import tidy_domains_after_mission
-
-                tidy_domains_after_mission(
-                    self._project_workdir(),
-                    approve=None,
-                    on_event=self._emit,
-                )
             if any(counts.values()):
                 log.info("manager skill propagation after mission: %s", counts)
             return counts
