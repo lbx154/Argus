@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, replaceEqualDeep, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import { api, isAuthenticationError, openProjectStates, openStream, type EventMsg, type ProjectIndex, type Snapshot } from './api';
 import { eventKey } from '../../core/src/events';
@@ -79,11 +79,19 @@ export function useProjectCosts() {
   });
 }
 
+/** A project's snapshot, however it arrives: read, read again, or pushed. A reply read before a
+ * pushed snapshot can arrive after it, so of two the page keeps the one the server read later. */
+export const snapshotQuery = (sid: string | null) => queryOptions({
+  queryKey: ['snapshot', sid],
+  queryFn: ({ signal }) => api.snapshot(sid!, signal),
+  structuralSharing: (held: unknown, next: unknown) =>
+    ((held as Snapshot | undefined)?.read_at ?? 0) > ((next as Snapshot).read_at ?? 0) ? held : replaceEqualDeep(held, next),
+});
+
 export function useSnapshot(sid: string | null) {
   const polled = useCapability(POLL_CAPABILITY);
   return useQuery({
-    queryKey: ['snapshot', sid],
-    queryFn: ({ signal }) => api.snapshot(sid!, signal),
+    ...snapshotQuery(sid),
     enabled: !!sid,
     refetchInterval: (query) => polled && snapshotPollInterval(query.state.data),
   });

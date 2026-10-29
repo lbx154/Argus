@@ -188,6 +188,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(await (await post(`${P}/decisions/${card.id}/resolve`, { option_id: 'custom', note: 'Ship it today' })).json(), { resolved: true });
   const done = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
   assert.deepEqual(done.pending_questions, []);
+  // Each read is stamped later than the one before, so a page keeps the newer of two.
+  assert.ok((await get<Snapshot>(`${P}/snapshot`)).read_at! > done.read_at!);
   assert.match(requests.at(-2)!.prompt, /They answered: Ship it today/);
   // The Manager's report, written after the team's work, is in the conversation too.
   assert.deepEqual((await get<{ rows: { text: string }[] }>(`${P}/conversation?limit=120`)).rows.at(-1)?.text, 'report.md gives the totals.');

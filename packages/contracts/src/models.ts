@@ -358,6 +358,8 @@ export interface MissionView {
 
 export interface Snapshot {
   schema_version?: number;
+  /** When the server read it, in milliseconds; a later read is larger. A page holds the later of two. */
+  read_at?: number;
   session: {
     id: string;
     display_name: string;

@@ -32,6 +32,9 @@ export const BACKEND_LABELS: Record<Backend, string> = { codex: 'Codex', claude:
 const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change' };
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
+let lastRead = 0;
+/** When a snapshot is read: a later read is stamped larger, even within one millisecond. */
+const readAt = (): number => (lastRead = Math.max(Date.now(), lastRead + 1));
 
 /** A project's name: its own, else its request's first line. */
 export const named = ({ name, request }: Project): string => name || request.split('\n')[0]!.slice(0, 80);
@@ -387,6 +390,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   const last = ran();
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
+    read_at: readAt(),
     session: {
       id, display_name: named(project), objective: project.request, created: seconds(project.created),
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,

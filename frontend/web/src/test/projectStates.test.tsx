@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api, type ProjectIndex, type ProjectRow, type ProjectState, type Snapshot } from '../api';
-import { useProjectCosts, useProjects } from '../hooks';
+import { useProjectCosts, useProjects, useSnapshot } from '../hooks';
 import { Capabilities, POLL_CAPABILITY } from '../lib/capabilities';
 
 const stream = vi.hoisted(() => ({ opened: 0, push: undefined as undefined | ((state: ProjectState) => void) }));
@@ -25,10 +25,14 @@ const ids = () => client!.getQueryData<ProjectIndex>(['projects'])?.projects.map
 function Page() {
   useProjects();
   useProjectCosts();
+  useSnapshot('p-a');
   return null;
 }
 
+const read = (read_at: number) => ({ session: { id: 'p-a' }, daemon: {}, read_at }) as Snapshot;
+
 async function mount(capabilities: string[]) {
+  vi.spyOn(api, 'snapshot').mockResolvedValue(read(1));
   vi.spyOn(api, 'projectIndex').mockResolvedValue({ projects: [row('p-a')], local_cwd: '/synthetic' });
   const costs = vi.spyOn(api, 'projectCosts').mockResolvedValue({ projects: [], generated_at: 0 });
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -60,4 +64,20 @@ it('polls a server that declares it, without following its state', async () => {
   expect(stream.opened).toBe(0);
   expect(costs).toHaveBeenCalledTimes(1);
   expect(ids()).toEqual(['p-a']);
+});
+
+it('keeps a pushed snapshot over an older read that arrives after it', async () => {
+  await mount(['manager.sse.v1']);
+  expect(client!.getQueryData(['snapshot', 'p-a'])).toEqual(read(1));
+  let reply: (snapshot: Snapshot) => void = () => {};
+  vi.mocked(api.snapshot).mockReturnValueOnce(new Promise(resolve => { reply = resolve; }));
+  // Read again: the server reads it, then a change is pushed, then the reply arrives.
+  void act(() => client!.invalidateQueries({ queryKey: ['snapshot', 'p-a'] }));
+  act(() => stream.push!({ type: 'project', id: 'p-a', row: row('p-a'), snapshot: read(3) }));
+  await act(async () => reply(read(2)));
+  expect(client!.getQueryData(['snapshot', 'p-a'])).toEqual(read(3));
+  // A later read replaces it.
+  vi.mocked(api.snapshot).mockResolvedValueOnce(read(4));
+  await act(() => client!.invalidateQueries({ queryKey: ['snapshot', 'p-a'] }));
+  expect(client!.getQueryData(['snapshot', 'p-a'])).toEqual(read(4));
 });

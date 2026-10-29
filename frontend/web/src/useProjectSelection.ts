@@ -1,7 +1,8 @@
 import { type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { resolveProjectSelection, reconcileProjectSelection } from '../../core/src/projects';
-import { api, type ProjectRow } from './api';
+import { type ProjectRow } from './api';
+import { snapshotQuery } from './hooks';
 import { type NoticeTone } from './components/ActionNotice';
 
 export type ProjectHistoryMode = 'push' | 'replace';
@@ -130,11 +131,7 @@ export function useProjectSelection({
   }, [activateProject]);
 
   const prefetchProject = useCallback((id: string) => {
-    void queryClient.prefetchQuery({
-      queryKey: ['snapshot', id],
-      queryFn: ({ signal }) => api.snapshot(id, signal),
-      staleTime: 3_000,
-    });
+    void queryClient.prefetchQuery(snapshotQuery(id));
   }, [queryClient]);
 
   useEffect(() => {
