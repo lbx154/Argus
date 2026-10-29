@@ -121,8 +121,12 @@
 /* While a line is being drawn every card shows it can take it. */
 .map-canvas-wrap[data-linking="true"] .react-flow__node-human > .canvas-card { border-color: var(--map-accent); }
 .map-canvas-wrap[data-linking="true"] .react-flow__node-task .map-macro { border-style: dashed; }
-.map-canvas-wrap[data-linking="true"] .react-flow__node-human:hover > .canvas-card,
-.map-canvas-wrap[data-linking="true"] .react-flow__node-task:hover .map-macro { outline: calc(2 * var(--px, 4px)) solid var(--map-accent); outline-offset: calc(3 * var(--px, 4px)); }
+/* The card the line would link to if let go now (LinkGuide). */
+.canvas-link-target {
+  position: absolute; left: 0; top: 0; pointer-events: none; z-index: 10;
+  border-radius: calc(14 * var(--px, 4px)); outline: calc(3 * var(--px, 4px)) solid var(--map-accent);
+  outline-offset: calc(4 * var(--px, 4px)); box-shadow: 0 0 0 calc(10 * var(--px, 4px)) var(--map-accent-soft);
+}
 
 .react-flow__edge-path.canvas-link { stroke: var(--map-accent); stroke-dasharray: none; }
 /* What the records state about a person's card ("来自", "执行") is Argus's
@@ -135,7 +139,8 @@
   background: var(--map-paper, rgb(var(--panel))); color: var(--map-accent-ink); border: 1px solid var(--map-hairline);
 }
 .canvas-link-label:hover { color: var(--map-accent-ink); border-color: var(--map-accent); }
-.react-flow__connectionline path { stroke: var(--map-accent); stroke-width: 2.5; }
+/* The line being drawn, 2.5 screen px at any zoom. */
+.react-flow__connectionline path { stroke: var(--map-accent); stroke-width: 2.5; vector-effect: non-scaling-stroke; }
 .canvas-drop-hint { position: absolute; inset: 0; z-index: 5; pointer-events: none;
   outline: 2px dashed var(--map-accent); outline-offset: -8px; border-radius: 12px; background: var(--map-accent-soft); }
 .canvas-conversation-notice { display: flex; align-items: center; gap: 8px; }

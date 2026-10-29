@@ -8,12 +8,15 @@ import {
   type EdgeProps,
   type Node,
   type NodeProps,
+  useConnection,
+  useStoreApi,
+  ViewportPortal,
 } from "@xyflow/react";
 import { FileText, Flag, Lightbulb, MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   cardTextLines, connectDotSize, FAR_TEXT, humanFrame, linkKindLabel, STEP_STATUS, stepHeadHeight, stepMark,
-  type HumanCard, type LinkKind, type RouteStep,
+  type Box, type HumanCard, type LinkKind, type Point, type RouteStep,
 } from "./canvas";
 import { useSteppedZoom } from "./zoomStep";
 import "./canvas.css";
@@ -51,7 +54,7 @@ export const rimWidth = (step: number) => Math.round(Math.max(14, 14 / Math.max(
  * invisible until the card is hovered) and the dot on its right side. These
  * are handles, so pressing one draws a line while the card's middle still
  * drags, and a plain click still reaches the card. */
-export function ConnectSource({ zh }: { zh: boolean }) {
+function ConnectSource({ zh }: { zh: boolean }) {
   const rim = useSteppedZoom(rimWidth);
   const dot = useSteppedZoom(connectDotSize);
   const title = zh ? "拖到另一张卡上连线" : "Drag onto another card to link";
@@ -85,6 +88,43 @@ export function CanvasHandles({ connectable, zh }: { connectable: boolean; zh: b
       )))}
       {connectable && <ConnectSource zh={zh} />}
     </>
+  );
+}
+
+/** While a line is being drawn: the card it would link to if let go now,
+ * outlined (a finger has no hover to show it), and Esc to drop the line.
+ * ``targetAt`` is the same choice the drop makes, at a screen point. */
+export function LinkGuide({ targetAt, boxes, onCancel }: {
+  targetAt: (source: string, point: Point) => string | undefined;
+  boxes: ReadonlyArray<Box & { id: string }>;
+  onCancel: () => void;
+}) {
+  const store = useStoreApi();
+  const drawing = useConnection((c) => c.inProgress ? { source: c.fromNode.id, x: c.pointer.x, y: c.pointer.y } : null);
+  const active = drawing !== null;
+  useEffect(() => {
+    if (!active) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+      store.getState().cancelConnection();
+    };
+    document.addEventListener("keydown", key, true);
+    return () => document.removeEventListener("keydown", key, true);
+  }, [active, onCancel, store]);
+  if (!drawing) return null;
+  // React Flow keeps the pointer relative to the canvas element.
+  const frame = store.getState().domNode?.getBoundingClientRect();
+  const target = frame && targetAt(drawing.source, { x: frame.left + drawing.x, y: frame.top + drawing.y });
+  const box = target ? boxes.find((b) => b.id === target) : undefined;
+  if (!box) return null;
+  return (
+    <ViewportPortal>
+      <div className="canvas-link-target" data-testid="canvas-link-target" data-target={box.id}
+        style={{ transform: `translate(${box.x}px, ${box.y}px)`, width: box.width, height: box.height }} />
+    </ViewportPortal>
   );
 }
 
