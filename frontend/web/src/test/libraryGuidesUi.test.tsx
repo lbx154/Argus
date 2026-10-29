@@ -34,11 +34,11 @@ beforeEach(() => {
   vi.mocked(api.wikiDocument).mockResolvedValue({ ...wiki, content: '# ORIGINAL KNOWLEDGE\n\nNo automatic translation.\n', markdown: '', truncated: false });
 });
 
-it('unifies navigation into four categories while keeping private records, indexes and original scope', async () => {
+it('keeps private records, indexes and their original scope in the library\'s whole holdings', async () => {
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
   const nav = view!.root.findByType('nav');
-  expect(nav.findAllByType('button').map(content)).toEqual(['学习动态', '全局项目', '垂直领域', '项目']);
-  expect(nav.findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false, false]);
+  expect(nav.findAllByType('button').map(content)).toEqual(['学习动态', '全局项目']);
+  expect(nav.findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true]);
   expect(content(view!.root)).toContain('个人记录');
   act(() => view!.root.findAllByType('button').find(node => content(node).includes(wiki.title))!.props.onClick()); await settle();
   expect(api.wikiDocument).toHaveBeenCalledWith('s-A', 'private', '', wiki.path, expect.any(AbortSignal));
@@ -91,30 +91,30 @@ it('separates real learning records from file updates and reports source failure
 });
 
 it.each([
-  { locale: 'zh-CN', labels: ['学习动态', '全局项目', '垂直领域', '项目'], skillName: '可编辑演示文稿' },
-  { locale: 'en', labels: ['Learning feed', 'Across projects', 'Vertical', 'Project'], skillName: 'Editable Presentations with PPT Master' },
-])('restores the original category order and learning-feed default in $locale', async ({ locale, labels, skillName }) => {
+  { locale: 'zh-CN', labels: ['学习动态', '全局项目'], skillName: '可编辑演示文稿' },
+  { locale: 'en', labels: ['Learning feed', 'Across projects'], skillName: 'Editable Presentations with PPT Master' },
+])('offers the learning feed, by default, and everything the library holds in $locale', async ({ locale, labels, skillName }) => {
   state.locale = locale;
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
   const tabs = view!.root.findByType('nav').findAllByType('button');
   expect(tabs.map(content)).toEqual(labels);
-  expect(tabs.map(node => node.props['aria-pressed'])).toEqual([true, false, false, false]);
+  expect(tabs.map(node => node.props['aria-pressed'])).toEqual([true, false]);
   expect(api.knowledgeFeed).toHaveBeenCalled();
   expect(content(view!.root)).not.toContain(skillName);
   act(() => button(labels[1]).props.onClick()); await settle();
   expect(content(view!.root)).toContain(skillName);
-  expect(view!.root.findByType('nav').findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false, false]);
+  expect(view!.root.findByType('nav').findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true]);
 });
 
-it('assigns lessons, principles, profiles and indexes to their original scopes in the four-category browser', async () => {
+it('lists lessons, principles and indexes with everything the library holds, whatever scope they came from', async () => {
   const wikiCatalog = await api.wikiLibrary(null);
   const skillCatalog = await api.skillLibrary(null);
   const catalog = { ...wikiCatalog, items: [{ ...wiki, scope: 'vertical' as const, vertical: 'research', kind: 'lesson' }],
     libraries: [...wikiCatalog.libraries, { scope: 'vertical' as const, vertical: 'research', root: '/synthetic/research',
       pages: [], index_markdown: '# index', principles: 'Keep the evidence' }] };
-  const entries = learningEntries(catalog, skillCatalog, 'vertical', 'zh-CN');
+  const entries = learningEntries(catalog, skillCatalog, 'global', 'zh-CN').filter(entry => entry.vertical === 'research');
   expect(entries.map(entry => entry.kind).sort()).toEqual(['index', 'knowledge', 'principles']);
-  expect(entries.every(entry => entry.scope === 'vertical' && entry.vertical === 'research')).toBe(true);
-  expect(learningEntries(catalog, skillCatalog, 'project', 'en').some(entry => entry.scope === 'private')).toBe(false);
+  // What was learned lately is the feed: no index or principles there.
+  expect(learningEntries(catalog, skillCatalog, 'feed', 'zh-CN').some(entry => entry.kind === 'index' || entry.kind === 'principles')).toBe(false);
 });
 afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; client.clear(); vi.useRealTimers(); });

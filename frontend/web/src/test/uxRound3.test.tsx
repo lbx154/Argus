@@ -26,7 +26,7 @@ describe('attachments a researcher actually has', () => {
 });
 
 describe('sidebar knowledge entry', () => {
-  it('opens the current project’s knowledge instead of the raw learning feed', async () => {
+  it('opens everything the library holds instead of the raw learning feed', async () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
     vi.stubGlobal('window', new EventTarget());
     vi.spyOn(api, 'organization').mockResolvedValue({ value: {}, revision: 0 });
@@ -41,7 +41,7 @@ describe('sidebar knowledge entry', () => {
       });
       const entry = view!.root.findAll((node) => node.type === 'button' && node.props['aria-label'] === 'Knowledge & skills')[0];
       act(() => entry.props.onClick());
-      expect(onOpenLearning).toHaveBeenCalledWith('project');
+      expect(onOpenLearning).toHaveBeenCalledWith('global');
     } finally {
       act(() => view!.unmount());
       client.clear();

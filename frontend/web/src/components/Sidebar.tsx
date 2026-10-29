@@ -132,7 +132,7 @@ export function Sidebar({
   // Plugins, the knowledge library and the domain store are for experienced users.
   const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
   const toggleAdvanced = () => setAdvancedOpen((open) => { writeLocalStorage(ADVANCED_KEY, open ? 'closed' : 'open'); return !open; });
-  const openKnowledge = onOpenLearning ? () => onOpenLearning(activeId ? 'project' : 'global') : undefined;
+  const openKnowledge = onOpenLearning ? () => onOpenLearning('global') : undefined;
   const resultsLabel = zh ? '成果' : 'Results';
   const resultsTitle = !activeId ? (zh ? '先选择一个项目' : 'Select a project first')
     : resultsCount ? (zh ? `查看这个项目的 ${resultsCount} 份成果` : `Open this project's ${resultsCount} result(s)`)

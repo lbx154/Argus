@@ -182,12 +182,12 @@ export default function App() {
   }, []);
   const openSkillLibrary = useCallback((item?: SkillLibraryItem, scope: SkillScope | 'recent' = 'recent') => {
     setLearningSelection(item ? { kind: 'skill', item } : null);
-    setLearningScope(item?.scope ?? (scope === 'recent' ? 'feed' : scope));
+    setLearningScope(item || scope !== 'recent' ? 'global' : 'feed');
     setOverlay('learning');
   }, []);
   const openWiki = useCallback((page?: WikiLibraryItem) => {
     setLearningSelection(page ? { kind: 'knowledge', item: page } : null);
-    setLearningScope(page?.scope === 'private' ? 'global' : page?.scope ?? 'feed');
+    setLearningScope(page ? 'global' : 'feed');
     setOverlay('learning');
   }, []);
   const {
