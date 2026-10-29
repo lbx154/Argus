@@ -943,7 +943,7 @@ function ConversationThread({
   const replies = replyParts.flatMap((part) => part.reply ? [part.reply] : []);
   const folded = foldedContinuationRuns(replies);
   const [openRuns, setOpenRuns] = useState<Set<string>>(() => new Set());
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   // Notices and receipts follow the reply that carried them, in time order.
   const seenDeliveries = new Set<string>();
   const after = new Map(replyParts.map((part, index) => {
@@ -989,15 +989,20 @@ function ConversationThread({
             {trailing(key)}
           </Fragment>;
         }
+        const reply = <ConversationRow ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact} revision={revision} />;
+        // A brief the Manager hands the team shows as what it hands over, by its title, and opens whole.
+        const to = String(row.ev.to ?? '');
         return (
           <Fragment key={key}>
-            <ConversationRow
-              ev={row.ev}
-              r={row.r}
-              artifacts={artifacts}
-              onOpenArtifact={onOpenArtifact}
-              revision={revision}
-            />
+            {to === 'planner' || to === 'engineer' ? (
+              <details className="conversation-brief mx-auto w-full max-w-full px-6 py-1.5 lg:max-w-[808px]" data-testid="conversation-brief">
+                <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
+                  {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}：` : `Handed to the ${roleLabel(to, t)}: `}
+                  <span className="text-ink">{row.r.text.split('\n')[0]!.replace(/^#+\s*/, '')}</span>
+                </summary>
+                {reply}
+              </details>
+            ) : reply}
             {trailing(key)}
           </Fragment>
         );

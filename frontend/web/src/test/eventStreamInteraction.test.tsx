@@ -752,3 +752,18 @@ describe('a parked task offers Resume where its receipt says so', () => {
     renderer = undefined;
   });
 });
+
+it("shows a brief the Manager hands the team by its title, folded, and a reply to the operator as it is", () => {
+  mount([
+    { type: 'ui.operator', text: 'Compare the two sorts', ts: 1, message_id: 'm0-operator' },
+    { type: 'ui.argus', agent_layer: 'manager', to: 'planner', text: '# Compare the two sorts\nSplit it into two tasks that run side by side.', ts: 2, message_id: 'm0-argus' },
+    { type: 'ui.operator', text: 'hi', ts: 3, message_id: 'm2-operator' },
+    { type: 'ui.argus', agent_layer: 'manager', to: 'operator', text: 'Hello.', ts: 4, message_id: 'm2-argus' },
+  ]);
+  const briefs = renderer!.root.findAllByProps({ 'data-testid': 'conversation-brief' });
+  expect(briefs).toHaveLength(1);
+  expect(briefs[0]!.type).toBe('details');
+  const summary = briefs[0]!.findByType('summary');
+  expect(summary.children.join('')).toContain('Handed to the Planner: ');
+  expect(summary.findByType('span').children).toEqual(['Compare the two sorts']);
+});
