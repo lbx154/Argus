@@ -46,7 +46,11 @@ A hand-off is a letter and its addressee. Every turn ends with `{ "to": ..., "le
 as its final answer, and the backend CLI holds the model to that shape (Codex
 `--output-schema`, Claude `--json-schema`), or, with no such answer, takes it as the arguments
 of a `hand_off` tool whose call ends the turn (Copilot, Pi), so a turn cannot end in prose that
-only reads like a hand-off. The addressee is the one thing the host reads, and it is always
+only reads like a hand-off. A role's standing instructions, its rules and where things are, go
+apart from the turn's message: with every turn where the backend has a place for them (Codex
+`developer_instructions`, Claude `--append-system-prompt`), so they outlast its compaction of a
+long session, and at the head of a session's first prompt where it has none (Copilot, Pi). The
+addressee is the one thing the host reads, and it is always
 someone who acts on the letter: never a state such as done. The letter is free text, passed to
 its reader as written: they see the workspace, Argus's record and the letter, not the writer's
 conversation, so a letter that hands on new work is that work's whole brief. The operator reads
@@ -87,7 +91,7 @@ its own did a grokking study well in 15 minutes for $1.40, while an Argus projec
 spent 46% of its tool-output tokens rereading the research skill's manuals.
 
 The library is the roles'. Argus gives it a place, lists it and shows it, and nothing else: every
-role's prompt lists each skill by its description and path and tells the role the library
+role's standing instructions list each skill by its description and path and tells the role the library
 is its own, every call reads the skills, and a role that writes (the Manager, the Engineer) may
 write `$ARGUS_HOME/skills/`. When to write a skill, what to change in one and whether to install a
 plugin are the roles' to decide: there is no reflection after a task, no scoring, curating, recall

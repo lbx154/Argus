@@ -11,6 +11,7 @@ export const claude: StartBackend = (request, { confined, schema }) => {
     '-p', '--verbose', '--output-format', 'stream-json',
     ...request.model ? ['--model', request.model] : [],
     ...request.effort ? ['--effort', request.effort] : [],
+    ...request.instructions ? ['--append-system-prompt', request.instructions] : [],
     // Inside bubblewrap the sandbox is bubblewrap's, and a reader's workdir is mounted read-only,
     // so it may run commands (a check) too; outside it, a reader only reads and a writer only edits.
     ...request.access === 'read' && !confined ? ['--tools', 'Read,Glob,Grep']
@@ -23,7 +24,7 @@ export const claude: StartBackend = (request, { confined, schema }) => {
   let model: string | null = null;
   let result: Record<string, unknown> | null = null;
   return {
-    args,
+    args, instructed: true,
     consume(event) {
       if (typeof event.session_id === 'string' && event.session_id) threadId = event.session_id;
       if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string') model = event.model;

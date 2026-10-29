@@ -95,9 +95,11 @@ test('the Manager answers directly', async t => {
   const [request] = requests;
   assert.deepEqual([request?.form, request?.access, request?.readDirs, request?.writeDirs],
     ['manager', 'write', [store.dir(id), SKILLS], [join(home, 'skills')]]);
-  assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Where things are[\s\S]*## Message\nWhat is 6 times 7\?$/);
+  // The role's standing instructions go apart from the turn's message, with every turn.
+  assert.equal(request?.prompt, '## Message\nWhat is 6 times 7?');
+  assert.match(request?.instructions ?? '', /^You are the Argus Manager[\s\S]*## Where things are\n/);
   const skill = join(SKILLS, 'research', 'SKILL.md');
-  assert.ok(request?.prompt.includes('\n- research: Research that ends in a claim others should trust: the pitfalls past projects hit, '
+  assert.ok(request?.instructions?.includes('\n- research: Research that ends in a claim others should trust: the pitfalls past projects hit, '
     + `and what good evidence looks like (${skill})\n`));
   // A project with no work rests, and an answer leaves it resting.
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff']);
@@ -130,7 +132,7 @@ test("every role is shown the skills, its own in place of Argus's of the same na
   }
   await say(flow, id, 'Summarise data.csv');
   assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'write'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
-  for (const { prompt, readDirs, writeDirs } of requests) {
+  for (const { instructions: prompt = '', readDirs, writeDirs } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
     assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
@@ -154,9 +156,11 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   ]);
   const [, engineer, reviewer, manager] = requests;
   assert.deepEqual([engineer?.form, engineer?.access], ['engineer', 'write']);
-  assert.match(engineer?.prompt ?? '', /^You are the Argus Engineer[\s\S]*## Where things are\n[\s\S]*## Task t1, from the Manager\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
+  assert.equal(engineer?.prompt, '## Task t1, from the Manager\nBuild the CSV summary tool.\nsummary.py prints the column totals.');
+  assert.match(engineer?.instructions ?? '', /^You are the Argus Engineer[\s\S]*## Where things are\n/);
   assert.deepEqual([reviewer?.form, reviewer?.access], ['review', 'read']);
-  assert.match(reviewer?.prompt ?? '', /^You are the Argus Reviewer[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
+  assert.match(reviewer?.prompt ?? '', /^## Task t1[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
+  assert.match(reviewer?.instructions ?? '', /^You are the Argus Reviewer/);
   assert.equal(manager?.resume, 'manager-1');
   assert.equal(manager?.prompt, 'From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted: the totals match the data.');
   assert.deepEqual(events().map(event => event.type), [

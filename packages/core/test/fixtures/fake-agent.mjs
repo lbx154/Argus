@@ -4,7 +4,8 @@
 // with the scenario's output: as its final answer, as codex and claude do under --output-schema
 // or --json-schema, or, for copilot and pi, as the arguments of a call to the hand-off tool the
 // call's extension registers, loaded as that CLI loads it. Beside the workdir it notes the schema
-// it was held to, the credentials it could see and whether the tool's call ends the turn.
+// it was held to, the credentials it could see, whether the tool's call ends the turn, and the
+// instructions it was given: in its own place for them, or above the scenario.
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,8 @@ import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
 const cli = args[0] === 'exec' ? 'codex' : args.includes('--plugin-dir') ? 'copilot' : args.includes('--extension') ? 'pi' : 'claude';
-const scenario = JSON.parse(readFileSync(0, 'utf8'));
+const input = readFileSync(0, 'utf8').trimEnd().split('\n');
+const scenario = JSON.parse(input.at(-1));
 const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
 const option = name => args[args.indexOf(name) + 1];
 
@@ -39,7 +41,10 @@ const tool = cli === 'copilot' || cli === 'pi' ? await handOffTool() : null;
 const schema = cli === 'codex' ? JSON.parse(readFileSync(option('--output-schema'), 'utf8'))
   : cli === 'claude' ? JSON.parse(option('--json-schema')) : tool?.parameters;
 writeFileSync(join(process.cwd(), `seen-${cli}.json`), JSON.stringify({
-  schema, ends: tool?.ends, env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY|COPILOT_GITHUB_TOKEN)$/.test(name)),
+  schema, ends: tool?.ends,
+  instructions: cli === 'codex' ? args.filter(arg => arg.startsWith('developer_instructions=')).map(arg => JSON.parse(arg.slice(23)))[0]
+    : cli === 'claude' && args.includes('--append-system-prompt') ? option('--append-system-prompt') : input.slice(0, -1).join('\n').trim() || undefined,
+  env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY|COPILOT_GITHUB_TOKEN)$/.test(name)),
 }));
 
 const uuid7 = () => {

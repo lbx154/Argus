@@ -38,7 +38,7 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
   callsDir: join(root, 'argus', 'calls'), usageFile, ...more,
 });
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
-  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean;
+  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string;
 };
 const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.' };
 
@@ -130,6 +130,15 @@ for (const backend of BACKENDS) {
     assert.deepEqual(steps, [
       { kind: 'message', text: 'Working on it.' }, { kind: 'command', text: 'npm test' }, { kind: 'edit', text: 'parser.js' },
     ]);
+  });
+
+  test(`${backend}: the role's instructions reach it with every turn, or at the head of its session`, async () => {
+    const told = 'You are the Argus Engineer.\n\n## Where things are\nWorkspace: here';
+    const first = await call(backend, { output: handoff }, { instructions: told });
+    assert.equal(seen(backend).instructions, told);
+    await call(backend, { output: handoff }, { instructions: told, resume: first.threadId! });
+    // A backend with a place for them is given them again, past any compaction; the others have them in the session.
+    assert.equal(seen(backend).instructions, backend === 'codex' || backend === 'claude' ? told : undefined);
   });
 
   test(`${backend}: a refused form completes the turn with no hand-off and says why`, async () => {

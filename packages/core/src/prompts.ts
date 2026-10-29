@@ -55,7 +55,10 @@ const rules = (role: Role): string => readFileSync(new URL(`../prompts/${role}.m
 const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
 
-/** What every role is told once: where the work, Argus's record of it and the skills are, and the date. */
+/** A role's standing instructions: its rules, and where the work, Argus's record of it and the
+ * skills are, and the date. */
+export const instructions = (role: Role, project: Project, store: Store): string => join(rules(role), where(project, store));
+
 function where(project: Project, store: Store): string {
   const library = skillsHome(store.home);
   return section('Where things are', [
@@ -68,13 +71,10 @@ function where(project: Project, store: Store): string {
   ].join('\n'));
 }
 
-export function managerPrompt(project: Project, store: Store, message: string, resumed: boolean): string {
-  if (resumed) return message;
-  return join(rules('manager'), where(project, store), section('Message', message));
-}
+export const managerPrompt = (message: string, resumed: boolean): string => resumed ? message : section('Message', message);
 
 /** The Engineer's or Reviewer's turn on `task`, whichever holds it. */
-export function taskPrompt(project: Project, store: Store, task: Task, resumed: boolean): string {
+export function taskPrompt(project: Project, task: Task, resumed: boolean): string {
   const note = task.note && section(`From the ${NAMES[task.note.from]}`, task.note.text);
   if (resumed) {
     const again = task.holder === 'reviewer' && task.note?.from === 'engineer'
@@ -85,15 +85,14 @@ export function taskPrompt(project: Project, store: Store, task: Task, resumed: 
   const earlier = project.tasks.filter(other => other.status === 'closed')
     .map(({ id, title, note }) => `- ${id} ${title}${note ? `. Its last word, from the ${NAMES[note.from]}: ${note.text.split('\n')[0]}` : ''}`);
   const beside = project.tasks.filter(other => other.status === 'open' && other !== task).map(({ id, title }) => `- ${id} ${title}`);
-  return join(rules(task.holder), where(project, store), earlier.length > 0 && section('Earlier tasks', earlier.join('\n')),
+  return join(earlier.length > 0 && section('Earlier tasks', earlier.join('\n')),
     beside.length > 0 && section('Running beside it, in the same workspace', beside.join('\n')),
     section(`Task ${task.id}, from the ${NAMES[task.from]}`, task.objective), note);
 }
 
-export function plannerPrompt(project: Project, store: Store, resumed: boolean): string {
+export function plannerPrompt(project: Project): string {
   const tasks = project.tasks.map(task => `- ${task.id} [${task.status === 'open' ? `open, with the ${NAMES[task.holder]}` : 'closed'}] ${task.title}`);
-  return join(!resumed && rules('planner'), !resumed && where(project, store),
-    section('Tasks', tasks.join('\n') || '(none yet)'), section('Since your last turn', project.inbox.join('\n\n')));
+  return join(section('Tasks', tasks.join('\n') || '(none yet)'), section('Since your last turn', project.inbox.join('\n\n')));
 }
 
 /** A letter that reaches the Planner or the Manager from another role. */

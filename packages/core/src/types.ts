@@ -26,6 +26,10 @@ export interface AgentRequest {
   effort?: string;
   /** Continue this backend session instead of starting a new one. */
   resume?: string;
+  /** The role's standing instructions: its rules, and where things are. A backend with a place for
+   * them is given them with every turn, so they outlast its compaction of the session; the others
+   * read them at the head of a session's first prompt. */
+  instructions?: string;
   /** Who gave the task the turn is on: only the task's giver is offered among those who hear how it ended. */
   giver?: 'manager' | 'planner';
   /** Told of each step the role takes as its turn goes on. */

@@ -22,6 +22,8 @@ export interface BackendRun {
   env?: Record<string, string>;
   /** Reads one event of the stream: the steps it shows, if any. */
   consume(event: Record<string, unknown>): (Step | null)[];
+  /** The CLI takes the request's instructions itself, with every turn. */
+  instructed?: boolean;
   /** What the turn came to, once the CLI has exited; `output` is its final answer, the form as filled in. */
   finish(): Pick<AgentResult, 'threadId' | 'completed' | 'error' | 'model' | 'usage'> & { output: unknown };
 }
@@ -38,18 +40,20 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
   const callId = `${new Date(started).toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(3).toString('hex')}`;
   mkdirSync(request.callsDir, { recursive: true });
   const stem = join(request.callsDir, callId);
-  // What the role was told, as sent: a turn can be read, and replayed, from the record.
-  writeFileSync(`${stem}.prompt.md`, request.prompt);
   const raw = createWriteStream(`${stem}.jsonl`);
   try {
     const confined = sandboxed();
     const schema = formSchema(request.form, request.giver);
     const run = START[request.backend](request, { confined, started, schema, stem });
+    const { instructions } = request;
+    const prompt = run.instructed || request.resume || !instructions ? request.prompt : `${instructions}\n\n${request.prompt}`;
+    // What the role was told, as sent: a turn can be read, and replayed, from the record.
+    writeFileSync(`${stem}.prompt.md`, run.instructed && instructions ? `${instructions}\n\n${prompt}` : prompt);
     const argv = confined ? confine([request.backend, ...run.args], request) : [...launcher(request.backend), ...run.args];
     const stderr: string[] = [];
     let exit: ProcessExit | undefined;
     for await (const item of executeProcess({
-      executable: argv[0]!, args: argv.slice(1), cwd: request.cwd, input: request.prompt,
+      executable: argv[0]!, args: argv.slice(1), cwd: request.cwd, input: prompt,
       env: { ...agentEnv(request.backend), ...run.env }, ...request.signal ? { signal: request.signal } : {},
     })) {
       if (item.type === 'exit') { exit = item; continue; }

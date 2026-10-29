@@ -20,6 +20,7 @@ export const codex: StartBackend = (request, { confined, started, schema, stem }
     '-c', 'notify=[]', '-c', 'background_terminal_max_timeout=9223372036854775807',
     ...request.model ? ['-m', request.model] : [],
     ...request.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(request.effort)}`] : [],
+    ...request.instructions ? ['-c', `developer_instructions=${JSON.stringify(request.instructions)}`] : [],
     // Inside bubblewrap the sandbox is bubblewrap's, which mounts a reader's workdir read-only and
     // leaves it /tmp to run a check in; outside it, codex's own. On Windows that is off, and every
     // command refused, until one is chosen: this one needs no administrator.
@@ -38,7 +39,7 @@ export const codex: StartBackend = (request, { confined, started, schema, stem }
   let error: string | null = null;
   let text = '';
   return {
-    args,
+    args, instructed: true,
     consume(event) {
       const item = isJsonObject(event.item) ? event.item : {};
       if (event.type === 'thread.started' && typeof event.thread_id === 'string') threadId = event.thread_id;
