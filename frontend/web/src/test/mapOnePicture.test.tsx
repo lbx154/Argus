@@ -6,7 +6,6 @@ import { farLabelFont, farLabelLines, HumanCardView, type HumanCardNode } from "
 import { HUMAN_FRAME, humanFrame, type HumanCard } from "../map/canvas";
 import { MAP_CARD_LEGEND } from "../map/MapPanel";
 import { plainTitle, replacedNote, requestChip, type MapTask } from "../map/model";
-import { projectOverview } from "../map/overview";
 import { layoutSubmap } from "../map/submap";
 import { createZoomStepStore, ZoomStepContext } from "../map/zoomStep";
 
@@ -64,13 +63,6 @@ describe("one picture of the work", () => {
     expect(plainTitle("thc-123456 stays")).toBe("thc-123456 stays");
     const markup = renderToStaticMarkup(<MacroTaskNode {...card()} />);
     expect(markup).not.toContain("hc-35885033b637");
-  });
-
-  it("names the person's first request as the goal when no task states one", () => {
-    const overview = projectOverview({
-      goal: "", tasks: [{ ...task, objective: "", title: "" }], events: [], receipts: [], decisions: [], zh: true,
-    } as never);
-    expect(overview.goal).toContain("试试 A");
   });
 
   it("explains how the cards are split in the map's key", () => {

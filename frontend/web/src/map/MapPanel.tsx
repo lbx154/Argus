@@ -101,7 +101,7 @@ interface MapWorkspaceActions {
   onOpenReceipt: (receipt: DeliveryReceipt, path?: string) => void;
   onOpenArtifact: (path: string) => void;
   onAnswer: () => void;
-  /** Delivery receipts, newest first: the overview's 主要成果. */
+  /** Delivery receipts, newest first: the figures of the tasks they came from. */
   deliveries?: DeliveryReceipt[];
   /** The chat confirm card's "开始执行", for a plan waiting on the person. */
   onStartLaunch?: () => Promise<void>;
@@ -109,7 +109,6 @@ interface MapWorkspaceActions {
   teamStatus?: ReactNode;
 }
 
-const NO_RECEIPTS: DeliveryReceipt[] = [];
 /** What each recorded relation means, for the legend's hover text. */
 const RELATION_HINTS: Partial<Record<string, [string, string]>> = {
   carries_out: ["这项任务在执行你的某条请求", "This task carries out one of your requests"],
@@ -1222,9 +1221,8 @@ export function MapCanvas({
   const launchScope = useMemo(() => ({ itemId: data.kind === "live" ? snapshot.launch_hold?.item_id : undefined,
     start: actions.onStartLaunch }), [data.kind, snapshot.launch_hold?.item_id, actions.onStartLaunch]);
   const overview = useMemo(() => projectOverview({
-    goal: snapshot.goal, tasks: data.tasks, events: data.events, receipts: actions.deliveries ?? NO_RECEIPTS,
-    decisions: decisionCards, launchHold: snapshot.launch_hold, zh,
-  }), [snapshot.goal, data.tasks, data.events, actions.deliveries, decisionCards, snapshot.launch_hold, zh]);
+    tasks: data.tasks, decisions: decisionCards, launchHold: snapshot.launch_hold, zh,
+  }), [data.tasks, decisionCards, snapshot.launch_hold, zh]);
   const statusSentence = mapStatusSentence({
     total: counted.length,
     qa: counted.filter(task => task.turn_kind === 'qa').length,
@@ -1380,9 +1378,9 @@ export function MapCanvas({
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
     <MapLaunchContext.Provider value={launchScope}>
-      {data.kind === "live" && !replaying && (overview.goal || data.tasks.length > 0 || actions.teamStatus) && (
+      {data.kind === "live" && !replaying && (actions.teamStatus || canvasRecord.route?.total || overview.decisions.length > 0) && (
         <MapOverview overview={overview} zh={zh} team={actions.teamStatus} readOnly={readOnly} route={canvasRecord.route}
-          onOpenReceipt={actions.onOpenReceipt} onOpenArtifact={actions.onOpenArtifact} onAnswer={actions.onAnswer} onStartLaunch={actions.onStartLaunch}
+          onAnswer={actions.onAnswer} onStartLaunch={actions.onStartLaunch}
           onFocusTask={(taskId) => {
             const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
             if (card) focus(card.id);

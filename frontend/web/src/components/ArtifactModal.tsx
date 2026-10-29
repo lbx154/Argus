@@ -1,8 +1,8 @@
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { deliveryFiles, deliveryReviewLabel, previousDeliveryVersion } from './deliveryPresentation';
+import { deliveryFiles, previousDeliveryVersion } from './deliveryPresentation';
 import { DeliveryChanges } from './DeliveryChanges';
 import { MarkdownExcerpt } from './MarkdownExcerpt';
-import { CheckCircle2, PackageCheck, Maximize2, Minimize2 } from 'lucide-react';
+import { PackageCheck, Maximize2, Minimize2 } from 'lucide-react';
 import './delivery.css';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
@@ -149,8 +149,8 @@ export function ArtifactModal({
         </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
-        </select> : <p className="delivery-task-title" title={delivery.title}>{delivery.title}</p>}
-        <div className="delivery-facts">{(() => { const review = deliveryReviewLabel(delivery, zh); return <span className={review.independent ? 'delivery-review-independent' : 'delivery-review-self'} title={review.title}>{review.independent ? <CheckCircle2 size={13} /> : null}{review.text}</span>; })()}<span>{files.length} {zh ? '个文件' : 'files'}</span>{files.length > 0 && sid ? <button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : files.length > 1 ? (zh ? '下载全部（zip）' : 'Download all (zip)') : (zh ? '打包下载' : 'Download as zip')}</button> : null}</div>
+        </select> : null}
+        {files.length > 0 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : files.length > 1 ? (zh ? '下载全部（zip）' : 'Download all (zip)') : (zh ? '打包下载' : 'Download as zip')}</button></div> : null}
         {delivery.summary && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><p><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></p></details>}
       </header>}
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}

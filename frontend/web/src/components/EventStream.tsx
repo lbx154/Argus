@@ -660,22 +660,19 @@ function fileGlyph(path: string): string {
 
 /**
  * A delivered result in the conversation, shown as itself: a picture shows the
- * picture, files show as files. "Open" leads to the result; "How it was made"
- * leads to the process behind it, one click away and never in the way.
+ * picture, files show as files. "Open" leads to the result; the process behind
+ * it is the team's progress, in the conversation.
  */
 function DeliveryCard({
   delivery,
   onOpen,
-  onHowMade,
 }: {
   delivery: DeliveryReceipt;
   onOpen?: (delivery: DeliveryReceipt, path?: string) => void;
-  onHowMade?: () => void;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const sid = useContext(SessionIdContext);
-  const howMade = onHowMade;
   const stage = isStagePackage(delivery);
   const files = deliveryFiles(delivery);
   // Result first: a delivered robot, model, chart or picture shows itself, not
@@ -712,14 +709,11 @@ function DeliveryCard({
           </li>)}
           {others.length > listed.length ? <li className="text-ink-faint">{zh ? `另有 ${others.length - listed.length} 个文件` : `${others.length - listed.length} more files`}</li> : null}
         </ul> : null}
-        {onOpen || howMade ? <div className="result-card-actions">
-          {onOpen ? <button type="button" onClick={() => onOpen(delivery)} className="result-card-open"
+        {onOpen ? <div className="result-card-actions">
+          <button type="button" onClick={() => onOpen(delivery)} className="result-card-open"
             aria-label={t(delivery.primary_target ? 'mission.openResult' : 'mission.viewTask')}>
             {zh ? '打开' : 'Open'}
-          </button> : null}
-          {howMade ? <button type="button" onClick={howMade} className="result-card-how">
-            {zh ? '怎么做出来的' : 'How it was made'}
-          </button> : null}
+          </button>
         </div> : null}
       </div>
     </aside>
@@ -844,22 +838,19 @@ const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [stri
  * happening now and a way to the full progress; once settled, its result in
  * one line with the process folded underneath.
  */
-function TaskWorkCard({ block, state, title, snapshot, view, events, working, onOpenDelivery, onPause }: {
+function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDelivery, onPause }: {
   block: Extract<TimelineBlock, { kind: 'task' }>;
   state: TaskCardState;
   title: string;
   snapshot?: Snapshot;
   view?: MissionView | null;
   events: EventMsg[];
-  /** The roles at work now. */
-  working: Set<string>;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   onPause?: () => void;
 }) {
   const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const workspace = useContext(WorkspaceContext);
-  const [open, setOpen] = useState(false);
   const [now, setNow] = useState(() => Date.now() / 1_000);
   const running = state === 'running';
   useEffect(() => {
@@ -889,21 +880,13 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, working, on
                 {!label && saidLine ? <span className="text-ink-faint"> · {zh ? '最近：' : 'Latest: '}{saidLine}</span> : null}
               </>}
           </span>
-          <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}
-            className="task-line-action">
-            {zh ? `${open ? '收起' : '查看'}过程（${block.rows.length}）` : `${open ? 'Hide' : 'Show'} the process (${block.rows.length})`}
-          </button>
         </div>
         {activity?.note ? <p className="mt-1 pl-[17px] text-xs text-ink-faint">
           {activity.note}
           {activity.tone === 'stalled' && onPause ? <button type="button" onClick={onPause} className="ml-2 text-blue-sky">{zh ? '暂停' : 'Pause'}</button> : null}
         </p> : null}
       </div>
-      {open ? <div className="task-line-process mt-1 overflow-hidden">
-        <RoleLogCollection rows={block.rows} active={role => running && working.has(role)} followLatest={running} />
-      </div> : null}
-      {block.deliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery}
-        onHowMade={() => setOpen(true)} />)}
+      {block.deliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
     </section>
   );
 }
@@ -1342,7 +1325,7 @@ export function EventStream({
                 onOpenDelivery={onOpenDelivery}
               />;
               return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={blockTitle(block)}
-                snapshot={snapshot} view={missionView} events={deferredEvents} working={working}
+                snapshot={snapshot} view={missionView} events={deferredEvents}
                 onOpenDelivery={onOpenDelivery} onPause={onPauseWork} />;
             })}
             {/* The team's progress: each role, what it does now or did last, its work a click away. */}

@@ -45,45 +45,6 @@ export function hasPendingDeliveryDependents(items: BacklogItem[], itemId?: stri
   return items.some((item) => item.id !== itemId && downstream.has(item.id) && ['pending', 'running', 'in_progress', 'claimed'].includes(item.status));
 }
 
-const REVIEW_PASSED = new Set(['done', 'passed', 'approved', 'accepted']);
-
-/**
- * Who vouched for this delivery: an independent reviewer, or only the worker that made it.
- * A passing status alone does not say which: a mission without required independent
- * review settles ``done`` from the worker's own check. Only ``review_source=reviewer``
- * counts as independent.
- */
-export function deliveryReviewLabel(receipt: DeliveryReceipt, zh: boolean): { independent: boolean; text: string; title: string } {
-  const status = String(receipt.review_status || '').toLowerCase();
-  const source = String(receipt.review_source || '').toLowerCase();
-  const residualRisk = String(receipt.residual_risk || '').trim();
-  if (REVIEW_PASSED.has(status) && source === 'reviewer' && residualRisk) return {
-    independent: true,
-    text: zh ? '独立审阅通过 · 有残余风险' : 'Independently reviewed · residual risk',
-    title: zh ? `有一项检查在此环境中无法进行，已被接受为残余风险：${residualRisk}` : `One check was impossible here and its risk was accepted: ${residualRisk}`,
-  };
-  if (REVIEW_PASSED.has(status) && source === 'reviewer') return {
-    independent: true,
-    text: zh ? '独立审阅通过' : 'Independently reviewed',
-    title: zh ? '审阅者另外检查过这份成果' : 'A separate reviewer checked this result',
-  };
-  if (!status || status === 'not_assessed' || (REVIEW_PASSED.has(status) && source)) return {
-    independent: false,
-    text: zh ? '工程师自查 · 没有独立审阅' : 'Self-checked · not independently reviewed',
-    title: zh ? '只有完成它的人自己检查过，没有另外的审查' : 'Only the worker that produced it checked it; no separate review',
-  };
-  if (REVIEW_PASSED.has(status)) return {
-    independent: false,
-    text: zh ? '已完成 · 没记下是否独立审阅过' : 'Completed · review source not recorded',
-    title: zh ? '较早的交付，没记下是谁检查的' : 'An older delivery; who checked it was not recorded',
-  };
-  return {
-    independent: false,
-    text: zh ? `审阅结果：${status}` : `Review: ${status}`,
-    title: zh ? '独立审阅没有通过或已经过时' : 'Independent review did not pass or is out of date',
-  };
-}
-
 /** The most recent earlier delivered version of ``path`` whose content differs, if both are stored. */
 export function previousDeliveryVersion(receipt: DeliveryReceipt, receipts: DeliveryReceipt[], path: string | null): { path: string; before: string; after: string } | null {
   if (!path) return null;

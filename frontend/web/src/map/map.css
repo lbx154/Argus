@@ -916,15 +916,9 @@
 .map-overview dl > div { display: flex; gap: 10px; min-width: 0; align-items: baseline; }
 .map-overview dt { flex: 0 0 5em; color: rgb(var(--ink-dim)); font-weight: 550; }
 .map-overview dd { margin: 0; min-width: 0; flex: 1; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
-.map-overview-goal { display: block !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.map-overview-empty { color: rgb(var(--ink-faint)); }
 .map-overview-item { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; padding: 1px 8px; border: 1px solid rgb(var(--line)); border-radius: 6px; background: rgb(var(--panel)); color: rgb(var(--ink)); text-align: left; cursor: pointer; }
 button.map-overview-item:hover, .map-overview-link:hover { border-color: rgb(var(--blue)); color: rgb(var(--blue)); }
 .map-overview-item small { font-size: 11px; }
-.map-overview-item small.is-ok { color: rgb(var(--ok)); }
-.map-overview-item.is-check { max-width: min(100%, 46em); }
-.map-overview-item.is-check span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink-dim)); }
-.map-overview-item.is-check b { font-weight: 550; flex-shrink: 0; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-overview .is-attention dt { color: rgb(var(--warn)); }
 .map-overview-item.is-launch { cursor: default; border-color: rgb(var(--gold) / 0.5); }
 .map-overview-link { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; text-align: left; }

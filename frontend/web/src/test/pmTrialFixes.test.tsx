@@ -5,8 +5,6 @@ import { mergeOptimisticManagerDelta } from '../lib/conversationEvents';
 import { isDraftReply } from '../../../core/src/events';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { ChatBox } from '../components/ChatBox';
-import { projectOverview } from '../map/overview';
-import type { MapTask } from '../map/model';
 
 describe('pm trial fixes', () => {
   it('stops spinning "preparing a reply" once the reply text is on screen', () => {
@@ -49,11 +47,5 @@ describe('pm trial fixes', () => {
       disabled={false} pending={false} attachments={[]} onAttachmentsChange={() => undefined} slashSelection={0}
       onSlashSelectionChange={() => undefined} projectName="按产品对比月度销售走势" />);
     expect(html).toContain('按产品对比月度销售走势');
-  });
-
-  it('uses the request as the goal when only the Manager did the work', () => {
-    const turn = { id: 'turn:1', kind: 'turn', title: '帮我做一个小工具：按月汇总销售额，画一张折线图【开工设置：不限】', ts: 1, status: 'done' } as unknown as MapTask;
-    const overview = projectOverview({ tasks: [turn], events: [], receipts: [], decisions: [], zh: true });
-    expect(overview.goal).toBe('帮我做一个小工具：按月汇总销售额，画一张折线图');
   });
 });

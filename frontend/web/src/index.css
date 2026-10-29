@@ -966,7 +966,6 @@ button {
   transition: color 150ms ease, background-color 150ms ease;
 }
 .task-line-action:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
-.task-line-process { margin-left: 3px; padding-left: 14px; border-left: 1px solid rgb(var(--line)); animation: appear 180ms cubic-bezier(.4, 0, .2, 1); }
 
 /* A result shows as itself, with a quiet way to open it and to see how it was made. */
 .result-card {

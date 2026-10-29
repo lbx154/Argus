@@ -1,15 +1,13 @@
 import { useState, type ReactNode } from "react";
-import type { DeliveryReceipt } from "../../../core/src/types";
 import { LaunchStartButton } from "../components/LaunchPanel";
 import { STEP_STATUS, stepMark, type RouteView } from "./canvas";
 import type { ProjectOverview } from "./overview";
 
 const SHOWN = 3;
 
-/** The strip at the top of the canvas: the team's state, then 目标 / 主要成果 /
- * 已验证 / 等你决定. Every item leads somewhere: a result opens, a check or a
- * question finds its card on the canvas. */
-export function MapOverview({ overview, zh, team, readOnly, route, onOpenReceipt, onOpenArtifact, onFocusTask, onAnswer, onStartLaunch }: {
+/** The strip at the top of the canvas: the team's state, the required steps, and
+ * what waits on the person (等你决定), each finding its card on the canvas. */
+export function MapOverview({ overview, zh, team, readOnly, route, onFocusTask, onAnswer, onStartLaunch }: {
   overview: ProjectOverview;
   /** The person's required steps: "必经步骤 2/5" and the next one open. */
   route?: RouteView;
@@ -17,8 +15,6 @@ export function MapOverview({ overview, zh, team, readOnly, route, onOpenReceipt
   /** The team status line with 暂停团队 / 继续, shared with the conversation. */
   team?: ReactNode;
   readOnly: boolean;
-  onOpenReceipt: (receipt: DeliveryReceipt, path?: string) => void;
-  onOpenArtifact: (path: string) => void;
   /** Focuses the task's card; false when the card is not on the canvas. */
   onFocusTask: (taskId: string) => boolean;
   onAnswer: () => void;
@@ -31,15 +27,11 @@ export function MapOverview({ overview, zh, team, readOnly, route, onOpenReceipt
     </button>
   );
   const visible = <T,>(key: string, items: T[]) => (open[key] ? items : items.slice(0, SHOWN));
-  const { goal, results, checks, decisions } = overview;
+  const { decisions } = overview;
   return (
     <section className="map-overview" aria-label={zh ? "项目总览" : "Project overview"} data-testid="map-overview">
       {team}
       <dl>
-        <div data-row="goal">
-          <dt>{zh ? "目标" : "Goal"}</dt>
-          <dd className="map-overview-goal" title={goal}>{goal || (zh ? "还没有目标" : "No goal yet")}</dd>
-        </div>
         {route && route.total > 0 && (() => {
           const next = route.steps.find((step) => step.status !== "done");
           return (
@@ -57,29 +49,6 @@ export function MapOverview({ overview, zh, team, readOnly, route, onOpenReceipt
             </div>
           );
         })()}
-        <div data-row="results">
-          <dt>{zh ? "主要成果" : "Results"}</dt>
-          <dd>{results.length ? <>
-            {visible("results", results).map((item) => (
-              <button type="button" key={item.key} className="map-overview-item" data-testid="overview-result"
-                title={item.receipt ? `${item.receipt.title}\n${item.path}` : item.path}
-                onClick={() => item.receipt ? onOpenReceipt(item.receipt, item.path) : onOpenArtifact(item.path)}>
-                {item.title}{item.reviewed ? <small className="is-ok">{zh ? "已审查" : "Reviewed"}</small> : null}
-              </button>
-            ))}{more("results", results.length)}
-          </> : <span className="map-overview-empty">{zh ? "还没有交付的成果" : "Nothing delivered yet"}</span>}</dd>
-        </div>
-        <div data-row="checks">
-          <dt>{zh ? "已验证" : "Verified"}</dt>
-          <dd>{checks.length ? <>
-            {visible("checks", checks).map((item) => (
-              <button type="button" key={item.key} className="map-overview-item is-check" data-testid="overview-check"
-                title={item.basis} onClick={() => onFocusTask(item.taskId)}>
-                <b>{item.title}</b><span>{zh ? "独立审查：" : "Independent review: "}{item.basis}</span>
-              </button>
-            ))}{more("checks", checks.length)}
-          </> : <span className="map-overview-empty">{zh ? "还没有经过独立审查的结果" : "No result has passed independent review yet"}</span>}</dd>
-        </div>
         {decisions.length > 0 && (
           <div data-row="decide" className="is-attention">
             <dt>{zh ? "等你决定" : "Your call"}</dt>

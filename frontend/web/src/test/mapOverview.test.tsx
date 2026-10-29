@@ -2,14 +2,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { act, create } from "react-test-renderer";
 import type { NodeProps } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
-import type { DeliveryReceipt, LaunchHold, Snapshot } from "../../../core/src/types";
+import type { LaunchHold, Snapshot } from "../../../core/src/types";
 import type { OperatorDecisionCard } from "../../../core/src/decisions";
 import { MacroTaskNode, type MacroData, type MacroNode } from "../map/MacroTaskNode";
 import { MapLaunchContext } from "../map/launchContext";
 import { MapOverview } from "../map/MapOverview";
 import { projectOverview } from "../map/overview";
 import { layoutSubmap } from "../map/submap";
-import { attentionTasks, type MapEvent, type MapTask } from "../map/model";
+import { attentionTasks, type MapTask } from "../map/model";
 import { emptyMissionView } from "../../../core/src/missionView";
 import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
 import { teamPhase, teamPhaseLabel } from "../components/TeamControls";
@@ -23,13 +23,6 @@ vi.mock("@xyflow/react", async (original) => ({
 
 const survey: MapTask = { id: "survey", title: "写中文综述", objective: "调研 reward hacking 并交付中文综述", status: "done", deps: [], ts: 1, finished_ts: 5 };
 const later: MapTask = { id: "extra", title: "补充实验", objective: "", status: "failed", deps: ["survey"], ts: 6, finished_ts: 8 };
-const review = (id: string, item: string, status: string, ts: number, text: string): MapEvent =>
-  ({ id, item_id: item, type: "round.review.completed", ts, text, role: "reviewer", status });
-const receipt = (patch: Partial<DeliveryReceipt> = {}): DeliveryReceipt => ({
-  schema_version: 1, delivery_id: "d1", kind: "task_completed", item_id: "survey", title: "写中文综述",
-  summary: "综述已交付", status: "done", review_status: "done", review_source: "reviewer", delivered_at: 5,
-  primary_target: { path: "reward-hacking-survey-zh.md", label: "中文综述", source: "", why: "" }, targets: [], ...patch,
-});
 const hold: LaunchHold = { created_at: 1, item_id: "plan", title: "复现基线", request: "复现基线", continuous: false, settings: {} };
 const question: OperatorDecisionCard = {
   id: "q1", item_id: "extra", revision: 1, status: "pending", title: "要不要扩大范围", reason: "", question: "要不要把 2024 年的工作也算进来？",
@@ -37,58 +30,9 @@ const question: OperatorDecisionCard = {
 } as unknown as OperatorDecisionCard;
 
 describe("projectOverview", () => {
-  it("keeps a reviewed result under 主要成果 and 已验证 after a later item was aborted", () => {
-    const view = projectOverview({
-      goal: "", zh: true, tasks: [survey, later], receipts: [receipt()], decisions: [],
-      events: [review("r1", "survey", "done", 4, "38 个链接均可访问，数字已逐条核对")],
-    });
-    expect(view.goal).toBe("调研 reward hacking 并交付中文综述");
-    expect(view.results).toHaveLength(1);
-    expect(view.results[0]).toMatchObject({ title: "中文综述", path: "reward-hacking-survey-zh.md", reviewed: true, taskId: "survey" });
-    expect(view.checks).toEqual([expect.objectContaining({ taskId: "survey", title: "写中文综述", basis: "38 个链接均可访问，数字已逐条核对" })]);
-    expect(view.decisions).toEqual([]);
-  });
-
-  it("lets the latest independent review decide, and ignores an engineer's self-check", () => {
-    const view = projectOverview({
-      goal: "目标", zh: true, tasks: [survey, later], receipts: [receipt({ review_source: "engineer_self_check" })], decisions: [],
-      events: [
-        review("r1", "survey", "done", 3, "通过"),
-        review("r2", "survey", "rejected", 4, "数字对不上"),
-        { ...review("r3", "extra", "done", 7, "自查通过"), role: "engineer" },
-      ],
-    });
-    expect(view.checks).toEqual([]);
-    expect(view.results[0].reviewed).toBe(false);
-  });
-
-  it("falls back to the receipt when the reviewer settled it outside the map window, newest delivery per task", () => {
-    const view = projectOverview({
-      goal: "目标", zh: true, tasks: [survey], events: [], decisions: [],
-      receipts: [receipt({ delivery_id: "old", delivered_at: 2 }), receipt({ delivery_id: "new", delivered_at: 9, summary: "第二版" })],
-    });
-    expect(view.results.map((r) => r.key)).toEqual(["new"]);
-    expect(view.checks).toEqual([expect.objectContaining({ taskId: "survey", basis: "第二版" })]);
-  });
-
-  it("shows a reviewed file as a result when its receipt was held back for later work that stopped", () => {
-    const accepted: MapEvent = { id: "c1", item_id: "survey", type: "life.mission.completed", ts: 5, text: "已交付并通过独立复核",
-      role: "reviewer", status: "done", success: true, delivery_candidates: ["reward-hacking-survey-zh.md"] };
-    const view = projectOverview({ goal: "目标", zh: true, tasks: [survey, { ...later, status: "parked" }], receipts: [], decisions: [],
-      events: [accepted, review("r1", "survey", "done", 4, "三大主题、出处均已核查")] });
-    expect(view.results).toEqual([expect.objectContaining({ path: "reward-hacking-survey-zh.md", reviewed: true })]);
-    expect(view.results[0].receipt).toBeUndefined();
-    expect(view.checks.map((c) => c.taskId)).toEqual(["survey"]);
-    // An engineer's own completion is not a reviewed result.
-    const own = projectOverview({ goal: "目标", zh: true, tasks: [survey], receipts: [], decisions: [],
-      events: [{ ...accepted, role: "engineer" }] });
-    expect(own.results).toEqual([]);
-  });
-
   it("lists a plan waiting to start and pending questions under 等你决定", () => {
     const view = projectOverview({
-      goal: "目标", zh: true, tasks: [survey, { ...later, pending_question: "要不要把 2024 年的工作也算进来？" }],
-      events: [], receipts: [], decisions: [question], launchHold: hold,
+      zh: true, tasks: [survey, { ...later, pending_question: "要不要把 2024 年的工作也算进来？" }], decisions: [question], launchHold: hold,
     });
     expect(view.decisions.map((d) => [d.kind, d.taskId])).toEqual([["launch", "plan"], ["question", "extra"]]);
   });
@@ -117,17 +61,6 @@ describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
       .map((task) => task.id)).toEqual(["real"]);
   });
 
-  it("shows the survey as a reviewed result when the completion was recorded under the engineer", () => {
-    const completed: MapEvent = { id: "c1", item_id: "survey", type: "life.mission.completed", ts: 5, text: "",
-      role: "engineer", status: "done", success: true, delivery_candidates: ["reward-hacking-survey-zh.md"] };
-    const view = projectOverview({ goal: "", zh: true, tasks, receipts: [], decisions: [],
-      events: [review("r1", "survey", "done", 4, "三大主题、出处均已核查"), completed,
-        { ...completed, id: "c2", item_id: "67c874f26b5e", ts: 8, status: "parked" }] });
-    expect(view.results).toEqual([expect.objectContaining({ path: "reward-hacking-survey-zh.md", taskId: "survey", reviewed: true })]);
-    expect(view.checks.map((check) => check.taskId)).toEqual(["survey"]);
-    expect(view.decisions).toEqual([]);
-  });
-
   it("keeps the header from saying 已完成 beside a step that did not finish", () => {
     const snapshot = (owns: string[]): Snapshot => ({
       session: { id: "s-7d7b7d22", display_name: "", objective: "", cwd: "/w", last_active: 1 },
@@ -145,25 +78,21 @@ describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
 });
 
 describe("MapOverview", () => {
-  const base = { zh: true, readOnly: false, onOpenReceipt: vi.fn(), onOpenArtifact: vi.fn(), onFocusTask: vi.fn(() => true), onAnswer: vi.fn() };
+  const base = { zh: true, readOnly: false, onFocusTask: vi.fn(() => true), onAnswer: vi.fn() };
 
-  it("opens results, focuses checked cards, and hides 等你决定 when nothing waits", () => {
-    const overview = projectOverview({ goal: "", zh: true, tasks: [survey, later], receipts: [receipt()], decisions: [],
-      events: [review("r1", "survey", "done", 4, "数字已核对")] });
+  it("shows the team line and hides 等你决定 when nothing waits", () => {
+    const overview = projectOverview({ zh: true, tasks: [survey, later], decisions: [] });
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(<MapOverview {...base} overview={overview} team={<div data-testid="team-line" />} />); });
     const root = renderer.root;
     expect(root.findAllByProps({ "data-testid": "team-line" })).toHaveLength(1);
     expect(root.findAll((n) => n.props["data-row"] === "decide")).toHaveLength(0);
-    act(() => root.findByProps({ "data-testid": "overview-result" }).props.onClick());
-    expect(base.onOpenReceipt).toHaveBeenCalledWith(expect.objectContaining({ delivery_id: "d1" }), "reward-hacking-survey-zh.md");
-    act(() => root.findByProps({ "data-testid": "overview-check" }).props.onClick());
-    expect(base.onFocusTask).toHaveBeenCalledWith("survey");
+    expect(root.findAll((n) => ["goal", "results", "checks"].includes(n.props["data-row"]))).toHaveLength(0);
   });
 
   it("starts a held plan from the overview with the chat card's action", async () => {
     const onStartLaunch = vi.fn(() => Promise.resolve());
-    const overview = projectOverview({ goal: "目标", zh: true, tasks: [], events: [], receipts: [], decisions: [], launchHold: hold });
+    const overview = projectOverview({ zh: true, tasks: [], decisions: [], launchHold: hold });
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(<MapOverview {...base} overview={overview} onStartLaunch={onStartLaunch} />); });
     const start = renderer.root.findByProps({ "data-testid": "launch-start" });

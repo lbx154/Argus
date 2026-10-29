@@ -66,11 +66,6 @@ describe('completed delivery presentation', () => {
   });
   it('names an accepted residual risk instead of a plain pass', async () => {
     const risk = 'Live feed ingestion: live behaviour is unverified. (accepted by the operator)';
-    const { deliveryReviewLabel } = await import('../components/deliveryPresentation');
-    const label = deliveryReviewLabel({ ...delivery, review_source: 'reviewer', residual_risk: risk }, false);
-    expect(label.text).toBe('Independently reviewed · residual risk');
-    expect(label.title).toContain(risk);
-
     const { renderLine } = await import('../../../core/src/eventRender');
     const context = { locale: 'en', density: 'full', showReasoning: false, unknownEventPolicy: 'hide' } as const;
     const review = renderLine({ type: 'round.review.completed', status: 'done', reason: 'Read the fixture test.', residual_risk: risk }, context);
