@@ -9,8 +9,9 @@ import { join, resolve } from 'node:path';
 import type { Backend, Role, Step, Usage } from './types.js';
 
 /** `idle`: no letter is waiting for anyone but the operator; `asking`: nothing goes on but what
- * waits for the operator's answers. */
-export type Status = 'working' | 'asking' | 'failed' | 'idle';
+ * waits for the operator's answers; `stopped`: the operator stopped the work, and no turn starts
+ * till they resume it or ask the Manager for more. */
+export type Status = 'working' | 'asking' | 'stopped' | 'failed' | 'idle';
 /** A task opens with a letter to the Engineer and closes with a letter from it, or from its
  * Reviewer, to anyone but the two of them. */
 export type TaskStatus = 'open' | 'closed';

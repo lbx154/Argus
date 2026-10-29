@@ -324,6 +324,7 @@ test('a message can be cancelled during the Manager turn, and stop and start int
     { role: 'manager', hang: true },
     { role: 'manager', to: 'engineer', letter: brief },
     { role: 'engineer', hang: true },
+    { role: 'manager', to: 'operator', letter: 'The team is stopped; resume it when you are ready.' },
     { role: 'engineer', to: 'reviewer' },
     { role: 'reviewer', to: 'manager' },
     { role: 'manager', to: 'operator' },
@@ -344,12 +345,16 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.equal(stopped.rc, 0);
   const paused = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   assert.deepEqual(paused.backlog.map(item => item.status), ['in_progress']);
+  // Talking to the Manager does not start the stopped team again.
+  await frames(await post(`${P}/message/stream`, { text: 'how is it going?', request_id: 'r3' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager']);
 
   assert.equal((await (await post(`${P}/daemon/start`, { command_id: 'c2' })).json() as { rc: number }).rc, 0);
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done');
-  assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'engineer', 'reviewer', 'manager']);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its turn did not end.
-  assert.equal(requests[3]!.resume, undefined);
+  assert.equal(requests[4]!.resume, undefined);
 });
 
 test('pausing lets the calls under way end and starts no other, until the work resumes', async t => {

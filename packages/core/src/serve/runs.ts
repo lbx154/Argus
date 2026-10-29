@@ -23,10 +23,7 @@ export class Runs {
 
   live(id: string): Live {
     const active = this.active.get(id);
-    return {
-      since: active?.since ?? null, roles: active?.roles ?? [], draining: active?.flow.paused ?? false,
-      requests: [...this.requests.get(id)?.keys() ?? []],
-    };
+    return { since: active?.since ?? null, roles: active?.roles ?? [], requests: [...this.requests.get(id)?.keys() ?? []] };
   }
 
   /** The answer goes to whoever asked; it throws when the question was answered meanwhile. */
@@ -43,12 +40,13 @@ export class Runs {
     this.store.save(project);
   }
 
-  stop(id: string): void { this.active.get(id)?.controller.abort(); }
-
-  /** Let the calls under way end, and start no other; false when none is under way. */
-  pause(id: string): boolean {
+  /** Stop the work, recorded so that nothing but the operator starts it again: the calls under way
+   * end, or with `now` are interrupted. Whether any was under way. */
+  stop(id: string, now: boolean): boolean {
     const active = this.active.get(id);
-    if (active) active.flow.paused = true;
+    if (!active) this.edit(id, project => { if (project.status === 'working') project.status = 'stopped'; });
+    active?.flow.stop(id);
+    if (now) active?.controller.abort();
     return active !== undefined;
   }
 

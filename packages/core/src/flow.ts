@@ -62,13 +62,16 @@ export class Flow {
     this.run(project);
   }
 
-  /** No turn starts after those under way, until the work resumes. */
-  paused = false;
+  /** The operator stops the work: no turn starts after those under way. */
+  stop(id: string): void {
+    const project = this.project(id);
+    if (project.status === 'working') this.status(project, 'stopped');
+  }
 
-  /** Carry on where the work stopped: after an interruption, a pause, or a failed call the operator retries. */
+  /** Carry on where the work stopped: after the operator stopped it, an interruption, or a failed call the operator retries. */
   resume(id: string): void {
     const project = this.project(id);
-    this.paused = false;
+    if (project.status === 'stopped') this.status(project, 'working');
     this.retry(project);
     this.run(project);
   }
@@ -134,7 +137,7 @@ export class Flow {
   }
 
   private going(project: Project): boolean {
-    return project.status === 'working' && !this.paused && !this.options.signal?.aborted;
+    return project.status === 'working' && !this.options.signal?.aborted;
   }
 
   private async carry(project: Project, task: Task): Promise<void> {
@@ -164,7 +167,8 @@ export class Flow {
       const letter = read(handoff);
       if (handoff.to === 'engineer') this.open(project, 'manager', letter);
       else project.inbox.push(handedTo('manager', null, letter));
-      if (project.status !== 'failed') this.status(project, 'working');
+      // New work wakes a resting team; a stopped one only when the operator asked for it.
+      if (project.status !== 'failed' && (operator || project.status !== 'stopped')) this.status(project, 'working');
     }
     this.run(project);
     return handoff;
@@ -305,9 +309,9 @@ export class Flow {
     return task;
   }
 
-  /** State first, then the event that records the change. */
+  /** State first, then the event that records the change; a step changes none. */
   private record(project: Project, event: FlowEvent): void {
-    this.store.save(project);
+    if (event.type !== 'step') this.store.save(project);
     this.store.append(project.id, event);
     this.options.onEvent?.(event);
   }

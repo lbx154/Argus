@@ -19,8 +19,6 @@ export interface Live {
   since: number | null;
   /** The role of each call under way: tasks run side by side. */
   roles: Role[];
-  /** Paused: the calls under way end, and no other starts. */
-  draining: boolean;
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
@@ -133,7 +131,8 @@ function usage(rows: Record<string, unknown>[]): UsageSummary {
 export function daemon(project: Project, live: Live): Daemon {
   const { since } = live;
   return {
-    alive: since !== null, draining: live.draining, pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
+    // Stopped with calls under way: they end, and no other starts.
+    alive: since !== null, draining: since !== null && project.status === 'stopped', pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
     backend_label: BACKENDS[project.backend], control_available: true,
     read_status: 'ok', read_error: '', protocol_compatible: true, protocol_error: '',

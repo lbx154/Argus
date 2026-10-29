@@ -26,7 +26,7 @@ export function trash(store: Store, runs: Runs, project: (id: string) => Project
   return [
     ['DELETE', /^\/api\/projects\/([^/]+)$/, ({ params: [id] }) => {
       const { id: sid, workdir } = project(id!);
-      runs.stop(sid);
+      runs.stop(sid, true);
       // The call it interrupts still records how it ended, into the project's directory.
       if (runs.live(sid).since !== null) throw new HttpError(409, 'The work is stopping; delete the project once it has stopped.');
       const to = join('trash', `${sid}-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`);
