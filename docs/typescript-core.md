@@ -156,8 +156,10 @@ The code workspace is the workdir, read-only: its tree, which the composer's `@`
 too, a file's text or bytes, and what the system `git` says of it when the workdir is a
 repository of its own. A path there passes the check a result's does: inside the workdir, not
 hidden. An HTML result is previewed as one page, the local files it names inlined as `data:` URLs,
-for the page's sandboxed frame, with a policy that lets its own scripts and styles run while it
-can call nothing, this server least of all. Results download one by one; no zip is made. A task
+served to a sandboxed frame under a policy that lets its own scripts and styles run while it can
+call nothing, this server least of all; the frame, which cannot send the bearer, offers a cookie
+the preview grants, which no other request takes. The page and those files download as they are in
+a zip, and results chosen together in another, each made as it is sent. A task
 opened from the list is its card on the map with every letter written about it and the error of
 its last call; a role's letters download as Markdown; the search reads each project's request,
 conversation and letters as they are, with no index. The machine's CPUs and memory (from Node)

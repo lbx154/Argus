@@ -1,7 +1,7 @@
 // `argus serve`: the web cockpit's API and its built pages, on 127.0.0.1, or with a token on any
 // address. Requests read the projects' files as they are; messages, answers, starts and stops go
 // to the Flow runs of this process. With a token (ARGUS_WEB_TOKEN) every project request needs it
-// as a bearer.
+// as a bearer, the preview page alone as a cookie.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -99,11 +99,15 @@ export async function serve(options: ServeOptions): Promise<Served> {
     const live = runs.live(id);
     return { type: 'project', id, row: projectRow(store, work, live), snapshot: snapshot(store, work, live) };
   };
-  const authorized = (request: IncomingMessage): boolean => {
-    if (!token) return true;
-    const offered = Buffer.from(request.headers.authorization ?? '');
-    const expected = Buffer.from(`Bearer ${token}`);
-    return offered.length === expected.length && timingSafeEqual(offered, expected);
+  /** The token as the bearer; for the preview page, which a frame loads by URL with no way to send
+   * it, also as the cookie its preview grants. A browser sends it with every project request, so
+   * no other takes it. */
+  const cookie = `argus_preview_access=${encodeURIComponent(token ?? '')}`;
+  const authorized = (request: IncomingMessage, page = false): boolean => !token
+    || same(request.headers.authorization, `Bearer ${token}`)
+    || page && (request.headers.cookie ?? '').split(/;\s*/).some(offered => same(offered, cookie));
+  const grant = (response: ServerResponse): void => {
+    if (token) response.setHeader('set-cookie', `${cookie}; Path=/api/projects; HttpOnly; SameSite=Strict`);
   };
   const meta = (authenticated: boolean): ApiMeta => ({
     service: API_SERVICE,
@@ -255,7 +259,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, false));
     }],
-    ...library(store), ...workspace(project), ...preview(project), ...records(store, project), ...resources(),
+    ...library(store), ...workspace(project), ...preview(project, grant), ...records(store, project), ...resources(),
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
@@ -270,7 +274,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       response.setHeader('cache-control', 'no-store');
       return json(response, 200, meta(authorized(request)));
     }
-    if (!url.pathname.startsWith('/api/application-brand') && !authorized(request)) throw new HttpError(401, 'invalid or missing bearer token');
+    if (!url.pathname.startsWith('/api/application-brand') && !authorized(request, url.pathname.endsWith('/artifact/preview/page'))) throw new HttpError(401, 'invalid or missing bearer token');
     for (const [verb, pattern, handler] of routes) {
       const match = pattern.exec(url.pathname);
       if (!match || verb !== method) continue;
@@ -305,6 +309,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
       await new Promise(resolveClose => server.close(resolveClose));
     },
   };
+}
+
+/** Whether the secret offered is the one expected, in a time that tells nothing of how much of it is. */
+function same(offered: string | undefined, expected: string): boolean {
+  const [given, wanted] = [Buffer.from(offered ?? ''), Buffer.from(expected)];
+  return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
 function json(response: ServerResponse, status: number, body: unknown): void {
