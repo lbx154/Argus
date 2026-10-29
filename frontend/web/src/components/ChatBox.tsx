@@ -42,16 +42,10 @@ export function handlePromptRewriteShortcut(event: RewriteShortcutEvent, state: 
  *  up uninvited. An `@`/`#` menu opens only where typing, not a caret move, left it. */
 interface Caret { text: string; at: number; fits: boolean; typed: boolean }
 
-/** A long project title is clipped so the placeholder still reads as one line. */
-function clipProjectName(name: string): string {
-  const text = name.replace(/\s+/g, ' ').trim();
-  return text.length > 24 ? `${text.slice(0, 23)}…` : text;
-}
-
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, rewriting = false,
-  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote, projectName,
+  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote,
   settings, completion,
 }: {
   value: string;
@@ -75,8 +69,6 @@ export function ChatBox({
   /** Always-visible model control beside the folded task settings. */
   /** Always-visible continuous-work switch for the current project. */
   continuousControl?: ReactNode;
-  /** The project a message goes to, named in the placeholder so it is never in doubt. */
-  projectName?: string;
   /** Replaces the reply hint while the send waits on something else, such as uploads. */
   pendingNote?: string;
   settings?: ReactNode;
@@ -270,7 +262,7 @@ export function ChatBox({
         'aria-autocomplete': completion ? 'both' : 'list',
         'aria-controls': completionOpen ? SLASH_COMPLETION_LISTBOX_ID : undefined, 'aria-expanded': completionOpen,
         'aria-activedescendant': activeCompletion ? slashCompletionOptionId(activeCompletion.id) : undefined,
-        placeholder: disabled ? t('chat.selectSession') : projectName?.trim() ? t('chat.placeholderProject', { project: clipProjectName(projectName) }) : t('chat.placeholder'),
+        placeholder: disabled ? t('chat.selectSession') : t('chat.placeholder'),
       }} />
     {completion ? <span className="sr-only" role="status">{whole && t('completion.ghostHint', { text: whole })}</span> : null}
     <div className="composer-meta">

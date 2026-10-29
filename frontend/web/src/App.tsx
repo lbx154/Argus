@@ -464,11 +464,6 @@ export default function App() {
   useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
 
 
-  const activeProjectRow = projects.find((project) => project.id === activeSid);
-  const activeProjectName = activeProjectRow
-    ? hasHumanProjectLabel(activeProjectRow) ? (activeProjectRow.label || activeProjectRow.display_name || '').trim()
-      : activeProjectRow.objective.trim() || t('sidebar.unnamedSession')
-    : '';
   const snapQ = useSnapshot(activeSid);
   const manageSnapQ = useSnapshot(manageTargetSid);
   const snap = snapQ.data;
@@ -1513,7 +1508,6 @@ export default function App() {
                     </div>}
                     <ChatBox
                       key={activeSid || 'no-session'}
-                      projectName={activeProjectName}
                       value={composerDraft}
                       attachments={composerAttachments}
                       onAttachmentsChange={changeComposerAttachments}
