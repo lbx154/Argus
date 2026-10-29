@@ -41,9 +41,8 @@ const snapshot = (alive: boolean) =>
 const dataset = (history_loading: boolean): Pick<Dataset, "history_loading"> => ({ history_loading });
 
 it("polls fast only while history pages load, then falls back to a slow SSE safety net", () => {
-  expect(livePollInterval(false, dataset(false), snapshot(true))).toBe(false);
-  expect(livePollInterval(true, dataset(true), snapshot(true))).toBe(400);
-  expect(livePollInterval(true, undefined, snapshot(true))).toBe(15_000);
-  expect(livePollInterval(true, dataset(false), snapshot(true))).toBe(15_000);
-  expect(livePollInterval(true, dataset(false), snapshot(false))).toBe(false);
+  expect(livePollInterval(dataset(true), snapshot(true))).toBe(400);
+  expect(livePollInterval(undefined, snapshot(true))).toBe(15_000);
+  expect(livePollInterval(dataset(false), snapshot(true))).toBe(15_000);
+  expect(livePollInterval(dataset(false), snapshot(false))).toBe(false);
 });

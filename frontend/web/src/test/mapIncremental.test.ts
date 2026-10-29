@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { buildMap, latestMissionCompletion, type Dataset } from "../map/model";
 import { layoutScene } from "../map/submap";
-import { mapIsPaused, mergeMapProgress, parseMapSelection } from "../map/incremental";
+import { mapIsPaused, mergeMapProgress } from "../map/incremental";
 import { mergeMapCopy, needsCardCopy, type CardCopy } from "../map/presentation";
 import type { Snapshot } from "../api";
 
@@ -102,14 +102,6 @@ it("pauses stopped sessions and an explicit operator pause without stopping boun
   expect(mapIsPaused({ ...snapshot, manager_requests: [{ request_id: 'self', status: 'running' }] })).toBe(false);
   expect(mapIsPaused({ ...snapshot, daemon: { ...snapshot.daemon, alive: true }, continuous: { enabled: false, objective: "", done_reason: "operator pause" } })).toBe(true);
   expect(mapIsPaused({ ...snapshot, daemon: { ...snapshot.daemon, alive: true }, continuous: { enabled: false, objective: "" } })).toBe(false);
-});
-
-it("accepts only an explicit valid saved range, including keeping the map off", () => {
-  expect(parseMapSelection(null)).toBeNull();
-  expect(parseMapSelection('{"mode":"current"}')).toBeNull();
-  expect(parseMapSelection('{"mode":"current","since":-1,"eventSince":0}')).toBeNull();
-  expect(parseMapSelection('{"mode":"off"}')).toEqual({ mode: "off" });
-  expect(parseMapSelection('{"mode":"full"}')).toEqual({ mode: "full" });
 });
 
 it("orders cache updates by their revision even if wall-clock time moves backward", () => {

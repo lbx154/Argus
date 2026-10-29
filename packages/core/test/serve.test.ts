@@ -244,7 +244,7 @@ test('a refused form goes back to the Manager within the same message', async t 
 
 interface MapTask { id: string; title: string; status: string; role: string; ts: number; finished_ts: number | null; pending_question?: string }
 interface MapLetter { id: string; item_id: string; type: string; role: string; to: string; text: string }
-interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string; history_cursor: string }
+interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string }
 interface Trace { task_id: string; groups: { call_id: string; role: string; output: string; entries: { kind: string; text: string }[] }[] }
 
 test('the map shows each task and the letters written about it, and a task its calls and their raw output', async t => {
@@ -266,7 +266,7 @@ test('the map shows each task and the letters written about it, and a task its c
   await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length) && !snapshot.daemon.alive);
 
-  const first = await get<ProgressMap>(`${P}/map-history`);
+  const first = await get<ProgressMap>(`${P}/map`);
   assert.equal(first.id, `live:${sid}`);
   assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, task.pending_question]),
     [['t1', 'Summarize the CSV.', 'blocked', 'reviewer', 'Ship it as is?']]);
@@ -279,16 +279,13 @@ test('the map shows each task and the letters written about it, and a task its c
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
 
   // A page that holds a cursor is sent the letters after it, and every task as it stands.
-  const later = await get<ProgressMap>(`${P}/map?after=${first.history_cursor}`);
+  const later = await get<ProgressMap>(`${P}/map?after=${first.cursor}`);
   assert.deepEqual(later.events.map(letter => [letter.role, letter.to, letter.text]),
     [['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
   const [task] = later.tasks;
   assert.deepEqual([task!.status, task!.pending_question], ['done', undefined]);
   assert.ok(task!.ts < task!.finished_ts!);
-  assert.equal(later.cursor, later.history_cursor);
-  assert.deepEqual((await get<ProgressMap>(`${P}/map-history?after=${later.cursor}`)).events, []);
-  const info = await get<{ task_count: number; event_bytes: number; requires_choice: boolean }>(`${P}/map-info`);
-  assert.deepEqual([info.task_count, info.event_bytes > 0, info.requires_choice], [1, true, false]);
+  assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${later.cursor}`)).events, []);
 
   // The Planner's call wrote the brief; the Engineer's refused form is a call with no letter.
   const trace = await get<Trace>(`${P}/map-trace?task=t1`);

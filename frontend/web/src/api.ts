@@ -1022,13 +1022,6 @@ export const api = {
     }
     return getJson<import('./map/model').Dataset>(P(sid, '/map') + (params.size ? `?${params}` : ''), signal);
   },
-  mapInfo: (sid: string, signal?: AbortSignal) => getJson<import('./map/incremental').MapHistoryInfo>(P(sid, '/map-info'), signal),
-  mapHistory: (sid: string, signal?: AbortSignal, after?: string, taskAfter?: string) => {
-    const params = new URLSearchParams();
-    if (after) params.set('after', after);
-    if (taskAfter) params.set('task_after', taskAfter);
-    return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
-  },
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
   /** One task's recorded trajectory: what each role thought, said, ran and changed. */
   mapTrace: (sid: string, task: string, signal?: AbortSignal) =>

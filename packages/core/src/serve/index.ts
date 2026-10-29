@@ -24,7 +24,7 @@ import { resources } from './resources.js';
 import { Runs, type Frame } from './runs.js';
 import { trash } from './trash.js';
 import { versions } from './versions.js';
-import { daemon, follow, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
+import { daemon, follow, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
 import { workspace } from './workspace.js';
 
 export interface ServeOptions {
@@ -195,9 +195,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/transcript$/, ({ params: [id], url }) =>
       ({ turns: turns(webEvents(readEvents(store, project(id!).id))).slice(-Number(url.searchParams.get('n') ?? 30)) })],
-    ['GET', /^\/api\/projects\/([^/]+)\/map-info$/, ({ params: [id] }) => mapInfo(store, project(id!))],
-    // The page asks for the whole history or for the current part of it: either is the whole map.
-    ['GET', /^\/api\/projects\/([^/]+)\/map(?:-history)?$/, ({ params: [id], url }) =>
+    ['GET', /^\/api\/projects\/([^/]+)\/map$/, ({ params: [id], url }) =>
       progressMap(store, project(id!), Number(url.searchParams.get('after')) || 0)],
     ['GET', /^\/api\/projects\/([^/]+)\/map-trace$/, ({ params: [id], url }) => taskTrace(store, project(id!), url.searchParams.get('task') ?? '')],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/stream$/, async context => {

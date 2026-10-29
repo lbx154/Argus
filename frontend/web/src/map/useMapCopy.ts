@@ -48,6 +48,8 @@ export function useMapCopy(
   const foundationId = preview === 'question-foundation' ? pinnedFoundationId === undefined ? foundationChoice.id : pinnedFoundationId : null;
   const key = mapCopyKey(source, name, locale, sessionId, preview, foundationId);
   const queryClient = useQueryClient();
+  // A server that keeps no explanations has none to wait for.
+  const kept = useCapability(MAP_CAPABILITY);
   const copy = useQuery({
     queryKey: key,
     queryFn: async ({ signal }) => {
@@ -57,7 +59,7 @@ export function useMapCopy(
       const previous = queryClient.getQueryData<MapCopy>(key);
       return mergeMapCopy(previous, result, previous?.model_revision);
     },
-    enabled: useCapability(MAP_CAPABILITY),
+    enabled: kept,
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -67,6 +69,6 @@ export function useMapCopy(
     () => visibleSteps ?? (task ? buildSubmap(task, data.events, zh) : []),
     [task, data.events, zh, visibleSteps],
   );
-  return { copy: copy.data, ready: copy.isFetched, questionContext: { locale, preview, foundationId },
+  return { copy: copy.data, ready: !kept || copy.isFetched, questionContext: { locale, preview, foundationId },
     readingRequest: focusedCopyRequests(data, steps, focused, readingKey).find(card => card.key === readingKey) };
 }

@@ -309,16 +309,7 @@ export function progressMap(store: Store, project: Project, after: number) {
       ...(question ? { pending_question: question.question } : {}),
     };
   });
-  const cursor = String(events.length);
-  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks, events: letters, cursor, history_cursor: cursor };
-}
-
-/** What the page asks before it loads the map: the whole map is one answer, with no part to choose. */
-export function mapInfo(store: Store, project: Project) {
-  return {
-    task_count: project.tasks.length, event_bytes: statSync(join(store.dir(project.id), 'events.jsonl'), { throwIfNoEntry: false })?.size ?? 0,
-    requires_choice: false, current_task_id: null, current_task_ts: 0, current_event_ts: 0,
-  };
+  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks, events: letters, cursor: String(events.length) };
 }
 
 type CallEnd = Extract<Recorded, { type: 'call.end' }>;
