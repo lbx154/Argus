@@ -313,7 +313,7 @@ export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTa
 }
 
 /** Iterative SCC traversal also handles histories deeper than the JS call stack. */
-function dependencyComponents(children: Map<string, string[]>): Map<string, number> {
+export function dependencyComponents(children: Map<string, string[]>): Map<string, number> {
   const seen = new Set<string>();
   const finished: string[] = [];
   const parents = new Map([...children.keys()].map((id) => [id, [] as string[]]));
@@ -449,10 +449,7 @@ export function replayTasks(tasks: MapTask[], count: number): MapTask[] {
     .slice(0, count);
 }
 
-/** Connect components with content/context links; recorded dependencies remain authoritative.
- *
- * Recorded relations join their cards first; a time-order line only joins
- * cards that no relation reaches. */
+/** Annotate recorded links without turning shared context or time order into dependencies. */
 export function connectMap(
   graph: MapGraph,
   semantic: Array<{
@@ -474,58 +471,6 @@ export function connectMap(
         }
       : link;
   });
-  const parent = new Map(graph.tasks.map((t) => [t.id, t.id]));
-  const find = (id: string): string => {
-    const next = parent.get(id)!;
-    return next === id ? id : find(next);
-  };
-  const join = (a: string, b: string) => {
-    parent.set(find(a), find(b));
-  };
-  for (const link of links.filter((l) => l.kind === "dependency" || l.kind === "relation" || l.kind === "replacement"))
-    join(link.source, link.target);
-  for (const relation of semantic) {
-    if (
-      !parent.has(relation.source) ||
-      !parent.has(relation.target) ||
-      graph.tasks.findIndex((t) => t.id === relation.source) >=
-        graph.tasks.findIndex((t) => t.id === relation.target) ||
-      find(relation.source) === find(relation.target)
-    )
-      continue;
-    links.push({
-      source: relation.source,
-      target: relation.target,
-      label: relation.label,
-      kind: "semantic",
-      stated: true,
-      id: `semantic:${relation.source}:${relation.target}`,
-    });
-    join(relation.source, relation.target);
-  }
-  for (let i = 1; i < graph.tasks.length; i++) {
-    const task = graph.tasks[i],
-      previous = graph.tasks[i - 1];
-    if (find(task.id) === find(previous.id)) continue;
-    const samePlan = task.plan_id && task.plan_id === previous.plan_id;
-    links.push({
-      id: `context:${previous.id}:${task.id}`,
-      source: previous.id,
-      target: task.id,
-      kind: "context",
-      label: zh
-        ? samePlan
-          ? "同一计划"
-          : "同一研究"
-        : samePlan
-          ? "Same plan"
-          : "Same study",
-      evidence: zh
-        ? "同一研究会话，按时间排列。"
-        : "Same research session, in time order.",
-    });
-    join(previous.id, task.id);
-  }
   return links;
 }
 

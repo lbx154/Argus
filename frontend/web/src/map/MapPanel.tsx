@@ -278,8 +278,7 @@ export function MapCanvas({
   const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
     request: readingRequest, questionContext,
   } : undefined, [readingRequest, questionContext]);
-  // Lines follow the relations the records state; nothing is written for
-  // them, and time order only joins cards no relation reaches.
+  // Lines follow recorded relationships; time order never adds a dependency.
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),
     [graph, copy?.relations, zh],
@@ -386,7 +385,12 @@ export function MapCanvas({
     if (savedView.current?.camera && data.history_loading && !waited) return;
     const frame = requestAnimationFrame(() => {
       initialFit.current = true;
-      if (savedView.current?.camera) camera.restore(savedView.current.camera);
+      const saved = savedView.current?.camera;
+      const canvas = canvasRef.current!;
+      // A viewport is in screen pixels. A desktop view cannot be restored
+      // onto a phone's stacked cards or a differently sized canvas.
+      if (saved && saved.canvasSize.width === canvas.clientWidth && saved.canvasSize.height === canvas.clientHeight)
+        camera.restore(saved);
       else {
         camera.fit();
         // A phone opens on the current task's summary card, not inside it: the

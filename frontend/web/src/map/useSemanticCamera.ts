@@ -12,6 +12,7 @@ import { createZoomStepStore, heldZoomStep, zoomStep } from "./zoomStep";
 
 export const INITIAL_VIEWPORT = { x: 52, y: 125, zoom: 0.24 };
 export interface CameraMemory {
+  canvasSize: { width: number; height: number };
   viewport: Viewport;
   overview: Viewport;
   focusId: string | null;
@@ -268,8 +269,11 @@ export function useSemanticCamera(
             )
           : normalAlpha;
       currentFocus.current = alpha > 0 ? id : null;
-      el.style.setProperty("--detail-alpha", String(alpha));
-      el.style.setProperty("--summary-alpha", String(1 - alpha));
+      // Switch the two text planes together with their interaction state;
+      // leaving either at a fractional opacity makes a resting zoom look broken.
+      const detailed = !!id && alpha >= 0.55;
+      el.style.setProperty("--detail-alpha", detailed ? "1" : "0");
+      el.style.setProperty("--summary-alpha", detailed ? "0" : "1");
       el.style.setProperty(
         "--context-alpha",
         String(id ? 1 - alpha * 0.72 : 1),
@@ -286,7 +290,7 @@ export function useSemanticCamera(
       setFocusId(alpha > 0 && id ? id : null);
       // Detail belongs to a card. Zooming into open canvas has none to show,
       // and dimming the whole map around nothing left it grey with no subject.
-      setDetailed(!!id && alpha >= 0.55);
+      setDetailed(detailed);
       if (
         viewport.zoom <= 0.32 &&
         !lockedFocus.current &&
@@ -604,10 +608,11 @@ export function useSemanticCamera(
     };
   }, [back, cancelWheel, flow, reducedMotion, root]);
   const capture = useCallback((): CameraMemory => ({
+    canvasSize: { width: root.current?.clientWidth ?? 0, height: root.current?.clientHeight ?? 0 },
     viewport: flow.getViewport(), overview: overview.current,
     focusId: currentFocus.current, detailed: !!currentFocus.current &&
       (reading.current || !!fittedDetail.current || flow.getZoom() >= 0.44),
-  }), [flow]);
+  }), [flow, root]);
   const restore = useCallback((saved: CameraMemory) => {
     cancelWheel();
     overview.current = saved.overview;

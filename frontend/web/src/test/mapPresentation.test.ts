@@ -129,7 +129,7 @@ describe("map presentation and references", () => {
       "[[Argus引用 broken]]",
     );
   });
-  it("connects all components without changing real dependencies or inventing missing nodes", () => {
+  it("uses semantic text only to annotate existing dependencies", () => {
     const tasks: MapTask[] = ["a", "b", "c", "d"].map((id, i) => ({
       id,
       title: id,
@@ -151,9 +151,7 @@ describe("map presentation and references", () => {
       ],
       true,
     );
-    expect(links).toHaveLength(3);
-    expect(links.find((l) => l.kind === "semantic")?.source).toBe("b");
-    expect(links.find((l) => l.kind === "context")?.target).toBe("d");
+    expect(links).toEqual(graph.links);
     expect(graph.links).toHaveLength(1);
     expect(tasks[2].deps).toEqual([]);
   });

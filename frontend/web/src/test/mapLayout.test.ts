@@ -44,9 +44,6 @@ function bounds(boxes: Record<string, Box>) {
           b.y + b.height + 350 <= a.y,
       ).toBe(true);
   }
-  const width = Math.max(...values.map((b) => b.x + b.width));
-  const height = Math.max(...values.map((b) => b.y + b.height));
-  return width / height;
 }
 
 it.each([
@@ -66,12 +63,11 @@ it.each([
   ],
   ["cycles and a self-reference", [[2], [0], [1], [3], [2, 3]]],
 ] as [string, number[][]][])(
-  "balances %s without losing edges or crowding cards",
+  "lays out %s without losing edges or crowding cards",
   (_, deps) => {
     const { graph, links, positions, sizes, boxes } = arrange(deps);
     expect(Object.keys(positions)).toHaveLength(deps.length);
-    expect(bounds(boxes)).toBeGreaterThan(0.9);
-    expect(bounds(boxes)).toBeLessThan(3.5);
+    bounds(boxes);
     expect(
       layoutGraph(
         graph.tasks.map((t) => t.id),
@@ -92,7 +88,7 @@ it("keeps the first branching stage readable from left to right", () => {
   expect(positions[3].x).toBeGreaterThan(positions[2].x);
 });
 
-it("routes a folded chain through facing ports without crossing cards", () => {
+it("routes a dependency chain through facing ports without crossing cards", () => {
   const { links, boxes } = arrange(
     Array.from({ length: 24 }, (_, i) => (i ? [i - 1] : [])),
   );
@@ -135,57 +131,41 @@ it("supports empty and single-card layouts", () => {
   expect(arrange([[]]).positions).toEqual({ "0": { x: 0, y: 0 } });
 });
 
-it("keeps later independent tasks after earlier research, including merge inputs", () => {
-  const { positions, sizes } = arrange([
-    [],
-    [],
-    [1],
-    [],
-    [],
-    [4],
-    [3, 4, 5],
-    [4, 5, 6],
-    [],
-    [],
-  ]);
-  for (let i = 1; i < 10; i++) {
-    const a = positions[String(i - 1)],
-      b = positions[String(i)];
-    const ax = a.x + sizes[String(i - 1)].width / 2,
-      bx = b.x + sizes[String(i)].width / 2;
-    expect(ax).toBeLessThanOrEqual(bx);
-  }
+it("keeps late independent tasks in the first column and merge inputs before their consumers", () => {
+  const { positions, boxes } = arrange([[], [], [1], [], [], [4], [3, 4, 5], [4, 5, 6], [], []]);
+  for (const id of [1, 3, 4, 8, 9]) expect(positions[id].x).toBe(positions[0].x);
+  expect(positions[2].x).toBe(positions[5].x);
+  expect(positions[6].x).toBeGreaterThan(positions[5].x);
+  expect(positions[7].x).toBeGreaterThan(positions[6].x);
+  bounds(boxes);
 });
 
-it("follows relationships with staggered columns while retaining chronological order", () => {
-  const { positions, sizes } = arrange([
-    [],
-    [],
-    [1],
-    [],
-    [],
-    [4],
-    [3, 4, 5],
-    [4, 5, 6],
-    [],
-    [],
+it("places dependencies to the left even when timestamps put consumers first", () => {
+  const { positions, sizes } = arrange([[1], [2], [], [2]]);
+  expect(positions[2].x + sizes[2].width).toBeLessThan(positions[1].x);
+  expect(positions[1].x).toBe(positions[3].x);
+  expect(positions[1].x + sizes[1].width).toBeLessThan(positions[0].x);
+});
+
+it("keeps a cycle together with its downstream work in later columns", () => {
+  const { positions } = arrange([[2], [0], [1], [3], [2, 3]]);
+  expect(positions[0].x).toBe(positions[1].x);
+  expect(positions[1].x).toBe(positions[2].x);
+  expect(positions[4].x).toBeGreaterThan(positions[2].x);
+  expect(positions[4].x).toBeGreaterThan(positions[3].x);
+});
+
+it("lays the browser reproduction out by dependency depth, independent of creation order", async () => {
+  const { default: tasks } = await import("./fixtures/map-deps.json");
+  const graph = buildMap(tasks);
+  const links = connectMap(graph, [], true);
+  expect(links.map(({ source, target }) => [source, target])).toEqual([
+    ["t1", "t2"], ["t1", "t3"], ["t2", "t5"], ["t3", "t5"], ["t5", "t6"],
   ]);
-  const columns = new Map<number, string[]>();
-  for (let i = 0; i < 10; i++) {
-    const id = String(i),
-      p = positions[id],
-      x = p.x + sizes[id].width / 2;
-    columns.set(x, [...(columns.get(x) || []), id]);
-  }
-  expect(
-    new Set([...columns.values()].map((ids) => Math.round(positions[ids[0]].y)))
-      .size,
-  ).toBeGreaterThan(1);
-  for (const ids of columns.values())
-    for (let i = 1; i < ids.length; i++)
-      expect(
-        positions[ids[i]].y -
-          positions[ids[i - 1]].y -
-          sizes[ids[i - 1]].height,
-      ).toBeGreaterThanOrEqual(439.99);
+  const sizes = Object.fromEntries(tasks.map(({ id }) => [id, { width: 1440, height: 900 }]));
+  const positions = layoutGraph(tasks.map(({ id }) => id), links, sizes);
+  expect(positions.t1.x).toBe(positions.t4.x);
+  expect(positions.t2.x).toBe(positions.t3.x);
+  for (const { source, target } of links)
+    expect(positions[source].x + sizes[source].width).toBeLessThan(positions[target].x);
 });

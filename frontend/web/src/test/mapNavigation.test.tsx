@@ -10,9 +10,12 @@ import { MapReaderContent } from "../map/MapReaderContent";
 import type { MacroNode } from "../map/MacroTaskNode";
 import type { Dataset } from "../map/model";
 import type { MapCopy } from "../map/presentation";
+import type { CameraMemory } from "../map/useSemanticCamera";
 
 const fitCamera = vi.hoisted(() => vi.fn<(ids?: ReadonlySet<string>) => void>());
 const initialization = vi.hoisted(() => ({ ready: false }));
+const memory = vi.hoisted(() => ({ camera: undefined as CameraMemory | undefined }));
+const restoreCamera = vi.hoisted(() => vi.fn());
 
 vi.mock("@xyflow/react", async (original) => {
   const react = await import("react");
@@ -35,7 +38,7 @@ vi.mock("../map/useSemanticCamera", async () => {
       const fit = useCallback((ids?: ReadonlySet<string>) => { fitCamera(ids); setFocusId(null); }, []);
       return {
         focusId, detailed: !!focusId, canvasSize: { width: 1440, height: 960 },
-        enter, fit, back: fit, readStep: noop, restore: noop, capture: noop,
+        enter, fit, back: fit, readStep: noop, restore: restoreCamera, capture: noop,
         fitUpdatedScene: noop, navigate: noop, onMove: noop, reducedMotion: true,
       };
     },
@@ -46,7 +49,7 @@ vi.mock("../components/Modal", () => ({
   ModalHeader: ({ title, sub }: { title: string; sub?: string }) => <header><h2>{title}</h2><p>{sub}</p></header>,
 }));
 vi.mock("../map/MapComposer", () => ({ MapComposer: () => null }));
-vi.mock("../map/viewMemory", () => ({ recalledView: () => ({}), rememberView: () => {} }));
+vi.mock("../map/viewMemory", () => ({ recalledView: () => memory, rememberView: () => {} }));
 
 const data: Dataset = {
   id: "live:navigation", title: "Navigation", description: "", kind: "live", read_only: false,
@@ -86,6 +89,8 @@ const searchCount = () => renderer.root.findByProps({ className: "map-search-cou
 
 beforeEach(() => {
   initialization.ready = false;
+  memory.camera = undefined;
+  restoreCamera.mockClear();
   vi.stubGlobal("window", { location: { search: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   client.setQueryData(['map-copy', 'project', 'navigation', 'en-US', 'navigation'], { cards: {}, relations: [], available: false });
@@ -114,7 +119,7 @@ it("omits the empty status row and ambient decoration without hiding active work
   expect(renderer.root.findByProps({ className: "map-status-text" }).children.join("")).toBe("working on your message");
 });
 
-it("keeps the explicitly opened task reader when new copy changes relations and background focus", async () => {
+it("keeps the explicitly opened task reader when new copy arrives and background focus changes", async () => {
   const key = ['map-copy', 'project', 'navigation', 'en-US', 'navigation'];
   const retained: MapCopy = { version: 22, available: true, relations: [], cards: { failed: {
     title: 'Retained task explanation', summary: 'A limited finding', detail: 'Retained evidence', generated_at: 1, version: 22,
@@ -129,7 +134,7 @@ it("keeps the explicitly opened task reader when new copy changes relations and 
   const updated: MapCopy = { ...retained, cards: { failed: { ...retained.cards.failed, title: 'Updated task explanation', generated_at: 2 } },
     relations: [{ source: 'parent', target: 'unrelated', kind: 'semantic', label: 'Explains' }] };
   await act(async () => { client.setQueryData(key, updated); await new Promise(resolve => setTimeout(resolve, 0)); });
-  expect(nodes().map(node => node.position)).not.toEqual(positions);
+  expect(nodes().map(node => node.position)).toEqual(positions);
 
   // ReactFlow/camera animation is mocked here. Exercise its observable focus
   // change and the owning node's detailed-mode cleanup explicitly.
@@ -208,6 +213,36 @@ it("connects a historical review error to the project's final review and deliver
   act(() => laterReview.props.onClick());
   expect(renderer.root.findAllByProps({ "data-testid": "map-task-reading" })).toHaveLength(0);
   expect(focused()).toBe("final");
+});
+
+it.each([
+  ["same desktop canvas", 1440, 960, true],
+  ["phone after desktop", 390, 716, false],
+  ["shorter desktop window", 1440, 700, false],
+] as const)("restores a saved view only on the %s", (_, width, height, restore) => {
+  act(() => renderer.unmount());
+  memory.camera = {
+    canvasSize: { width: 1440, height: 960 },
+    viewport: { x: -3002.56, y: -806.481, zoom: 0.746998 },
+    overview: { x: 63, y: 280, zoom: 0.16 }, focusId: 'failed', detailed: true,
+  };
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  initialization.ready = true;
+  act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>, {
+    createNodeMock: (element) => element.props.className?.split(" ").includes("map-canvas-wrap")
+      ? { clientWidth: width, clientHeight: height } : null,
+  }); });
+  act(() => { for (const callback of frames.splice(0)) callback(0); });
+  if (restore) {
+    expect(restoreCamera).toHaveBeenCalledWith(memory.camera);
+    expect(fitCamera).not.toHaveBeenCalled();
+  } else {
+    expect(restoreCamera).not.toHaveBeenCalled();
+    expect(fitCamera).toHaveBeenCalled();
+    if (width < 640) expect(fitCamera).toHaveBeenLastCalledWith(new Set(['question']));
+  }
 });
 
 it("measures offscreen cards before fitting and after graph growth", () => {

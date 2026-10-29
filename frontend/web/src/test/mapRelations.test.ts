@@ -23,18 +23,18 @@ describe("map lines follow recorded relations", () => {
     const links = connectMap(buildMap(survey), [], true);
     const question = links.filter((link) => link.target === "turn:web-2");
     expect(question).toEqual([expect.objectContaining({ kind: "relation", relation: "about", source: "survey" })]);
-    // Every card is reached by a relation, so no time-order line is drawn.
+    // Shared chronology does not add a dependency.
     expect(links.filter((link) => link.kind === "context")).toEqual([]);
     // The recorded replacement stands in for the one the plan ids would draw.
     expect(links.filter((link) => link.source === "check" && link.target === "recheck").map((l) => l.kind))
       .toEqual(["relation"]);
   });
 
-  it("falls back to time order only for a card with no relation", () => {
+  it("leaves a card with no dependency or recorded relation unconnected", () => {
     const loose: MapTask = { id: "later", title: "另一件事", objective: "", status: "done", deps: [], ts: 6 };
     const links = connectMap(buildMap([...survey, loose]), [], true);
     expect(links.filter((link) => link.kind === "context").map((l) => [l.source, l.target]))
-      .toEqual([["turn:web-2", "later"]]);
+      .toEqual([]);
   });
 });
 

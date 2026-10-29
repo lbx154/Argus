@@ -8,7 +8,8 @@ export function recalledView(key: string) {
   if (memory) return memory;
   try {
     const camera = JSON.parse(readLocalStorage("argus.map.camera.v1:" + key) || "null");
-    if (camera && [camera.viewport, camera.overview].every((v) => v &&
+    if (camera?.canvasSize && [camera.canvasSize.width, camera.canvasSize.height].every((n) => Number.isFinite(n) && n > 0) &&
+      [camera.viewport, camera.overview].every((v) => v &&
       [v.x, v.y, v.zoom].every(Number.isFinite) && v.zoom >= 0.035 && v.zoom <= 3.5) &&
       (camera.focusId === null || typeof camera.focusId === "string") && typeof camera.detailed === "boolean")
       return { camera: camera as CameraMemory };

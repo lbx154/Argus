@@ -1,4 +1,4 @@
-import type { MapLink } from "./model";
+import { dependencyComponents, type MapLink } from "./model";
 import type { Box, Point } from "./relationGeometry";
 
 type Size = Pick<Box, "width" | "height">;
@@ -74,9 +74,10 @@ function sweepColumns(
   }
 }
 
-/** Partition creation order into balanced columns. Dependencies influence the
- * breaks, while later work never jumps back to the left of earlier work.
- */
+/** Execution dependencies define columns: each task is one column beyond
+ * its latest prerequisite. Independent tasks share a column, in creation
+ * order. A recorded cycle occupies one column so its downstream work can
+ * still be placed; the cycle's own arrows remain visible. */
 export function layoutGraph(
   ids: string[],
   links: MapLink[],
@@ -85,149 +86,58 @@ export function layoutGraph(
   if (!ids.length) return {};
   const columnGap = columnGapFor(ids.length);
   const index = new Map(ids.map((id, i) => [id, i]));
-  const edges = links
-    .filter((e) => e.kind !== "replacement" && e.source !== e.target)
-    .map((e) => ({
-      source: index.get(e.source)!,
-      target: index.get(e.target)!,
-      weight: e.kind === "dependency" || e.kind === "continuation" ? 1 : 0.4,
-    }));
-  const children = ids.map(() => [] as number[]);
-  const parents = ids.map(() => [] as number[]);
+  // Continuations are pages of one task, rather than dependencies invented
+  // between tasks. Other recorded relationships do not gate execution.
+  const edges = links.filter((e) => e.kind === "dependency" || e.kind === "continuation");
+  const children = new Map(ids.map((id) => [id, [] as string[]]));
   const adjacent = ids.map(() => [] as Neighbor[]);
   for (const e of edges) {
-    children[e.source].push(e.target);
-    parents[e.target].push(e.source);
-    adjacent[e.source].push({ index: e.target, weight: e.weight });
-    adjacent[e.target].push({ index: e.source, weight: e.weight });
+    children.get(e.source)!.push(e.target);
+    adjacent[index.get(e.source)!].push({ index: index.get(e.target)!, weight: 1 });
+    adjacent[index.get(e.target)!].push({ index: index.get(e.source)!, weight: 1 });
   }
-  // Cards that hand work to each other sit closer together than cards that
-  // merely follow one another in time, so a column reads as groups of related
-  // work rather than as an evenly spaced list.
-  const linked = new Set(
-    edges.filter((e) => e.weight === 1).map((e) => `${Math.min(e.source, e.target)}:${Math.max(e.source, e.target)}`),
-  );
-  const gapBetween = (above: string, below: string) => {
-    const a = index.get(above)!, b = index.get(below)!;
-    return linked.has(`${Math.min(a, b)}:${Math.max(a, b)}`) ? ROW_GAP : ROW_GAP * 1.3;
-  };
-  const area = ids.reduce(
-    (sum, id) => sum + sizes[id].width * sizes[id].height,
-    0,
-  );
-  const unit = Math.sqrt(area / ids.length);
-  const averageHeight =
-    ids.reduce((sum, id) => sum + sizes[id].height, 0) / ids.length;
-  const maxCapacity = Math.ceil(Math.sqrt(ids.length) * 1.8);
-  const endingAt = ids.map(() => [] as typeof edges);
-  for (const e of edges) endingAt[Math.max(e.source, e.target)].push(e);
-  const segmentPenalty = ids.map((_, start) => {
-    let penalty = 0;
-    return Array.from(
-      { length: Math.min(maxCapacity, ids.length - start) + 1 },
-      (_, length) => {
-        if (length)
-          for (const e of endingAt[start + length - 1]) {
-            if (Math.min(e.source, e.target) < start) continue;
-            if (children[e.source].length > 1 || parents[e.target].length > 1)
-              penalty += e.weight * 0.9;
-            penalty +=
-              Math.max(0, Math.abs(e.target - e.source) - 1) * e.weight;
-          }
-        return penalty;
-      },
-    );
+  const component = dependencyComponents(children);
+  const groups = new Set(component.values());
+  const next = new Map([...groups].map((id) => [id, new Set<number>()]));
+  const indegree = new Map([...groups].map((id) => [id, 0]));
+  const rank = new Map([...groups].map((id) => [id, 0]));
+  for (const e of edges) {
+    const source = component.get(e.source)!, target = component.get(e.target)!;
+    if (source === target || next.get(source)!.has(target)) continue;
+    next.get(source)!.add(target);
+    indegree.set(target, indegree.get(target)! + 1);
+  }
+  const queue = [...groups].filter((id) => indegree.get(id) === 0);
+  for (let i = 0; i < queue.length; i++) {
+    const source = queue[i];
+    for (const target of next.get(source)!) {
+      rank.set(target, Math.max(rank.get(target)!, rank.get(source)! + 1));
+      indegree.set(target, indegree.get(target)! - 1);
+      if (indegree.get(target) === 0) queue.push(target);
+    }
+  }
+  const columns: string[][] = [];
+  for (const id of ids) {
+    const column = rank.get(component.get(id)!)!;
+    (columns[column] ??= []).push(id);
+  }
+  const widths = columns.map((column) => Math.max(...column.map((id) => sizes[id].width)));
+  const heights = columns.map((column) => column.reduce((sum, id) => sum + sizes[id].height, 0) + (column.length - 1) * ROW_GAP);
+  const height = Math.max(...heights);
+  const positions: Record<string, Point> = {};
+  let x = 0;
+  columns.forEach((column, col) => {
+    let y = (height - heights[col]) / 2;
+    for (const id of column) {
+      positions[id] = { x, y };
+      y += sizes[id].height + ROW_GAP;
+    }
+    x += widths[col] + columnGap;
   });
-  let best: Record<string, Point> = {},
-    bestScore = Infinity;
-  const seen = new Set<string>();
-  for (let capacity = 1; capacity <= maxCapacity; capacity++) {
-    const targetHeight = capacity * averageHeight + (capacity - 1) * ROW_GAP;
-    const cost = Array(ids.length + 1).fill(Infinity),
-      previous = Array(ids.length + 1).fill(0);
-    cost[0] = 0;
-    for (let end = 1; end <= ids.length; end++) {
-      let height = 0;
-      for (let start = end - 1; start >= Math.max(0, end - capacity); start--) {
-        height += sizes[ids[start]].height + (start === end - 1 ? 0 : ROW_GAP);
-        let penalty = segmentPenalty[start][end - start];
-        // Avoid cutting a small parallel branch between two adjacent columns.
-        if (
-          start > 0 &&
-          parents[start].some((p) => parents[start - 1].includes(p))
-        )
-          penalty += 0.7;
-        const score =
-          cost[start] + 0.2 + (height / targetHeight - 1) ** 2 + penalty;
-        if (score < cost[end]) {
-          cost[end] = score;
-          previous[end] = start;
-        }
-      }
-    }
-    const columns: string[][] = [];
-    for (let end = ids.length; end > 0; end = previous[end])
-      columns.unshift(ids.slice(previous[end], end));
-    const signature = JSON.stringify(columns);
-    if (seen.has(signature)) continue;
-    seen.add(signature);
-    const widths = columns.map((column) =>
-      Math.max(...column.map((id) => sizes[id].width)),
-    );
-    const heights = columns.map(
-      (column) =>
-        column.reduce((sum, id) => sum + sizes[id].height, 0) +
-        (column.length - 1) * ROW_GAP,
-    );
-    const width =
-      widths.reduce((a, b) => a + b, 0) + (columns.length - 1) * columnGap;
-    let height = Math.max(...heights);
-    const positions: Record<string, Point> = {};
-    let x = 0;
-    columns.forEach((column, col) => {
-      let y = (height - heights[col]) / 2;
-      column.forEach((id, i) => {
-        positions[id] = { x: x + (widths[col] - sizes[id].width) / 2, y };
-        y += sizes[id].height + (i + 1 < column.length ? gapBetween(id, column[i + 1]) : 0);
-      });
-      x += widths[col] + columnGap;
-    });
-    sweepColumns(columns, positions, ids, index, sizes, adjacent, gapBetween);
-    const top = Math.min(...ids.map((id) => positions[id].y));
-    for (const id of ids) positions[id].y -= top;
-    height = Math.max(...ids.map((id) => positions[id].y + sizes[id].height));
-    const length =
-      edges.reduce((sum, e) => {
-        const a = positions[ids[e.source]],
-          b = positions[ids[e.target]];
-        return (
-          sum +
-          Math.hypot(
-            b.x +
-              sizes[ids[e.target]].width / 2 -
-              a.x -
-              sizes[ids[e.source]].width / 2,
-            b.y +
-              sizes[ids[e.target]].height / 2 -
-              a.y -
-              sizes[ids[e.source]].height / 2,
-          ) *
-            e.weight
-        );
-      }, 0) /
-      Math.max(1, edges.length) /
-      unit;
-    const score =
-      2 * Math.log(width / height / 2.1) ** 2 +
-      (0.08 * width * height) / area +
-      0.14 * length +
-      (0.08 * cost[ids.length]) / columns.length;
-    if (score < bestScore) {
-      bestScore = score;
-      best = positions;
-    }
-  }
-  return best;
+  sweepColumns(columns, positions, ids, index, sizes, adjacent, () => ROW_GAP);
+  const top = Math.min(...ids.map((id) => positions[id].y));
+  for (const id of ids) positions[id].y -= top;
+  return positions;
 }
 
 /** Lane index per edge: how many earlier edges share this edge's source or

@@ -182,8 +182,8 @@ model, which the core's settings do not list. The Python server declares every c
 The progress map reads the same files: a card per task, its brief the letter that opened it, and
 on it a step per letter written about it, by whom to whom. A task opened in the reader lists its
 calls in order, each with the letter it ended with and the path of its raw output
-(`calls/<call>.jsonl`). Nothing on the map is inferred: no relations between tasks beyond their
-order, no written explanations.
+(`calls/<call>.jsonl`). Arrows show the tasks' recorded `after` dependencies, and tasks at the same dependency depth
+share a column. Time order adds no arrows, and the map generates no written explanations.
 
 ## The agent call
 

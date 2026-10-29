@@ -747,9 +747,7 @@
 .argus-map .macro-summary .map-card-bottom { border-top: 0; padding: 6px 0 0; font-size: 11px; color: rgb(var(--ink-faint)); }
 /* Details on demand: the course, the summary line and the way in. */
 .argus-map .macro-summary .map-card-course,
-.argus-map .macro-summary .map-card-bottom,
-.argus-map .macro-summary .map-card-objective,
-.argus-map .macro-summary .map-card-copy { transition: opacity 180ms ease; }
+.argus-map .macro-summary .map-card-bottom { transition: opacity 180ms ease; }
 .argus-map .map-macro:not(:hover):not([data-hovered="true"]):not([data-focused="true"]) .macro-summary .map-card:not(:focus-visible) :is(.map-card-course, .map-card-bottom) { opacity: 0; }
 
 /* Seen from afar the card becomes its title and its state. Without
@@ -757,10 +755,10 @@
    how large one card pixel is on screen; below about 0.8 the 19px title would
    read under 15px, so it grows to stay near 15 screen px (capped to fit three
    lines), the state dot and word grow to stay near 11 screen px, and the rest
-   of the card fades out (--near goes from 1 to 0). */
+   of the card is hidden below the readable scale (--near is 0 or 1). */
 .argus-map .macro-summary {
   --on-screen: calc(var(--z, 0.24) * var(--summary-scale, 5));
-  --near: clamp(0, calc((var(--on-screen) - 0.62) * 5), 1);
+  --near: round(down, clamp(0, calc((var(--on-screen) - 0.62) * 5), 1), 1);
   --status-size: clamp(11.5px, calc(11px / var(--on-screen)), 36px);
 }
 /* Three whole lines always fit the card (its height less the status row and
