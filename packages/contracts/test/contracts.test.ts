@@ -42,7 +42,7 @@ test('non-finite values and inherited alias names cannot cross the boundary', ()
 });
 
 test('delivery wire types preserve per-file occurrence counts alongside reusable snapshots', () => {
-  const target = { path: 'report.md', label: 'report.md', source: 'manager', why: '', delivery_number: 3 };
+  const target = { path: 'report.md', label: 'report.md', source: 'manager', delivery_number: 3 };
   const delivery: import('../src/models.js').DeliveryReceipt = {
     schema_version: 1, delivery_id: 'd12', kind: 'result', item_id: '', title: 'Report', summary: 'Unchanged content delivered again.',
     status: 'done', review_status: '', delivered_at: 1, primary_target: target, targets: [target],
@@ -53,4 +53,19 @@ test('delivery wire types preserve per-file occurrence counts alongside reusable
   const received = JSON.parse(JSON.stringify(event)) as import('../src/eventPayloads.generated.js').UiArgusEvent;
   assert.equal(received.delivery!.targets![0]!.delivery_number, 3);
   assert.equal(received.delivery!.snapshots![0]!.version, 'a'.repeat(32));
+});
+
+test('delivery references validate the same target in the primary slot and the file list', () => {
+  const base = { type: 'ui.argus', message_id: 'm1', text: 'Ready' };
+  for (const delivery of [
+    { primary_target: { delivery_number: 0 } },
+    { targets: [{ delivery_number: 0 }] },
+    { targets: ['report.md'] },
+    { snapshots: [{ size: -1 }] },
+  ]) assert.equal(validateEventEnvelope({ ...base, delivery }).valid, false, JSON.stringify(delivery));
+  assert.equal(validateEventEnvelope({ ...base, delivery: { primary_target: null, targets: [{ path: 'report.md', delivery_number: 1 }] } }).valid, true);
+  assert.equal(validateEventEnvelope({ ...base, delivery: null }).valid, true);
+  const schema = JSON.parse(readFileSync(new URL('../schemas/event_payload_schemas.json', import.meta.url), 'utf8'));
+  assert.equal(schema.events['life.mission.completed'].properties.delivery, undefined);
+  assert.deepEqual(schema.events['ui.argus'].properties.delivery, { $ref: '#/$defs/DeliveryReceipt' });
 });

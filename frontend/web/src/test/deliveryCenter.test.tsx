@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { useDeliveryCenter } from '../useDeliveryCenter';
 import { cleanDeliverySummary, deliveryFiles, defaultDeliverySelection } from '../components/deliveryPresentation';
-const receipt = (id: string): DeliveryReceipt => ({ schema_version: 1, delivery_id: id, item_id: id, kind: 'task_completed', status: 'done', review_status: 'done', title: id, summary: 'Ready. RESULT=Checks passed.', delivered_at: 1, primary_target: { path: 'index.html', label: 'Website', source: 'delivery', why: 'Reviewed' }, targets: [{ path: 'report.md', label: 'Report', source: 'delivery', why: 'Reviewed' }] });
+const receipt = (id: string): DeliveryReceipt => ({ schema_version: 1, delivery_id: id, item_id: id, kind: 'task_completed', status: 'done', review_status: 'done', title: id, summary: 'Ready. RESULT=Checks passed.', delivered_at: 1, primary_target: { path: 'index.html', label: 'Website', source: 'delivery', }, targets: [{ path: 'report.md', label: 'Report', source: 'delivery', }] });
 afterEach(() => vi.unstubAllGlobals());
 it('opens files only when chosen and closes the viewer when switching projects', () => {
   let center!: ReturnType<typeof useDeliveryCenter>;
@@ -29,7 +29,7 @@ it('opens files only when chosen and closes the viewer when switching projects',
 });
 
 it('opens the newest real delivery and its primary file', () => {
-  const report = { path: 'paper/REVIEW.md', label: 'Review', source: 'delivery', why: 'Review report' };
+  const report = { path: 'paper/REVIEW.md', label: 'Review', source: 'delivery', };
   const latest = { ...receipt('review'), primary_target: report, targets: [] };
   const paper = { ...receipt('paper'), primary_target: report, targets: [{ ...report, path: 'paper/main.pdf', label: 'Paper' }] };
   expect(defaultDeliverySelection([latest, paper])).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
@@ -55,4 +55,15 @@ it('finds the previous version of a redelivered file', async () => {
   expect(previousDeliveryVersion(v3, [v3, v2, v1], 'report.md')).toEqual({ path: 'report.md', before: 'a'.repeat(32), after: 'b'.repeat(32) });
   expect(previousDeliveryVersion(v1, [v3, v2, v1], 'report.md')).toBeNull();
   expect(previousDeliveryVersion({ ...v2, snapshots: snap('b', false) }, [v2, v1], 'report.md')).toBeNull();
+});
+
+it('shows a delivery count only after the first delivery of a file', async () => {
+  const { deliveryNumberLabel } = await import('../components/deliveryPresentation');
+  const file = receipt('one').primary_target!;
+  for (const number of [undefined, 0, 1]) {
+    expect(deliveryNumberLabel({ ...file, delivery_number: number }, true)).toBe('');
+    expect(deliveryNumberLabel({ ...file, delivery_number: number }, false)).toBe('');
+  }
+  expect(deliveryNumberLabel({ ...file, delivery_number: 2 }, true)).toBe('第 2 次交付');
+  expect(deliveryNumberLabel({ ...file, delivery_number: 2 }, false)).toBe('Delivery 2');
 });

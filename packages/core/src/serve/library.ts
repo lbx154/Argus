@@ -1,20 +1,15 @@
 // The skill library in the web cockpit, read as it is on each request. The roles learn in their own
 // turns, by writing skills; what the page shows of it is what they changed, the newest files under
-// the state root's skills/. A plugin is a skill whose folder holds plugin.json ({ name, description,
-// version, url }), installed and started by whoever wants it: Argus lists it and the page opens its
-// url.
+// the state root's skills/.
 
-import { lstatSync, readFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { isJsonObject } from '@argus/contracts';
 import { purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
 
 export function library(store: Store): [string, RegExp, Handler][] {
-  const plugins = () => [...skills(store.home)].map(([id, dir]) => [id, join(dir, 'plugin.json')] as const)
-    .filter(([, file]) => lstatSync(file, { throwIfNoEntry: false })?.isFile()).map(([id, file]) => plugin(id, file));
   return [
     // Argus's own skills are the page's 'bundled' library, the roles' and the operator's its 'shared' one.
     ['GET', /^\/api\/skill-library$/, () => ({
@@ -48,28 +43,5 @@ export function library(store: Store): [string, RegExp, Handler][] {
         })),
       };
     }],
-    ['GET', /^\/api\/plugins$/, () => ({ plugins: plugins() })],
-    ['POST', /^\/api\/plugins\/([^/]+)\/launch$/, ({ params: [id] }) => {
-      const found = plugins().find(plugin => plugin.id === id);
-      if (!found) throw new HttpError(404, `no plugin ${id}`);
-      if (!found.url) throw new HttpError(400, found.reason, 'plugin_unavailable');
-      return { url: found.url };
-    }],
   ];
-}
-
-/** A plugin as the page's plugin center reads one: ready to open when its plugin.json names a url. */
-function plugin(id: string, file: string) {
-  let spec: unknown = null;
-  try { spec = JSON.parse(readFileSync(file, 'utf8')); } catch { /* said in its reason */ }
-  const text = (key: string): string => {
-    const value = isJsonObject(spec) ? spec[key] : undefined;
-    return typeof value === 'string' ? value : '';
-  };
-  // The page opens the url in itself: only a web address, never a script.
-  const url = /^https?:\/\//i.test(text('url')) ? text('url') : '';
-  const reason = !isJsonObject(spec) ? `${file} is not a JSON object.` : url ? '' : `${file} names no http(s) url to open.`;
-  return {
-    id, name: text('name') || id, description: text('description'), version: text('version'), url, reason,
-  };
 }

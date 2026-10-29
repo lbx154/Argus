@@ -23,7 +23,7 @@ function snapshot(): Snapshot {
       display_name: 'Original name',
       objective: 'Study agent reliability',
       last_active: 1,
-      cwd: '/state/projects/s-research1',
+      workdir: '/state/projects/s-research1',
     },
     daemon: {
       alive: false,
@@ -44,16 +44,13 @@ interface ProjectIndex {
 function projectIndex(): ProjectIndex {
   return {
     local_cwd: '/workspace/argus',
-    projects: [{
+    projects: [{ workdir: '/workspace/argus',
       id: sid,
       label: 'Original name',
       display_name: 'Original name',
-      objective: 'Study agent reliability',
-      launch_cwd: '/workspace/argus',
       last_active: 1,
       daemon_alive: false,
       daemon_pid: null,
-      uptime_seconds: null,
     }],
   };
 }

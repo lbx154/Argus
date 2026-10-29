@@ -31,10 +31,10 @@ export function selectPreviewArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo
     markdown: 0, pdf: 1, html: 2, text: 3, table: 4, json: 5,
     image: 6, video: 7, audio: 8, binary: 9,
   };
-  const existingDelivery = all.filter((item) => item.exists && item.source === 'delivery');
-  const existingLive = all.filter((item) => item.exists && item.source === 'manager_live');
+  const existingDelivery = all.filter((item) => item.source === 'delivery');
+  const existingLive = all.filter((item) => item.source === 'manager_live');
   const existing = all.filter(
-    (item) => item.exists && item.source !== 'manager_live' && item.source !== 'delivery',
+    (item) => item.source !== 'manager_live' && item.source !== 'delivery',
   );
   if (existing.length || existingDelivery.length) {
     return [
@@ -49,7 +49,7 @@ export function selectPreviewArtifacts(artifacts?: ArtifactInfo[]): ArtifactInfo
 }
 
 export function selectPreferredPreviewArtifact(artifacts?: ArtifactInfo[]): ArtifactInfo | null {
-  return selectPreviewArtifacts(artifacts).find((item) => item.exists) ?? null;
+  return selectPreviewArtifacts(artifacts)[0] ?? null;
 }
 
 export function ResearchCanvas({
@@ -115,7 +115,7 @@ export function ResearchCanvas({
     const previous = handledRequest.current;
     if (previous?.sid === sid && previous.path === requestedPath && previous.token === requestedPathToken) return;
     const target = previewArtifacts.find(
-      (item) => item.path === requestedPath && item.exists,
+      (item) => item.path === requestedPath,
     );
     const path = filesFirst && requestedPath === FILES_PATH ? FILES_PATH : target?.path;
     if (!path) return;
@@ -142,7 +142,7 @@ export function ResearchCanvas({
   }, [latestDelivery, deliveriesLoaded, sid, filesFirst]);
   useEffect(() => {
     if (!newestPaths.length) return;
-    const target = newestPaths.find((path) => previewArtifacts.some((item) => item.path === path && item.exists));
+    const target = newestPaths.find((path) => previewArtifacts.some((item) => item.path === path));
     if (!target) return;
     setNewestPaths([]);
     setManualPath(target);
@@ -162,7 +162,7 @@ export function ResearchCanvas({
       ?? (filesFirst ? null : preferred);
   const artifactQ = useArtifact(
     sid,
-    selected?.exists ? selected.path : null,
+    selected?.path ?? null,
     selected?.mtime ?? null,
   );
   const info = artifactQ.data;
@@ -227,13 +227,13 @@ export function ResearchCanvas({
             <select
               value={showFiles ? FILES_PATH : selected?.path ?? FILES_PATH}
               onChange={(event) => selectPreviewPath(event.target.value)}
-              title={selected?.storage_path || selected?.path}
+              title={selected?.path}
               className="h-8 w-full min-w-0 max-w-64 truncate rounded-md border border-line/50 bg-bg px-2 font-mono text-xs text-ink-dim outline-none focus:border-blue/60"
             >
-              {filesFirst && <option value={FILES_PATH}>{locale === 'zh-CN' ? '所有文件' : 'All files'}</option>}
+              {filesFirst && <option value={FILES_PATH}>{locale === 'zh-CN' ? '最近改过的文件' : 'Recently changed files'}</option>}
               {previewArtifacts.map((item) => (
-                <option key={item.path} value={item.path} disabled={!item.exists} title={item.storage_path || item.path}>
-                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{item.path}{item.exists ? '' : ` · ${t('research.optionPending')}`}
+                <option key={item.path} value={item.path} title={item.path}>
+                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{item.path}
                 </option>
               ))}
             </select>
@@ -244,12 +244,12 @@ export function ResearchCanvas({
             <div className="flex shrink-0 items-center gap-1">
               {onEdit && info && canEditArtifact(info)
                 && <button type="button" onClick={() => onEdit(selected.path)} className="rounded-md px-2 py-1 text-xs text-blue hover:bg-bg">{locale === 'zh-CN' ? '编辑与版本' : 'Edit & versions'}</button>}
-              {onRevise && <button type="button" disabled={!selected.exists} onClick={() => onRevise(selected.path)}
+              {onRevise && <button type="button" onClick={() => onRevise(selected.path)}
                 className="rounded-md px-2 py-1 text-xs text-blue hover:bg-bg">{locale === 'zh-CN' ? '继续修改' : 'Revise'}</button>}
               <button
                 type="button"
                 onClick={() => void download()}
-                disabled={downloading || !selected.exists}
+                disabled={downloading}
                 title={t('artifact.download')}
                 aria-label={t('artifact.download')}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint hover:bg-surface hover:text-ink disabled:opacity-40"
@@ -315,18 +315,12 @@ export function ResearchCanvas({
         ) : null}
         {!showFiles && !error && previewArtifacts.length > 0 && !selected ? (
           <div className="m-auto max-w-sm px-8 text-center">
-            {filesFirst ? <><p className="text-sm text-ink-dim">{locale === 'zh-CN' ? '上次查看的文件不在当前列表中。' : 'The previously opened file is no longer listed.'}</p><button type="button" className="mt-3 text-sm text-blue" onClick={() => selectPreviewPath(FILES_PATH)}>{locale === 'zh-CN' ? '查看所有文件' : 'See all files'}</button></>
+            {filesFirst ? <><p className="text-sm text-ink-dim">{locale === 'zh-CN' ? '上次查看的文件不在当前列表中。' : 'The previously opened file is no longer listed.'}</p><button type="button" className="mt-3 text-sm text-blue" onClick={() => selectPreviewPath(FILES_PATH)}>{locale === 'zh-CN' ? '查看最近改过的文件' : 'See recently changed files'}</button></>
               : <><Spinner /><p className="mt-3 text-xs text-ink-faint">{t('research.waiting')}</p></>}
           </div>
         ) : null}
-        {selected && !selected.exists ? (
-          <div className="m-auto max-w-sm px-8 text-center">
-            <Spinner />
-            <p className="mt-3 text-xs text-ink-faint">{t('research.updating')}</p>
-          </div>
-        ) : null}
-        {selected?.exists && artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
-        {selected?.exists && artifactQ.isError ? (
+        {selected && artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
+        {selected && artifactQ.isError ? (
           <div className="m-auto px-6 text-center text-sm text-err">
             {t('artifact.unavailable')} · <ErrorMessage error={artifactQ.error} />
           </div>
@@ -356,7 +350,7 @@ export function ResearchCanvas({
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-4">
-            <img src={previewUrl} alt={info.why || info.name} className="max-h-full max-w-full object-contain" />
+            <img src={previewUrl} alt={info.name} className="max-h-full max-w-full object-contain" />
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
@@ -390,7 +384,7 @@ export function ResearchCanvas({
 
       {info ? (
         <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
-          <span className="min-w-0 flex-1 truncate" title={info.storage_path || info.path}>{info.path}</span>
+          <span className="min-w-0 flex-1 truncate" title={info.path}>{info.path}</span>
           {downloadError ? <span className="ml-auto truncate text-err" title={t('research.downloadFailed')}>{t('research.downloadFailed')}</span> : null}
           <span className="shrink-0">{formatBytes(info.size)}</span>
         </footer>

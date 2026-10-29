@@ -1,6 +1,6 @@
 import { canonicalEventType } from './eventCatalog.js';
 import payload from '../schemas/event_payload_schemas.json' with { type: 'json' };
-import { isJsonObject, matchesType, type PayloadSchema } from './schema.js';
+import { isJsonObject, schemaErrors, type PayloadSchema } from './schema.js';
 
 const EVENT_PAYLOAD_SCHEMAS: Record<string, PayloadSchema> = payload.events;
 
@@ -36,25 +36,7 @@ export function validateEventEnvelope(
     for (const [field, spec] of Object.entries(schema.properties ?? {})) {
       if (!Object.hasOwn(event, field)) continue;
       const fieldValue = event[field];
-      const types = Array.isArray(spec.type) ? spec.type : spec.type ? [spec.type] : [];
-      if (types.length && !types.some(type => matchesType(fieldValue, type))) {
-        errors.push(`field ${field} must be ${types.join(' or ')}`);
-        continue;
-      }
-      if (typeof fieldValue === 'number' && !Number.isFinite(fieldValue)) {
-        errors.push(`field ${field} must be finite`);
-        continue;
-      }
-      if (Object.hasOwn(spec, 'const') && fieldValue !== spec.const) errors.push(`field ${field} must equal ${JSON.stringify(spec.const)}`);
-      if (spec.enum && !spec.enum.includes(fieldValue)) errors.push(`field ${field} must be one of ${JSON.stringify(spec.enum)}`);
-      if (typeof fieldValue === 'string' && spec.minLength !== undefined && [...fieldValue].length < spec.minLength) {
-        errors.push(`field ${field} must have length >= ${spec.minLength}`);
-      }
-      if (typeof fieldValue === 'number' && spec.minimum !== undefined && fieldValue < spec.minimum) errors.push(`field ${field} must be >= ${spec.minimum}`);
-      const itemType = spec.items?.type;
-      if (Array.isArray(fieldValue) && typeof itemType === 'string' && fieldValue.some(item => !matchesType(item, itemType))) {
-        errors.push(`field ${field} items must be ${itemType}`);
-      }
+      errors.push(...schemaErrors(fieldValue, spec, `field ${field}`, payload.$defs));
     }
   }
   if (event.ts != null) {

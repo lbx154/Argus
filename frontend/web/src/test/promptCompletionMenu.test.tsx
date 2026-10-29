@@ -1,5 +1,4 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MESSAGE_ATTACHMENT_ACCEPT } from '../lib/attachments';
 import { describe, expect, it } from 'vitest';
 import { ChatBox } from '../components/ChatBox';
 import { completionMenu } from '../lib/promptCompletion';
@@ -20,8 +19,7 @@ describe('prompt completion menu', () => {
     const html = renderToStaticMarkup(<ChatBox attachments={[]} onAttachmentsChange={() => {}} value="" onChange={() => undefined}
       onSend={() => false} disabled={false} pending={false} completionSelection={0} onCompletionSelectionChange={() => undefined} />);
     expect(html).toContain('type="file"');
-    expect(html).toContain(`accept="${MESSAGE_ATTACHMENT_ACCEPT}"`);
-    expect(MESSAGE_ATTACHMENT_ACCEPT).toContain('.zip');
+    expect(html).not.toContain('accept="');
   });
 
   it('shows the operator-owned Task/Auto/Chat category selector', () => {

@@ -42,8 +42,8 @@ export function TaskDetailModal({
     <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl" showClose={false}>
       <div className="flex items-start gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-sm font-semibold text-ink">{item?.title || t('task.details')}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="min-w-0 break-words text-sm font-semibold text-ink">{item?.title || t('task.details')}</h2>
             {item ? <Chip>{statusLabel(item.status, t)}</Chip> : null}
           </div>
         </div>

@@ -54,9 +54,9 @@ describe('web API protocol handshake', () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async () => new Response('unknown project', { status: 404, statusText: 'Not Found' }));
     vi.stubGlobal('fetch', fetchMock);
-    const { openStream } = await import('../api');
+    const { openConversation } = await import('../api');
     const onClose = vi.fn();
-    const close = openStream('s-missing', () => undefined, { onClose });
+    const close = openConversation('s-missing', -1, () => undefined, { onClose });
 
     await vi.advanceTimersByTimeAsync(1_001);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -69,11 +69,11 @@ describe('web API protocol handshake', () => {
     const body = 'id: 7\ndata: {"type":"ui.argus","text":"hi","event_id":7}\n\n: comment\n\nid: 8\ndata: {"type":"life.planner.task_added","item_id":"t1","event_id":8}\n\n';
     const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
     vi.stubGlobal('fetch', fetchMock);
-    const { openStream } = await import('../api');
+    const { openConversation } = await import('../api');
     const events: unknown[] = [];
     const onOpen = vi.fn();
     const onClose = vi.fn();
-    const close = openStream('s-live', (event) => events.push(event), { onOpen, onClose });
+    const close = openConversation('s-live', -1, (event) => events.push(event), { onOpen, onClose });
 
     await vi.advanceTimersByTimeAsync(0);
     expect(events).toEqual([{ type: 'ui.argus', text: 'hi', event_id: 7 }, { type: 'life.planner.task_added', item_id: 't1', event_id: 8 }]);
@@ -88,8 +88,8 @@ describe('web API protocol handshake', () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async () => { throw new TypeError('network down'); });
     vi.stubGlobal('fetch', fetchMock);
-    const { openStream } = await import('../api');
-    const close = openStream('s-live', () => undefined);
+    const { openConversation } = await import('../api');
+    const close = openConversation('s-live', -1, () => undefined);
 
     await vi.advanceTimersByTimeAsync(1_001);
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -102,13 +102,13 @@ describe('web API protocol handshake', () => {
     const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response('', { status: 401 }));
     vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('localStorage', { getItem: () => 'fake-token' });
-    const { openStream } = await import('../api');
-    openStream('s-live', () => undefined)();
-    openStream('s-live', () => undefined, { replay: 40 })();
+    const { openConversation } = await import('../api');
+    openConversation('s-live', -1, () => undefined)();
+    openConversation('s-live', 40, () => undefined)();
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      '/api/projects/s-live/stream?view=ui',
-      '/api/projects/s-live/stream?replay=40&view=ui',
+      '/api/projects/s-live/stream?view=rows&after=-1',
+      '/api/projects/s-live/stream?view=rows&after=40',
     ]);
     for (const [, init] of fetchMock.mock.calls) {
       expect(init?.headers).toEqual({ Authorization: 'Bearer fake-token' });
@@ -162,12 +162,12 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api, PairingRequiredError } = await import('../api');
 
-    await expect(api.projectCosts()).rejects.toBeInstanceOf(PairingRequiredError);
-    await expect(api.projectCosts()).rejects.toBeInstanceOf(PairingRequiredError);
+    await expect(api.projectIndex()).rejects.toBeInstanceOf(PairingRequiredError);
+    await expect(api.projectIndex()).rejects.toBeInstanceOf(PairingRequiredError);
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta']);
   });
 
-  it('sends the persisted pairing token with the cost request', async () => {
+  it('sends the persisted pairing token with the project request', async () => {
     vi.stubGlobal('localStorage', { getItem: () => 'fresh-desktop-token' });
     const fetchMock = vi.fn(async (path: string) => Response.json(
       path === '/api/meta'
@@ -177,9 +177,9 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await expect(api.projectCosts()).resolves.toMatchObject({ projects: [] });
+    await expect(api.projectIndex()).resolves.toMatchObject({ projects: [] });
     expect(fetchMock.mock.calls[1]).toEqual([
-      '/api/projects/costs',
+      '/api/projects',
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: 'Bearer fresh-desktop-token' }),
       }),
@@ -200,11 +200,10 @@ describe('web API protocol handshake', () => {
 
   it('does not retry or poll after an authentication rejection', async () => {
     const { ApiError } = await import('../../../core/src/http');
-    const { projectCostPollInterval, queryRetryPolicy } = await import('../hooks');
-    const error = new ApiError('unauthorized', 401, 'GET', '/api/projects/costs');
+    const { queryRetryPolicy } = await import('../hooks');
+    const error = new ApiError('unauthorized', 401, 'GET', '/api/projects');
 
     expect(queryRetryPolicy(0, error)).toBe(false);
-    expect(projectCostPollInterval(error)).toBe(false);
     expect(queryRetryPolicy(0, new Error('transient'))).toBe(true);
   });
 
@@ -341,7 +340,7 @@ describe('web API protocol handshake', () => {
     expect(receivedSignal?.aborted).toBe(true);
   });
 
-  it('retries one malformed HTTP daemon create with the same command id', async () => {
+  it('surfaces a malformed HTTP create without replaying it', async () => {
     const bodies: Array<Record<string, unknown>> = [];
     const fetchMock = vi.fn(async (_path: string, init?: RequestInit) => {
       bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
@@ -355,11 +354,8 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await expect(api.createDaemon('', 'Retry create', '/workspace/output')).resolves.toMatchObject({
-      sid: 's-retried',
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(bodies[0].command_id).toBe(bodies[1].command_id);
+    await expect(api.createDaemon('', 'Retry create', '/workspace/output')).rejects.toThrow('Invalid HTTP request received');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(bodies[0].workdir).toBe('/workspace/output');
     expect(bodies[0]).not.toHaveProperty('launch_cwd');
   });
@@ -388,12 +384,14 @@ describe('web API protocol handshake', () => {
     await api.setConfig('s-test', 'manager_model', 'gpt-5.6-sol');
     await api.resetManager('s-test');
     await api.setWorkdir('s-test', '/workspace');
+    await api.trash('project', 100);
     await api.restoreTrash('p-old-20261029000000');
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/projects/s-test/config/set',
       '/api/projects/s-test/reset',
       '/api/projects/s-test/workdir',
+      '/api/trash?query=project&offset=100',
       '/api/trash/p-old-20261029000000/restore',
     ]);
   });
@@ -427,24 +425,12 @@ describe('web API protocol handshake', () => {
     expect(Object.keys(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).sort()).toEqual(['command_id', 'expected_revision']);
   });
 
-  it('message endpoint returns dispatch ack reply for task results', async () => {
-    const taskResult = {
-      kind: 'task',
-      reply: 'executor started',
-      daemon: { rc: 0, pid: 42 },
-      daemon_alive: false,
-      item: { id: 'item-1', title: 'test task' },
-    };
-    const fetchMock = vi.fn(async (path: string) => {
-      if (path === '/api/meta') return Response.json(currentMeta);
-      return Response.json(taskResult);
-    });
-    vi.stubGlobal('fetch', fetchMock);
+  it('the streamed message returns the dispatch reply for task results', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('data: {"type":"done","result":{"kind":"task","reply":"executor started"}}\n\n')));
     const { api } = await import('../api');
-
-    const result = await api.message('s-test', 'do something');
-    expect(result.reply).toBe('executor started');
-    expect(result.kind).toBe('task');
+    const onDone = vi.fn();
+    await api.messageStream('s-test', 'do something', { onDone });
+    expect(onDone).toHaveBeenCalledWith({ kind: 'task', reply: 'executor started' });
   });
 
   it('forwards operator Task mode without running category auto-detection', async () => {
@@ -482,17 +468,17 @@ describe('web API protocol handshake', () => {
       if (path === '/api/meta') return Response.json(currentMeta);
       if (path.endsWith('/attachments/limits')) return Response.json({
         max_count: 5, max_bytes_per_file: 100 * 1024 * 1024,
-        max_total_bytes: 500 * 1024 * 1024, chunk_bytes: 4 * 1024 * 1024,
+        max_total_bytes: 500 * 1024 * 1024, chunk_bytes: 4,
       });
       if (path.endsWith('/uploads')) {
         expect(JSON.parse(String(init?.body))).toEqual({ name: 'notes.json', mime: 'application/json', size_bytes: 7 });
         return Response.json({ attachment_id: 'att-123456789abc', offset: 0, size_bytes: 7, complete: false });
       }
       if (init?.method === 'PUT') {
-        expect(path).toContain('?offset=0');
+        const offset = Number(new URL(path, 'https://test').searchParams.get('offset'));
         expect(init.body).toBeInstanceOf(Blob);
-        expect((init.body as Blob).size).toBe(7);
-        return Response.json({ attachment_id: 'att-123456789abc', offset: 7, size_bytes: 7, complete: false });
+        expect((init.body as Blob).size).toBeLessThanOrEqual(4);
+        return Response.json({ attachment_id: 'att-123456789abc', offset: offset + (init.body as Blob).size, size_bytes: 7, complete: false });
       }
       if (path.endsWith('/complete')) {
         return Response.json({ attachment_id: 'att-123456789abc', offset: 7, size_bytes: 7, complete: true,
@@ -506,24 +492,23 @@ describe('web API protocol handshake', () => {
           },
         });
       }
-      expect(path).toBe('/api/projects/s-test/message');
+      expect(path).toBe('/api/projects/s-test/message/stream');
       expect(JSON.parse(String(init?.body))).toEqual({
         text: 'summarize the note',
         attachments: [{ attachment_id: 'att-123456789abc', relative_path: '.argus/attachments/s-test/att-123456789abc/notes.json', original_name: 'notes.json', stored_name: 'notes.json', mime: 'application/json', size_bytes: 7 }],
       });
-      return Response.json({ kind: 'chat', reply: 'ok' });
+      return new Response('data: {"type":"done","result":{"kind":"chat","reply":"ok"}}\n\n');
     });
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
     const file = new File(['[1, 2]\n'], 'notes.json', { type: 'application/json' });
 
     const upload = await api.uploadAttachments('s-test', [file]);
-    const result = await api.message('s-test', 'summarize the note', {
-      attachments: upload.attachments,
-    });
+    const onDone = vi.fn();
+    await api.messageStream('s-test', 'summarize the note', { onDone }, { attachments: upload.attachments });
 
     expect(upload.attachments[0].attachment_id).toBe('att-123456789abc');
-    expect(result.reply).toBe('ok');
+    expect(onDone).toHaveBeenCalledWith({ kind: 'chat', reply: 'ok' });
   });
 
   it('checks the committed offset after a lost chunk response rather than appending twice', async () => {
@@ -563,7 +548,7 @@ describe('web API protocol handshake', () => {
     let begins = 0;
     const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
       if (path === '/api/meta') return Response.json(currentMeta);
-      if (path.endsWith('/limits')) return Response.json({ max_count: 5, max_bytes_per_file: 100, max_total_bytes: 500, chunk_bytes: 4 });
+      if (path.endsWith('/limits')) return Response.json({ max_count: 5, max_bytes_per_file: 100, max_total_bytes: 500, chunk_bytes: 1 });
       if (path.endsWith('/uploads')) {
         begins++;
         if (begins === 2) return Response.json({ detail: 'disk full' }, { status: 507 });
@@ -583,7 +568,7 @@ describe('web API protocol handshake', () => {
     expect(completed.has(first)).toBe(true);
     const before = fetchMock.mock.calls.length;
     await api.uploadAttachments('s-test', [first], undefined, { completed });
-    expect(fetchMock.mock.calls.slice(before).map(([path]) => path)).toEqual([]);
+    expect(fetchMock.mock.calls.slice(before).map(([path]) => path)).toEqual(['/api/projects/s-test/attachments/limits']);
   });
 
   it('cancels an incomplete file without posting a message and reports cleanup failure', async () => {
@@ -594,7 +579,7 @@ describe('web API protocol handshake', () => {
       if (path === '/api/meta') return Response.json(currentMeta);
       if (path.endsWith('/limits')) return Response.json({ max_count: 5, max_bytes_per_file: 100, max_total_bytes: 500, chunk_bytes: 4 });
       methods.push(init?.method ?? 'GET');
-      if (path.endsWith('/uploads')) return Response.json({ attachment_id: 'att-123456789abc', offset: 0, size_bytes: 1, complete: false });
+      if (path.endsWith('/uploads')) return Response.json({ attachment_id: 'att-123456789abc', offset: 0, size_bytes: 5, complete: false });
       if (init?.method === 'PUT') {
         controller.abort();
         throw new DOMException('Aborted', 'AbortError');
@@ -602,7 +587,7 @@ describe('web API protocol handshake', () => {
       return Response.json({ detail: 'cleanup offline' }, { status: 503 });
     }));
     const { api } = await import('../api');
-    await expect(api.uploadAttachments('s-test', [new File(['1'], 'a.json')], controller.signal,
+    await expect(api.uploadAttachments('s-test', [new File(['12345'], 'a.json')], controller.signal,
       { onCleanupError: cleanupError })).rejects.toMatchObject({ name: 'AbortError' });
     expect(methods).toEqual(['POST', 'PUT', 'DELETE']);
     expect(cleanupError).toHaveBeenCalledOnce();
@@ -610,7 +595,7 @@ describe('web API protocol handshake', () => {
 });
 
 describe('small attachment batch fast path', () => {
-  const limits = { max_count: 5, max_bytes_per_file: 100 * 1024 * 1024, max_total_bytes: 500 * 1024 * 1024 };
+  const limits = { max_count: 5, max_bytes_per_file: 100 * 1024 * 1024, max_total_bytes: 500 * 1024 * 1024, chunk_bytes: 4 * 1024 * 1024 };
   let requests: MultipartRequest[];
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -662,6 +647,7 @@ describe('small attachment batch fast path', () => {
     vi.stubGlobal('XMLHttpRequest', MultipartRequest);
     fetchMock = vi.fn(async (path: string) => {
       if (path === '/api/meta') return Response.json(currentMeta);
+      if (path.endsWith('/limits')) return Response.json(limits);
       throw new Error(`Chunk path requested: ${path}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -681,7 +667,7 @@ describe('small attachment batch fast path', () => {
     expect([xhr.method, xhr.path]).toEqual(['POST', '/api/projects/s-test/attachments']);
     expect(xhr.headers).toEqual({ Authorization: 'Bearer paired-test-token' });
     expect(xhr.files().map(file => file.name)).toEqual(files.map(file => file.name));
-    expect(xhr.files().every(file => file.type === 'text/plain')).toBe(true);
+    expect(xhr.files().every(file => file.type === 'application/octet-stream')).toBe(true);
     xhr.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 });
     expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({ index: 3, loaded: 2, total: 4, phase: 'uploading' }));
     xhr.upload.onload?.();
@@ -693,7 +679,7 @@ describe('small attachment batch fast path', () => {
     expect(onProgress).toHaveBeenLastCalledWith(expect.objectContaining({ index: 5, phase: 'ready' }));
     expect(await api.uploadAttachments('s-test', files, undefined, { completed })).toEqual(result);
     expect(requests).toHaveLength(1);
-    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta']);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta', '/api/projects/s-test/attachments/limits', '/api/projects/s-test/attachments/limits']);
   });
 
   it('keeps cached references in file order and uploads only the fresh files', async () => {
@@ -714,28 +700,20 @@ describe('small attachment batch fast path', () => {
     expect(onUploaded.mock.calls[0][0]).toBe(files[0]);
   });
 
-  it('accepts the exact 10 MiB per-file and 25 MiB batch fast-path boundaries', async () => {
+  it('accepts the server chunk-size boundary as one small batch', async () => {
     const { api } = await import('../api');
-    const data = new Uint8Array(10 * 1024 * 1024);
-    const files = [new File([data], 'a.txt'), new File([data], 'b.txt'),
-      new File([data.subarray(0, 5 * 1024 * 1024)], 'c.txt')];
+    const files = [new File([new Uint8Array(limits.chunk_bytes)], 'a.json')];
     const pending = api.uploadAttachments('s-test', files);
     await vi.waitFor(() => expect(requests).toHaveLength(1));
-    expect(requests[0].files().reduce((sum, file) => sum + file.size, 0)).toBe(25 * 1024 * 1024);
+    expect(requests[0].files()[0].size).toBe(limits.chunk_bytes);
     await requests[0].reply();
-    expect((await pending).attachments).toHaveLength(3);
+    expect((await pending).attachments).toHaveLength(1);
   });
 
-  it.each(['file', 'batch', 'json'])('keeps %s overflow/resource cases on the chunk protocol', async kind => {
+  it('gets the chunk protocol from the server limits for a larger file', async () => {
     const { api } = await import('../api');
-    const data = new Uint8Array(10 * 1024 * 1024 + 1);
-    const files = kind === 'json' ? [new File(['{}'], 'data.JSON')]
-      : kind === 'file' ? [new File([data], 'large.txt')]
-      : [new File([data.subarray(0, 10 * 1024 * 1024)], 'a.txt'),
-        new File([data.subarray(0, 10 * 1024 * 1024)], 'b.txt'),
-        new File([data.subarray(0, 5 * 1024 * 1024 + 1)], 'c.txt')];
-    await expect(api.uploadAttachments('s-test', files)).rejects.toThrow('/attachments/limits');
-    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/projects/s-test/attachments/limits');
+    const files = [new File([new Uint8Array(limits.chunk_bytes + 1)], 'data.out')];
+    await expect(api.uploadAttachments('s-test', files)).rejects.toThrow('/attachments/uploads');
     expect(requests).toHaveLength(0);
   });
 
@@ -787,7 +765,7 @@ describe('small attachment batch fast path', () => {
     controller.abort();
     await pending;
     expect(onUploaded).not.toHaveBeenCalled();
-    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta']);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta', '/api/projects/s-test/attachments/limits']);
   });
 
   it.each(['onerror', 'ontimeout'] as const)('does not blindly replay an unconfirmed batch after %s', async event => {
@@ -846,7 +824,7 @@ describe('a page left open across a deployment', () => {
     expect(getPageUpdateAvailable()).toBe(true);
     expect(fetchMock.mock.calls.filter(([path]) => path === '/api/meta')).toHaveLength(1);
     const calls = fetchMock.mock.calls.length;
-    await expect(api.answerDomain('s-one', 'intake-1', 'build', '')).rejects.toThrow(/Refresh/);
+    await expect(api.resolveDecision('s-one', 'engineer-t1', 'custom', 'My answer')).rejects.toThrow(/Refresh/);
     expect(fetchMock).toHaveBeenCalledTimes(calls);
   });
 
@@ -856,7 +834,7 @@ describe('a page left open across a deployment', () => {
     )));
     const { api } = await import('../api');
     const { getPageUpdateAvailable } = await import('../lib/pageUpdate');
-    expect(await api.answerDomain('s-one', 'intake-1', 'direct', '')).toEqual({ kind: 'task', reply: 'Accepted' });
+    expect(await api.resolveDecision('s-one', 'engineer-t1', 'custom', 'My answer')).toEqual({ kind: 'task', reply: 'Accepted' });
     expect(getPageUpdateAvailable()).toBe(true);
   });
 });

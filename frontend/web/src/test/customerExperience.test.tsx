@@ -59,7 +59,7 @@ describe('starting and revisiting work', () => {
     expect(onSubmit).toHaveBeenLastCalledWith('second question', [], '~/repo');
   });
 
-  it('lets a narrow-screen search reader return to results without opening a project', async () => {
+  it('opens and locates a search result with one click at every width', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('window', Object.assign(new EventTarget(), { localStorage, setTimeout, clearTimeout }));
     const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, role: 'engineer', snippet: 'Needle in `code`', text: 'Full recorded answer' };
@@ -80,13 +80,8 @@ describe('starting and revisiting work', () => {
       expect(view.root.findAllByType('small').map(text)).toEqual(['role.operator', 'role.engineer']);
       expect(text(view.root)).not.toContain('`');
       act(() => button('Needle in code').props.onClick());
-      expect(text(view.root)).toContain('Full recorded answer');
-      act(() => button('返回搜索结果').props.onClick());
       expect(text(view.root)).not.toContain('Full recorded answer');
-      expect(onChoose).not.toHaveBeenCalled();
-      expect(onClose).not.toHaveBeenCalled();
-      act(() => button('Needle in code').props.onClick());
-      act(() => button('打开并定位').props.onClick());
+      expect(text(view.root)).not.toContain('打开并定位');
       expect(onChoose).toHaveBeenCalledWith(result);
       expect(onClose).toHaveBeenCalledOnce();
     } finally { client.clear(); }
@@ -106,7 +101,7 @@ describe('starting and revisiting work', () => {
   });
 
   it('opens files rather than progress, and retains the selected file across project reloads', () => {
-    const file: ArtifactInfo = { path: 'report.md', name: 'report.md', exists: true, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 100, mtime: 1, why: 'fixture' };
+    const file: ArtifactInfo = { path: 'report.md', name: 'report.md', source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 100, mtime: 1, };
     const props = { sid: 's-A', artifacts: [file], onExpand: vi.fn(), filesFirst: true, deliveriesLoaded: true };
     const onRevise = vi.fn();
     act(() => { view = create(<ResearchCanvas {...props} onRevise={onRevise} />); });
@@ -129,7 +124,7 @@ describe('starting and revisiting work', () => {
   });
 
   it('names each listed file with the folder it is in, so files of one name tell apart', () => {
-    const file = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop()!, exists: true, kind: 'text', mime: 'text/plain', size: 100, mtime: 1, why: '' });
+    const file = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop()!, kind: 'text', mime: 'text/plain', size: 100, mtime: 1, });
     act(() => { view = create(<ResearchCanvas sid="s-A" onExpand={vi.fn()} filesFirst deliveriesLoaded
       artifacts={[file('src/index.js'), file('lib/index.js'), file('README.md')]} />); });
     const rows = view.root.findByProps({ className: 'file-browser' }).findAllByType('button')
@@ -149,8 +144,8 @@ describe('starting and revisiting work', () => {
 
 describe('project organization', () => {
   const project = (id: string, name: string): ProjectRow => ({
-    id, label: name, display_name: name, objective: '', last_active: 1,
-    daemon_alive: true, daemon_pid: 1, uptime_seconds: 1, launch_cwd: '/synthetic', workdir: '/synthetic',
+    id, label: name, display_name: name, last_active: 1,
+    daemon_alive: true, daemon_pid: 1, workdir: '/synthetic',
   });
   const props = {
     projects: [project('s-A', 'Alpha'), project('s-B', 'Beta')], activeId: 's-A', localCwd: '/synthetic',

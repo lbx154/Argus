@@ -484,43 +484,6 @@
       "event": {
         "campaign_continues": true,
         "cost_usd": 1.25,
-        "delivery": {
-          "delivered_at": 1.25,
-          "delivery_id": "delivery id",
-          "item_id": "task-1",
-          "kind": "agent_message",
-          "primary_target": {
-            "delivery_number": 1,
-            "label": "implementation",
-            "path": "path",
-            "source": "daemon",
-            "why": "why"
-          },
-          "residual_risk": "residual risk",
-          "review_source": "review source",
-          "review_status": "review status",
-          "schema_version": 1,
-          "snapshots": [
-            {
-              "path": "path",
-              "size": 1,
-              "stored": true,
-              "version": "version"
-            }
-          ],
-          "status": "completed",
-          "summary": "Implemented and verified the requested change.",
-          "targets": [
-            {
-              "delivery_number": 1,
-              "label": "implementation",
-              "path": "path",
-              "source": "daemon",
-              "why": "why"
-            }
-          ],
-          "title": "Shared event renderer"
-        },
         "delivery_candidates": [
           "delivery candidate"
         ],
@@ -2610,8 +2573,7 @@
             "delivery_number": 1,
             "label": "implementation",
             "path": "path",
-            "source": "daemon",
-            "why": "why"
+            "source": "daemon"
           },
           "residual_risk": "residual risk",
           "review_source": "review source",
@@ -2632,8 +2594,7 @@
               "delivery_number": 1,
               "label": "implementation",
               "path": "path",
-              "source": "daemon",
-              "why": "why"
+              "source": "daemon"
             }
           ],
           "title": "Shared event renderer"

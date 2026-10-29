@@ -26,7 +26,7 @@ function WorkspacePreview({ sid, workspaceId, path, active }: { sid: string; wor
   const { text } = useWorkbenchText();
   const extension = path.toLowerCase().slice(path.lastIndexOf('.'));
   const media = ['.pdf', '.png', '.jpg', '.jpeg', '.webp', '.svg'].includes(extension);
-  const file = useQuery({ queryKey: ['workspace-file', sid, workspaceId, path], queryFn: ({ signal }) => workspaceApi.file(sid, workspaceId, path, signal), enabled: Boolean(active && path && workspaceId && !media), refetchInterval: 5_000 });
+  const file = useQuery({ queryKey: ['workspace-file', sid, workspaceId, path], queryFn: ({ signal }) => workspaceApi.file(sid, workspaceId, path, signal), enabled: Boolean(active && path && workspaceId && !media) });
   const blob = useWorkspaceBlobUrl(media ? sid : '', media ? workspaceId : '', media ? path : '');
   if (!path) return <EmptyState icon={File} title={text('打开一个文件开始阅读', 'Open a file to start reading')} description={text('左侧文件树展示所选代码工作区。', 'The file tree shows the selected code workspace.')} />;
   if (media) {
@@ -81,8 +81,8 @@ export function IdePage(props: ActiveWorkbenchPageProps) {
     }
   };
   const [sourceTab, setSourceTab] = useState<'changes' | 'timeline' | 'repository'>('repository');
-  const tree = useQuery({ queryKey: ['workspace-tree', props.sid, workspaceId], queryFn: ({ signal }) => workspaceApi.tree(props.sid, workspaceId, signal), enabled: Boolean(props.active && workspaceId), refetchInterval: 8_000 });
-  const git = useQuery({ queryKey: ['workspace-git', props.sid, workspaceId], queryFn: ({ signal }) => workspaceApi.git(props.sid, workspaceId, signal), enabled: Boolean(props.active && workspaceId), refetchInterval: 8_000 });
+  const tree = useQuery({ queryKey: ['workspace-tree', props.sid, workspaceId], queryFn: ({ signal }) => workspaceApi.tree(props.sid, workspaceId, signal), enabled: Boolean(props.active && workspaceId) });
+  const git = useQuery({ queryKey: ['workspace-git', props.sid, workspaceId], queryFn: ({ signal }) => workspaceApi.git(props.sid, workspaceId, signal), enabled: Boolean(props.active && workspaceId) });
   const shownEntries = useMemo(() => visibleEntries(tree.data?.entries ?? [], showInternal), [tree.data?.entries, showInternal]);
   const nodes = useMemo(() => buildFileTree(shownEntries), [shownEntries]);
   const matches = useMemo(() => searchEntries(shownEntries, query), [shownEntries, query]);

@@ -81,10 +81,9 @@ export interface DeliveryTarget {
   path: string;
   label: string;
   source: string;
-  why: string;
 }
 
-/** Durable receipt shared by the completion event, chat card, and preview. */
+/** The Manager's delivery receipt, shared by the chat card and preview. */
 export interface DeliveryReceipt {
   schema_version: number;
   delivery_id: string;
@@ -110,17 +109,6 @@ export interface DeliverySnapshot {
   version: string;
   size: number;
   stored: boolean;
-}
-
-export interface DaemonAdmission {
-  admission_required: boolean;
-  requested_at: number;
-  target_sid: string;
-  resume_continuous: boolean;
-  limit: number;
-  active_count: number;
-  error: string;
-  running_daemons: ProjectRow[];
 }
 
 export interface UsageSummary {
@@ -152,9 +140,7 @@ export interface Snapshot {
     objective: string;
     created?: number;
     last_active: number;
-    cwd: string;
-    workdir?: string;
-    launch_cwd?: string;
+    workdir: string;
   };
   daemon: Daemon;
   roles: Role[];
@@ -209,34 +195,11 @@ export interface ProjectRow {
   work_status?: ProjectWorkStatus;
   id: string;
   label: string;
-  objective: string;
   display_name?: string;
-  cwd?: string;
-  workdir?: string;
-  launch_cwd?: string;
+  workdir: string;
   last_active: number;
   daemon_alive: boolean;
   daemon_pid: number | null;
-  daemon_control_available?: boolean;
-  daemon_liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
-  daemon_heartbeat_age_seconds?: number | null;
-  uptime_seconds: number | null;
-  daemon_protocol_compatible?: boolean | null;
-  daemon_protocol_error?: string;
-  daemon_source_owned?: boolean;
-  daemon_upgrade_pending?: boolean;
-  active_role?: string;
-  activity?: string;
-  current_task?: string;
-  unfinished_tasks?: number;
-  continuous_enabled?: boolean;
-  continuous_objective?: string;
-  spend_usd?: number | null;
-  known_cost_usd?: number;
-  spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
-  usage_calls?: number;
-  premium_requests?: number;
-  cost_updated_at?: number;
 }
 
 export interface ProjectCostRow {
@@ -266,14 +229,10 @@ export type ArtifactKind =
 export interface ArtifactInfo {
   path: string;
   name: string;
-  why: string;
-  exists: boolean;
   kind: ArtifactKind;
   mime: string;
   size: number;
   mtime: number | null;
-  /** Absolute local location shown on hover; reads still use the protected path. */
-  storage_path?: string;
   source?: 'manager_live' | 'reviewer_evidence' | 'research_registered' | 'delivery' | 'reply';
   group_title?: string;
   /** Included by the single-artifact endpoint for text/HTML files only. */

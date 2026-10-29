@@ -36,3 +36,9 @@ export function latestManagerMessage(events: readonly EventMsg[]): string {
   }
   return '';
 }
+
+/** A question is attributed to its author and task before its own words. */
+export function questionSentence(role: string, task: string | undefined, question: string, zh: boolean): string {
+  return zh ? `${role}${task ? `在「${task}」上` : ''}问：${question}`
+    : `${role} asks${task ? ` about “${task}”` : ''}: ${question}`;
+}

@@ -44,7 +44,7 @@ export function ArtifactModal({
   onSelectDelivery?: (receipt: DeliveryReceipt) => void;
   onSelectPath?: (path: string) => void;
   reviewActivity?: 'revising' | 'reviewing';
-  artifacts?: Array<{ path: string; storage_path?: string }>;
+  artifacts?: Array<{ path: string }>;
   onRevise?: (path: string) => void;
   onEdit?: (path: string) => void;
 }) {
@@ -164,7 +164,7 @@ export function ArtifactModal({
       {/* On a phone the file's tools wrap onto their own rows under its name. */}
       <div className={`flex shrink-0 flex-wrap items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-semibold text-ink font-mono" title={info?.storage_path ?? info?.path ?? path ?? ''}>
+          <h2 className="truncate text-sm font-semibold text-ink font-mono" title={info?.path ?? path ?? ''}>
             {info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">

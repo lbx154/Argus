@@ -12,7 +12,7 @@ export const setRoleLog = (sid: string, events: EventMsg[], round = 0) => roleCl
 /** Display fixtures use the same independent project cache as the rows stream. */
 export function roleSnapshot(events: EventMsg[], patch: Partial<Snapshot> = {}): Snapshot {
   const snapshot: Snapshot = {
-    session: { id: 's', display_name: '', objective: '', cwd: '', last_active: 1 },
+    session: { id: 's', display_name: '', objective: '', workdir: '', last_active: 1 },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
     roles: [], backlog: [], work_status: { state: 'running', roles: ['manager'], role: 'manager', taskId: '', title: '', reason: '', foreground: false,
       activityAt: null, label: { 'zh-CN': '团队正在工作', en: 'The team is working' } }, ...patch,

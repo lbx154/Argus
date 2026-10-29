@@ -145,11 +145,11 @@ export function titleOf(project: Project, path: string): string {
   return own?.trim() || basename(path);
 }
 
-export function artifactInfo(project: Project, found: { file: string; path: string; stat: Stats }, preview = false): ArtifactInfo {
+export function artifactInfo(found: { file: string; path: string; stat: Stats }, preview = false): ArtifactInfo {
   const [kind, mime] = typeOf(found.file, found.path);
   const info: ArtifactInfo = {
-    path: found.path, name: basename(found.path), why: '', exists: true, kind, mime,
-    size: found.stat.size, mtime: found.stat.mtimeMs / 1000, storage_path: join(project.workdir, found.path),
+    path: found.path, name: basename(found.path), kind, mime,
+    size: found.stat.size, mtime: found.stat.mtimeMs / 1000,
   };
   if (!preview || !['text', 'markdown', 'json', 'table', 'html'].includes(kind)) return info;
   const text = head(found.file, PREVIEW_BYTES).toString('utf8');
@@ -193,7 +193,7 @@ export const artifacts = (project: Project): ArtifactInfo[] => {
   return [
     ...delivered.flatMap(path => under(project.workdir, path) ?? []),
     ...changed(project.workdir, Date.parse(project.created)).filter(({ path }) => !delivered.includes(path)),
-  ].map(found => artifactInfo(project, found));
+  ].map(found => artifactInfo(found));
 };
 
 /** Where a file a model names may be, from the model's folder: a relative path from there; a ROS

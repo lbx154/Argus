@@ -41,7 +41,7 @@ const events: EventMsg[] = [
   { type: 'engineer.progress', kind: 'command_execution', call_id: 'c3', status: 'running', item_id: 't1', ts: 130,
     agent_layer: 'engineer', tool_name: 'bash', text: '.venv/bin/python analysis.py --run runs/main --out results' },
 ];
-const image = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop()!, why: '', exists: true, kind: 'image',
+const image = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop()!, kind: 'image',
   mime: 'image/png', size: 1, mtime: 1, source: 'manager_live' });
 
 let tree: ReactTestRenderer | undefined;

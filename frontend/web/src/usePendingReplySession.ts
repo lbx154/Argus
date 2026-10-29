@@ -1,140 +1,53 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions';
+import { operatorDecisionCards, questionRole } from '../../core/src/decisions';
 import { api, type BacklogItem } from './api';
 import { type NoticeTone } from './components/ActionNotice';
 import { useI18n } from './i18n';
+import { roleLabel } from './lib/enumLabels';
 import { errorText } from './lib/format';
 
-interface UsePendingReplySessionOptions {
+export function usePendingReplySession({ activeSid, backlog, notify, pendingQuestions, refetchSnapshot }: {
   activeSid: string | null;
-  currentTaskId?: string | null;
-  /** Auto-surface the dialog for a newly seen decision. The map keeps its own
-   * banner and node highlight, so it opts out; false never opens uninvited. */
-  autoOpen?: boolean;
   backlog: BacklogItem[] | undefined;
   notify: (tone: NoticeTone, message: string, details?: unknown) => void;
   pendingQuestions: Array<Record<string, unknown>> | undefined;
   refetchSnapshot: () => Promise<unknown>;
-}
-
-const PROMPTED_KEY = 'argus.decision.prompted.v1';
-const readPrompted = (): string => {
-  try {
-    return window.sessionStorage.getItem(PROMPTED_KEY) ?? '';
-  } catch {
-    return '';
-  }
-};
-const writePrompted = (value: string) => {
-  try {
-    window.sessionStorage.setItem(PROMPTED_KEY, value);
-  } catch {
-    // Private-mode storage failures only cost the reload suppression.
-  }
-};
-
-export function usePendingReplySession({
-  activeSid,
-  currentTaskId,
-  autoOpen = true,
-  backlog,
-  notify,
-  pendingQuestions,
-  refetchSnapshot,
-}: UsePendingReplySessionOptions) {
+}) {
   const { t } = useI18n();
-  const [openedReply, setOpenedReply] = useState<{
-    sid: string;
-    card: OperatorDecisionCard;
-  } | null>(null);
   const [pendingReplyBusy, setPendingReplyBusy] = useState(false);
   const [pendingReplyError, setPendingReplyError] = useState('');
+  const [pendingReplyNote, setPendingReplyNote] = useState('');
   const submitting = useRef(false);
-  const promptedReplyRef = useRef('');
+  const pendingReply = useMemo(() => operatorDecisionCards(
+    pendingQuestions ?? [], backlog?.map(item => ({ ...item })) ?? [],
+  )[0] ?? null, [backlog, pendingQuestions]);
 
-  const decisionCards = useMemo<OperatorDecisionCard[]>(() => {
-    const backlogRows = (backlog ?? []).map<Record<string, unknown>>((item) => ({
-      ...item,
-      operator_decision: (item as unknown as Record<string, unknown>).operator_decision,
-    }));
-    return operatorDecisionCards(pendingQuestions ?? [], backlogRows, currentTaskId);
-  }, [backlog, pendingQuestions, currentTaskId]);
-  const preferredReply = decisionCards[0] ?? null;
-  const hasSnapshot = backlog !== undefined || pendingQuestions !== undefined;
-  const pendingReplyOpen = openedReply !== null && openedReply.sid === activeSid;
-  // Keep the question being edited/submitted stable when the daemon moves to another task.
-  const pendingReply = pendingReplyOpen ? openedReply.card : preferredReply;
-  const setPendingReplyOpen = (open: boolean) => {
-    setPendingReplyError('');
-    if (!open) {
-      setOpenedReply(null);
-    } else if (activeSid && preferredReply) {
-      setOpenedReply(previous => previous?.sid === activeSid
-        ? previous : { sid: activeSid, card: preferredReply });
-    }
-  };
+  useEffect(() => { setPendingReplyNote(''); setPendingReplyError(''); }, [activeSid, pendingReply?.id]);
 
-  useEffect(() => {
-    if (openedReply && (openedReply.sid !== activeSid || (
-      hasSnapshot && !pendingReplyBusy && !decisionCards.some(card => card.id === openedReply.card.id)
-    ))) {
-      setOpenedReply(null);
-    }
-    if (!activeSid || !preferredReply || (!autoOpen && preferredReply.kind !== 'domain_intake') || pendingReplyOpen || pendingReplyBusy) return;
-    const key = `${activeSid}:${preferredReply.id}`;
-    // Session storage remembers across reloads: a decision hijacks the screen
-    // once per tab, not on every visit while it stays unanswered.
-    if (promptedReplyRef.current === key || readPrompted() === key) return;
-    promptedReplyRef.current = key;
-    writePrompted(key);
-    setPendingReplyError('');
-    setOpenedReply({ sid: activeSid, card: preferredReply });
-  }, [activeSid, autoOpen, decisionCards, hasSnapshot, preferredReply, openedReply, pendingReplyOpen, pendingReplyBusy]);
-
-  const answerPendingReply = async (optionId: string, note: string) => {
-    if (!activeSid || !pendingReply || submitting.current) return;
+  const answerPendingReply = async (note: string): Promise<boolean> => {
+    if (!activeSid || !pendingReply || !note.trim() || submitting.current) return false;
     submitting.current = true;
     setPendingReplyBusy(true);
     setPendingReplyError('');
     try {
-      const result = pendingReply.kind === 'domain_intake'
-        ? await api.answerDomain(activeSid, pendingReply.id, optionId, note)
-        : await api.resolveDecision(
-          activeSid,
-          pendingReply.id,
-          optionId,
-          note,
-        );
+      const result = await api.resolveDecision(activeSid, pendingReply.id, 'custom', note.trim());
       if (result.resolved === false || ('kind' in result && ['error', 'cancelled'].includes(String(result.kind)))) {
         setPendingReplyError(errorText(result.reply, undefined, 'message_failed'));
-        notify('error', errorText(result.reply, undefined, 'message_failed'), result.reply);
         await refetchSnapshot();
-        return;
+        return false;
       }
-      // A request may finish after the operator has opened another dialog.
-      setOpenedReply(current => current === openedReply ? null : current);
       await refetchSnapshot();
-      if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
-        notify('error', t('pending.notStarted', { error: result.daemon.error ? errorText(result.daemon.error, undefined, 'command_failed') : t('pending.needsYou') }));
-      } else if (pendingReply.kind !== 'domain_intake') {
-        notify('success', String(result.reply || t('pending.delivered')));
-      }
+      notify('success', t('pending.delivered', { role: roleLabel(questionRole(pendingReply), t) }));
+      return true;
     } catch (error) {
       setPendingReplyError(errorText(error));
-      notify('error', t('pending.notSentBecause', { error: errorText(error) }), error);
       await refetchSnapshot();
+      return false;
     } finally {
       submitting.current = false;
       setPendingReplyBusy(false);
     }
   };
 
-  return {
-    answerPendingReply,
-    pendingReply,
-    pendingReplyBusy,
-    pendingReplyError,
-    pendingReplyOpen,
-    setPendingReplyOpen,
-  };
+  return { answerPendingReply, pendingReply, pendingReplyBusy, pendingReplyError, pendingReplyNote, setPendingReplyNote };
 }

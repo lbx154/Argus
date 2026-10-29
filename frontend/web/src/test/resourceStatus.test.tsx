@@ -48,3 +48,16 @@ describe('ResourceStatusView', () => {
     expect(html).not.toContain('data-gpu-state=');
   });
 });
+
+it('reports 128 CPU cores and an idle compute sample with 1 MiB still allocated', () => {
+  const html = renderToStaticMarkup(<ResourceStatusView status={{ schema_version: 1, enforcement: 'advisory', accelerators: [
+    { kind: 'cpu', status: 'available', device_count: 128, detail: '' },
+    { kind: 'cuda', status: 'available', device_count: 1, detail: '', devices: [
+      { index: '0', name: 'GPU', total_memory_mib: 40960, used_memory_mib: 1, utilization_percent: 0 },
+    ] },
+  ] }} error="" />);
+  expect(html).toContain('128 cores');
+  expect(html).not.toContain('Devices: 128');
+  expect(html).toContain('0% compute load · memory in use');
+  expect(html).toContain('1 MiB / 40.0 GiB');
+});

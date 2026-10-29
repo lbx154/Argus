@@ -4,7 +4,6 @@ import { applicationBrand } from './applicationBrand.js';
 import {
   ApiClient,
   type CreatedDaemon,
-  type DaemonStartResult,
   type ProjectRow,
 } from './api.js';
 import { App } from './App.js';
@@ -18,7 +17,6 @@ import { Wordmark } from './components/Wordmark.js';
 import {
   ensureApi,
   resolveBin,
-  scheduleOutdatedDaemonUpgrades,
   uniqueWarningReporter,
 } from './ensureApi.js';
 import { SPINNER, theme } from './theme.js';
@@ -77,8 +75,6 @@ function Boot({
   const [projects, setProjects] = useState<ProjectRow[]>([]);
   const launchCwd = process.cwd();
   const [initialNotice, setInitialNotice] = useState('');
-  const [initialAdmission, setInitialAdmission] = useState<DaemonStartResult | undefined>();
-  const [initialResumeContinuous, setInitialResumeContinuous] = useState(false);
   const [note, setNote] = useState('starting backend…');
   const [err, setErr] = useState('');
   const splashDone = useRef(!animate);
@@ -121,23 +117,6 @@ function Boot({
       try {
         const availableProjects = await base.listProjects();
         if (uiCancelled()) return;
-        const upgrades = await scheduleOutdatedDaemonUpgrades(
-          availableProjects,
-          (sid) => base.scheduleDaemonUpgrade(sid),
-        );
-        if (uiCancelled()) return;
-        if (upgrades.scheduled.length > 0) {
-          setInitialNotice((current) => [
-            current,
-            `${upgrades.scheduled.length} outdated daemon(s) will upgrade at the next mission boundary`,
-          ].filter(Boolean).join(' · '));
-        }
-        if (upgrades.failed.length > 0) {
-          setInitialNotice((current) => [
-            current,
-            `warning: could not schedule ${upgrades.failed.length} daemon upgrade(s)`,
-          ].filter(Boolean).join(' · '));
-        }
         const startup = interactiveStartup(args.project, args.resume);
         const selection = startup.kind === 'resume'
           ? initialProjectSelection(availableProjects, startup.project)
@@ -162,11 +141,7 @@ function Boot({
           lifecycle.setCurrentProject(sid);
         }
         if (created) {
-          setInitialAdmission(created.start);
-          setInitialResumeContinuous(Boolean(created.objective));
-          const createdNotice = created.start?.admission_required
-              ? `created ${created.sid} · choose running work to park`
-              : `created ${created.sid} · message ${applicationBrand().name} when ready`;
+          const createdNotice = `created ${created.sid} · message ${applicationBrand().name} when ready`;
           setInitialNotice((current) => [current, createdNotice].filter(Boolean).join(' · '));
         } else if (attached) {
           const attachedLabel = attached.label || attached.display_name || attached.id;
@@ -202,8 +177,6 @@ function Boot({
     destination.current = 'live';
     setProject(created.sid);
     lifecycle.setCurrentProject(created.sid);
-    setInitialAdmission(created.start);
-    setInitialResumeContinuous(Boolean(created.objective));
     const createdNotice = created.spawned
         ? `created ${created.sid} · campaign started`
         : `created ${created.sid} · message ${applicationBrand().name} when ready`;
@@ -263,8 +236,6 @@ function Boot({
         token={args.token}
         project={project}
         initialNotice={initialNotice}
-        initialAdmission={initialAdmission}
-        initialResumeContinuous={initialResumeContinuous}
         exitPolicy={args.exitPolicy}
         onProjectChange={(sid) => lifecycle.setCurrentProject(sid)}
         trackDaemonCreation={(promise) => lifecycle.trackDaemonCreation(promise)}
@@ -366,10 +337,6 @@ async function main() {
     let project: string;
     try {
       const availableProjects = await probe.listProjects();
-      await scheduleOutdatedDaemonUpgrades(
-        availableProjects,
-        (sid) => probe.scheduleDaemonUpgrade(sid),
-      );
       const selection = initialProjectSelection(availableProjects, args.project);
       if (selection.recovered) throw new Error(`project "${selection.requested}" not found`);
       if (!selection.id) throw new Error('no projects found');

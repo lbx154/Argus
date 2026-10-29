@@ -1,79 +1,17 @@
 import { parkReason } from "../../../core/src/missionOutcome";
 import type { BacklogItem } from "../../../core/src/types";
-import { internalRecordsOnly } from "../lib/workStatus";
 
 export interface MapTask
   extends Pick<
     BacklogItem,
     "id" | "title" | "objective" | "status" | "deps" | "pending_question" | "latest_action" | "result_paths"
   > {
-  revision?: string;
-  content_revision?: string;
-  /** The backlog's last recorded error, e.g. why a stage was held. */
-  last_error?: string;
-  /** Why a ``parked`` task is waiting. */
-  park_reason?: string;
   ts?: number;
   started_ts?: number | null;
   finished_ts?: number | null;
   role?: string;
-  summary?: string;
-  plan_id?: string;
-  plan_version?: number;
-  attempt?: number;
-  superseded_by_plan_id?: string;
-  superseded_reason?: string;
-  acceptance_check?: string;
-  goal_contribution?: string;
-  plan_hypothesis?: string;
-  non_goals?: string[];
-  outcome?: Partial<NonNullable<BacklogItem['outcome']>>;
-  /** Files the task may write, as the backlog records them. */
-  owns_paths?: string[];
-  /** 'turn': a single-agent answer or action, shown as a card. */
-  kind?: string;
   turn_kind?: 'qa';
-  /** What this card is about, as the records state it (map_relations.py). */
-  relations?: TaskRelation[];
-  /** What the person said that started this task, or that answered its
-   * question: a small chip on the card, not a card (map_relations.fold_cards). */
-  requests?: MapRequest[];
-  /** Earlier tasks a newer plan replaced with this one, folded into it. */
-  replaced?: ReplacedTask[];
-  replaced_count?: number;
 }
-/** A person's request as the map shows it: their words, short and in full. */
-export interface MapRequest {
-  id: string;
-  text: string;
-  full: string;
-  ts: number;
-  status?: string;
-  reply?: string;
-}
-export interface ReplacedTask {
-  id: string;
-  title: string;
-  /** One line: why the newer plan replaced it. */
-  reason: string;
-  ts: number;
-}
-/** ``target`` is the card this one asks about, checks, follows, replaces or
- * carries out; the map draws the line from the target to this card. */
-export interface TaskRelation {
-  kind: RelationKind;
-  target: string;
-}
-export type RelationKind = "about" | "checks" | "follows" | "replaces" | "carries_out" | "from";
-/** The kinds in the order the legend lists them, with their names. */
-export const RELATION_KINDS: Array<[RelationKind, string, string]> = [
-  ["carries_out", "执行请求", "Carries out"],
-  ["from", "来自", "Came from"],
-  ["about", "关于", "About"],
-  ["checks", "检查", "Checks"],
-  ["follows", "接续", "Follows"],
-  ["replaces", "替代", "Replaces"],
-];
 /** One tool call inside a work segment, as the runner reported it. */
 export interface WorkStep {
   kind: string;
@@ -114,7 +52,7 @@ export interface MapEvent {
   success?: boolean;
   review_skipped?: boolean;
   backend_unavailable?: boolean;
-  outcome?: MapTask["outcome"];
+  outcome?: Partial<NonNullable<BacklogItem["outcome"]>>;
   overall_complete?: boolean;
   campaign_continues?: boolean;
   stage_certification?: string;
@@ -141,7 +79,6 @@ export interface Dataset {
   tasks: MapTask[];
   events: MapEvent[];
   /** Requests still being read that started no task yet: chips by the composer. */
-  requests?: MapRequest[];
   cursor?: string;
   incremental?: boolean;
   tasks_complete?: boolean;
@@ -163,19 +100,13 @@ export interface MapLink {
   target: string;
   kind:
     | "dependency"
-    | "replacement"
     | "context"
-    | "continuation"
-    | "relation";
-  /** kind "relation": which recorded relation this line is. */
-  relation?: RelationKind;
+    | "continuation";
   label?: string;
   evidence?: string;
   /** The label says what connects these two tasks, not just what kind of
    * line this is. Only a stated label is written on the map at rest. */
   stated?: boolean;
-  target_plan_id?: string;
-  target_count?: number;
   missing?: boolean;
   cycle?: boolean;
 }
@@ -200,7 +131,6 @@ export function latestMissionCompletion(task: MapTask, events: MapEvent[]): MapE
   // Settlement is recorded after the backlog finish timestamp. History pages
   // may not yet contain the current attempt's completion.
   if (latest.ts < Math.max(task.started_ts || 0, task.finished_ts || 0)) return undefined;
-  if (latest.attempt != null && task.attempt != null && latest.attempt !== task.attempt) return undefined;
   return latest;
 }
 
@@ -228,8 +158,7 @@ export function attentionTasks(tasks: MapTask[]): MapTask[] {
   return tasks
     .filter((task) => task.status !== "done" && !ACTIVE.has(task.status) &&
       (task.pending_question || (task.status === "failed" && !supersededByLaterWork(task, tasks)
-        && !task.superseded_by_plan_id && task.outcome?.interruption_kind !== "operator_abort"
-        && !internalRecordsOnly(task))))
+)))
     .sort((a, b) => Number(!!b.pending_question) - Number(!!a.pending_question));
 }
 
@@ -258,11 +187,9 @@ export function statusKey(task: MapTask): string {
   if (task.status === "cancelled") return "aborted";
   if (task.pending_question) return "question";
   if (ACTIVE.has(task.status)) return "running";
-  if (task.outcome?.review_status === "unavailable") return "review_unavailable";
   // The Manager kept the stage open after a reviewed attempt: the work is
   // waiting on the next step, not broken. The backlog still records it as
   // failed so retry accounting is unchanged; only the reading differs.
-  if (task.status === "failed" && isStageHold(task)) return "held";
   if (parkReason(task.status) !== null || task.status === "blocked")
     return "paused";
   return [
@@ -276,34 +203,6 @@ export function statusKey(task: MapTask): string {
   ].includes(task.status)
     ? task.status
     : "unknown";
-}
-
-/** The Manager kept this stage open. Read from the current outcome when a
- * terminal event bound one; otherwise from the backlog row's own error, which
- * the settlement writes in the same update that sets ``failed`` and so always
- * describes the current attempt. */
-export function isStageHold(task: MapTask): boolean {
-  if (task.outcome?.stage_certification === "not_certified") return true;
-  return !task.outcome?.execution_status && /^manager stage hold:/i.test(task.last_error || "");
-}
-
-/** The project's concluding acceptance, if it still is one. A certification
- * says "the project is done" only until work starts again: once any mission
- * starts after it (a new goal, an operator redirect, a retry of the same task),
- * the earlier acceptance describes a past state and must not headline the map.
- * While a question waits on the reader nothing is done yet either; the
- * completion message says the same (``_publish_mission_completion_message``). */
-export function latestCertifiedTask(tasks: MapTask[], events: MapEvent[]): MapTask | undefined {
-  if (attentionTasks(tasks).some((task) => task.pending_question)) return undefined;
-  const reopenedAfter = (ts: number) => events.some((event) =>
-    event.type === "life.mission.started" && event.ts > ts);
-  return tasks.filter(task => task.status === "done"
-    && task.outcome?.review_status === "done"
-    && task.outcome.stage_certification === "certified")
-    .map(task => ({ task, completion: latestMissionCompletion(task, events) }))
-    .filter(({ completion }) => completion?.overall_complete === true && !reopenedAfter(completion.ts))
-    .map(({ task }) => task)
-    .sort((a, b) => (b.finished_ts ?? b.ts ?? 0) - (a.finished_ts ?? a.ts ?? 0))[0];
 }
 
 /** Iterative SCC traversal also handles histories deeper than the JS call stack. */
@@ -385,36 +284,6 @@ export function buildMap(tasks: MapTask[]): MapGraph {
       if (indegree.get(child) === 0) queue.push(child);
     }
   }
-  // Recorded relations, drawn from what a card is about to the card itself.
-  const related = new Set<string>();
-  for (const task of ordered)
-    for (const relation of task.relations ?? []) {
-      if (!unique.has(relation.target) || relation.target === task.id) continue;
-      related.add(`${relation.target}\u0000${task.id}`);
-      links.push({
-        id: JSON.stringify(["relation", relation.kind, relation.target, task.id]),
-        source: relation.target,
-        target: task.id,
-        kind: "relation",
-        relation: relation.kind,
-      });
-    }
-  // Plan replacement links target the earliest visible task in the new plan.
-  for (const task of ordered) {
-    if (!task.superseded_by_plan_id) continue;
-    const targets = ordered.filter(
-      (t) => t.id !== task.id && t.plan_id === task.superseded_by_plan_id,
-    );
-    if (!targets.length || related.has(`${task.id}\u0000${targets[0].id}`)) continue;
-    links.push({
-      id: JSON.stringify(["replacement", task.id, task.superseded_by_plan_id]),
-      source: task.id,
-      target: targets[0].id,
-      kind: "replacement",
-      target_plan_id: task.superseded_by_plan_id,
-      target_count: targets.length,
-    });
-  }
   if (processed !== all.length) {
     // Kahn's residual includes work blocked downstream of a cycle. Only an
     // edge inside one strongly connected component actually belongs to a cycle.
@@ -450,29 +319,4 @@ export function plainTitle(title: string): string {
   if (!title.includes("hc-")) return title;
   return title.replace(/(^|[^0-9A-Za-z_-])\s*hc-[0-9A-Za-z_-]{4,}(?![0-9A-Za-z_-])/g, "$1")
     .replace(/[ \t]{2,}/g, " ").trim();
-}
-
-/** The chip a task wears for what the person said: the newest request, and
- * every request in full for the tooltip. */
-export function requestChip(requests: MapRequest[] | undefined, zh: boolean) {
-  if (!requests?.length) return null;
-  const latest = requests[requests.length - 1];
-  const say = (request: MapRequest) => `${zh ? "你说：" : "You said: "}${request.full || request.text}`;
-  return {
-    label: `${zh ? "你说：" : "You said: "}${latest.text}`,
-    more: requests.length - 1,
-    title: requests.map(say).join("\n\n"),
-  };
-}
-
-/** "替代了 N 个旧方案" and, for hover and the opened card, each one's title
- * and why it was replaced. */
-export function replacedNote(task: Pick<MapTask, "replaced" | "replaced_count">, zh: boolean) {
-  const replaced = task.replaced ?? [];
-  const count = task.replaced_count ?? replaced.length;
-  if (!count) return null;
-  return {
-    label: zh ? `替代了 ${count} 个旧方案` : `Replaced ${count} earlier plan${count > 1 ? "s" : ""}`,
-    lines: replaced.map((item) => `${plainTitle(item.title)}${item.reason ? (zh ? "：" : ": ") + item.reason : ""}`),
-  };
 }

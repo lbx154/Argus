@@ -4,7 +4,7 @@ import { activeProviderRequest, currentWorkStatus, workStatusLabel } from '../li
 
 function fixture(alive = true): Snapshot {
   return {
-    session: { id: 's-research', display_name: 'Research', objective: '', cwd: '/workspace', last_active: 100 },
+    session: { id: 's-research', display_name: 'Research', objective: '', workdir: '/workspace', last_active: 100 },
     daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 20, backend: 'pi'},
     roles: [], backlog: [], };
 }

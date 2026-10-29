@@ -9,7 +9,7 @@ import { RuntimeControlPage } from '../research-workbench/pages/RuntimeControlPa
 import type { ActiveWorkbenchPageProps } from '../research-workbench/pages/pageTypes';
 
 const snap: ActiveWorkbenchPageProps['snapshot'] = {
-  session: { id: 's-test', display_name: 'Test project', cwd: '/fixture', last_active: 1, objective: '' },
+  session: { id: 's-test', display_name: 'Test project', workdir: '/fixture', last_active: 1, objective: '' },
   daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
   roles: [], backlog: [],
 };
@@ -25,7 +25,7 @@ beforeEach(() => {
   vi.stubGlobal('window', { confirm: vi.fn(() => true) });
   vi.spyOn(api, 'resources').mockResolvedValue({ schema_version: 1, enforcement: 'strict', accelerators: [] });
 });
-afterEach(() => { act(() => tree?.unmount()); tree = undefined; client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { act(() => tree?.unmount()); tree = undefined; client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const element = () => <QueryClientProvider client={client}><RuntimeControlPage {...props} /></QueryClientProvider>;
 const mount = async () => { await act(async () => { tree = create(element()); }); };
 const button = (label: string) => tree!.root.findAllByType('button').find(node => node.children.includes(label))!;
@@ -74,4 +74,14 @@ describe('embedded runtime control page', () => {
     expect(tree!.root.findAllByProps({ role: 'status' }).some(node => node.children.includes('Conversation context reset.'))).toBe(false);
     expect(tree!.root.findAllByType('pre').some(node => node.children.join('').includes('revision conflict'))).toBe(true);
   });
+});
+
+it('keeps stopped runtime resources current through invalidation without a periodic read', async () => {
+  vi.useFakeTimers();
+  props.active = true;
+  await mount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(api.resources).toHaveBeenCalledTimes(1);
+  await act(async () => { await client.invalidateQueries({ queryKey: ['runtime-resources'] }); });
+  expect(api.resources).toHaveBeenCalledTimes(2);
 });

@@ -44,7 +44,7 @@ export function ResourceStatusView({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-ink">{acceleratorLabel(accelerator.kind, t)}</span>
                   <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${probeTone[accelerator.status]}`}>
-                    {statusLabel(accelerator.status, t)} · {t('resource.devices', { count: accelerator.device_count })}
+                    {statusLabel(accelerator.status, t)} · {accelerator.kind === 'cpu' ? (zh ? `${accelerator.device_count} 核` : `${accelerator.device_count} cores`) : t('resource.devices', { count: accelerator.device_count })}
                   </span>
                 </div>
                 {accelerator.kind === 'cpu' && accelerator.load_average !== undefined
@@ -60,7 +60,7 @@ export function ResourceStatusView({
             {status.accelerators.flatMap(accelerator => (accelerator.devices ?? []).map(device => {
               const state = device.utilization_percent > 0 ? 'computing' : device.used_memory_mib > 0 ? 'allocated' : 'quiet';
               const label = state === 'computing' ? zh ? '正在计算' : 'Computing'
-                : state === 'allocated' ? zh ? '仅显存占用' : 'Memory occupied'
+                : state === 'allocated' ? zh ? '计算负载 0% · 有显存占用' : '0% compute load · memory in use'
                 : zh ? '暂无活动' : 'No activity';
               const memoryPercent = device.total_memory_mib > 0 ? Math.min(100, device.used_memory_mib / device.total_memory_mib * 100) : 0;
               return <article key={`${accelerator.kind}:${device.index}`} className="gpu-device-card" data-gpu-state={state} aria-label={`GPU ${device.index} · ${device.name} · ${label}`}>
@@ -80,7 +80,7 @@ export function ResourceStatusView({
               </article>;
             }))}
           </div>
-          {!!status.accelerators.some(accelerator => accelerator.device_count > 0 && !accelerator.devices) && <p className="mt-3 text-xs text-ink-faint">{zh ? '当前服务尚未提供单卡详情，不能判断各卡使用情况。' : 'This server has no per-device details; individual usage is unknown.'}</p>}
+          {!!status.accelerators.some(accelerator => accelerator.kind !== 'cpu' && accelerator.device_count > 0 && !accelerator.devices) && <p className="mt-3 text-xs text-ink-faint">{zh ? '当前服务尚未提供单卡详情，不能判断各卡使用情况。' : 'This server has no per-device details; individual usage is unknown.'}</p>}
           <p className="mt-3 text-xs text-ink-faint">{zh ? '编号与主机一致；负载和显存含其他程序。' : 'Numbers match host GPU indices; load and memory include other programs.'}</p>
         </>
       ) : null}

@@ -65,7 +65,6 @@ export function projectMatchesQuery(project: ProjectRow, query: string): boolean
     project.id,
     project.label,
     project.display_name,
-    project.objective,
     status,
   ].filter(Boolean).join(' ').toLowerCase();
   return terms.every((term) => text.includes(term));
@@ -97,15 +96,7 @@ export function projectsForLaunchCwd(
   if (includeAll) return projects;
   const root = normalizedPath(cwd);
   return projects.filter((project) => {
-    const launch = (project.launch_cwd || '').trim();
-    if (launch) {
-      const candidate = normalizedPath(launch);
-      return pathContains(candidate, root);
-    }
-    const legacyCwd = (project.cwd || '').trim();
-    if (!legacyCwd) return false;
-    const candidate = normalizedPath(legacyCwd);
-    if (candidate.includes('/.argus-skill/projects/')) return false;
-    return pathContains(candidate, root);
+    const workdir = project.workdir.trim();
+    return Boolean(workdir) && pathContains(normalizedPath(workdir), root);
   });
 }

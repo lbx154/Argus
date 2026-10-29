@@ -1,7 +1,6 @@
 import { queryOptions, replaceEqualDeep, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useReducer, useRef, useState } from 'react';
-import { api, isAuthenticationError, openProjectStates, openStream, type EventMsg, type ProjectIndex, type Snapshot } from './api';
-import { eventKey } from '../../core/src/events';
+import { useEffect } from 'react';
+import { api, isAuthenticationError, openProjectStates, type ProjectIndex, type Snapshot } from './api';
 import { POLL_CAPABILITY, useCapability } from './lib/capabilities';
 import { cacheProjectName } from './lib/projectName';
 import { PageUpdateRequiredError } from './lib/pageUpdate';
@@ -10,16 +9,11 @@ import { workspaceApi } from './research-workbench/workspaceApi';
 /* ------------------------------------------------------------------ REST */
 
 export const PROJECT_POLL_MS = 15_000;
-export const PROJECT_COST_POLL_MS = 5_000;
 export const SNAPSHOT_POLL_MS = 8_000;
 export const ACTIVE_DAEMON_POLL_MS = 2_000;
 
 export function queryRetryPolicy(failureCount: number, error: unknown): boolean {
   return !isAuthenticationError(error) && !(error instanceof PageUpdateRequiredError) && failureCount < 1;
-}
-
-export function projectCostPollInterval(error: unknown): number | false {
-  return isAuthenticationError(error) ? false : PROJECT_COST_POLL_MS;
 }
 
 export function projectPollInterval(index?: ProjectIndex): number {
@@ -64,19 +58,6 @@ export function useProjects() {
     });
   }, [polled, listed, queryClient]);
   return query;
-}
-
-/** Each project's spending, where the server does not push it in the project list. */
-export function useProjectCosts() {
-  const polled = useCapability(POLL_CAPABILITY);
-  return useQuery({
-    queryKey: ['project-costs'],
-    queryFn: ({ signal }) => api.projectCosts(signal),
-    enabled: polled,
-    retry: queryRetryPolicy,
-    refetchInterval: (query) => projectCostPollInterval(query.state.error),
-    refetchIntervalInBackground: false,
-  });
 }
 
 /** A project's snapshot, however it arrives: read, read again, or pushed. A reply read before a
@@ -178,174 +159,5 @@ export function useProjectActions(sid: string | null) {
         await qc.invalidateQueries({ queryKey: ['projects'] });
       },
     }),
-  };
-}
-
-/* ------------------------------------------------------- live event stream */
-
-const MAX_EVENTS = 2_000;
-
-type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string> };
-type StreamAction =
-  | { kind: 'push'; sid: string; ev: EventMsg }
-  | { kind: 'push-many'; sid: string; events: EventMsg[] }
-  | { kind: 'reset'; sid: string | null };
-
-export function streamReducer(state: StreamState, action: StreamAction): StreamState {
-  if (action.kind === 'reset') {
-    return { sid: action.sid, events: [], seen: new Set<string>() };
-  }
-  if (action.sid !== state.sid) return state;
-  // Live provider streams may deliver many fragments in one display frame.
-  // Clone the retained window once per batch rather than once per event so the
-  // whole React cockpit does not rerender for every protocol fragment.
-  const incoming = action.kind === 'push' ? [action.ev] : action.events;
-  let events: EventMsg[] | null = null;
-  let seen: Set<string> | null = null;
-  for (const ev of incoming) {
-    const currentSeen = seen ?? state.seen;
-    const k = eventKey(ev);
-    if (currentSeen.has(k)) continue;
-    if (!events || !seen) {
-      events = [...state.events];
-      seen = new Set(state.seen);
-    }
-    seen.add(k);
-    events.push(ev);
-  }
-  if (!events || !seen) return state;
-  if (events.length > MAX_EVENTS) {
-    const removed = events.splice(0, events.length - MAX_EVENTS);
-    removed.forEach((ev) => seen.delete(eventKey(ev)));
-  }
-  return { sid: state.sid, events, seen };
-}
-
-export interface StreamHandle {
-  events: EventMsg[];
-  connected: boolean;
-}
-
-// Twenty-five visual updates per second is ample for a readable event stream
-// and leaves WebView2 time for typing, scrolling, layout and native chrome.
-export const STREAM_RENDER_BATCH_MS = 40;
-
-const ARTIFACT_REFRESH_EVENT_TYPES = new Set([
-  'manager.live_view.updated',
-  'round.review.completed',
-  'life.mission.completed',
-]);
-
-/** Return a stable key when a streamed event can change the right-side preview.
- * Polling remains a low-frequency safety net; this key drives the immediate path.
- */
-export function artifactRefreshEventKey(events: EventMsg[]): string {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i];
-    const type = String(event.type ?? '');
-    if (
-      ARTIFACT_REFRESH_EVENT_TYPES.has(type)
-      || (type === 'engineer.progress' && event.kind === 'file_change')
-    ) {
-      return eventKey(event);
-    }
-  }
-  return '';
-}
-
-const SNAPSHOT_REFRESH_EVENT_TYPES = new Set([
-  'life.operator_question.pending',
-  'life.operator_question.answered',
-  'life.planner.task_added',
-  'life.planner.verdict',
-  'life.mission.started',
-  'life.mission.completed',
-  'life.mission.failed',
-  'round.review.completed',
-]);
-
-/** Return a stable key when live state changed in a way the snapshot owns. */
-export function snapshotRefreshEventKey(events: EventMsg[]): string {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i];
-    if (SNAPSHOT_REFRESH_EVENT_TYPES.has(String(event.type ?? ''))) {
-      return eventKey(event);
-    }
-  }
-  return '';
-}
-
-/** Subscribe to a project's event stream, starting with its replay window.
- * Dedupes by event key so reconnect backfill never doubles. */
-export function useEventStream(sid: string | null, reconnectKey = 0): StreamHandle {
-  const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
-  useEffect(() => {
-    const sync = () => setBrowserOnline(navigator.onLine !== false);
-    window.addEventListener('online', sync);
-    window.addEventListener('offline', sync);
-    sync();
-    return () => { window.removeEventListener('online', sync); window.removeEventListener('offline', sync); };
-  }, []);
-  const [state, dispatch] = useReducer(streamReducer, {
-    sid: null,
-    events: [],
-    seen: new Set<string>(),
-  });
-  const [connection, setConnection] = useState({
-    sid: null as string | null,
-    connected: false,
-  });
-  const sidRef = useRef(sid);
-  sidRef.current = sid;
-  useEffect(() => {
-    dispatch({ kind: 'reset', sid });
-    setConnection({ sid, connected: false });
-    if (!sid) return;
-    let cancelled = false;
-    let pendingEvents: EventMsg[] = [];
-    let flushTimer: number | undefined;
-    const flushEvents = () => {
-      flushTimer = undefined;
-      if (cancelled || sidRef.current !== sid || pendingEvents.length === 0) {
-        pendingEvents = [];
-        return;
-      }
-      const events = pendingEvents;
-      pendingEvents = [];
-      dispatch({ kind: 'push-many', sid, events });
-    };
-
-    const close = openStream(sid, (ev) => {
-      if (!cancelled && sidRef.current === sid) {
-        pendingEvents.push(ev);
-        if (flushTimer === undefined) {
-          flushTimer = window.setTimeout(flushEvents, STREAM_RENDER_BATCH_MS);
-        }
-      }
-    }, {
-      replay: 40,
-      onOpen: () => {
-        if (!cancelled && sidRef.current === sid) {
-          setConnection({ sid, connected: true });
-        }
-      },
-      onClose: () => {
-        if (!cancelled && sidRef.current === sid) {
-          setConnection({ sid, connected: false });
-        }
-      },
-    });
-    return () => {
-      cancelled = true;
-      if (flushTimer !== undefined) window.clearTimeout(flushTimer);
-      pendingEvents = [];
-      close();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sid, reconnectKey]);
-
-  return {
-    events: state.sid === sid ? state.events : [],
-    connected: browserOnline && connection.sid === sid && connection.connected,
   };
 }

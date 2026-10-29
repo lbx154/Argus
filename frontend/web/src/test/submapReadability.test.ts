@@ -43,7 +43,7 @@ const event = (
 });
 
 it("keeps failed historical SELF work neutral about missing tool details", () => {
-  const steps = buildSubmap({ ...task, kind: "turn", status: "failed" }, [
+  const steps = buildSubmap({ ...task, turn_kind: "qa", status: "failed" }, [
     event("e1", "work.segment", {
       role: "manager", status: "failed", steps: [],
       tool_details_recorded: false, association: "single_active_window",
@@ -279,7 +279,7 @@ describe("step readability in buildSubmap", () => {
 it("folds a started-then-failed report of one call into a single failed step", () => {
   // Real rows: a read reported running, then failed, same text, no call id.
   const label = 'read: {"cells": null, "includeOutputs": false, "limit": 100, "offset": 1, "pages": null, "path": "/data/proj/handoffs/0f40/CHECKPOINT.md"}';
-  const steps = buildSubmap({ ...task, kind: "turn" }, [
+  const steps = buildSubmap({ ...task, turn_kind: "qa" }, [
     event("e1", "work.segment", {
       role: "engineer", status: "recorded", text: "",
       steps: [
@@ -292,4 +292,10 @@ it("folds a started-then-failed report of one call into a single failed step", (
   expect(work.title).toBe("做了 1 步操作");
   expect(work.workCount).toBe(1);
   expect(work.detail.match(/（失败）/g)).toHaveLength(1);
+});
+
+it('names an engineer continuation without a self-addressed arrow', () => {
+  const steps = buildSubmap(task, [{ id: 'continued', item_id: task.id, type: 'handoff', ts: 1,
+    role: 'engineer', to: 'engineer', text: '继续核查边界情况。' }], true);
+  expect(steps.find(step => step.id === 'continued')?.title).toBe('工程师接着做');
 });

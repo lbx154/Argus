@@ -3,6 +3,10 @@ import type { EventMsg } from './events.js';
 
 export const EVENT_PAYLOAD_SCHEMA_VERSION = 2;
 
+export type DeliveryTargetPayload = { "path"?: string; "label"?: string; "source"?: string; "delivery_number"?: number; };
+
+export type DeliveryReceiptPayload = { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "review_source"?: string; "residual_risk"?: string; "delivered_at"?: number; "primary_target"?: DeliveryTargetPayload | null; "targets"?: Array<DeliveryTargetPayload>; "snapshots"?: Array<{ "path"?: string; "version"?: string; "size"?: number; "stored"?: boolean; }>; } | null;
+
 export interface LifePeerMessageProcessedEvent extends EventMsg {
   type: "life.peer.message.processed";
   payload_schema_version?: 1;
@@ -391,7 +395,6 @@ export interface LifeMissionCompletedEvent extends EventMsg {
   "stop_kind"?: "budget_exhausted" | "cost_unreconciled" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error" | null;
   "recoverable"?: boolean;
   "delivery_id"?: string;
-  "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "review_source"?: string; "residual_risk"?: string; "delivered_at"?: number; "primary_target"?: { "path"?: string; "label"?: string; "source"?: string; "why"?: string; "delivery_number"?: number; } | null; "targets"?: Array<{ "path"?: string; "label"?: string; "source"?: string; "why"?: string; "delivery_number"?: number; }>; "snapshots"?: Array<{ "path"?: string; "version"?: string; "size"?: number; "stored"?: boolean; }>; } | null;
   "operator_question"?: string;
   "stop_reason"?: string;
   "failure_kind"?: string;
@@ -1907,7 +1910,7 @@ export interface UiArgusEvent extends EventMsg {
   "message_id": string;
   "text": string;
   "steps"?: Array<Record<string, unknown>>;
-  "delivery"?: { "schema_version"?: number; "delivery_id"?: string; "kind"?: string; "item_id"?: string; "title"?: string; "summary"?: string; "status"?: string; "review_status"?: string; "review_source"?: string; "residual_risk"?: string; "delivered_at"?: number; "primary_target"?: { "path"?: string; "label"?: string; "source"?: string; "why"?: string; "delivery_number"?: number; } | null; "targets"?: Array<{ "path"?: string; "label"?: string; "source"?: string; "why"?: string; "delivery_number"?: number; }>; "snapshots"?: Array<{ "path"?: string; "version"?: string; "size"?: number; "stored"?: boolean; }>; } | null;
+  "delivery"?: DeliveryReceiptPayload;
 }
 
 export interface AccountingJournalRepairedEvent extends EventMsg {

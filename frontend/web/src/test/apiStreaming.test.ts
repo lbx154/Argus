@@ -83,34 +83,28 @@ it.each([
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
-it('preserves ordinary JSON messages and Manager acceptance, delta and done callbacks over HTTP', async () => {
+it('preserves Manager acceptance, delta and done callbacks over HTTP', async () => {
   const result = { kind: 'chat', reply: '完整回答' };
   const reply = { type: 'ui.argus', agent_layer: 'manager', to: 'operator', text: '完整回答', ts: 2, event_id: 3, message_id: 'm1-argus' };
-  const fetch = await serve((response, request) => {
-    if (request.path.endsWith('/message')) {
-      response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify(result));
-      return;
-    }
+  const fetch = await serve((response) => {
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     response.end(frame({ type: 'phase', label: 'Manager', role: 'manager' })
       + frame({ type: 'delta', event: reply })
       + frame({ type: 'done', result }));
   });
   const options = { attachments: [{ attachment_id: 'test-attachment', relative_path: '.argus/attachments/test-attachment/notes.md', original_name: 'notes.md', stored_name: 'notes.md', mime: 'text/markdown', size_bytes: 8 }], routeOverride: 'task' as const };
-  await expect(api.message('s-research', 'Explain this', options)).resolves.toEqual(result);
   const onAccepted = vi.fn();
   const onDelta = vi.fn();
   const onDone = vi.fn();
   const onError = vi.fn();
   await api.messageStream('s-research', 'Explain this', { onAccepted, onDelta, onDone, onError }, options);
-  expect(requests.map(request => request.path)).toEqual(['/api/projects/s-research/message', '/api/projects/s-research/message/stream']);
-  expect(requests.map(request => request.body)).toEqual([0, 1].map(() => ({ text: 'Explain this', attachments: options.attachments, route_override: 'task' })));
+  expect(requests.map(request => request.path)).toEqual(['/api/projects/s-research/message/stream']);
+  expect(requests.map(request => request.body)).toEqual([0].map(() => ({ text: 'Explain this', attachments: options.attachments, route_override: 'task' })));
   expect(onAccepted).toHaveBeenCalledExactlyOnceWith();
   expect(onDelta).toHaveBeenCalledExactlyOnceWith(reply);
   expect(onDone).toHaveBeenCalledExactlyOnceWith(result);
   expect(onError).not.toHaveBeenCalled();
-  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
 
 it('keeps Manager terminal errors on the existing callback and does not replay them', async () => {

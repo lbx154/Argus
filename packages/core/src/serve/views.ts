@@ -45,7 +45,7 @@ function delivered({ letter, open = [], snapshots, title, ts }: Extract<Recorded
   const targets = [...new Set(open)].map(path => {
     const delivery_number = (counts.get(path) ?? 0) + 1;
     counts.set(path, delivery_number);
-    return { path, label: basename(path), source: 'manager', why: '', delivery_number };
+    return { path, label: basename(path), source: 'manager', delivery_number };
   });
   return {
     schema_version: 1, delivery_id: `d${line}`, kind: 'result', item_id: '', title: title ?? firstLine(letter),
@@ -228,21 +228,27 @@ export interface Reading {
   round: number;
   status: string;
   activityAt: number | null;
+  stateLine: number;
   calls: Set<string>;
   tasks: Map<string, { title: string; closed: boolean; line: number; ts: number }>;
   questions: Map<string, EventMsg>;
   /** The results the Manager handed over, by delivery (`d` and its line), each with its files as delivered. */
   delivered: Map<string, Extract<Recorded, { type: 'handoff' }>>;
+  map: MapReading;
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
   end: 0, fold: { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() }, rows: new Map(),
-  roleEvents: [], round: 0, status: '', activityAt: null, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
+  roleEvents: [], round: 0, status: '', activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
+  map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
+    answered: null, briefed: null, worked: new Set(), follows: new Map() },
 }): Reading {
   for (const event of events) {
     const line = reading.fold.line;
     const ts = seconds(event.ts);
     const converted = webEvents([event], reading.fold);
+    foldMap(reading.map, event, line);
+    if (event.type !== 'step') reading.stateLine = line;
     const put = (row: EventMsg, id: string, order = line) => reading.rows.set(id, { ...row, row_id: id, order });
     const move = (id: string) => {
       const task = reading.tasks.get(id);
@@ -266,10 +272,6 @@ export function projectRecord(events: Recorded[], reading: Reading = {
         if (!event.to && event.request_id) put({ type: 'ui.argus', agent_layer: 'manager', text: '', ts, event_id: line,
           message_id: `m${line}-argus`, request_id: event.request_id }, `m${line}-argus`, line + 0.1);
       }
-    } else if (event.type === 'step' && event.role === 'manager' && event.kind === 'message' && reading.fold.turn !== null) {
-      const id = `m${reading.fold.asked.get(reading.fold.turn)}-argus`;
-      const reply = reading.rows.get(id);
-      if (reply) reading.rows.set(id, { ...reply, text: event.text, event_id: line });
     } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
       const row = { type: 'ui.question', ts, event_id: line, question_id: `q${line}`, agent_layer: event.role,
         item_id: event.task ?? '', text: event.letter, order: line };
@@ -299,9 +301,11 @@ export function projectRecord(events: Recorded[], reading: Reading = {
     if (event.type === 'handoff' && event.role === 'manager' && event.open) reading.delivered.set(`d${line}`, event);
     if (event.type === 'step' || event.type === 'handoff' || event.type === 'call.start' || event.type === 'call.end') {
       // Task lifecycle announcements have no author and never enter a role's log.
-      const log = event.type === 'handoff' ? { type: 'engineer.progress', ts, event_id: line,
-        agent_layer: event.role, item_id: event.task ?? '', kind: 'agent_message', text: event.letter } : converted[0]!;
-      reading.roleEvents = newestPerRole([...reading.roleEvents, log]);
+      if (!(event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager')) {
+        const log = event.type === 'handoff' ? { type: 'engineer.progress', ts, event_id: line,
+          agent_layer: event.role, item_id: event.task ?? '', kind: 'agent_message', text: event.letter } : converted[0]!;
+        reading.roleEvents = newestPerRole([...reading.roleEvents, log]);
+      }
       reading.activityAt = ts;
     }
   }
@@ -326,13 +330,12 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
     const operator = reading.rows.get(`m${line}-operator`)!;
     const liveReply = live.calls.some(call => call.answers === request);
     const status = liveReply ? 'running' : project.status === 'stopped' ? 'stopped' : project.failures?.some(f => f.role === 'manager') ? 'failed' : 'waiting';
-    const latest = projected.get(`m${line}-argus`)!;
     projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
-      request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.fold.line - 1, order: line + 0.1,
-      text: status === 'running' ? String(latest.text) : '', live: status === 'running' || status === 'waiting', status });
+      request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.stateLine, order: line + 0.1,
+      text: '', live: status === 'running' || status === 'waiting', status });
   }
   const rows = [...projected.values()];
-  const items = backlog(project);
+  const items = mapProjection(reading, project, Infinity).tasks;
   for (const [id, task] of reading.tasks) {
     const item = items.find(item => item.id === id);
     const role = live.calls.find(call => call.task === id)?.role;
@@ -340,7 +343,8 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
       : item?.status === 'failed' ? 'failed' : project.status === 'stopped' ? 'paused'
       : item?.status === 'pending' ? 'queued' : live.since !== null ? 'running' : 'paused';
     rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: task.title, state, role,
-      ts: task.ts, event_id: task.line, order: task.line + 0.2 });
+      progress: item?.latest_action ? firstLine(item.latest_action.text) : '', result_paths: item?.result_paths ?? [],
+      ts: task.ts, event_id: Math.max(task.line, reading.map.actions.get(id)?.line ?? 0), order: task.line + 0.2 });
   }
   return rows.sort((a, b) => Number(a.order) - Number(b.order));
 }
@@ -367,7 +371,7 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
   const state = foreground ? 'running' : stopped ? 'paused' : roles.length ? 'running' : questions ? 'paused' : live.since !== null ? 'waiting' : 'idle';
   const label = foreground ? { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' }
     : stopped ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务暂停` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} tasks paused` : ''}` }
-    : questions ? { 'zh-CN': `等你回答 ${questions} 个问题${running ? ` · ${running} 个任务继续进行` : roles.length ? ' · 团队继续工作' : ''}`, en: `Waiting for ${questions} answer${questions === 1 ? '' : 's'}${roles.length ? ' · Other work continues' : ''}` }
+    : state === 'paused' ? { 'zh-CN': '已暂停', en: 'Paused' }
     : state === 'running' ? { 'zh-CN': running ? `${running} 个任务进行中` : '团队正在工作', en: running ? `${running} task${running === 1 ? '' : 's'} in progress` : 'The team is working' }
     : state === 'waiting' ? { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' }
     : { 'zh-CN': project.request ? '已回复' : '等你开始', en: project.request ? 'Replied' : 'Waiting for you to start' };
@@ -392,7 +396,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     read_at: readAt(),
     session: {
       id, display_name: named(project), objective: project.request, created: seconds(project.created),
-      last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
+      last_active: lastActive(store, id), workdir,
     },
     daemon: daemon(project, live),
     work_status: projectStatus(project, live, reading.activityAt),
@@ -416,34 +420,27 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
 }
 
 export function projectRow(store: Store, project: Project, live: Live): ProjectRow {
-  const summary = usage(jsonLines(join(store.dir(project.id), 'usage.jsonl')).rows);
   const { since } = live;
   return {
     // A label other than the id is the name the operator gave it.
-    id: project.id, label: project.name || project.id, display_name: named(project), objective: project.request,
-    cwd: project.workdir, workdir: project.workdir, launch_cwd: project.workdir, last_active: lastActive(store, project.id),
-    daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
-    active_role: live.calls.at(-1)?.role ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
-    unfinished_tasks: openTasks(project).length,
+    id: project.id, label: project.name || project.id, display_name: named(project),
+    workdir: project.workdir, last_active: lastActive(store, project.id),
+    daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid,
     work_status: projectStatus(project, live),
-    spend_usd: summary.cost_usd, known_cost_usd: summary.known_cost_usd,
-    spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>, usage_calls: summary.call_count,
   };
 }
 
 type MapCard = BacklogItem & { role: string; turn_kind?: 'qa' };
 
-/** How far each record has been read for the map, and what the map keeps of it: when each task
+/** Map facts in the shared project reading: when each task
  * was added and closed, the latest thing said on it (a message or a letter, not a command), the
- * files its latest letter handed over (once it has closed, its result), the letters written about
+ * files its holder's closing letter handed over, the letters written about
  * tasks, by line, the operator's messages to the Manager, and which tasks follow the message whose
  * answer set them going. */
 interface MapReading {
-  end: number;
-  line: number;
   added: Map<string, number>;
   closed: Map<string, number>;
-  actions: Map<string, BacklogItem['latest_action']>;
+  actions: Map<string, NonNullable<BacklogItem['latest_action']> & { line: number }>;
   opened: Map<string, string[]>;
   letters: { line: number; letter: Record<string, unknown> }[];
   /** The operator's messages to the Manager, by request. */
@@ -456,7 +453,6 @@ interface MapReading {
   worked: Set<string>;
   follows: Map<string, string>;
 }
-const maps = new Map<string, MapReading>();
 
 /** The progress map: a card per task, and on it a step per letter written about it; the letter
  * that opened a task is its objective. Each message of the operator's to the Manager is a
@@ -464,51 +460,50 @@ const maps = new Map<string, MapReading>();
  * answered, with the files that letter hands over; the tasks that answer opens, and that wait for no
  * other, follow it; a reply alone leaves the map with the next message. A letter's id is its line, and the lines read are
  * the cursor: a page that holds one is sent only the letters after it. Like the live event stream,
- * each reading continues at the last complete line; only map fields are retained in memory. */
+ * the shared project reading continues at the last complete line. */
 export function progressMap(store: Store, project: Project, after: number) {
-  const path = join(store.dir(project.id), 'events.jsonl');
-  const reading: MapReading = maps.get(path) ?? {
-    end: 0, line: 0, added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
-    answered: null, briefed: null, worked: new Set(), follows: new Map(),
-  };
+  return mapProjection(readRecord(store, project.id), project, after);
+}
+
+function foldMap(reading: MapReading, event: Recorded, line: number): void {
   const { added, closed, actions, opened, letters, qa, worked, follows } = reading;
-  const { rows, end } = jsonLines(path, reading.end);
-  for (const event of rows as unknown as Recorded[]) {
-    const line = reading.line++;
-    const ts = seconds(event.ts);
-    if (event.type === 'message' && !event.to && event.request_id) {
-      qa.set(event.request_id, {
-        id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text).slice(0, 100), objective: event.text, priority: 0, deps: [], status: '',
-        role: 'manager', ts, started_ts: ts, finished_ts: null, result_paths: [],
-      });
-    }
-    else if (event.type === 'call.start' && event.role === 'manager') reading.answered = null;
-    else if (event.type === 'task.added') {
-      added.set(event.task.id, ts);
-      const follow = event.task.from === 'manager' ? reading.answered : reading.briefed;
-      if (!event.task.after?.length && follow) follows.set(event.task.id, follow);
-    }
-    else if (event.type === 'task.closed') closed.set(event.task, ts);
-    else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts });
-    else if (event.type === 'handoff' && event.task) {
-      opened.set(event.task, event.open ?? []);
-      actions.set(event.task, { role: event.role, text: event.letter, ts });
-      letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
-    }
-    else if (event.type === 'handoff' && event.role === 'manager' && event.answers && qa.has(event.answers)) {
-      const card = qa.get(event.answers)!;
-      // A reply answers the message; work handed to the team answers it once that work is done.
-      const replied = event.to === 'operator';
-      Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
-      reading.answered = card.id;
-      if (event.to === 'planner') reading.briefed = card.id;
-      if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
-      actions.set(card.id, { role: event.role, text: event.letter, ts });
-      letters.push({ line, letter: { id: `e${line}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
-    }
+  const ts = seconds(event.ts);
+  if (event.type === 'message' && !event.to && event.request_id) {
+    qa.set(event.request_id, {
+      id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text).slice(0, 100), objective: event.text, priority: 0, deps: [], status: '',
+      role: 'manager', ts, started_ts: ts, finished_ts: null, result_paths: [],
+    });
   }
-  reading.end = end;
-  maps.set(path, reading);
+  else if (event.type === 'call.start' && event.role === 'manager') reading.answered = null;
+  else if (event.type === 'task.added') {
+    added.set(event.task.id, ts);
+    const follow = event.task.from === 'manager' ? reading.answered : reading.briefed;
+    if (!event.task.after?.length && follow) follows.set(event.task.id, follow);
+  }
+  else if (event.type === 'task.closed') closed.set(event.task, ts);
+  else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts, line });
+  else if (event.type === 'handoff' && event.task) {
+    if (event.role === 'engineer' || event.role === 'reviewer') {
+      if (event.to === 'manager' || event.to === 'planner') opened.set(event.task, event.open ?? []);
+      actions.set(event.task, { role: event.role, text: event.letter, ts, line });
+    }
+    letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
+  }
+  else if (event.type === 'handoff' && event.role === 'manager' && event.answers && qa.has(event.answers)) {
+    const card = qa.get(event.answers)!;
+    // A reply answers the message; work handed to the team answers it once that work is done.
+    const replied = event.to === 'operator';
+    Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
+    reading.answered = card.id;
+    if (event.to === 'planner') reading.briefed = card.id;
+    if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
+    actions.set(card.id, { role: event.role, text: event.letter, ts, line });
+    letters.push({ line, letter: { id: `e${line}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
+  }
+}
+
+function mapProjection(record: Reading, project: Project, after: number) {
+  const { added, closed, actions, opened, letters, qa, worked, follows } = record.map;
   // A message stays on the map while it is answered, and after if its answer set work going or handed
   // something over, or till the next message comes; a reply before that, or one a stop or failure left
   // unanswered, is the conversation's.
@@ -521,39 +516,55 @@ export function progressMap(store: Store, project: Project, after: number) {
     if (own.length ? own.some(task => !closed.has(task)) : project.status === 'working' || project.inbox.length > 0) return null;
     return Math.max(card.ts ?? 0, ...own.map(task => closed.get(task)!));
   };
+  const action = (id: string) => {
+    const found = actions.get(id);
+    return found ? { role: found.role, text: found.text, ts: found.ts } : undefined;
+  };
   const tasks = [...[...qa.values()].filter(card => worked.has(card.id) || !card.status && answering || card === last && card.status === 'done').map(card => {
     const finished = card.status === 'in_progress' ? done(card) : card.finished_ts;
-    return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: actions.get(card.id) };
+    return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: action(card.id) };
   }), ...backlog(project).map((item, index) => {
     const question = asked(project, item.id);
     const follow = follows.get(item.id);
     return {
       ...item, deps: item.deps?.length || !follow ? item.deps : [follow], ts: added.get(item.id), started_ts: added.get(item.id),
       finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
-      latest_action: actions.get(item.id), result_paths: closed.has(item.id) ? opened.get(item.id) ?? [] : [],
+      latest_action: question ? undefined : action(item.id), result_paths: closed.has(item.id) ? opened.get(item.id) ?? [] : [],
       ...(question ? { pending_question: question.question } : {}),
     };
   })].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
   return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks,
-    events: letters.flatMap(({ line, letter }) => line >= after ? [letter] : []), cursor: String(reading.line) };
+    events: letters.flatMap(({ line, letter }) => line >= after ? [letter] : []), cursor: String(record.fold.line) };
 }
 
 type CallEnd = Extract<Recorded, { type: 'call.end' }>;
 
-/** One task's calls in order: the role and the letter it ended with.
+/** A task's calls and incoming letters, grouped by the call that wrote them.
  * The call whose letter opened the task comes first. */
 export function taskTrace(store: Store, project: Project, task: string) {
-  const group = (call: CallEnd, ...letters: string[]) => ({
+  const group = (call: CallEnd) => ({
     call_id: call.callId, role: call.role, started_ts: seconds(call.ts) - call.ms / 1000, ended_ts: seconds(call.ts),
-    entries: letters.map(text => ({ kind: 'message', text })),
+    entries: [] as { kind: string; text: string }[],
   });
   const groups: ReturnType<typeof group>[] = [];
-  let last: CallEnd | undefined;
+  const ended = new Map<string, CallEnd>();
+  const include = (call: CallEnd) => {
+    let found = groups.find(group => group.call_id === call.callId);
+    if (!found) groups.push(found = group(call));
+    return found;
+  };
   for (const event of readEvents(store, project.id)) {
-    if (event.type === 'call.end') last = event;
-    if (event.type === 'call.end' && event.task === task) groups.push(group(event));
-    else if (event.type === 'handoff' && event.task === task) groups.at(-1)!.entries.push({ kind: 'message', text: event.letter });
-    else if (event.type === 'task.added' && event.task.id === task && last) groups.push(group(last, event.task.objective));
+    if (event.type === 'call.end') {
+      ended.set(`${event.role}.${event.task ?? ''}`, event);
+      if (event.task === task) include(event);
+    } else if (event.type === 'handoff' && event.task === task) {
+      const scope = event.role === 'engineer' || event.role === 'reviewer' ? task : '';
+      const call = ended.get(`${event.role}.${scope}`);
+      if (call) include(call).entries.push({ kind: 'message', text: event.letter });
+    } else if (event.type === 'task.added' && event.task.id === task) {
+      const call = ended.get(`${event.task.from}.`);
+      if (call) include(call).entries.push({ kind: 'message', text: event.task.objective });
+    }
   }
   return { task_id: task, groups };
 }

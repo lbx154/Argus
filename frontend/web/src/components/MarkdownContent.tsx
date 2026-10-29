@@ -4,7 +4,7 @@ import { markdownRemarkPlugins, markdownRehypePlugins } from './markdownMath';
 import { CopyButton } from './CopyButton';
 import { useI18n } from '../i18n';
 import { api, type ArtifactInfo } from '../api';
-type ArtifactReference = Pick<ArtifactInfo, 'path' | 'storage_path'>;
+type ArtifactReference = Pick<ArtifactInfo, 'path'>;
 
 function nodeText(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
@@ -76,11 +76,9 @@ export function artifactPathFromHref(
   if (documentMatch) return documentMatch.path;
   for (const artifact of artifacts) {
     const relative = normalizedArtifactReference(artifact.path);
-    const storage = normalizedArtifactReference(artifact.storage_path || '');
     if (
       sameArtifactReference(requested, relative)
       || sameArtifactReference(requested.replace(/^\//, ''), relative)
-      || sameArtifactReference(requested, storage)
     ) {
       return artifact.path;
     }
@@ -167,15 +165,12 @@ export function MarkdownContent({
     hr: () => <hr className="my-3 border-line/60" />,
     a: ({ href, title, children: value }) => {
       const artifactPath = artifactPathFromHref(href, live.current.artifacts, live.current.basePath);
-      const artifact = artifactPath
-        ? live.current.artifacts.find((item) => item.path === artifactPath)
-        : undefined;
       if (artifactPath && live.current.onOpenArtifact) {
         return (
           <a
             href={href}
             data-artifact-path={artifactPath}
-            title={artifact?.storage_path || artifactPath}
+            title={artifactPath}
             onClick={(event) => {
               event.preventDefault();
               live.current.onOpenArtifact?.(artifactPath);

@@ -17,47 +17,41 @@ const events: MapEvent[] = Array.from({ length: 36 }, (_, i) => ({
   type: "round.review.completed", text: `Review ${i + 1}`, status: "done",
 }));
 
-it("shows one current card while retaining all four pages for explicit history", () => {
+it("keeps one overview card while paging every recorded step inside its details", () => {
   const graph = buildMap([task]);
-  const collapsed = layoutScene(graph, events, false, undefined, [], new Set());
-  expect(collapsed.allCards).toHaveLength(4);
-  expect(collapsed.cards).toHaveLength(1);
-  expect(collapsed.cards[0]).toMatchObject({ id: task.id, part: 4, historyCount: 3, historyExpanded: false });
-  expect(collapsed.links).toEqual([]);
-  const expanded = layoutScene(graph, events, false, collapsed, [], new Set([task.id]));
-  expect(expanded.cards).toHaveLength(4);
-  expect(expanded.links).toHaveLength(3);
-  expect(expanded.cards.flatMap((card) => expanded.layouts[card.id].steps).length).toBe(collapsed.cards[0].totalSteps);
-  const progressed = layoutScene(graph, [...events, { ...events[35], id: "later", ts: 40, round_index: 40 }],
-    false, expanded, [], new Set([task.id]));
-  expect(progressed.cards.every((card) => card.historyExpanded)).toBe(true);
-  const nextPage = layoutScene(graph, [...events, ...events.slice(0, 12).map((event, i) => ({
-    ...event, id: `new-${i}`, ts: 50 + i, round_index: 50 + i,
-  }))], false, collapsed, [], new Set());
-  expect(nextPage.cards).toHaveLength(1);
-  expect(nextPage.cards[0]).toMatchObject({ id: task.id, part: 5, historyCount: 4 });
+  const latest = layoutScene(graph, events, false);
+  expect(latest.allCards).toHaveLength(4);
+  expect(latest.cards).toHaveLength(1);
+  expect(latest.cards[0]).toMatchObject({ id: task.id, part: 4, partCount: 4 });
+  expect(latest.links).toEqual([]);
+  const first = layoutScene(graph, events, false, latest, [], new Map([[task.id, 1]]));
+  expect(first.cards).toHaveLength(1);
+  expect(first.cards[0]).toMatchObject({ id: task.id, part: 1, nextId: first.allCards[1].id });
+  expect(first.layouts[task.id].steps).toEqual(first.layouts[first.allCards[0].id].steps);
+  expect(first.frames[task.id]).toMatchObject({ width: latest.frames[task.id].width, height: latest.frames[task.id].height });
+  expect(first.positions).toEqual(latest.positions);
 });
 
 it("never merges separate tasks by title and keeps dependency endpoints visible", () => {
   const other = { ...task, id: "other", deps: [task.id] };
   const graph = buildMap([task, other]);
-  const scene = layoutScene(graph, events, false, undefined, undefined, new Set());
+  const scene = layoutScene(graph, events, false, undefined, undefined, new Map());
   expect(scene.cards.map((card) => card.id)).toEqual([task.id, other.id]);
   expect(scene.links).toContainEqual(expect.objectContaining({ source: task.id, target: other.id }));
   for (const link of scene.links) {
     expect(scene.cards.some((card) => card.id === link.source)).toBe(true);
     expect(scene.cards.some((card) => card.id === link.target)).toBe(true);
   }
-  const expanded = layoutScene(graph, events, false, scene, undefined, new Set([task.id]));
+  const expanded = layoutScene(graph, events, false, scene, undefined, new Map([[task.id, 1]]));
   expect(expanded.links).toContainEqual(expect.objectContaining({
     source: expanded.cards.filter((card) => card.task.id === task.id).at(-1)!.id,
     target: other.id,
   }));
 });
 
-it("offers a keyboard-accessible history control without repeating Continued titles", () => {
-  const scene = layoutScene(buildMap([task]), events, false, undefined, [], new Set());
-  const card = scene.cards[0], toggleHistory = vi.fn();
+it("keeps history navigation in the details without an overview history control", () => {
+  const scene = layoutScene(buildMap([task]), events, false, undefined, [], new Map());
+  const card = scene.cards[0];
   const props: NodeProps<MacroNode> = {
     id: card.id,
     type: "task", zIndex: 0, draggable: false, selected: false, dragging: false,
@@ -65,14 +59,11 @@ it("offers a keyboard-accessible history control without repeating Continued tit
     data: { ...card, layout: scene.layouts[card.id], frame: scene.frames[card.id],
       canvasSize: { width: 1440, height: 960 },
       zh: false, focused: false, detailed: false,  readOnly: false, source: "live:test",
-      open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(), toggleHistory },
+      open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn() },
   };
   let renderer: ReturnType<typeof create>;
   act(() => { renderer = create(<MacroTaskNode {...props} />); });
-  const button = renderer!.root.findByProps({ "aria-label": "Mission history: Study" });
-  expect(button.props["aria-expanded"]).toBe(false);
-  act(() => button.props.onClick());
-  expect(toggleHistory).toHaveBeenCalledWith(task.id);
+  expect(renderer!.root.findAllByProps({ className: 'map-history-toggle nodrag nopan' })).toHaveLength(0);
   expect(JSON.stringify(renderer!.toJSON())).not.toContain("Continued");
   expect(renderer!.root.findAllByProps({ className: "macro-detail " })).toHaveLength(0);
   act(() => renderer!.unmount());

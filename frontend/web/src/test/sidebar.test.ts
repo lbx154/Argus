@@ -14,15 +14,13 @@ afterEach(() => queryClient.clear());
 
 const runningStatus = { state: 'running' as const, role: 'engineer', roles: ['engineer'], taskId: '', title: '', foreground: false, reason: '' as const, activityAt: null, label: { 'zh-CN': '团队正在工作', en: 'The team is working' } };
 const rows: ProjectRow[] = [
-  {
-    id: 'local', label: 'Local', display_name: 'Local', objective: '',
-    launch_cwd: '/workspace/local', last_active: 1, daemon_alive: false,
-    daemon_pid: null, uptime_seconds: null,
+  { workdir: '/workspace/local',
+    id: 'local', label: 'Local', display_name: 'Local', last_active: 1, daemon_alive: false,
+    daemon_pid: null,
   },
-  {
-    id: 'remote', label: 'Remote', display_name: 'Remote', objective: '',
-    launch_cwd: '/workspace/remote', last_active: 1, daemon_alive: false,
-    daemon_pid: null, uptime_seconds: null,
+  { workdir: '/workspace/remote',
+    id: 'remote', label: 'Remote', display_name: 'Remote', last_active: 1, daemon_alive: false,
+    daemon_pid: null,
   },
 ];
 
@@ -80,47 +78,10 @@ describe('Sidebar session identity and health', () => {
     expect(markup).not.toContain('Codex · gpt-5');
   });
 
-  it.each([
-    undefined,
-    'daemon protocol argus.daemon/2 is incompatible with argus.daemon/1',
-    'daemon capabilities missing: manager.directive.v1',
-    'daemon release manifest does not match its loaded source',
-  ])('keeps a real compatibility failure visible: %s', (error) => {
-    const markup = sidebarMarkup([{
-      ...rows[0],
-      daemon_alive: true,
-      daemon_protocol_compatible: false,
-      daemon_protocol_error: error,
-      uptime_seconds: 120,
-    }]);
-
-    expect(markup).toContain('Update required');
-    expect(markup).not.toContain('title="The team is working"');
-    expect(markup).not.toContain('Working · 2m');
-  });
-
-  it('shows a live older release as running with an optional update', () => {
-    const markup = sidebarMarkup([{ work_status: runningStatus,
-      ...rows[0],
-      daemon_alive: true,
-      daemon_protocol_compatible: false,
-      daemon_protocol_error: 'daemon release is incompatible with WebAPI release',
-      uptime_seconds: 120,
-    }]);
-
-    expect(markup).toContain('title="The team is working"');
-    expect(markup).toContain('>The team is working<');
-    expect(markup).toContain('Update available');
-    expect(markup).not.toContain('Update required');
-  });
-
   it('does not show an old release as running after the executor stops', () => {
     const markup = sidebarMarkup([{ work_status: { ...runningStatus, state: 'paused', label: { 'zh-CN': '已停止', en: 'Stopped' } },
       ...rows[0],
       daemon_alive: false,
-      daemon_protocol_compatible: false,
-      daemon_protocol_error: 'daemon release is incompatible with WebAPI release',
-      uptime_seconds: 120,
     }]);
 
     expect(markup).toContain('title="Stopped"');

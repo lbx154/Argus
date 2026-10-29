@@ -105,15 +105,9 @@ it.each([true, false])('shows the card’s own record without writing, failure o
   expect(JSON.stringify(renderer!.toJSON())).not.toMatch(/正在撰写说明|Writing the explanation|重试|Retry/);
 });
 
-it('preserves the full blocking question on its owning task', () => {
-  const question = 'Please choose the input to compare. '.repeat(40);
-  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id}
+it('leaves a pending question at the composer instead of copying it into the task reader', () => {
+  const question = 'Please choose the input to compare.';
+  act(() => { renderer = create(<MapReaderContent cardKey={task.id} taskId={task.id}
     task={{ ...task, pending_question: question }} originalDetail="Useful task objective" />); });
-  expect(renderer!.root.findByProps({ 'data-reader-pending-question': task.id }).findByType(MarkdownContent).props.children).toBe(question.trim());
-  const text = JSON.stringify(renderer!.toJSON());
-  for (const shell of ['View evidence', 'Source record', 'Original record', 'data-evidence']) expect(text).not.toContain(shell);
-  expect(text).toContain('Useful task objective');
-  act(() => renderer!.update(<MapReaderContent cardKey={step.id} taskId={task.id}
-    task={{ ...task, id: 'another-task', pending_question: question }} originalDetail="Useful task objective" />));
-  expect(renderer!.root.findAllByProps({ 'data-reader-pending-question': 'another-task' })).toHaveLength(0);
+  expect(JSON.stringify(renderer!.toJSON())).not.toContain(question);
 });

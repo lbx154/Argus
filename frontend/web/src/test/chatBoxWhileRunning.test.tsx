@@ -54,3 +54,15 @@ it("shows the runtime line under the chat input, as the map composer does", () =
   });
   expect(renderer.root.findByProps({ "data-runtime-line": true }).children).toEqual(["Copilot · model-a · high"]);
 });
+
+it('disables sending by button and Enter throughout a rewrite', async () => {
+  const onSend = vi.fn(async () => true);
+  let renderer!: ReactTestRenderer;
+  act(() => { renderer = create(createElement(ChatBox, { value: "draft", onChange: () => {}, attachments: [], onAttachmentsChange: () => {}, pending: false, focusSignal: 0, onSend, rewriting: true, disabled: false, completionSelection: 0, onCompletionSelectionChange: () => {} })); });
+  expect(renderer.root.findAllByType('button').find(node => node.props.type === 'submit')!.props.disabled).toBe(true);
+  await act(async () => {
+    renderer.root.findByType('textarea').props.onKeyDown({ key: 'Enter', shiftKey: false, nativeEvent: {}, preventDefault() {}, stopPropagation() {}, defaultPrevented: false });
+  });
+  expect(onSend).not.toHaveBeenCalled();
+  act(() => renderer.unmount());
+});

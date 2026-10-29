@@ -1367,118 +1367,6 @@
         "delivery_id": {
           "type": "string"
         },
-        "delivery": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "properties": {
-            "schema_version": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "delivery_id": {
-              "type": "string"
-            },
-            "kind": {
-              "type": "string"
-            },
-            "item_id": {
-              "type": "string"
-            },
-            "title": {
-              "type": "string"
-            },
-            "summary": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            },
-            "review_status": {
-              "type": "string"
-            },
-            "review_source": {
-              "type": "string"
-            },
-            "residual_risk": {
-              "type": "string"
-            },
-            "delivered_at": {
-              "type": "number",
-              "minimum": 0
-            },
-            "primary_target": {
-              "type": [
-                "object",
-                "null"
-              ],
-              "properties": {
-                "path": {
-                  "type": "string"
-                },
-                "label": {
-                  "type": "string"
-                },
-                "source": {
-                  "type": "string"
-                },
-                "why": {
-                  "type": "string"
-                },
-                "delivery_number": {
-                  "type": "integer",
-                  "minimum": 1
-                }
-              }
-            },
-            "targets": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "label": {
-                    "type": "string"
-                  },
-                  "source": {
-                    "type": "string"
-                  },
-                  "why": {
-                    "type": "string"
-                  },
-                  "delivery_number": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                }
-              }
-            },
-            "snapshots": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "version": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "stored": {
-                    "type": "boolean"
-                  }
-                }
-              }
-            }
-          }
-        },
         "operator_question": {
           "type": "string"
         },
@@ -5657,116 +5545,7 @@
           }
         },
         "delivery": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "properties": {
-            "schema_version": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "delivery_id": {
-              "type": "string"
-            },
-            "kind": {
-              "type": "string"
-            },
-            "item_id": {
-              "type": "string"
-            },
-            "title": {
-              "type": "string"
-            },
-            "summary": {
-              "type": "string"
-            },
-            "status": {
-              "type": "string"
-            },
-            "review_status": {
-              "type": "string"
-            },
-            "review_source": {
-              "type": "string"
-            },
-            "residual_risk": {
-              "type": "string"
-            },
-            "delivered_at": {
-              "type": "number",
-              "minimum": 0
-            },
-            "primary_target": {
-              "type": [
-                "object",
-                "null"
-              ],
-              "properties": {
-                "path": {
-                  "type": "string"
-                },
-                "label": {
-                  "type": "string"
-                },
-                "source": {
-                  "type": "string"
-                },
-                "why": {
-                  "type": "string"
-                },
-                "delivery_number": {
-                  "type": "integer",
-                  "minimum": 1
-                }
-              }
-            },
-            "targets": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "label": {
-                    "type": "string"
-                  },
-                  "source": {
-                    "type": "string"
-                  },
-                  "why": {
-                    "type": "string"
-                  },
-                  "delivery_number": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                }
-              }
-            },
-            "snapshots": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "path": {
-                    "type": "string"
-                  },
-                  "version": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "stored": {
-                    "type": "boolean"
-                  }
-                }
-              }
-            }
-          }
+          "$ref": "#/$defs/DeliveryReceipt"
         }
       }
     },
@@ -5867,6 +5646,106 @@
             "link",
             "positions"
           ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "DeliveryTarget": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "delivery_number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "DeliveryReceipt": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "delivery_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "review_status": {
+          "type": "string"
+        },
+        "review_source": {
+          "type": "string"
+        },
+        "residual_risk": {
+          "type": "string"
+        },
+        "delivered_at": {
+          "type": "number",
+          "minimum": 0
+        },
+        "primary_target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeliveryTarget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeliveryTarget"
+          }
+        },
+        "snapshots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "stored": {
+                "type": "boolean"
+              }
+            }
+          }
         }
       }
     }

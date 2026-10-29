@@ -3,7 +3,6 @@
 .map-macro { border-radius: 28px; border-top-width: 4px; box-shadow: 0 12px 36px rgb(var(--ink) / .06); }
 .map-macro[data-active=true] { border-color: rgb(var(--line)); border-top-color: var(--state); box-shadow: 0 12px 36px rgb(var(--blue) / .09); }
 .map-macro[data-active=true]::before { content: none; }
-.map-macro[data-history=true] { background: color-mix(in srgb, var(--map-paper) 94%, rgb(var(--line))); box-shadow: none; }
 .map-macro[data-completed-now=true] { animation: atlas-complete 1400ms ease-out; }
 .macro-summary .map-card { background: transparent; border-radius: 9px; }
 .map-card-kind { color: rgb(var(--ink-faint)); font-size: 10px; letter-spacing: .08em; }
@@ -13,11 +12,6 @@
 .map-card-stages { display: flex; flex-direction: column; gap: 4px; margin: 0 16px 12px; align-items: flex-start; }
 .map-card-stages>span { color: rgb(var(--ink-faint)); font-size: 10px; }
 .map-card-stages .map-live-line { margin: 0; }
-.map-history-toggle { position: absolute; left: 16px; bottom: 9px; display: flex; gap: 5px; align-items: center; color: rgb(var(--ink-dim)); background: none; border: 0; font-size: 11px; padding: 3px 0; }
-.map-history-toggle:hover { color: rgb(var(--blue)); }
-.map-history-toggle:focus-visible { outline: 2px solid rgb(var(--blue) / .5); outline-offset: 3px; border-radius: 3px; }
-.map-history-toggle[aria-expanded=true] svg { transform: rotate(90deg); }
-.map-macro[data-detailed=true] .map-history-toggle { visibility: hidden; }
 .map-card-stages>span[data-present=true] { color: var(--step-color); background: color-mix(in srgb, var(--step-color) 9%, transparent); opacity: 1; }
 .map-card-stages>span[data-active=true] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--step-color) 40%, transparent); }
 .map-card-stages>span[data-active=true] svg { animation: atlas-stage-pulse 1.8s ease-in-out infinite; }

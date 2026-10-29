@@ -130,7 +130,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(compatibility.meta?.authentication, { required: false, authenticated: true });
   // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
   assert.deepEqual(compatibility.meta?.capabilities, [
-    ...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', 'project.workdir.v1', 'project.config.v1', 'project.cost-feed.v1',
+    ...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', 'project.workdir.v1', 'project.config.v1',
     'project.editions.v1',
   ]);
   assert.equal((await get('/api/application-brand')).id, 'argus');
@@ -173,7 +173,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual([asking.roles.find(role => role.role === 'engineer')?.model, asking.last_call?.role, asking.last_call?.model], ['fake-model', 'reviewer', 'fake-model']);
   assert.equal('role_events' in asking, false);
   assert.equal('role_round' in asking, false);
-  assert.equal(asking.work_status?.label['zh-CN'], '等你回答 1 个问题');
+  assert.equal(asking.work_status?.label['zh-CN'], '已暂停');
   const card = (asking.pending_questions![0] as { operator_decision: { id: string; question: string; options: unknown[] } }).operator_decision;
   assert.deepEqual([card.question, card.options], ['Ship it as is?', []]);
 
@@ -323,7 +323,7 @@ test('a closing handoff without files clears earlier open files and does not inf
 });
 
 test('the map shows each task and the letters written about it, and a task its calls and their letters', async t => {
-  const { get, post } = await setup(t, [
+  const { get, post, call } = await setup(t, [
     { role: 'manager', to: 'planner', letter: 'Total the columns, in steps.' },
     { role: 'planner', to: 'engineer', letter: brief },
     { role: 'engineer' },
@@ -337,7 +337,7 @@ test('the map shows each task and the letters written about it, and a task its c
   ]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
-  assert.deepEqual(await get('/api/map-datasets'), { datasets: [] });
+  assert.equal((await call('/api/map-datasets')).status, 404);
   await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length) && !snapshot.daemon.alive);
 
@@ -517,7 +517,7 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   assert.equal(replying.work_status?.label['zh-CN'], '正在回复你的消息');
   assert.equal(replying.manager_requests?.[0]?.request_id, 'r1');
   const inFlight = await get<ConversationPage>(`${P}/conversation`);
-  assert.equal(inFlight.rows[1]?.text, 'Checking the original question');
+  assert.equal(inFlight.rows[1]?.text, '');
   assert.equal(inFlight.rows[1]?.live, true);
   assert.match(requests[1]!.prompt, /What is 6 times 7\?/);
   finish();
@@ -528,7 +528,7 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   assert.equal(requests.length, 2);
 });
 
-test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed, and plugins", async t => {
+test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed", async t => {
   const { home, store, get, call, post } = await setup(t, []);
   const own = join(home, 'skills');
   // A file of the roles' skills, changed `minutes` after an hour from now: later than the folders that hold it.
@@ -588,25 +588,8 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   assert.ok(await revision() > changed);
 
   await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
-  await write('bench/plugin.json', JSON.stringify({ name: 'Bench', description: 'Solve a structure', version: '1.2', url: 'http://127.0.0.1:9100/' }), 4);
-  await write('sketch/SKILL.md', skill('A plugin not ready to open'), 5);
-  // A url that is not a web address is no url: the page would run it in itself.
-  await write('sketch/plugin.json', JSON.stringify({ name: 'Sketch', url: 'javascript:alert(1)' }), 5);
-  const { plugins } = await get<{ plugins: Record<string, unknown>[] }>('/api/plugins');
-  assert.deepEqual(plugins.map(plugin => [plugin.id, plugin.name, plugin.url]),
-    [['bench', 'Bench', 'http://127.0.0.1:9100/'], ['sketch', 'Sketch', '']]);
-  assert.deepEqual(await (await post('/api/plugins/bench/launch', {})).json(), { url: 'http://127.0.0.1:9100/' });
-  const unready = await post('/api/plugins/sketch/launch', {});
-  assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no http(s) url to open.`, code: 'plugin_unavailable' }]);
-  assert.equal((await post('/api/plugins/quant/launch', {})).status, 404);
-  // A skill whose SKILL.md is a link, or not a file, is no skill: it brings in nothing from elsewhere.
-  await writeFile(join(home, 'secret'), 'token=hunter2\n');
-  await mkdir(join(own, 'linked'), { recursive: true });
-  // Windows lets only some accounts make a link.
-  await symlink(join(home, 'secret'), join(own, 'linked', 'SKILL.md')).catch(() => undefined);
-  await mkdir(join(own, 'odd', 'SKILL.md'), { recursive: true });
-  const names = (await get<{ items: { name: string }[] }>('/api/skill-library')).items.map(item => item.name);
-  assert.deepEqual([names.includes('linked'), names.includes('odd'), names.includes('bench')], [false, false, true]);
+  assert.equal((await call('/api/plugins')).status, 404);
+  assert.equal((await post('/api/plugins/bench/launch', {})).status, 404);
 });
 
 test('a message typed while a reply is under way is answered after it', async t => {
@@ -897,10 +880,10 @@ test('a result the Manager hands the operator shows as its result card, its file
   assert.deepEqual(reply!.delivery, {
     schema_version: 1, delivery_id: 'd0', kind: 'result', item_id: '', title: 'The totals report done',
     summary: '# The [totals report](/work/report/index.html) **done**\nIt checks against data.csv.', status: 'done', review_status: '', delivered_at: Date.parse(ts) / 1000,
-    primary_target: { path: 'report/index.html', label: 'index.html', source: 'manager', why: '', delivery_number: 1 },
+    primary_target: { path: 'report/index.html', label: 'index.html', source: 'manager', delivery_number: 1 },
     targets: [
-      { path: 'report/index.html', label: 'index.html', source: 'manager', why: '', delivery_number: 1 },
-      { path: 'figures/totals.png', label: 'totals.png', source: 'manager', why: '', delivery_number: 1 },
+      { path: 'report/index.html', label: 'index.html', source: 'manager', delivery_number: 1 },
+      { path: 'figures/totals.png', label: 'totals.png', source: 'manager', delivery_number: 1 },
     ],
     snapshots,
   });
@@ -1037,4 +1020,64 @@ test('answering a question outside the loaded page sends the whole pair and reta
   // Even a one-row page must keep the actual question and answer together.
   const pair = await get<ConversationPage>(`${P}/conversation?limit=1&before=${Number(refreshed.rows[question + 1]!.order) + 0.01}`);
   assert.deepEqual(pair.rows.map(row => row.text), ['Which seed?', '424242']);
+});
+
+test('rows SSE sends live task progress and holder files, while Manager steps stay only in the role log', async t => {
+  let finishEngineer!: () => void, finishManager!: () => void;
+  const engineer = new Promise<void>(resolve => { finishEngineer = resolve; });
+  const manager = new Promise<void>(resolve => { finishManager = resolve; });
+  const title = '完整长任务标题需要在对话中读完所有要求'.repeat(10) + '标题结束';
+  const { get, post, call, requests } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: `${title}\n核对报告并交付文件。` },
+    { role: 'engineer', to: 'manager', says: '正在核对报告的输入。', until: engineer, files: { 'report.md': '# 报告\n已核对。' }, open: ['report.md'], letter: '报告已核对。\n文件可以打开。' },
+    { role: 'manager', to: 'operator', until: manager, letter: '已核对你询问的状态。' },
+    { role: 'manager', to: 'operator', letter: '任务报告已交付。' },
+  ]);
+  t.after(() => { finishEngineer(); finishManager(); });
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: '开始核对', request_id: 'r-task' }));
+  await eventually(async () => requests, rows => rows.length === 2);
+  const reply = frames(await post(`${P}/message/stream`, { text: '现在做到哪', request_id: 'r-live' }));
+  await eventually(async () => requests, rows => rows.length === 3);
+  const response = await call(`${P}/stream?view=rows`);
+  const streamed = frames(response, frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第二句实时文字。'));
+  requests[2]!.onStep?.({ kind: 'message', text: '经理的第一句实时文字。' });
+  requests[1]!.onStep?.({ kind: 'message', text: '已核对输入，正在检查输出。\n详细记录留在角色日志。' });
+  requests[2]!.onStep?.({ kind: 'message', text: '经理的第二句实时文字。' });
+  const received = await streamed;
+  const managerStep = received.find(frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第一句实时文字。'))!;
+  assert.deepEqual(managerStep.rows, []);
+  const progress = received.flatMap(frame => frame.rows as EventMsg[]).find(row => row.progress === '已核对输入，正在检查输出。')!;
+  assert.equal(progress.title, title);
+  const page = await get<ConversationPage>(`${P}/conversation`);
+  assert.equal(page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, '');
+  assert.equal(page.rows.find(row => row.type === 'ui.task')?.progress, progress.progress);
+  finishManager();
+  await reply;
+  finishEngineer();
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snap => snap.backlog[0]?.status === 'done' && !snap.daemon.alive);
+  const done = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.task')!;
+  assert.equal(done.progress, '报告已核对。');
+  assert.deepEqual(done.result_paths, ['report.md']);
+  const file = await get<{ preview: string }>(`${P}/artifact?path=report.md`);
+  assert.match(file.preview, /已核对/);
+});
+
+test('project list and artifact routes expose only the fields their readers use', async t => {
+  const { store, get } = await setup(t, []);
+  const work = store.create({ workdir: '', request: 'The full objective belongs in project detail.', backend: 'codex', model: null });
+  await writeFile(join(work.workdir, 'result.md'), '# Ready');
+  const index = await get<{ projects: Record<string, unknown>[] }>('/api/projects');
+  const row = index.projects.find(row => row.id === work.id)!;
+  assert.equal(row.workdir, work.workdir);
+  for (const field of ['objective', 'cwd', 'launch_cwd', 'daemon_source_owned', 'daemon_upgrade_pending', 'continuous_enabled', 'continuous_objective']) {
+    assert.equal(Object.hasOwn(row, field), false, field);
+  }
+  const detail = await get<Snapshot>(`/api/projects/${work.id}/snapshot`);
+  assert.equal(detail.session.objective, work.request);
+  assert.equal(detail.session.workdir, work.workdir);
+  const file = await get<Record<string, unknown>>(`/api/projects/${work.id}/artifact?path=result.md`);
+  assert.equal(file.preview, '# Ready');
+  for (const field of ['why', 'exists', 'storage_path']) assert.equal(Object.hasOwn(file, field), false, field);
 });

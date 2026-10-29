@@ -1,22 +1,20 @@
 // What the operator sets on a project: its directory, its name, the backend, model and reasoning
-// effort of all its roles, and a fresh Manager session; and across projects: what each has spent,
-// and the sidebar's pins and archive, kept in $ARGUS_HOME/browser-state.json. A project's record is
+// effort of all its roles, and a fresh Manager session; and across projects: the sidebar's pins and archive, kept in $ARGUS_HOME/browser-state.json. A project's record is
 // changed where it is held: by the work under way on it, or on disk. Its directory and backend
 // change only while nothing is under way, since the calls under way work in them.
 
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import type { ProjectCostRow } from '@argus/contracts';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { modelPriceFor } from '@argus/runtime';
 import type { Project, Store } from '../store.js';
 import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
-import { BACKEND_LABELS, projectRow } from './views.js';
+import { BACKEND_LABELS } from './views.js';
 
 /** The optional API capabilities these routes give the page. */
-export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.cost-feed.v1', 'project.editions.v1'];
+export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.editions.v1'];
 
 /** The settings the page writes: a project has one backend, model and effort, which every role
  * uses. A model or effort is the backend's own word for it; '' or `auto`, the backend's default. */
@@ -35,7 +33,9 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
 
 /** The directory a request names, `~` for home, made if it is new; '' when it names none. */
 export function directory(asked: string): string {
-  const path = asked && resolve(asked.replace(/^~(?=$|\/)/, homedir()));
+  const expanded = asked.replace(/^~(?=$|\/)/, homedir());
+  if (expanded && !isAbsolute(expanded)) throw new HttpError(400, `${asked} is relative; enter an absolute directory path or a path starting with ~/`, 'workdir_relative');
+  const path = expanded && resolve(expanded);
   try {
     // Each missing folder in turn, from the nearest that exists: Node's recursive mkdir never returns
     // for a path under /proc. A root that does not exist (a drive, a share) is its own parent.
@@ -136,15 +136,6 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       edit(id!, work => { delete work.sessions.manager; });
       return { ok: true };
     }],
-    // The page asks every few seconds; the project list carries the same figures.
-    ['GET', /^\/api\/projects\/costs$/, () => ({
-      projects: store.list().map((work): ProjectCostRow => {
-        const { id, spend_usd = null, known_cost_usd = 0, spend_status = 'empty', usage_calls = 0, last_active } =
-          projectRow(store, work, runs.live(work.id));
-        return { id, spend_usd, known_cost_usd, spend_status, usage_calls, premium_requests: 0, updated_at: last_active };
-      }),
-      generated_at: Date.now() / 1000,
-    })],
     ['GET', /^\/api\/browser-state\/organization$/, () => kept().organization ?? { value: {}, revision: 0 }],
     ['POST', /^\/api\/browser-state\/organization$/, async ({ body }) => {
       const { sid, field, value } = await body();

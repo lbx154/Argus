@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
+import { taskTrace } from '../src/serve/views.js';
 import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
@@ -401,7 +402,7 @@ test('the tasks a Planner letter names by the ids it was told are the ones it op
 test("the Planner writes to a task under way, and its holder reads the letter at their next turn", async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });
-  const { flow, id, requests } = await setup(t, [
+  const { flow, id, requests, events, store } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letter: 'Train the baseline' },
     { role: 'engineer', waits: held, to: 'engineer', letter: 'Still training.' },
@@ -416,6 +417,10 @@ test("the Planner writes to a task under way, and its holder reads the letter at
   await flow.say(id, 'Use the newer model');
   // The letter opens no task; it waits on t1 for its holder's next turn.
   while (!flow.store.load(id).tasks[0]?.unread?.length) await new Promise(resolve => setImmediate(resolve));
+  const incoming = events().find(event => event.type === 'handoff' && event.letter === 'Switch to the newer model now.');
+  assert.equal(incoming && 'task' in incoming ? incoming.task : undefined, 't1');
+  assert.ok(!events().some(event => event.type === 'call.end' && event.task === 't1'));
+  assert.equal(taskTrace(store, store.load(id), 't1').groups.at(-1)?.role, 'planner');
   release();
   const project = await flow.settled(id);
   assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.unread], ['idle', 1, undefined]);
@@ -543,7 +548,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 
 test("a Planner's letter to a task that closed during its turn goes back to it, and the ids its other letters name hold", async t => {
   const t1 = gate(), planner = gate();
-  const { flow, id, store, requests } = await setup(t, [
+  const { flow, id, store, requests, events } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letter: 'Train the baseline' },
     { role: 'engineer', waits: t1.shut, to: 'planner', letter: 'Baseline trained.' },
@@ -561,6 +566,8 @@ test("a Planner's letter to a task that closed during its turn goes back to it, 
   const project = await flow.settled(id);
   assert.deepEqual(project.tasks.map(task => [task.id, task.title, task.after ?? []]),
     [['t1', 'Train the baseline', []], ['t2', 'Evaluate it', []], ['t3', 'Compare', ['t2']]]);
+  assert.deepEqual(events().filter(event => event.type === 'handoff' && event.role === 'planner' && event.to === 'engineer')
+    .slice(-3).map(event => 'task' in event ? event.task : undefined), ['t1', undefined, undefined]);
   assert.equal(project.inbox.at(-1), 'Your letter to task t1, which closed before it was read:\nAlso log the loss.');
 });
 
@@ -724,4 +731,10 @@ test('a save outlasts another program holding project.json a moment', { skip: pr
   await once(holder.stdout, 'data');
   store.save({ ...store.load(id), request: 'changed' });
   assert.equal(store.load(id).request, 'changed');
+});
+
+test('the first line of a task title is retained beyond 100 characters', async t => {
+  const title = '检查长标题中的所有要求'.repeat(16) + '标题结束';
+  const { flow, id } = await setup(t, [{ role: 'manager', to: 'engineer', letter: `${title}\n完整任务说明。` }, { role: 'engineer', to: 'operator', letter: '请确认输入。' }]);
+  assert.equal((await say(flow, id, '检查完整标题')).tasks[0]?.title, title);
 });

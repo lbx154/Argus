@@ -18,7 +18,7 @@ afterEach(() => { act(() => tree?.unmount()); tree = undefined; artifact.data = 
 
 it('previews a project file by its name and size, edits it, and opens registered Markdown links', () => {
   artifact.data = {
-    path: 'report.md', name: 'report.md', storage_path: '/workspace/report.md', why: '', exists: true,
+    path: 'report.md', name: 'report.md',
     kind: 'markdown', mime: 'text/markdown', size: 48, mtime: 1,
     preview: '# Report\n\nSee [the table](results/table.csv).',
   };
@@ -28,7 +28,7 @@ it('previews a project file by its name and size, edits it, and opens registered
     artifacts={[{ path: 'results/table.csv' }]} onClose={() => {}} />); });
   const heading = tree!.root.findByType('h2');
   expect(heading.children).toEqual(['report.md']);
-  expect(heading.props.title).toBe('/workspace/report.md');
+  expect(heading.props.title).toBe('report.md');
   expect(tree!.root.findAllByType('p').some(node => node.children.includes('48 B'))).toBe(true);
   act(() => tree!.root.find(node => node.type === 'button' && node.children.includes('Edit & versions')).props.onClick());
   expect(onEdit).toHaveBeenCalledExactlyOnceWith('report.md');
@@ -41,7 +41,7 @@ it('reads a delivery summary as Markdown whose links open the delivered files', 
   const delivery = {
     schema_version: 1, delivery_id: 'd1', kind: 'task_completed', item_id: '', title: 'Report', status: 'done', review_status: '',
     delivered_at: 1, summary: '# Report\n\nSee [the table](results/table.csv) and [the paper](https://example.org/paper).',
-    targets: [{ path: 'results/table.csv', label: 'table.csv', source: 'manager', why: '' }], primary_target: null,
+    targets: [{ path: 'results/table.csv', label: 'table.csv', source: 'manager', }], primary_target: null,
   } as unknown as DeliveryReceipt;
   act(() => { tree = create(<ArtifactModal sid="s" path={null} delivery={delivery} onSelectPath={onSelectPath} onClose={() => {}} />); });
   expect(tree!.root.findAllByType('h1').map(node => node.children.join(''))).toContain('Report');
@@ -57,7 +57,7 @@ it.each([
 ])('names a result as the server named it, else by its main file (%#)', (title, main, heading) => {
   const delivery = {
     schema_version: 1, delivery_id: 'd1', kind: 'task_completed', item_id: '', title, status: 'done', review_status: '', delivered_at: 1, summary: '',
-    targets: [{ path: main, label: main.split('/').at(-1), source: 'manager', why: '' }], primary_target: { path: main, label: main.split('/').at(-1), source: 'manager', why: '' },
+    targets: [{ path: main, label: main.split('/').at(-1), source: 'manager', }], primary_target: { path: main, label: main.split('/').at(-1), source: 'manager', },
   } as unknown as DeliveryReceipt;
   act(() => { tree = create(<ArtifactModal sid="s" path={null} delivery={delivery} onClose={() => {}} />); });
   expect(tree!.root.findAllByType('h2').map(node => node.children.join(''))).toContain(heading);
@@ -67,7 +67,7 @@ it('takes a full-screen preview back to the dialog on Esc, and closes the dialog
   const onClose = vi.fn();
   const delivery = {
     schema_version: 1, delivery_id: 'd1', kind: 'task_completed', item_id: '', title: 'Page', status: 'done', review_status: '', delivered_at: 1, summary: '',
-    targets: [{ path: 'index.html', label: 'index.html', source: 'manager', why: '' }], primary_target: null,
+    targets: [{ path: 'index.html', label: 'index.html', source: 'manager', }], primary_target: null,
   } as unknown as DeliveryReceipt;
   act(() => { tree = create(<ArtifactModal sid="s" path="index.html" delivery={delivery} onClose={onClose} />); });
   act(() => tree!.root.findByProps({ 'aria-label': 'Full screen preview' }).props.onClick());
@@ -91,7 +91,7 @@ it('loads a PDF again when its preview is retried', async () => {
 
 
 it('selects delivery-specific queries, distinguishes repeated names, and offers only one zip button for one HTML file', async () => {
-  const file = { path: 'index.html', label: 'index.html', source: 'manager', why: '', delivery_number: 1 };
+  const file = { path: 'index.html', label: 'index.html', source: 'manager', delivery_number: 1 };
   const first: DeliveryReceipt = { schema_version: 1, delivery_id: 'd1', title: 'Same title', kind: 'result', item_id: '', summary: '',
     status: 'done', review_status: '', delivered_at: 1, targets: [file], primary_target: file };
   const second = { ...first, delivery_id: 'd2', delivered_at: 2, targets: [{ ...file, delivery_number: 2 }], primary_target: { ...file, delivery_number: 2 } };
@@ -100,13 +100,13 @@ it('selects delivery-specific queries, distinguishes repeated names, and offers 
   act(() => { tree = create(<ArtifactModal sid="s" path="index.html" delivery={first} deliveries={[second, first]}
     onSelectDelivery={onSelectDelivery} onClose={() => {}} />); });
   expect(useArtifact).toHaveBeenLastCalledWith('s', 'index.html', null, 'd1');
-  expect(tree!.root.findAllByType('option').map(option => option.children.join(''))).toEqual(['Same title · Delivery 2', 'Same title · Delivery 1']);
+  expect(tree!.root.findAllByType('option').map(option => option.children.join(''))).toEqual(['Same title · Delivery 2', 'Same title']);
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.some(child => typeof child === 'string' && child.includes('(zip)')))).toHaveLength(0);
   const select = tree!.root.findByType('select');
   act(() => select.props.onChange({ target: { value: 'd2' } }));
   expect(onSelectDelivery).toHaveBeenCalledWith(second);
   // A single HTML file uses its existing page-and-assets zip; it has no Download all button.
-  artifact.data = { path: file.path, name: file.path, why: '', exists: true, kind: 'html', mime: 'text/html', size: 10, mtime: 1 };
+  artifact.data = { path: file.path, name: file.path, kind: 'html', mime: 'text/html', size: 10, mtime: 1 };
   act(() => tree!.update(<ArtifactModal sid="s" path="index.html" delivery={second} onClose={() => {}} />));
   expect(useArtifact).toHaveBeenLastCalledWith('s', 'index.html', null, 'd2');
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('Download page (zip)'))).toHaveLength(1);
@@ -114,10 +114,10 @@ it('selects delivery-specific queries, distinguishes repeated names, and offers 
 });
 
 it('keeps the selected delivery in file downloads and archive downloads', async () => {
-  const file = { path: 'report.md', label: 'report.md', source: 'manager', why: '', delivery_number: 2 };
+  const file = { path: 'report.md', label: 'report.md', source: 'manager', delivery_number: 2 };
   const delivery: DeliveryReceipt = { schema_version: 1, delivery_id: 'd2', title: 'Report', kind: 'result', item_id: '', summary: 'Explanation',
     status: 'done', review_status: '', delivered_at: 2, targets: [file, { ...file, path: 'data.csv' }], primary_target: file };
-  artifact.data = { path: file.path, name: file.path, why: '', exists: true, kind: 'markdown', mime: 'text/markdown', size: 10, mtime: 1, preview: 'Saved content' };
+  artifact.data = { path: file.path, name: file.path, kind: 'markdown', mime: 'text/markdown', size: 10, mtime: 1, preview: 'Saved content' };
   const blob = vi.spyOn(api, 'artifactBlob').mockRejectedValue(new Error('stop before browser download'));
   const bundle = vi.spyOn(api, 'artifactsBundle').mockRejectedValue(new Error('stop before browser download'));
   act(() => { tree = create(<ArtifactModal sid="s" path="report.md" delivery={delivery} onClose={() => {}} />); });

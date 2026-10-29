@@ -1,0 +1,38 @@
+{"ts":"2026-10-29T21:18:51.829Z","type":"message","from":"operator","text":"Modify live.md, send 35 progress messages, then keep the call running","request_id":"reconnect-gap"}
+{"ts":"2026-10-29T21:18:51.831Z","type":"call.start","role":"manager","answers":"reconnect-gap"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"edit","text":"live.md"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 1 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 2 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 3 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 4 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 5 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 6 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 7 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 8 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 9 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 10 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.849Z","type":"step","role":"manager","kind":"message","text":"Progress 11 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 12 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 13 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 14 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 15 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 16 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 17 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 18 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 19 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 20 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 21 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 22 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 23 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 24 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 25 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 26 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 27 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 28 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 29 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 30 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.850Z","type":"step","role":"manager","kind":"message","text":"Progress 31 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.851Z","type":"step","role":"manager","kind":"message","text":"Progress 32 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.851Z","type":"step","role":"manager","kind":"message","text":"Progress 33 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.851Z","type":"step","role":"manager","kind":"message","text":"Progress 34 while the call is still running"}
+{"ts":"2026-10-29T21:18:51.851Z","type":"step","role":"manager","kind":"message","text":"Progress 35 while the call is still running"}

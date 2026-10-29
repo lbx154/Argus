@@ -40,6 +40,9 @@ export function useWorkbenchLayout() {
   }, []);
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
   const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v6', false));
+  const [narrow, setNarrow] = useState(() => window.innerWidth < 1200);
+  // The saved desktop preference does not open the narrow reading view.
+  const rightPanelVisible = mobileView === 'preview' || (!narrow && rightPanelOpen && workspaceView !== 'map');
   const [leftWidth, setLeftWidth] = useState(() => {
     const value = Number(readLocalStorage('argus.sidebar.width.v2') || 256);
     return Number.isFinite(value) ? Math.max(220, Math.min(400, value)) : 256;
@@ -83,7 +86,7 @@ export function useWorkbenchLayout() {
     const width = shellRef.current?.clientWidth ?? window.innerWidth;
     // Mobile already dedicates a full screen to reading. Desktop grows only
     // on an explicit open action, never on a background query refresh.
-    if (width >= 1024) {
+    if (width >= 1200) {
       const preferred = preferredPreviewWidth(width, leftWidth, sidebarShown);
       setRightWidth((current) => Math.max(current, preferred));
     }
@@ -143,7 +146,8 @@ export function useWorkbenchLayout() {
 
   useEffect(() => {
     const fit = () => {
-      if (window.innerWidth < 1024 || !shellRef.current) return;
+      setNarrow(window.innerWidth < 1200);
+      if (window.innerWidth < 1200 || !shellRef.current) return;
       const shellWidth = shellRef.current.clientWidth;
       const left = sidebarShown ? leftWidth : 56;
       const right = rightPanelOpen ? rightWidth : 0;
@@ -175,7 +179,7 @@ export function useWorkbenchLayout() {
     mobileView,
     openPreview,
     resizeSidebar,
-    rightPanelOpen,
+    rightPanelVisible,
     rightWidth,
     setLeftWidth,
     // Presentation mode never folds into full canvas, so it offers no toggle.

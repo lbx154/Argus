@@ -11,18 +11,18 @@ import {
 } from '../../core/src/index.js';
 
 test('shared project ranking chooses a live daemon before a newer stopped project', () => {
-  const stopped = { id: 'new', label: 'new', objective: '', last_active: 20, daemon_alive: false, daemon_pid: null, uptime_seconds: null };
-  const live = { id: 'live', label: 'Research', objective: '', last_active: 10, daemon_alive: true, daemon_pid: 1, uptime_seconds: 5 };
+  const stopped = { workdir: '/work', id: 'new', label: 'new', last_active: 20, daemon_alive: false, daemon_pid: null, };
+  const live = { workdir: '/work', id: 'live', label: 'Research', last_active: 10, daemon_alive: true, daemon_pid: 1, };
   assert.equal(defaultProject([stopped, live])?.id, 'live');
 });
 
-test('shared project lookup matches name, id, objective, and daemon state', () => {
+test('shared project lookup matches name, id, and daemon state', () => {
   const rows = [
-    { id: 's-kernel-42', label: 'AAAI Paper', objective: 'Reproduce flash attention benchmark', last_active: 2, daemon_alive: true, daemon_pid: 1, uptime_seconds: 3 },
-    { id: 's-vision-7', label: 'Vision notes', objective: 'Review VLM datasets', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+    { workdir: '/work', id: 's-kernel-42', label: 'AAAI Paper', last_active: 2, daemon_alive: true, daemon_pid: 1, },
+    { workdir: '/work', id: 's-vision-7', label: 'Vision notes', last_active: 1, daemon_alive: false, daemon_pid: null, },
   ];
   assert.deepEqual(filterProjects(rows, 'kernel live').map((row) => row.id), ['s-kernel-42']);
-  assert.deepEqual(filterProjects(rows, 'VLM stopped').map((row) => row.id), ['s-vision-7']);
+  assert.deepEqual(filterProjects(rows, 'vision stopped').map((row) => row.id), ['s-vision-7']);
   assert.deepEqual(resolveProjectSelection(rows, 'missing'), {
     id: 's-kernel-42', requested: 'missing', recovered: true,
   });

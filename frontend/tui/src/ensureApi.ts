@@ -11,7 +11,6 @@ import {
   type ApiMeta,
 } from '../../core/src/protocol.js';
 import { RELEASE_ID } from '../../core/src/protocol.js';
-import type { ProjectRow } from '../../core/src/types.js';
 import {
   claimApiOwnership as claimApiOwnershipImpl,
   isLocalApiHost,
@@ -261,38 +260,6 @@ export interface SpawnedApiReceipt {
 export interface SpawnedApiCleanupResult {
   stopped: boolean;
   message: string;
-}
-
-export interface DaemonUpgradeScheduleSummary {
-  outdated: string[];
-  scheduled: string[];
-  skipped: string[];
-  failed: string[];
-}
-
-export async function scheduleOutdatedDaemonUpgrades(
-  projects: ProjectRow[],
-  schedule: (sid: string) => Promise<{ scheduled?: unknown }>,
-): Promise<DaemonUpgradeScheduleSummary> {
-  const outdated = projects
-    .filter((project) =>
-      project.daemon_upgrade_pending === true
-      || (
-        project.daemon_alive
-        && project.daemon_protocol_compatible === false
-        && project.daemon_source_owned === true
-      ))
-    .map((project) => project.id);
-  const settled = await Promise.allSettled(outdated.map((sid) => schedule(sid)));
-  const accepted = settled.map((result) =>
-    result.status === 'fulfilled' && result.value.scheduled === true);
-  return {
-    outdated,
-    scheduled: outdated.filter((_, index) => accepted[index]),
-    skipped: outdated.filter((_, index) =>
-      settled[index].status === 'fulfilled' && !accepted[index]),
-    failed: outdated.filter((_, index) => settled[index].status === 'rejected'),
-  };
 }
 
 function compatibleResult(

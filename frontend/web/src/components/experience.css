@@ -32,8 +32,6 @@
 .settings-body summary { display: flex; align-items: center; }
 .settings-body :is(input, select) { max-width: 100%; }
 
-.search-layout { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
-.search-layout[data-reading="true"] { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 .search-result-list { display: flex; flex-direction: column; min-width: 0; max-height: 50dvh; overflow-y: auto; }
 .search-result-list:empty { display: none; }
 .search-result-list button { display: flex; flex: none; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 12px; border: 0; border-bottom: 1px solid rgb(var(--line)); background: transparent; text-align: left; overflow-wrap: anywhere; transition: background-color 140ms ease; }
@@ -41,13 +39,6 @@
 .search-result-list .search-project { flex: none; margin: 14px 12px 0; overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .search-result-list button > span { display: -webkit-box; overflow: hidden; font-size: 13px; color: rgb(var(--ink-dim)); -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .search-result-list small { color: rgb(var(--ink-faint)); font-size: 12px; }
-.search-result-list .is-selected { background: rgb(var(--surface-2)); box-shadow: inset 1px 0 rgb(var(--accent)); }
-.search-reader { min-width: 0; padding: 0 0 0 20px; margin-left: 12px; border-left: 1px solid rgb(var(--line)); max-height: 50dvh; overflow: auto; overflow-wrap: anywhere; }
-.search-reader header { position: sticky; z-index: 1; top: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-bottom: 16px; background: rgb(var(--panel-raised)); }
-.search-reader header strong { min-width: 0; flex: 1; font-size: 13px; }
-.search-reader header .brand-button { font-size: 13px; }
-.search-reader .search-back { display: none; }
-.search-reader .prose { font-size: 14px; }
 
 .edition-body { gap: 16px; }
 .edition-save-status { margin-left: auto; color: rgb(var(--ink-faint)); font-size: 12px; }
@@ -85,12 +76,6 @@
   .experience-shell { max-height: calc(100dvh - 48px); }
   .experience-footer { padding: 12px 20px; }
   .experience-input, .experience-select { min-height: 44px; font-size: 16px; }
-  .search-layout[data-reading="true"] { grid-template-columns: minmax(0, 1fr); }
-  .search-layout[data-reading="true"] .search-result-list { display: none; }
-  .search-reader { padding: 0; margin: 0; border: 0; max-height: 55dvh; }
-  .search-reader header { align-items: flex-start; }
-  .search-reader .search-back { display: inline-flex; flex-basis: 100%; justify-content: flex-start; padding-left: 0; }
-  .search-reader header strong { flex-basis: 100%; }
   .edition-pane textarea { font-size: 16px; line-height: 1.65; }
   .edition-save-status { flex-basis: 100%; margin-left: 0; }
   .composer-options > summary, .conversation-tools button { min-height: 44px; }

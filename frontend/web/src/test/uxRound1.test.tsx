@@ -22,7 +22,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function snapshot(patch: Partial<Snapshot> = {}): Snapshot {
   return {
-    session: { id: 's-1', display_name: '视频去噪', objective: '研究视频去噪', last_active: 1, cwd: '/state/s-1' },
+    session: { id: 's-1', display_name: '视频去噪', objective: '研究视频去噪', last_active: 1, workdir: '/state/s-1' },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
     roles: [],
     backlog: [],

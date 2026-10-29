@@ -85,4 +85,13 @@ it.each([
   expect(view!.root.findByType('nav').findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true]);
 });
 
+it('renders the skill body without front matter and does not repeat the global scope per row', async () => {
+  vi.mocked(api.skillDocument).mockResolvedValue({ ...builtin, content: '---\r\nname: original\r\ndescription: "Metadata only"\r\n---\r\n# Body\n\nKeep this method.\n', markdown: '' });
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
+  const rows = view!.root.findByType('aside');
+  expect(content(rows)).not.toContain('全局项目');
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(custom.name))!.props.onClick()); await settle();
+  expect(content(view!.root.findByProps({ 'data-original': true }))).toBe('# Body\n\nKeep this method.\n');
+});
+
 afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; client.clear(); vi.useRealTimers(); });

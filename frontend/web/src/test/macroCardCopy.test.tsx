@@ -89,11 +89,11 @@ describe("macro card copy", () => {
     expect(markup).not.toContain("Unknown status");
     expect(markup).not.toContain('class="macro-state">Paused');
   });
-  it("says why a parked task waits", () => {
+  it("shows a blocked task as paused", () => {
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([], {
-      task: { ...task, status: "parked", park_reason: "budget_exhausted" }, live: false,
+      task: { ...task, status: "blocked" }, live: false,
     })} />);
-    expect(markup).toContain("Paused · the project reached its budget limit");
+    expect(markup).toContain("Paused");
   });
   it("says under the title only who holds the task and what was last said, not its objective or a step's summary", () => {
     const completed = { ...task, status: "done", objective: "Build a reusable date workflow",
@@ -146,7 +146,7 @@ describe("macro card copy", () => {
     expect(rendered).not.toContain("Details are not available yet");
     expect(rendered).not.toContain("这一步还没有留下记录。");
   });
-  it("skips the unified placeholder when choosing a multi-part summary", () => {
+  it("keeps detail-page text inside the details instead of adding a history-card summary", () => {
     const markup = renderToStaticMarkup(
       <MacroTaskNode
         {...propsFor(
@@ -159,7 +159,8 @@ describe("macro card copy", () => {
       />,
     );
     const body = markup.slice(markup.indexOf("map-card-state"), markup.indexOf("map-card-course"));
-    expect(body).toContain("Real measured progress.");
+    expect(body).not.toContain("Real measured progress.");
+    expect(markup).toContain("Real measured progress.");
     expect(body).not.toContain("Nothing has been written down for this step yet.");
   });
 });
@@ -171,8 +172,6 @@ describe("zoom-independent card content", () => {
       live: false,
       completionScope: "The goal was incomplete on this attempt.",
       copy: copyFor("A superseded conclusion must not return when zooming.", "done"),
-      historyCount: 2,
-      toggleHistory: vi.fn(),
     });
     props.data.layout.stacked = stacked;
     const zoom = createZoomStepStore();
@@ -185,7 +184,7 @@ describe("zoom-independent card content", () => {
     expect(new Set(markups).size).toBe(1);
     expect(markups[0]).not.toContain("A superseded conclusion");
     expect(markups[0]).toContain('class="map-card-course"');
-    expect(markups[0]).toContain("Mission history: Research portfolio");
+    expect(markups[0]).not.toContain("Mission history: Research portfolio");
     expect(markups[0]).not.toMatch(/data-overview-density|data-copy-lines|--title-lines/);
   });
 });
@@ -196,7 +195,7 @@ it('opens a saved question answer directly from its Atlas card', () => {
   let qaRenderer: ReactTestRenderer;
   act(() => {
     qaRenderer = create(<MacroTaskNode {...propsFor([], {
-      task: { ...task, kind: 'turn', turn_kind: 'qa', status: 'done', title: 'Explain SFT.', summary: 'A saved answer.' },
+      task: { ...task, turn_kind: 'qa', status: 'done', title: 'Explain SFT.', latest_action: { role: 'manager', text: 'A saved answer.', ts: 1 } },
       readCopy, open,
     })} />);
   });

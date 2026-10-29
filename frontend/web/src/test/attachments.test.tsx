@@ -12,10 +12,9 @@ import {
   attachmentMime,
   dataTransferHasFiles,
   extractFilesFromDataTransfer,
-  MESSAGE_ATTACHMENT_MAX_COUNT,
-  MESSAGE_ATTACHMENT_MAX_BYTES,
 } from '../lib/attachments';
 
+const limits = { max_count: 5, max_bytes_per_file: 16, max_total_bytes: 32, chunk_bytes: 4 };
 describe('composer attachment helpers', () => {
   it('accepts supported files and deduplicates exact re-adds', () => {
     const note = new File(['# note\n'], 'notes.md', { type: 'text/markdown' });
@@ -28,28 +27,25 @@ describe('composer attachment helpers', () => {
     expect(second.accepted).toEqual([]);
   });
 
-  it('rejects unsupported, oversized, and excess files with stable codes', () => {
+  it('accepts any suffix and rejects files exceeding server limits with stable codes', () => {
     const unsupported = new File(['hello'], 'brief.exe', { type: 'application/octet-stream' });
     const tooLarge = new File(
-      [new Uint8Array(MESSAGE_ATTACHMENT_MAX_BYTES + 1)],
+      [new Uint8Array(limits.max_bytes_per_file + 1)],
       'big.pdf',
       { type: 'application/pdf' },
     );
-    const crowd = Array.from({ length: MESSAGE_ATTACHMENT_MAX_COUNT + 1 }, (_, index) => (
+    const crowd = Array.from({ length: limits.max_count + 1 }, (_, index) => (
       new File([`${index}`], `note-${index}.txt`, { type: 'text/plain' })
     ));
 
-    expect(addComposerFiles([], [unsupported]).issues[0]).toEqual({
-      code: 'unsupported',
-      fileName: 'brief.exe',
-    });
-    expect(addComposerFiles([], [tooLarge]).issues[0]).toMatchObject({
+    expect(addComposerFiles([], [unsupported], limits).accepted).toEqual([unsupported]);
+    expect(addComposerFiles([], [tooLarge], limits).issues[0]).toMatchObject({
       code: 'too-large',
       fileName: 'big.pdf',
     });
-    expect(addComposerFiles([], crowd).issues.at(-1)).toEqual({
+    expect(addComposerFiles([], crowd, limits).issues.at(-1)).toEqual({
       code: 'too-many',
-      limitCount: MESSAGE_ATTACHMENT_MAX_COUNT,
+      limitCount: limits.max_count,
     });
   });
 
@@ -129,4 +125,11 @@ it('opens a sent attachment through the existing file reader and labels the mess
     act(() => button.props.onClick());
     expect(edit).toHaveBeenCalledExactlyOnceWith(sent.text);
   } finally { act(() => view.unmount()); vi.unstubAllGlobals(); }
+});
+
+it('omits text/plain from sent attachment blocks', () => {
+  const file: UploadedAttachment = { attachment_id: 'att-000000000001', relative_path: '.argus/attachments/att-000000000001/trace.jsonl', original_name: 'trace.jsonl', stored_name: 'trace.jsonl', mime: 'text/plain', size_bytes: 12 };
+  const html = renderToStaticMarkup(<ComposerAttachmentChip uploaded={file} sent />);
+  expect(html).toContain('trace.jsonl');
+  expect(html).not.toContain('text/plain');
 });

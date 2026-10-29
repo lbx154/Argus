@@ -1,7 +1,9 @@
+import { useQuery } from '@tanstack/react-query';
 import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
+import { useProjects, useSnapshot, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
+import { useRoleLog } from './useRoleLog';
 import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type UploadedAttachment, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
@@ -16,8 +18,6 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { ConfigModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
-import { PendingReplyDialog } from './components/PendingReplyDialog';
-import { GuardianBanner } from './components/GuardianBanner';
 import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import {
@@ -35,24 +35,22 @@ import { Modal } from './components/Modal';
 import { Landing } from './components/Landing';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
-import { activeGuardianAlert } from './lib/guardian';
 import { useQueryClient } from '@tanstack/react-query';
 import { finishManagerMessage } from './lib/messageResult';
-import { EDITIONS_CAPABILITY, POLL_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
+import { EDITIONS_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
   mergeOptimisticManagerReply,
   optimisticManagerEvent,
   optimisticOperatorEvent,
   settleOptimisticManagerTurn,
 } from './lib/conversationEvents';
-import { mergeProjectCosts } from './lib/projectCosts';
 import { errorText, managerStreamFailureMessage, shortcut } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
-import { ArtifactEditor, HistorySearch } from './components/ExperiencePanels';
+import { ArtifactEditor, HistorySearch, ProjectTrash } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
@@ -130,16 +128,9 @@ export default function App() {
     error instanceof PairingRequiredError ? t(holdsToken() ? 'connection.invalidLink' : 'connection.pairingDetail') : errorText(error);
   const queryClient = useQueryClient();
   const projectsQ = useProjects();
-  const projectCostsQ = useProjectCosts();
-  const projects = useMemo(
-    () => rankProjects(mergeProjectCosts(
-      projectsQ.data?.projects ?? [],
-      projectCostsQ.data?.projects ?? [],
-    )),
-    [projectCostsQ.data?.projects, projectsQ.data?.projects],
-  );
+  const projects = useMemo(() => rankProjects(projectsQ.data?.projects ?? []), [projectsQ.data?.projects]);
   const localCwd = projectsQ.data?.local_cwd ?? '';
-  const connectionError = [projectsQ.error, projectCostsQ.error]
+  const connectionError = [projectsQ.error]
     .find((error) => isConnectionError(error));
 
   const [overlay, setOverlay] = useState<Overlay>('none');
@@ -164,7 +155,7 @@ export default function App() {
     mobileView,
     openPreview: expandPreview,
     resizeSidebar,
-    rightPanelOpen,
+    rightPanelVisible,
     rightWidth,
     setLeftWidth,
     setMapFull,
@@ -210,6 +201,7 @@ export default function App() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ path: string; version?: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
   const [highlightedTs, setHighlightedTs] = useState<number | undefined>();
   const homeRequest = useRef<{ text: string; files: File[] } | null>(null);
@@ -294,9 +286,11 @@ export default function App() {
     }
     draftUploads.ensure(selectedSid, next, completedUploads);
   }, [completedUploads, composerAttachments, draftUploads, selectedSid, setComposerAttachments]);
+  const attachmentLimits = useQuery({ queryKey: ['attachment-limits', selectedSid], queryFn: ({ signal }) => api.attachmentLimits(selectedSid!, signal), enabled: !!selectedSid });
   const draftUploadView = useMemo<DraftUploadView>(() => ({
     status: file => draftUploads.status(file),
     retry: file => draftUploads.retry(file),
+    limits: attachmentLimits.data,
     ready: composerUploaded.filter(item => !item.file).map(item => item.attachment),
     removeReady: (attachmentId) => {
       removeUploaded(attachmentId);
@@ -305,7 +299,7 @@ export default function App() {
     busy: draftUploads.busy(composerAttachments),
     // uploadsVersion: the store changed, so statuses and the busy count did too.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [composerAttachments, composerUploaded, draftUploads, removeUploaded, selectedSid, uploadsVersion]);
+  }), [composerAttachments, composerUploaded, draftUploads, removeUploaded, selectedSid, uploadsVersion, attachmentLimits.data]);
   const selectProject = useCallback((id: string, mode?: ProjectHistoryMode) => {
     cancelDeliveryNavigationRef.current();
     selectProjectBase(id, mode);
@@ -389,38 +383,10 @@ export default function App() {
     setEditor(null); setHighlightedTs(undefined);
   }, [activeSid]);
   const artifactsQ = useArtifacts(loadedSid, true);
-  const { events, connected } = useEventStream(loadedSid);
-  const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
-  // A server that pushes state sends the snapshot with each change itself.
-  const polled = useCapability(POLL_CAPABILITY);
-  const snapshotRefreshKey = useMemo(() => polled ? snapshotRefreshEventKey(events) : '', [events, polled]);
-  useEffect(() => {
-    if (!loadedSid || !artifactRefreshKey) return;
-    // One tool turn can write several files back-to-back. Coalesce those
-    // events into one artifact read instead of making JSON/list reconciliation
-    // compete with typing and WebView painting.
-    const timer = window.setTimeout(() => {
-      void queryClient.invalidateQueries({
-        queryKey: ['artifacts', loadedSid],
-        exact: true,
-      });
-    }, 180);
-    return () => window.clearTimeout(timer);
-  }, [artifactRefreshKey, loadedSid, queryClient]);
-  useEffect(() => {
-    if (!loadedSid || !snapshotRefreshKey) return;
-    const timer = window.setTimeout(() => {
-      void queryClient.invalidateQueries({
-        queryKey: ['snapshot', loadedSid],
-        exact: true,
-      });
-    }, 80);
-    return () => window.clearTimeout(timer);
-  }, [loadedSid, queryClient, snapshotRefreshKey]);
-  const guardianAlert = useMemo(() => activeGuardianAlert(events, locale), [events, locale]);
-  const { query: transcriptQ, events: activityEvents, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
+  const { query: transcriptQ, events: activityEvents, connected, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
     loadedSid, true, localConversationEvents, localConversationSid.current,
   );
+  const { events } = useRoleLog(loadedSid);
   const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
   const promptHistoryList = useMemo(() => promptHistory(activityEvents), [activityEvents]);
   const promptSources = useMemo<PromptSources | undefined>(() => loadedSid ? {
@@ -469,14 +435,10 @@ export default function App() {
     pendingReply,
     pendingReplyBusy,
     pendingReplyError,
-    pendingReplyOpen,
-    setPendingReplyOpen,
+    pendingReplyNote,
+    setPendingReplyNote,
   } = usePendingReplySession({
     activeSid,
-    currentTaskId: snap?.work_status?.taskId,
-    // The map surfaces decisions through its banner and node highlight; the
-    // modal would cover the very trajectory the operator came to inspect.
-    autoOpen: workspaceView !== 'map',
     backlog: snap?.backlog,
     notify,
     pendingQuestions: snap?.pending_questions,
@@ -516,7 +478,7 @@ export default function App() {
       if (userInitiated) setWorkspaceView('map');
       return;
     }
-    if (workspaceView === 'map' || !artifactsQ.data?.some(file => file.path === target && file.exists)) {
+    if (workspaceView === 'map' || !artifactsQ.data?.some(file => file.path === target)) {
       setArtifactPath(target);
       return;
     }
@@ -574,9 +536,6 @@ export default function App() {
     }
     return [...receipts.values()].filter((receipt) => deliveryFiles(receipt).length).sort((a, b) => b.delivered_at - a.delivered_at);
   }, [activityEvents, delivery]);
-  useEffect(() => {
-    if (loadedSid && delivery?.delivery_id) void queryClient.invalidateQueries({ queryKey: ['artifacts', loadedSid], exact: true });
-  }, [loadedSid, delivery?.delivery_id, queryClient]);
   cancelDeliveryNavigationRef.current = useDesktopDeliveryNavigation({
     selectedSid, loadedSid, sidRef, snapshotError: snapQ.error, queryClient,
     receipts: transcriptQ.isPending ? [] : deliveryHistory,
@@ -588,7 +547,7 @@ export default function App() {
       // A verified file can precede its listing refresh. The side preview only
       // selects listed files; use the existing direct modal rather than its
       // default-file fallback when the target has not reached that index yet.
-      if (artifactsQ.data?.some(file => file.path === path && file.exists)) focusDeliveryPath(path);
+      if (artifactsQ.data?.some(file => file.path === path)) focusDeliveryPath(path);
       else setArtifactPath(path);
     },
     noPath: () => { setMobileView('activity'); setWorkspaceView('map'); },
@@ -618,7 +577,6 @@ export default function App() {
   /** Interrupt the current work; the conversation records what waits for Resume. */
   const requestStopDaemon = useCallback(() =>
     actions.stopDaemon.mutate(undefined, {
-      onSuccess: () => notify('info', t('daemon.stopRequested')),
       onError: (error: Error) => notify('error', errorText(error), error),
     }),
   [notify, actions.stopDaemon, t]);
@@ -703,7 +661,7 @@ export default function App() {
 
   const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
     const requestSid = activeSid;
-    if (!requestSid || requestSid !== sidRef.current || messageRequestRef.current) return false;
+    if (rewriting || !requestSid || requestSid !== sidRef.current || messageRequestRef.current) return false;
 
     const requestId = ++messageEpochRef.current;
     const serverRequestId = newRequestId();
@@ -773,12 +731,7 @@ export default function App() {
       // Use result.reply (persisted by backend) as a non-durable accessibility
       // notice — the conversation event is already in the transcript refetch.
       const reply = typeof result.reply === 'string' ? result.reply : null;
-      if (daemon?.admission_required) {
-        notify(
-          'error',
-          t('error.busy'), reply,
-        );
-      } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
+      if (daemon && Number(daemon.rc ?? 0) !== 0) {
         notify('error', t('error.command_failed'), reply);
       } else if (reply && !observe) {
         notify('success', reply);
@@ -805,7 +758,7 @@ export default function App() {
       let streamErr: Error | null = null;
       // A project's first message names it and starts its work: the list and the project are
       // read again once the server has it.
-      let named = Boolean(projects.find(project => project.id === requestSid)?.objective);
+      let named = Boolean(snap?.session.objective);
       try {
         try {
           await api.messageStream(requestSid, text, {
@@ -866,9 +819,10 @@ export default function App() {
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
-  const workspaceRoots = useMemo(() => [snap?.session.workdir, snap?.session.cwd].filter((root): root is string => Boolean(root)), [snap?.session.workdir, snap?.session.cwd]);
+  const workspaceRoots = useMemo(() => [snap?.session.workdir].filter((root): root is string => Boolean(root)), [snap?.session.workdir]);
   const replyChoice = useCallback((choice: string) => { void sendMessageRef.current(choice); }, []);
   const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver, options?: MapSendOptions): Promise<boolean> => {
+    if (rewriting) return false;
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
     if (draft.missingAttachments?.length) {
@@ -952,7 +906,7 @@ export default function App() {
       id: `p-${p.id}`,
       label: p.display_name?.trim() || t('sidebar.unnamedSession'),
       hint: p.daemon_alive ? `● ${t('common.live')}` : '○',
-      keywords: `${p.id} ${p.display_name ?? ''} ${p.objective} ${p.daemon_alive ? 'live running' : 'stopped idle'}`,
+      keywords: `${p.id} ${p.display_name ?? ''} ${p.daemon_alive ? 'live running' : 'stopped idle'}`,
       group: t('palette.project'),
       run: () => selectProject(p.id),
     }));
@@ -973,7 +927,6 @@ export default function App() {
         error={connectionError}
         onRetry={() => {
           void projectsQ.refetch();
-          if (projectCostsQ.isEnabled) void projectCostsQ.refetch();
         }}
       />
       {deliveryCenter.selection && <ArtifactModal
@@ -994,6 +947,7 @@ export default function App() {
       ) : null}
       {!kiosk ? (
         <Sidebar
+          onOpenTrash={() => { setTrashOpen(true); setSidebarOpen(false); }}
           projects={projects}
           activeId={activeSid}
           localCwd={localCwd}
@@ -1043,7 +997,7 @@ export default function App() {
       <main className="flex min-w-0 flex-1 overflow-x-hidden">
         {snap ? (
           <>
-            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
+            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col min-[1200px]:flex`}>
               <TopBar
                 snap={snap}
                 streamOk={connected}
@@ -1063,31 +1017,31 @@ export default function App() {
                   <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{locale === 'zh-CN' ? '研究地图' : 'Research map'}</button>
                   <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{locale === 'zh-CN' ? '高级工作台' : 'Advanced workbench'}</button>
                 </div>
-                <button type="button" className="ml-auto flex items-center gap-1.5 px-2 py-1 text-sm text-ink-dim hover:text-ink"
+                <button type="button" className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 text-sm text-ink-dim hover:text-ink"
                   onClick={() => setOverlay('palette')} title={t('topbar.commandsHint', { keys: shortcut('K') })}>
                   {t('topbar.commands')}
                   <kbd className="rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-faint">{shortcut('K')}</kbd>
                 </button>
-                <button type="button" className="px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
+                <button type="button" className="shrink-0 whitespace-nowrap px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelVisible}
                   onClick={() => {
-                    if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
+                    if (rightPanelVisible) { setRightPanelOpen(false); setMobileView('activity'); }
                     else { setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 })); openPreview(); }
                   }}>
                   {locale === 'zh-CN' ? '成果与文件' : 'Results & files'}
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} rewriting={rewriting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
                 onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
-                currentTaskId={snap?.work_status?.taskId}
                 routeOverride={routeOverride} onRouteOverrideChange={setRoute}
                 conversationEvents={activityEvents} conversationPagination={conversationPagination} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory);
                   if (selection) openDelivery(selection.receipt, selection.path);
                 }}
-                onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath} onAnswer={() => setPendingReplyOpen(true)}
+                onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath}
                 deliveries={deliveryHistory}
+                pendingQuestion={!kiosk && pendingReply ? <PendingBanner key={`${activeSid}:${pendingReply.id}`} reply={pendingReply} busy={pendingReplyBusy} error={pendingReplyError} note={pendingReplyNote} onNoteChange={setPendingReplyNote} onSubmit={answerPendingReply} /> : null}
               /></Suspense>}
               {workspaceView === 'map' && !kiosk && (missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
                 <span className="text-warn">{draftStorageError
@@ -1096,7 +1050,6 @@ export default function App() {
                 <button type="button" onClick={() => { setWorkspaceView('activity'); setMobileView('activity'); }}>{locale === 'zh-CN' ? '前往对话处理' : 'Review in conversation'}</button>
               </div>}
               <div className={`${workspaceView === 'activity' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1 flex-col`}>
-                <GuardianBanner alert={guardianAlert} />
                 <ProgressHealthBanner key={loadedSid || 'none'} sid={snap.session.id} health={health}
                   onAdjust={kiosk ? undefined : () => setComposerFocus((value) => value + 1)} />
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
@@ -1130,12 +1083,8 @@ export default function App() {
                 {!kiosk ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
                     <div className="mx-auto w-full max-w-full lg:max-w-[61.8vw]">
-                    <PendingBanner
-                      questions={snap.pending_questions ?? []}
-                      backlog={snap.backlog}
-                      currentTaskId={snap?.work_status?.taskId}
-                      onAnswer={() => setPendingReplyOpen(true)}
-                    />
+                    {workspaceView === 'activity' && pendingReply ? <PendingBanner key={`${activeSid}:${pendingReply.id}`} reply={pendingReply}
+                      busy={pendingReplyBusy} error={pendingReplyError} note={pendingReplyNote} onNoteChange={setPendingReplyNote} onSubmit={answerPendingReply} /> : null}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}
@@ -1176,8 +1125,8 @@ export default function App() {
                 </div>
               ) : null}
             </section>
-            {rightPanelOpen && workspaceView !== 'map' ? (
-              <SplitHandle
+            {rightPanelVisible && workspaceView !== 'map' ? (
+              <div className="hidden min-[1200px]:contents"><SplitHandle
                 label={t('common.resizePreview')}
                 value={rightWidth}
                 min={320}
@@ -1185,13 +1134,13 @@ export default function App() {
                 onPointerDown={(event) => resizeSidebar('right', event)}
                 onReset={() => setRightWidth(PREVIEW_DEFAULT_WIDTH)}
                 onNudge={(delta) => setRightWidth((value) => Math.max(320, Math.min(PREVIEW_MAX_WIDTH, value - delta)))}
-              />
+              /></div>
             ) : null}
 
-            {((rightPanelOpen && workspaceView !== 'map') || mobileView === 'preview') && <aside
+            {rightPanelVisible && <aside
               data-resizable-panel="right"
-              className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel lg:flex lg:flex-none lg:w-[var(--preview-width)]`}>
-              <div className="lg:hidden">
+              className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel min-[1200px]:flex min-[1200px]:flex-none min-[1200px]:w-[var(--preview-width)]`}>
+              <div className="min-[1200px]:hidden">
                 <TopBar
                   snap={snap}
                   streamOk={connected}
@@ -1265,6 +1214,9 @@ export default function App() {
       </SessionIdContext.Provider>
 
       {/* global overlays */}
+      <ProjectTrash open={trashOpen} onClose={() => setTrashOpen(false)} onRestored={async () => {
+        await projectsQ.refetch({ throwOnError: true });
+      }} />
       <HistorySearch open={searchOpen} onClose={() => setSearchOpen(false)} onChoose={result => {
         setSearchTarget(result); selectProject(result.sid);
         setWorkspaceView('activity'); setMobileView('activity'); setSidebarOpen(false);
@@ -1302,14 +1254,6 @@ export default function App() {
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />
       <TaskDetailModal sid={activeSid} itemId={taskItemId} onClose={() => setTaskItemId(null)} />
-      <PendingReplyDialog
-        reply={pendingReply}
-        open={pendingReplyOpen}
-        busy={pendingReplyBusy}
-        error={pendingReplyError}
-        onClose={() => setPendingReplyOpen(false)}
-        onSubmit={answerPendingReply}
-      />
       {manageTargetSid ? (
         <DaemonManageModal
           open={daemonManageOpen}

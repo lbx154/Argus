@@ -166,6 +166,7 @@ export class DraftUploads {
 }
 
 export interface DraftUploadView {
+  limits?: import('./attachments').AttachmentLimits;
   status: (file: File) => DraftUploadStatus | undefined;
   retry: (file: File) => void;
   /** Uploaded before a reload: no bytes in memory, only the project file. */

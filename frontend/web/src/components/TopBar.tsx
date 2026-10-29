@@ -6,8 +6,8 @@ import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { formatRelativeTime, money } from '../lib/format';
-import { SPEND_ESTIMATE_HINT } from '../lib/projectOverview';
+import { formatRelativeTime } from '../lib/format';
+import { SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -59,14 +59,11 @@ export function TopBar({
     || activeItem?.title
     || activeItem?.objective
     || snap.session.objective
-    || '', snap.session.workdir, snap.session.cwd);
+    || '', snap.session.workdir);
   const phase = teamPhase(work);
   const statusWords = workStatusLabel(work, locale);
   const activityAt = work.activityAt ?? snap.session.last_active;
-  const spent = snap.spend_usd;
-  const spendLabel = spent != null && Number.isFinite(spent) && snap.spend_status !== 'empty'
-    ? t('topbar.spent', { amount: `${snap.spend_status === 'partial' ? '≥' : ''}${money(spent, spent < 10 ? 2 : 1)}` })
-    : '';
+  const spendLabel = spendEstimateLabel({ spendUsd: snap.spend_usd ?? null, spendStatus: snap.spend_status }, locale === 'zh-CN');
   const healthTitle = snapshotStale
     ? t('common.stale')
     : streamOk

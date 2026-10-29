@@ -35,13 +35,11 @@ const fixture = vi.hoisted(() => {
 vi.mock('../hooks', async importOriginal => ({
   ...await importOriginal<typeof import('../hooks')>(),
   useProjects: () => fixture.index,
-  useProjectCosts: () => fixture.idle,
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
-  useEventStream: () => ({ events: fixture.events, connected: true }),
   useProjectActions: () => fixture.actions,
 }));
-vi.mock('../useConversationHistory', () => ({ useConversationHistory: () => ({ query: { ...fixture.idle, data: fixture.turns, hasNextPage: false, isFetchedAfterMount: true }, events: fixture.turns, status: 'ready' }) }));
+vi.mock('../useConversationHistory', () => ({ useConversationHistory: () => ({ query: { ...fixture.idle, data: fixture.turns, hasNextPage: false, isFetchedAfterMount: true }, events: fixture.turns, connected: true, status: 'ready' }) }));
 // Keep App's actual selection, composer controller, command dispatch and delivery
 // controller. Heavy presentation children are irrelevant to these lifetime races;
 // the browser fixture separately exercises their real DOM and artifact HTTP path.
@@ -51,8 +49,6 @@ vi.mock('../components/EventStream', async importOriginal => ({ ...await importO
 vi.mock('../components/ResearchCanvas', async importOriginal => ({ ...await importOriginal<object>(), ResearchCanvas: () => null }));
 vi.mock('../components/TopBar', () => ({ TopBar: () => null }));
 vi.mock('../components/PendingBanner', () => ({ PendingBanner: () => null }));
-vi.mock('../components/PendingReplyDialog', () => ({ PendingReplyDialog: () => null }));
-vi.mock('../components/GuardianBanner', () => ({ GuardianBanner: () => null }));
 vi.mock('../components/CommandPalette', async importOriginal => ({ ...await importOriginal<object>(), CommandPalette: () => null }));
 vi.mock('../components/KeybindingHelp', () => ({ KeybindingHelp: () => null }));
 vi.mock('../components/InfoModals', () => ({ ConfigModal: () => null, TranscriptModal: () => null }));
@@ -70,7 +66,7 @@ let renderer: ReturnType<typeof create>;
 let client: QueryClient;
 let parent: { postMessage: ReturnType<typeof vi.fn> };
 function snapshot(sid: string): Snapshot {
-  return { session: { id: sid, display_name: sid, objective: '', last_active: 1, cwd: `/synthetic/${sid}` },
+  return { session: { id: sid, display_name: sid, objective: '', last_active: 1, workdir: `/synthetic/${sid}` },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null}, roles: [], backlog: [], };
 }
 function deferred<T>() {
@@ -101,7 +97,7 @@ beforeEach(async () => {
   fixture.idle.refetch.mockReset().mockResolvedValue({});
   for (const mutation of Object.values(fixture.actions)) mutation.mutateAsync.mockReset();
   fixture.snapshots.clear();
-  fixture.index.data.projects = ['s-A', 's-B'].map(id => ({ id, label: id, last_active: 1, daemon_alive: false, objective: '', launch_cwd: `/synthetic/${id}`, daemon_pid: null, uptime_seconds: null }));
+  fixture.index.data.projects = ['s-A', 's-B'].map(id => ({ workdir: `/synthetic/${id}`, id, label: id, last_active: 1, daemon_alive: false, daemon_pid: null, }));
   for (const sid of ['s-A', 's-B']) fixture.snapshots.set(sid, { ...fixture.idle, data: snapshot(sid) });
   const stored = new Map<string, string>();
   const storage = { getItem: (key: string) => stored.get(key) ?? null, setItem: vi.fn((key: string, value: string) => stored.set(key, value)), removeItem: (key: string) => stored.delete(key) };
@@ -115,7 +111,7 @@ beforeEach(async () => {
   // Fail closed: no unmocked test request can reach a user backend or provider.
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected request outside the synthetic fixture'); }));
   vi.spyOn(api, 'projectIndex').mockImplementation(async () => fixture.index.data as Awaited<ReturnType<typeof api.projectIndex>>);
-  vi.spyOn(api, 'artifact').mockImplementation(async (sid, path) => ({ path, name: 'report.md', kind: 'markdown', mime: 'text/markdown', why: 'Synthetic fixture', exists: true, size: 1, mtime: 1, preview: `${sid} ONLY` }));
+  vi.spyOn(api, 'artifact').mockImplementation(async (sid, path) => ({ path, name: 'report.md', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1, preview: `${sid} ONLY` }));
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   await act(async () => { renderer = create(mountedApp()); });
 });
@@ -415,6 +411,7 @@ describe('App session composer ownership', () => {
     stopDaemon!.mutate.mockClear();
     act(() => renderer.root.findByType(TopBar).props.onStop());
     expect(stopDaemon!.mutate).toHaveBeenCalledOnce();
+    expect(stopDaemon!.mutate.mock.calls[0][1]).not.toHaveProperty('onSuccess');
     await act(async () => stream.reject(new Error('SSE disconnected after acceptance')));
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -452,7 +449,7 @@ describe('App desktop delivery session navigation', () => {
     await toast('s-A');
     expect(api.artifact).toHaveBeenCalledTimes(1);
     select('s-A');
-    await act(async () => artifact.resolve({ path: 'results/report.md', name: 'report.md', kind: 'markdown', mime: 'text/markdown', exists: true, why: 'Synthetic', size: 1, mtime: 1 }));
+    await act(async () => artifact.resolve({ path: 'results/report.md', name: 'report.md', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1 }));
     expect(openPaths()).toEqual([]);
   });
 
@@ -462,13 +459,13 @@ describe('App desktop delivery session navigation', () => {
     await toast('s-A');
     await toast('s-B', 'completion:s-B:fixture');
     expect(new URL(window.location.href).searchParams.get('project')).toBe('s-B');
-    await act(async () => artifact.resolve({ path: 'results/report.md', name: 'report.md', kind: 'markdown', mime: 'text/markdown', exists: true, why: 'Synthetic', size: 1, mtime: 1 }));
+    await act(async () => artifact.resolve({ path: 'results/report.md', name: 'report.md', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1 }));
     expect(openPaths()).toEqual([{ sid: 's-B', path: 'results/report.md' }]);
   });
 
   it('opens a legacy notification only when it uniquely matches a current real receipt', async () => {
     const receipt: DeliveryReceipt = { schema_version: 1, delivery_id: 'delivery:known', item_id: 'fixture', kind: 'task_completed', title: 'Synthetic result', summary: 'Fixture only', status: 'done', review_status: 'pending', delivered_at: 2,
-      primary_target: { path: 'results/report.md', label: 'Report', source: 'delivery', why: 'Synthetic fixture' }, targets: [] };
+      primary_target: { path: 'results/report.md', label: 'Report', source: 'delivery', }, targets: [] };
     fixture.turns = [{ role: 'argus', ts: 2, text: 'Synthetic result', delivery: receipt }];
     refresh();
     expect(openPaths()).toEqual([]);

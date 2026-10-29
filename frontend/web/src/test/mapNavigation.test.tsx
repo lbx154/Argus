@@ -63,7 +63,7 @@ const data: Dataset = {
 const props: ComponentProps<typeof MapCanvas> = {
   data, zh: false, sessionId: "navigation", viewKey: "navigation", paused: true, readOnly: true,
   snapshot: {
-    session: { id: "navigation", display_name: "Navigation", objective: "", last_active: 0, cwd: "" },
+    session: { id: "navigation", display_name: "Navigation", objective: "", last_active: 0, workdir: "" },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
     roles: [], backlog: [],
   },
@@ -73,7 +73,7 @@ const props: ComponentProps<typeof MapCanvas> = {
   },
   actions: {
     conversationEvents: [], connected: true, artifacts: [], deliveryCount: 0,
-    onOpenDelivery: () => {}, onOpenReceipt: () => {}, onOpenArtifact: () => {}, onAnswer: () => {},
+    onOpenDelivery: () => {}, onOpenReceipt: () => {}, onOpenArtifact: () => {},
   },
 };
 let client: QueryClient;
@@ -146,35 +146,6 @@ it("does not count a partial research execution as a completed overall goal", ()
   expect(nodes()[0].data.completionScope).toContain("further work remained");
 });
 
-it("connects a historical review error to the project's final review and deliverables", () => {
-  const failed = { ...data.tasks[1], outcome: { review_status: "unavailable" }, finished_ts: 10 };
-  const final = { ...data.tasks[0], id: "final", started_ts: 11, finished_ts: 12,
-    outcome: { execution_status: "completed", review_status: "done", stage_certification: "certified" } };
-  const complete = { ...data, tasks: [failed, final], events: [
-    { id: "end", item_id: "final", type: "life.mission.completed", ts: 13, text: "", overall_complete: true },
-  ] };
-  const onOpenDelivery = vi.fn();
-  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={complete}
-    actions={{ ...props.actions, deliveryCount: 1, onOpenDelivery }} /></QueryClientProvider>));
-  act(() => nodes().find(node => node.id === failed.id)!.data.open(failed.id));
-  const banner = renderer.root.findByProps({ className: "map-final-review" });
-  expect(banner.findByType("strong").children).toEqual(["Final delivery passed review"]);
-  expect(banner.findAllByType("span").some(span => span.children.includes(
-    " · This project was delivered later; this card retains its earlier review error."))).toBe(true);
-  act(() => banner.findAllByType("button")[0].props.onClick());
-  expect(focused()).toBe("final");
-  act(() => banner.findAllByType("button")[1].props.onClick());
-  expect(onOpenDelivery).toHaveBeenCalledOnce();
-  expect(nodes().find(node => node.id === failed.id)!.data.task.status).toBe("failed");
-  act(() => nodes().find(node => node.id === failed.id)!.data.readCopy!(failed.id, failed.id));
-  const reader = renderer.root.findByProps({ "data-testid": "map-task-reading" });
-  const laterReview = reader.findAllByType("button").find(item =>
-    item.children.includes("View this project's later accepted final review"))!;
-  act(() => laterReview.props.onClick());
-  expect(renderer.root.findAllByProps({ "data-testid": "map-task-reading" })).toHaveLength(0);
-  expect(focused()).toBe("final");
-});
-
 it.each([
   ["same desktop canvas", 1440, 960, true],
   ["phone after desktop", 390, 716, false],
@@ -239,16 +210,10 @@ it("measures offscreen cards before fitting and after graph growth", () => {
   expect(renderer.root.findByProps({ "data-testid": "flow" }).props["data-culling"]).toBe(true);
 });
 
-it("cycles all attention tasks and displays their actual question or failure reason", () => {
-  const jump = () => act(() => button("Cycle through 2 tasks needing attention").props.onClick());
-  jump();
-  expect(focused()).toBe("question");
-  expect(renderer.root.findByProps({ className: "map-attention-detail" }).findAllByType("p")[0].children).toEqual(["Which bridge?"]);
-  jump();
-  expect(focused()).toBe("failed");
-  expect(renderer.root.findByProps({ className: "map-attention-detail" }).findAllByType("p")[0].children.join("")).toBe("Execution failed: This model call did not complete. Check the error details, backend sign-in and model settings, then resume the work.");
-  jump();
-  expect(focused()).toBe("question");
+it("keeps attention counts and question details out of the map", () => {
+  expect(renderer.root.findAll(node => typeof node.type === 'string').flatMap(node => node.children.filter(child => typeof child === 'string')).join('')).not.toContain('Which bridge?');
+  expect(renderer.root.findAllByProps({ className: 'map-attention-detail' })).toHaveLength(0);
+  expect(renderer.root.findAllByProps({ className: 'map-attention-link' })).toHaveLength(0);
 });
 
 it("shows the result that Enter actually selected, including wraparound and changed searches", () => {

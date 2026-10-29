@@ -51,9 +51,8 @@ export function requireProjectList(value: unknown): ProjectList {
   }
   for (const row of value.projects) {
     if (!isJsonObject(row) || !validProjectId(row.id) || typeof row.label !== 'string'
-      || typeof row.objective !== 'string' || !finite(row.last_active)
-      || typeof row.daemon_alive !== 'boolean' || !nullableNumber(row.daemon_pid)
-      || !nullableNumber(row.uptime_seconds)) throw new Error('invalid project row');
+      || typeof row.workdir !== 'string' || !finite(row.last_active)
+      || typeof row.daemon_alive !== 'boolean' || !nullableNumber(row.daemon_pid)) throw new Error('invalid project row');
   }
   return value as unknown as ProjectList;
 }
@@ -77,7 +76,7 @@ export function requireReadSnapshot(value: unknown, sid: string): Snapshot {
   const snapshot = requireSnapshotContract(value);
   if (!isJsonObject(snapshot.session) || snapshot.session.id !== sid
     || typeof snapshot.session.display_name !== 'string' || typeof snapshot.session.objective !== 'string'
-    || typeof snapshot.session.cwd !== 'string' || !finite(snapshot.session.last_active)
+    || typeof snapshot.session.workdir !== 'string' || !finite(snapshot.session.last_active)
     || !Array.isArray(snapshot.roles) || !Array.isArray(snapshot.backlog)
     || !nullableNumber(snapshot.spend_usd) || typeof snapshot.spend_status !== 'string'
     || !isJsonObject(snapshot.usage_summary)) throw new Error('invalid project snapshot');

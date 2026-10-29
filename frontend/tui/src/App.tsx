@@ -4,7 +4,6 @@ import { applicationBrand } from './applicationBrand.js';
 import {
   ApiClient,
   type CreatedDaemon,
-  type DaemonStartResult,
   type ArtifactInfo,
   type EventMsg,
   type ProjectRow,
@@ -47,11 +46,6 @@ import {
   type NewDaemonDraft,
 } from './newDaemonForm.js';
 import { consumePasteChunk } from './input/paste.js';
-import {
-  daemonReplacementInputIntent,
-  DaemonReplacementPicker,
-  type DaemonReplacementState,
-} from './components/DaemonReplacementPicker.js';
 import { isPromptRewriteShortcut } from '../../core/src/shortcuts.js';
 import { operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions.js';
 import { useProjectFeed } from './appProjectFeed.js';
@@ -67,29 +61,9 @@ export interface AppProps {
   token?: string;
   project: string;
   initialNotice?: string;
-  initialAdmission?: DaemonStartResult;
-  initialResumeContinuous?: boolean;
   exitPolicy?: ExitPolicy;
   onProjectChange?: (sid: string) => void;
   trackDaemonCreation?: <T extends CreatedDaemon>(promise: Promise<T>) => Promise<T>;
-}
-
-function replacementState(
-  start: Partial<DaemonStartResult> | undefined,
-  targetProject: string,
-  resumeContinuous: boolean,
-): DaemonReplacementState | null {
-  if (!start?.admission_required || !start.running_daemons?.length) return null;
-  return {
-    targetProject,
-    running: start.running_daemons,
-    limit: start.limit ?? start.running_daemons.length,
-    activeCount: start.active_count ?? start.running_daemons.length,
-    selection: 0,
-    resumeContinuous,
-    busy: false,
-    error: '',
-  };
 }
 
 export function App({
@@ -98,8 +72,6 @@ export function App({
   token,
   project: initialProject,
   initialNotice = '',
-  initialAdmission,
-  initialResumeContinuous = false,
   exitPolicy = 'detach',
   onProjectChange,
   trackDaemonCreation = (promise) => promise,
@@ -131,13 +103,6 @@ export function App({
   const [notice, setNotice] = useState(initialNotice);
   const { panel, setPanel, openPanel } = usePanelState(api, project);
   const [daemonDraft, setDaemonDraft] = useState<NewDaemonDraft | null>(null);
-  const [replacement, setReplacement] = useState<DaemonReplacementState | null>(
-    () => replacementState(
-      initialAdmission,
-      initialProject,
-      initialResumeContinuous,
-    ),
-  );
   const [pendingExit, setPendingExit] = useState(false);
   const [showReasoning] = useState(resolveShowReasoning);
   const snapshotDecision = useMemo(() => operatorDecisionCards(
@@ -181,59 +146,6 @@ export function App({
     };
   }, [stdout]);
 
-  const captureAdmission = (
-    start: DaemonStartResult | undefined,
-    targetProject: string,
-    resumeContinuous: boolean,
-  ) => {
-    const next = replacementState(start, targetProject, resumeContinuous);
-    if (next) {
-      setReplacement(next);
-    }
-  };
-
-  const replaceRunningDaemon = async () => {
-    if (!replacement || replacement.busy) return;
-    const victim = replacement.running[replacement.selection];
-    if (!victim) return;
-    setReplacement((current) => current ? { ...current, busy: true, error: '' } : current);
-    try {
-      const targetApi = new ApiClient({
-        host,
-        port,
-        project: replacement.targetProject,
-        token,
-      });
-      const result = await targetApi.replaceDaemon(
-        victim.id,
-        replacement.resumeContinuous,
-      );
-      if (result.rc !== 0) {
-        const refreshed = replacementState(
-          result,
-          replacement.targetProject,
-          replacement.resumeContinuous,
-        );
-        setReplacement(
-          refreshed ?? {
-            ...replacement,
-            busy: false,
-            error: result.error || 'could not replace the selected session',
-          },
-        );
-        return;
-      }
-      setReplacement(null);
-      setNotice(`parked ${victim.label || victim.id} · queued work started`);
-    } catch (error) {
-      setReplacement((current) => current ? {
-        ...current,
-        busy: false,
-        error: (error as Error).message,
-      } : current);
-    }
-  };
-
   const {
     pending,
     startedAt,
@@ -247,7 +159,6 @@ export function App({
     projectRef,
     setEvents,
     setNotice,
-    captureAdmission,
   });
 
   const changeProject = (id: string): boolean => {
@@ -256,7 +167,6 @@ export function App({
     projectRef.current = id;
     setProject(id);
     onProjectChange?.(id);
-    setReplacement(null);
     return true;
   };
 
@@ -329,11 +239,8 @@ export function App({
       setPanel(null);
       setDaemonDraft(null);
       changeProject(created.sid);
-      captureAdmission(created.start, created.sid, Boolean(objective));
       setNotice(
-        created.start?.admission_required
-          ? `created ${created.sid} · choose running work to park`
-          : created.spawned
+         created.spawned
           ? `created ${created.sid} · campaign started`
           : `created ${created.sid} · message ${applicationBrand().name} when ready`,
       );
@@ -485,7 +392,6 @@ export function App({
         return;
       }
       if (paste.text && !panel) {
-        if (replacement) return;
         if (daemonDraft) {
           const result = daemonFormInput(daemonDraft, paste.text, {});
           setDaemonDraft(result.draft);
@@ -572,28 +478,6 @@ export function App({
       }
       return;
     }
-    if (replacement) {
-      const intent = daemonReplacementInputIntent(replacement, input, key);
-      if (intent === 'exit') {
-        quit();
-      } else if (intent === 'dismiss') {
-        setReplacement(null);
-        setNotice('new work remains queued');
-      } else if (intent === 'next') {
-        setReplacement((current) => current ? {
-          ...current,
-          selection: moveSelection(current.selection, current.running.length, 1),
-        } : current);
-      } else if (intent === 'previous') {
-        setReplacement((current) => current ? {
-          ...current,
-          selection: moveSelection(current.selection, current.running.length, -1),
-        } : current);
-      } else if (intent === 'replace') {
-        void replaceRunningDaemon();
-      }
-      return;
-    }
     if (daemonDraft) {
       if (key.ctrl && input === 'd') {
         quit();
@@ -674,11 +558,7 @@ export function App({
         } else if (panel.kind === 'artifacts') {
           const rows = (panel.data as ArtifactInfo[]) ?? [];
           const selected = rows[panel.selection ?? 0];
-          if (selected?.exists) openPanel('artifact', { path: selected.path });
-          else if (selected) {
-            setPanel(null);
-            setNotice(`artifact is declared but missing: ${selected.path}`);
-          }
+          if (selected) openPanel('artifact', { path: selected.path });
         } else {
           const selected = backlogRows[panel.selection ?? 0];
           if (selected) openPanel('task', { itemId: selected.id });
@@ -808,7 +688,7 @@ export function App({
   });
 
   const comps = slashCompletions(edit.value);
-  const slashMenuOpen = comps.length > 0 && !replacement && !daemonDraft && !panel;
+  const slashMenuOpen = comps.length > 0 && !daemonDraft && !panel;
   const backgroundExcludedRoles = pending ? ['manager'] : [];
   const healthNotice = snapshotError
     ? `snapshot refresh failed · ${snapshotError}`
@@ -828,8 +708,6 @@ export function App({
           busy={decisionBusy}
           error={decisionError}
         />
-      ) : replacement ? (
-        <DaemonReplacementPicker state={replacement} width={terminal.columns} />
       ) : daemonDraft ? (
         <NewDaemonForm draft={daemonDraft} />
       ) : (

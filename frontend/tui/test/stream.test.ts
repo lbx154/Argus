@@ -354,76 +354,7 @@ test('task dispatch reports executor admission failures instead of claiming work
     }),
     '→ queued but not running: background executor limit 2 reached',
   );
-  assert.equal(
-    taskDispatchMessage({
-      kind: 'task',
-      item: {
-        id: 'y', title: 'new experiment', objective: '', status: 'pending',
-        priority: 1,
-      },
-      daemon: {
-        rc: 2,
-        admission_required: true,
-        limit: 2,
-        active_count: 2,
-        running_daemons: [],
-      },
-    }),
-    '→ queued: choose one running session to park before starting new experiment',
-  );
-});
 
-test('Ink can park a selected daemon and start the queued target', async () => {
-  const originalFetch = globalThis.fetch;
-  let seenUrl = '';
-  let seenBody: Record<string, unknown> = {};
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    seenUrl = String(input);
-    seenBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
-    return new Response(JSON.stringify({
-      rc: 0,
-      parked_session: 's-old',
-      daemon: { alive: true, pid: 42 },
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  }) as typeof fetch;
-  try {
-    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-new' });
-    const result = await api.replaceDaemon('s-old', true);
-    assert.equal(result.rc, 0);
-    assert.match(seenUrl, /\/api\/projects\/s-new\/daemon\/replace$/);
-    assert.match(String(seenBody.command_id), /^[0-9a-f-]{36}$/);
-    delete seenBody.command_id;
-    assert.deepEqual(seenBody, {
-      victim_sid: 's-old',
-      resume_continuous: true,
-    });
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test('Ink can schedule a stale daemon upgrade without blocking launch', async () => {
-  const originalFetch = globalThis.fetch;
-  let seenUrl = '';
-  let seenBody: Record<string, unknown> = {};
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    seenUrl = String(input);
-    seenBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
-    return new Response(JSON.stringify({
-      rc: 0,
-      scheduled: true,
-      reason: 'release mismatch',
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
-  }) as typeof fetch;
-  try {
-    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: '_' });
-    const result = await api.scheduleDaemonUpgrade('s-stale');
-    assert.equal(result.scheduled, true);
-    assert.match(seenUrl, /\/api\/projects\/s-stale\/daemon\/upgrade-schedule$/);
-    assert.match(String(seenBody.command_id), /^[0-9a-f-]{36}$/);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
 });
 
 test('Ink can create a global daemon with auth, name, and objective', async () => {
@@ -452,7 +383,6 @@ test('Ink can create a global daemon with auth, name, and objective', async () =
     assert.deepEqual(seenBody, {
       objective: 'reproduce benchmark',
       name: 'Kernel run',
-      launch_cwd: '/work/kernel',
       workdir: '/work/kernel',
     });
   } finally {
@@ -469,7 +399,7 @@ test('fresh daemons isolate broad launch roots but keep project directories', ()
   );
 });
 
-test('Ink retries one malformed HTTP create with the same command id', async () => {
+test('Ink surfaces a malformed HTTP create without replaying it', async () => {
   const originalFetch = globalThis.fetch;
   const bodies: Array<Record<string, unknown>> = [];
   const connections: string[] = [];
@@ -486,11 +416,10 @@ test('Ink retries one malformed HTTP create with the same command id', async () 
   }) as typeof fetch;
   try {
     const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-old' });
-    const created = await api.createDaemon('', 'Retry create', '/work/retry');
-    assert.equal(created.sid, 's-retried');
-    assert.equal(bodies.length, 2);
-    assert.equal(bodies[0].command_id, bodies[1].command_id);
-    assert.deepEqual(connections, ['close', 'close']);
+    await assert.rejects(api.createDaemon('', 'Retry create', '/work/retry'), /Invalid HTTP request received/);
+    assert.equal(bodies.length, 1);
+    assert.deepEqual(connections, ['close']);
+    assert.equal(Object.hasOwn(bodies[0], 'launch_cwd'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -11,7 +11,6 @@ import type {
   Daemon,
   EventMsg,
   ProjectRow,
-  ProjectCostRow,
   Snapshot,
 } from '../../core/src/types';
 import { ApiError, ensureResponseOk } from '../../core/src/http';
@@ -24,8 +23,7 @@ import {
 } from '../../core/src/protocol';
 import type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 import {
-  attachmentMime, attachmentSuffix, MESSAGE_ATTACHMENT_MAX_BYTES,
-  MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES,
+  attachmentMime, type AttachmentLimits,
 } from './lib/attachments';
 
 export type {
@@ -34,7 +32,6 @@ export type {
   Daemon,
   EventMsg,
   ProjectRow,
-  ProjectCostRow,
   Role,
   Snapshot,
   UsageSummary,
@@ -169,10 +166,6 @@ export interface ProjectIndex {
 export type ProjectState =
   | ({ type: 'projects' } & ProjectIndex)
   | { type: 'project'; id: string; row: ProjectRow | null; snapshot: Snapshot | null };
-export interface ProjectCostIndex {
-  projects: ProjectCostRow[];
-  generated_at: number;
-}
 /** A Manager-authored restatement of an operator draft (see the rewrite button). */
 export interface PromptRewrite {
   original: string;
@@ -746,10 +739,6 @@ export const api = {
     await compatibleApiMeta();
     return getJson<ProjectIndex>('/api/projects', undefined, API_LOCAL_READ_TIMEOUT_MS);
   },
-  projectCosts: async (signal?: AbortSignal) => {
-    await compatibleApiMeta();
-    return getJson<ProjectCostIndex>('/api/projects/costs', signal);
-  },
   /** Create a session. The UI arms an optional campaign separately. */
   createDaemon: async (
     objective: string,
@@ -765,19 +754,12 @@ export const api = {
       command_id: commandId(),
       expected_revision: expectedRevision,
     };
-    const send = () => fetch(path, {
+    const response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
       cache: 'no-store',
     });
-    let response = await send();
-    if (
-      response.status === 400
-      && /Invalid HTTP request received/i.test(await response.clone().text())
-    ) {
-      response = await send();
-    }
     await ensureResponseOk(response, 'POST', path);
     const result = (await response.json()) as {
       sid: string;
@@ -856,6 +838,9 @@ export const api = {
       P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
   resources: (signal?: AbortSignal) =>
     getJson<ResourceStatus>('/api/system/resources', signal),
+  trash: (query = '', offset = 0, signal?: AbortSignal) =>
+    getJson<{ entries: { trash_id: string; sid: string; label: string; launch_cwd: string; trashed_at: number }[]; total: number; offset: number; limit: number }>(
+      `/api/trash?${new URLSearchParams({ query, offset: String(offset) })}`, signal),
   restoreTrash: (trashId: string) =>
     postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
 
@@ -868,11 +853,12 @@ export const api = {
     resolved: boolean;
     stopped?: boolean;
     reply?: string;
-    daemon?: { rc?: number; error?: string; admission_required?: boolean };
+    daemon?: { rc?: number; error?: string };
   }>(
     P(sid, `/decisions/${encodeURIComponent(decisionId)}/resolve`),
     { option_id: optionId, note },
   ),
+  attachmentLimits: (sid: string, signal?: AbortSignal) => getJson<AttachmentLimits>(P(sid, '/attachments/limits'), signal),
   uploadAttachments: async (
     sid: string,
     files: File[],
@@ -882,9 +868,12 @@ export const api = {
     await compatibleApiMeta();
     signal?.throwIfAborted();
     const attachments = [...(options.ready ?? [])];
-    if (files.length + attachments.length > MESSAGE_ATTACHMENT_MAX_COUNT
-      || files.some(file => file.size > MESSAGE_ATTACHMENT_MAX_BYTES)
-      || files.reduce((sum, file) => sum + file.size, attachments.reduce((sum, file) => sum + file.size_bytes, 0)) > MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES) {
+    const limits = await api.attachmentLimits(sid, signal);
+    if (![limits.max_count, limits.max_bytes_per_file, limits.max_total_bytes, limits.chunk_bytes]
+      .every(value => Number.isSafeInteger(value) && value > 0)) throw new Error('Invalid attachment upload limits from server');
+    if (files.length + attachments.length > limits.max_count
+      || files.some(file => file.size > limits.max_bytes_per_file)
+      || files.reduce((sum, file) => sum + file.size, attachments.reduce((sum, file) => sum + file.size_bytes, 0)) > limits.max_total_bytes) {
       throw new Error('Attachments exceed the server file/count/total limits');
     }
     const fresh = files.filter(file => !options.completed?.has(file));
@@ -894,16 +883,13 @@ export const api = {
         if (!attachment) throw new Error('Missing completed attachment receipt');
         attachments.push(attachment);
       }
-      return { attachments, limits: {
-        max_count: MESSAGE_ATTACHMENT_MAX_COUNT, max_bytes_per_file: MESSAGE_ATTACHMENT_MAX_BYTES,
-        max_total_bytes: MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES,
-      } };
+      return { attachments, limits };
     }
-    // Preserve streamed JSON resource limits and existing partial upload identities.
+    // Small files share one request; unfinished uploads keep their existing identity.
     if (fresh.length > 0
-      && fresh.every(file => file.size <= 10 * 1024 * 1024 && attachmentSuffix(file.name) !== '.json'
+      && fresh.every(file => file.size <= limits.chunk_bytes
         && !pendingUploads.get(file)?.has(sid))
-      && fresh.reduce((sum, file) => sum + file.size, 0) <= 25 * 1024 * 1024) {
+      && fresh.reduce((sum, file) => sum + file.size, 0) <= limits.chunk_bytes) {
       const result = await uploadSmallAttachments(P(sid, '/attachments'), fresh, signal, progress =>
         options.onProgress?.({ ...progress, index: files.indexOf(fresh[progress.index - 1]) + 1, count: files.length }));
       if (!Array.isArray(result.attachments) || result.attachments.length !== fresh.length
@@ -922,18 +908,6 @@ export const api = {
       }
       signal?.throwIfAborted();
       return { attachments, limits: result.limits };
-    }
-    const limits = await getJson<AttachmentUploadResponse['limits'] & { chunk_bytes: number }>(
-      P(sid, '/attachments/limits'), signal,
-    );
-    if (![limits.max_count, limits.max_bytes_per_file, limits.max_total_bytes, limits.chunk_bytes]
-      .every(value => Number.isSafeInteger(value) && value > 0) || limits.chunk_bytes > 4 * 1024 * 1024) {
-      throw new Error('Invalid attachment upload limits from server');
-    }
-    if (files.length + attachments.length > limits.max_count
-      || files.some(file => file.size > limits.max_bytes_per_file)
-      || files.reduce((sum, file) => sum + file.size, attachments.reduce((sum, file) => sum + file.size_bytes, 0)) > limits.max_total_bytes) {
-      throw new Error('Attachments exceed the server file/count/total limits');
     }
     for (const [index, file] of files.entries()) {
       signal?.throwIfAborted();
@@ -1013,31 +987,6 @@ export const api = {
   /** Delete a file the operator removed from the draft before sending it. */
   discardAttachment: (sid: string, attachmentId: string) =>
     uploadRequest<{ discarded: boolean; attachment_id: string }>('DELETE', P(sid, `/attachments/${encodeURIComponent(attachmentId)}`)),
-  answerDomain: (sid: string, id: string, optionId: string, note: string) =>
-    postJson<{ kind: string; reply?: string; resolved?: boolean; daemon?: { rc?: number; error?: string } }>(
-      P(sid, '/message'), { text: note || optionId, domain_answer: { id, option_id: optionId, note } },
-    ),
-  /** The Manager front-door: NL message → chat reply or an enqueued mission. */
-  message: (
-    sid: string,
-    text: string,
-    signalOrOptions?: AbortSignal | {
-      signal?: AbortSignal;
-      attachments?: MessageAttachmentRef[];
-      routeOverride?: MessageRouteOverride;
-      requestId?: string;
-    },
-  ) => {
-    const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
-    const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
-    const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
-    const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
-    return postJson<{ kind: 'chat' | 'task' | 'pending_question' | 'error' | 'cancelled'; reply: string | null; resolved?: boolean; item?: BacklogItem | null; daemon_alive?: boolean }>(
-      P(sid, '/message'),
-      messageBody(text, attachments, routeOverride, requestId),
-      signal,
-    );
-  },
   /**
    * Streaming Manager front-door (SSE): ``onAccepted`` when the request starts, ``onDelta``
    * with the reply's row in the record, ``onDone`` with the final classification,
@@ -1126,21 +1075,10 @@ const NON_RETRYABLE_STREAM_STATUSES = new Set([401, 404]);
 
 type StreamOptions = { onOpen?: () => void; onClose?: (info: StreamCloseInfo) => void };
 
-/** Open the live event stream (server-sent events) for a project. Returns a close() fn. */
-export function openStream(
-  sid: string,
-  onEvent: (ev: EventMsg) => void,
-  opts: StreamOptions & { replay?: number } = {},
-): () => void {
-  const q = new URLSearchParams();
-  if (opts.replay != null) q.set('replay', String(opts.replay));
-  q.set('view', 'ui');
-  return follow(`${P(sid, '/stream')}?${q}`, 'Event stream', onEvent, opts);
-}
-
 /** Row updates use the same projection as a fresh conversation page. */
-export const openConversation = (sid: string, after: number, onFrame: (frame: EventMsg) => void): (() => void) =>
-  follow(P(sid, `/stream?view=rows&after=${after}`), 'Conversation stream', onFrame, {});
+export const openConversation = (
+  sid: string, after: number, onFrame: (frame: EventMsg) => void, opts: StreamOptions = {},
+): (() => void) => follow(P(sid, `/stream?view=rows&after=${after}`), 'Conversation stream', onFrame, opts);
 
 /** The project list, then each project's state as it changes, from a server without POLL_CAPABILITY. Returns a close() fn. */
 export const openProjectStates = (onState: (state: ProjectState) => void, opts: StreamOptions = {}): (() => void) =>

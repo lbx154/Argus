@@ -3,11 +3,11 @@ import { useI18n } from '../i18n';
 import './SessionWorkdir.css';
 
 /** Presentation only: never discovers directories or opens the operations panel. */
-export function SessionWorkdir({ session }: { session: Pick<Snapshot['session'], 'workdir' | 'cwd'> }) {
+export function SessionWorkdir({ session }: { session: Pick<Snapshot['session'], 'workdir'> }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   const label = zh ? '项目目录' : 'Project folder';
-  const path = session.workdir || session.cwd || '';
+  const path = session.workdir || '';
   const value = path || (zh ? '待确认' : 'Pending confirmation');
   return <details className="session-workdir" data-session-workdir>
     <summary aria-label={label}>

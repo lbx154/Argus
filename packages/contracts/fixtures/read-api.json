@@ -54,12 +54,11 @@
         "id": "s-fixture",
         "label": "Fixture project",
         "display_name": "Fixture project",
-        "objective": "Inspect a completed task",
-        "cwd": "/fixture/work",
         "last_active": 100,
         "daemon_alive": false,
         "daemon_pid": null,
-        "uptime_seconds": null
+        "uptime_seconds": null,
+        "workdir": "/fixture/work"
       }
     ],
     "local_cwd": ""
@@ -84,8 +83,8 @@
       "id": "s-fixture",
       "display_name": "Fixture project",
       "objective": "Inspect a completed task",
-      "cwd": "/fixture/work",
-      "last_active": 100
+      "last_active": 100,
+      "workdir": "/fixture/work"
     },
     "daemon": {
       "alive": false,

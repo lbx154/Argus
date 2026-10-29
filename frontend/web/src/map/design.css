@@ -71,13 +71,6 @@
   background: var(--state, #9babbc);
   pointer-events: none;
 }
-.argus-map .map-macro[data-history="true"] {
-  box-shadow: none;
-  background: color-mix(in srgb, var(--map-paper) 92%, rgb(var(--line)));
-}
-.argus-map .map-macro[data-history="true"]::after {
-  opacity: 0.45;
-}
 .argus-map .map-macro[data-hovered="true"],
 .argus-map .map-macro:hover {
   box-shadow: var(--map-card-shadow-lift);
@@ -477,9 +470,6 @@
   letter-spacing: -0.012em;
   color: var(--ink-1);
 }
-.argus-map .map-status-row {
-  gap: 12px;
-}
 
 .argus-map .map-final-review {
   display: flex;
@@ -694,7 +684,7 @@
   --text-size: max(14px, calc(10.5px / var(--on-screen)));
 }
 .argus-map .macro-summary :is(.map-card-said, .map-card-live, .map-card-stages > span,
-  .map-card-bottom, .map-card-results button, .map-history-toggle) { font-size: var(--text-size); }
+  .map-card-bottom, .map-card-results button) { font-size: var(--text-size); }
 /* The card kind shares a row with the state: hidden, it takes no room from it. */
 .argus-map .macro-summary .map-card .map-card-kind { font-size: calc(var(--text-size) * var(--near)); }
 /* Three whole lines always fit the card (its height less the status row and
@@ -707,8 +697,7 @@
   overflow: hidden;
   padding-right: 4px;
 }
-.argus-map .macro-summary .map-card > :not(h3):not(.map-card-top),
-.argus-map .macro-summary > .map-history-toggle { scale: var(--near); }
+.argus-map .macro-summary .map-card > :not(h3):not(.map-card-top) { scale: var(--near); }
 .argus-map .macro-summary > .map-card-results { max-height: calc(var(--near) * 3em); padding-bottom: calc(var(--near) * 12px); overflow: hidden; }
 
 /* Full canvas: the toolbar is a few quiet floating icons until pointed at. */

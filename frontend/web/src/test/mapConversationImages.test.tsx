@@ -16,7 +16,7 @@ it('shows inline images and delivery thumbnails of the shown project in the map 
     { type: 'ui.argus', text: '![销量](sales_tool/output/x.png)', ts: 2, message_id: 'm2', delivery },
   ] as unknown as EventMsg[];
   const html = renderToStaticMarkup(<SessionIdContext.Provider value="s-map">
-    <QueryClientProvider client={roleClient}><MapConversation snapshot={roleSnapshot([], { work_status: undefined })} events={events} connected pending={false} zh artifacts={[{ path: 'sales_tool/output/x.png', exists: true } as never]}
+    <QueryClientProvider client={roleClient}><MapConversation snapshot={roleSnapshot([], { work_status: undefined })} events={events} connected pending={false} zh artifacts={[{ path: 'sales_tool/output/x.png', } as never]}
       onClose={() => {}} onOpenArtifact={() => {}} onOpenDelivery={() => {}} /></QueryClientProvider>
   </SessionIdContext.Provider>);
   expect(html).toContain('data-delivery-thumbnail="sales_tool/output/chart.png"');

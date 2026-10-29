@@ -281,3 +281,13 @@ it("preserves the draft across an explicit collapse and reopen", () => {
   expect(island().props["data-compact"]).toBe(false);
   expect(textarea().props.value).toBe("Keep this draft");
 });
+
+it('keeps the message island still while the operator focuses or hovers the separate question answer', () => {
+  vi.stubGlobal('window', { innerWidth: 390, matchMedia: () => ({ matches: true }), addEventListener: vi.fn(), removeEventListener: vi.fn() });
+  act(() => { renderer = create(<MapComposer {...defaults} before={<section data-pending-question="engineer-t1">Question</section>} />, { createNodeMock: nodeMock }); });
+  expect(island().props['data-compact']).toBe(true);
+  const questionControl = { closest: (selector: string) => selector.includes('[data-pending-question]') ? true : null };
+  act(() => island().props.onPointerEnter({ target: questionControl }));
+  act(() => listeners.get('focusin')?.({ type: 'focusin', target: questionControl }));
+  expect(island().props['data-compact']).toBe(true);
+});

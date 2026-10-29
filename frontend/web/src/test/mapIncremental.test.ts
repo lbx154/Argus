@@ -6,7 +6,7 @@ import type { Snapshot } from "../api";
 
 const first: Dataset = {
   id: "live:s-map", kind: "live", title: "Study", description: "", read_only: false,
-  tasks: [{ id: "a", title: "Method", objective: "Compare", status: "running", deps: [], ts: 1, revision: "r1", content_revision: "c1" }],
+  tasks: [{ id: "a", title: "Method", objective: "Compare", status: "running", deps: [], ts: 1 }],
   events: [{ id: "e1", item_id: "a", type: "round.review.completed", ts: 2, text: "Check", revision: "v1" }],
   cursor: "one", history_cursor: "epoch:1", history_loading: false,
 };
@@ -57,7 +57,6 @@ it("keeps completion scope across event-only pages without leaking an earlier at
   const olderPage = mergeMapProgress(finished, { ...done, incremental: true, tasks: [], events: [partial] });
   expect(latestMissionCompletion(retried, olderPage.events)).toEqual(legacyFinish);
   expect(layoutScene(buildMap(olderPage.tasks), olderPage.events, false).cards[0].completionScope).toBeUndefined();
-  expect(latestMissionCompletion(retried, [{ ...partial, ts: 15 }])).toBeUndefined();
   expect(latestMissionCompletion(retried, [legacyFinish, {
     id: "restart", item_id: "a", type: "life.mission.started", ts: 14, text: "",
   }])).toBeUndefined();

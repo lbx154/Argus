@@ -6,7 +6,6 @@ import {
   ChevronRight,
   FileText,
   GitBranch,
-  HelpCircle,
   Pause,
   Play,
   RotateCcw,
@@ -15,13 +14,12 @@ import {
   X,
 } from "lucide-react";
 import { isPauseStatus } from "../../../core/src/missionOutcome";
-import { plainStopKind } from "../lib/plainStatus";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
 import type { CardReference } from "./presentation";
-import { ACTIVE, plainTitle, replacedNote, requestChip, statusKey } from "./model";
+import { ACTIVE, plainTitle, statusKey } from "./model";
 import {
   STEP_KINDS,
   noDetails,
@@ -36,19 +34,12 @@ import { MapCardFigureContext } from "./cardContext";
 import { WorkspaceImage } from "../components/MarkdownContent";
 import { arrivalDelay } from "./alive";
 
-export function taskFarTitle(step: number, scale: number): number {
-  const onScreen = Math.max(step, 0.0001) * Math.max(scale, 0.0001);
-  if (16 * onScreen >= 13) return 0;
-  return Math.round(Math.min(56, Math.max(18, 15 / onScreen)));
-}
-
 export type MacroData = MapCard & {
   zh: boolean;
   layout: SubmapLayout;
   frame: { width: number; height: number; scale: number };
   canvasSize?: { width: number; height: number };
-  open: (id: string, history?: boolean) => void;
-  toggleHistory?: (taskId: string) => void;
+  open: (id: string) => void;
   focused: boolean;
   detailed: boolean;
   readCopy?: (nodeId: string, key: string | null) => void;
@@ -116,7 +107,7 @@ const STATES: Record<string, [string, string]> = {
   cancelled: ["已取消", "Cancelled"],
   skipped: ["已跳过", "Skipped"],
   superseded: ["已被新计划替代", "Replaced by a new plan"],
-  question: ["等待答复", "Waiting for an answer"],
+  question: ["已暂停", "Paused"],
   paused: ["已暂停", "Paused"],
   missing: ["记录中缺失", "Not in this record"],
   unknown: ["状态未知", "Unknown"],
@@ -193,12 +184,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const screenWidth = data.canvasSize?.width || window.innerWidth;
   const screenHeight = data.canvasSize?.height || window.innerHeight;
   useEffect(() => {
-    if (!detailed) {
-      setDetailId(null);
-      setReadingLayout(null);
-      data.readCopy?.(id, null);
-    }
-  }, [detailed]);
+    setDetailId(null);
+    setReadingLayout(null);
+    data.readCopy?.(id, null);
+  }, [detailed, data.part]);
   const [detailId, setDetailId] = useState<string | null>(null);
   const previousStatus = useRef(task.status);
   const [completedNow, setCompletedNow] = useState(false);
@@ -213,7 +202,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const detail = layout.steps.find((s) => s.id === detailId);
   const detailTs = detail?.ts;
   const isLastPart = data.part === data.partCount;
-  const state = !isLastPart || data.completionScope
+  const state = (detailed && !isLastPart) || data.completionScope
     ? "recorded"
     : task.status === "missing"
       ? "missing"
@@ -223,23 +212,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     data.frame.height / 280,
   );
   const title = plainTitle(task.title);
-  // What the person said that started this task rides on it as a chip, and
-  // the plans it replaced fold into it (map_relations.fold_cards).
-  const request = isLastPart ? requestChip(task.requests, zh) : null;
-  const replaced = isLastPart ? replacedNote(task, zh) : null;
-  const replacedTitle = replaced ? [replaced.label, ...replaced.lines].join("\n") : undefined;
   const range = zh
     ? `环节 ${data.start}–${data.end} / ${data.totalSteps}`
     : `Steps ${data.start}–${data.end} / ${data.totalSteps}`;
-  const partSummary =
-    data.partCount > 1 && !isLastPart
-      ? layout.steps
-          .map((step) => step.summary || step.detail)
-          .filter(
-            (value) => value && ![noDetails(true), noDetails(false)].includes(value),
-          )
-          .at(-1)
-      : undefined;
   const scale = Math.min(
     data.frame.width / layout.width,
     data.frame.height / layout.height,
@@ -316,8 +291,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ? zh ? "当次结束 · 当时目标未完成" : "Execution ended · goal incomplete then"
     : task.turn_kind === 'qa' && ['done', 'running', 'cancelled', 'failed'].includes(state)
     ? ({ done: ['已回答', 'Answered'], running: ['正在回答', 'Answering'], cancelled: ['已中断', 'Interrupted'], failed: ['回答失败', 'Answer failed'] } as Record<string, string[]>)[state][zh ? 0 : 1]
-    : state === "paused" && task.park_reason
-    ? `${stateLabel(state)} · ${plainStopKind(task.park_reason, zh ? "zh-CN" : "en")}`
     : stateLabel(state);
   return (
     <article
@@ -326,8 +299,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-task-id={task.id}
       data-card-id={id}
       data-part={data.part}
-      data-history={!isLastPart}
-      data-has-history={!!data.historyCount}
       // A first opening lets every card take the stage, whether or not the
       // viewport had already rendered it once; a replay only animates cards
       // that are being revealed.
@@ -343,7 +314,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-detailed={detailed}
       aria-label={title}
       data-completed-now={completedNow}
-      data-active={isLastPart && !data.paused && ACTIVE.has(task.status)}
+      data-active={!data.paused && ACTIVE.has(task.status)}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -374,12 +345,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           transform: `translate(-50%, -50%) scale(${summaryScale})`,
         } as import("react").CSSProperties}
       >
-        {request && (
-          <div className="map-request-chip" data-testid="map-request-chip" title={request.title}>
-            <span>{request.label}</span>
-            {request.more > 0 && <b>+{request.more}</b>}
-          </div>
-        )}
+
         <button
           className={`map-card map-state-${state} nodrag nopan`}
           data-testid="map-card"
@@ -392,18 +358,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         >
           <div className="map-card-top">
             <span className="map-card-kind">
-              {task.turn_kind === 'qa' ? (zh ? "问答" : "Q&A") : isLastPart ? (zh ? "任务" : "MISSION") : (zh ? "历史" : "HISTORY")}
-              {!isLastPart && ` · ${data.part}/${data.partCount}`}
-              {replaced && (
-                <span className="map-card-replaced" data-testid="map-card-replaced" title={replacedTitle}>
-                  {" · "}{replaced.label}
-                </span>
-              )}
+              {task.turn_kind === 'qa' ? (zh ? "问答" : "Q&A") : (zh ? "任务" : "MISSION")}
             </span>
-            {/* An earlier part of a long task has no state of its own; the
-                task's state is read on its last part, so no chip here. An
-                execution that ended before the goal was complete keeps its
-                label even on a recorded part. */}
+            {/* A closed execution can still have an incomplete goal. */}
             {(state !== "recorded" || data.completionScope) && (
               <span className="map-status">
                 {state === "done" ? (
@@ -412,9 +369,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   <X size={11} />
                 ) : state === "review_unavailable" ? (
                   <TriangleAlert size={11} />
-                ) : state === "question" ? (
-                  <HelpCircle size={11} />
-                ) : state === "paused" || state === "held" ? (
+                ) : state === "question" || state === "paused" || state === "held" ? (
                   <Pause size={11} />
                 ) : (
                   <span className="map-state-dot" />
@@ -426,20 +381,17 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           <h3>
             <MarkdownExcerpt>{title}</MarkdownExcerpt>
           </h3>
-          {/* Under the title only who holds the task and the latest thing said
-              on it (an earlier part of a long task: what that part last
-              recorded), beside the figure its work made, when there is one.
-              What it ran is in the task's details, not here. */}
+          {/* The overview shows the current holder and latest word; past steps
+              stay in the detail pages. */}
           <div className="map-card-state">
-            {isLastPart ? <CardNow task={task} zh={zh} />
-              : partSummary && <p className="map-card-said"><MarkdownExcerpt>{partSummary}</MarkdownExcerpt></p>}
-            {isLastPart && <CardFigure taskId={task.id} title={title} />}
+            <CardNow task={task} zh={zh} />
+            <CardFigure taskId={task.id} title={title} />
           </div>
           {/* The course a task ran: planned, carried out, reviewed, delivered.
               Four marks, inked where the record holds a step of that kind, so a
               whole map shows at a glance which tasks were reviewed and which
               stopped short. A chat turn has no such course. */}
-          {task.kind !== 'turn' && (
+          {task.turn_kind !== 'qa' && (
             <div className="map-card-course" aria-label={zh ? '任务经过' : 'Course of the task'}>
               {(['plan', 'execution', 'review', 'result'] as const).map((kind) => {
                 const StageIcon = ICONS[kind];
@@ -456,25 +408,23 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </div>
           )}
           {(() => {
-            const live = isLastPart && !data.paused && ACTIVE.has(task.status);
+            const live = !data.paused && ACTIVE.has(task.status);
             // The state is on the chip at the top of the card; it is not said
             // again down here unless the card has no chip.
             const chip = state !== "recorded" || !!data.completionScope;
-            if (!live && isLastPart && chip) return null;
+            if (!live && chip) return null;
             return (
               <div className="map-card-stages">
                 {live
                   ? <LiveLine role={task.role} since={task.started_ts} zh={zh} message={data.managerMessage} />
-                  : isLastPart && chip ? null
-                  : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
+                  : chip ? null
+                  : <span className="map-card-recorded">{taskStateLabel}</span>}
               </div>
             );
           })()}
           <div className="map-card-bottom">
             <span title={range}>
-              {task.turn_kind === 'qa' ? (zh ? '问题与回答' : 'Question and answer') : data.historyCount ? "" : data.partCount > 1
-                ? range
-                : `${layout.steps.length} ${zh ? "个环节" : "steps"}`}
+              {task.turn_kind === 'qa' ? (zh ? '问题与回答' : 'Question and answer') : `${data.totalSteps} ${zh ? "个环节" : "steps"}`}
             </span>
             <span className="map-card-submap-hint">
               {task.turn_kind === 'qa' ? (zh ? "查看回答" : "Read answer") : zh ? "查看进展" : "View progress"}
@@ -482,7 +432,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </span>
           </div>
         </button>
-        {isLastPart && task.status === 'done' && !!task.result_paths?.length && onOpenArtifact && (
+        {task.status === 'done' && !!task.result_paths?.length && onOpenArtifact && (
           <div className="map-card-results nodrag nopan">
             {task.result_paths.map((path, index) => (
               <button key={path} type="button" title={path} onClick={() => onOpenArtifact(path)}>
@@ -490,16 +440,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </button>
             ))}
           </div>
-        )}
-        {!!data.historyCount && data.toggleHistory && (
-          <button type="button" className="map-history-toggle nodrag nopan"
-            aria-expanded={data.historyExpanded}
-            aria-label={`${zh ? "任务历史" : "Mission history"}: ${title}`}
-            title={zh ? `保留全部 ${data.totalSteps} 个环节` : `All ${data.totalSteps} steps retained`}
-            onClick={() => data.toggleHistory?.(task.id)}>
-            {data.historyExpanded ? (zh ? "收起历史" : "Hide history") : `${zh ? "历史" : "History"} ${data.historyCount}`}
-            <ChevronRight size={12} />
-          </button>
         )}
       </div>
       {focused && <div
@@ -525,12 +465,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   : "INSIDE THIS TASK"}
             </small>
             <h2><MarkdownExcerpt>{title}</MarkdownExcerpt></h2>
-            {replaced && (
-              <details className="macro-replaced nodrag nopan" data-testid="macro-replaced">
-                <summary>{replaced.label}</summary>
-                <ul>{replaced.lines.map((line, index) => <li key={index}>{line}</li>)}</ul>
-              </details>
-            )}
+
           </div>
           {data.conclusion && (
             <span className="macro-conclusion" data-testid="macro-conclusion" title={data.conclusion}>{data.conclusion}</span>
@@ -551,14 +486,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         </header>
         <div className="macro-stage-key">
           {STEP_KINDS
-            .filter((kind) => task.kind !== 'turn' || layout.steps.some((s) => s.kind === kind))
+            .filter((kind) => task.turn_kind !== 'qa' || layout.steps.some((s) => s.kind === kind))
             .map((kind) => (
             <span
               key={kind}
               className={`submap-kind-${kind} ${layout.steps.some((s) => s.kind === kind) ? "" : "is-unrecorded"}`}
-              title={task.kind === 'turn' ? TURN_KIND_NOTES[kind][zh ? 0 : 1] : KIND_NOTES[kind][zh ? 0 : 1]}
+              title={task.turn_kind === 'qa' ? TURN_KIND_NOTES[kind][zh ? 0 : 1] : KIND_NOTES[kind][zh ? 0 : 1]}
             >
-              {task.kind === 'turn' ? TURN_KINDS[kind][zh ? 0 : 1] : KINDS[kind][zh ? 0 : 1]}
+              {task.turn_kind === 'qa' ? TURN_KINDS[kind][zh ? 0 : 1] : KINDS[kind][zh ? 0 : 1]}
             </span>
           ))}
         </div>
@@ -602,7 +537,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               <div className="submap-step-meta">
                 <span>
                   <Icon size={16} />
-                  {(task.kind === 'turn' ? TURN_KINDS : KINDS)[step.kind][zh ? 0 : 1]}
+                  {(task.turn_kind === 'qa' ? TURN_KINDS : KINDS)[step.kind][zh ? 0 : 1]}
                   {step.round != null && (
                     <em className="submap-round">
                       {zh ? `第 ${step.round} 轮` : `Round ${step.round}`}
@@ -640,14 +575,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <div>
               <button
                 disabled={!data.previousId}
-                onClick={() => data.previousId && data.open(data.previousId, true)}
+                onClick={() => data.previousId && data.open(data.previousId)}
               >
                 <ChevronLeft size={14} />
                 {zh ? "上一部分" : "Previous part"}
               </button>
               <button
                 disabled={!data.nextId}
-                onClick={() => data.nextId && data.open(data.nextId, true)}
+                onClick={() => data.nextId && data.open(data.nextId)}
               >
                 {zh ? "下一部分" : "Next part"}
                 <ChevronRight size={14} />
@@ -676,7 +611,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           >
             <header>
               <span>
-                {(task.kind === 'turn' ? TURN_KINDS : KINDS)[detail.kind][zh ? 0 : 1]}
+                {(task.turn_kind === 'qa' ? TURN_KINDS : KINDS)[detail.kind][zh ? 0 : 1]}
                 {task.turn_kind !== 'qa' && <small className="macro-reader-note">{KIND_NOTES[detail.kind][zh ? 0 : 1]}</small>}
               </span>
               <button

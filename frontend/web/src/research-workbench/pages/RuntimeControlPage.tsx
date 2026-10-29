@@ -28,7 +28,7 @@ export function RuntimeControlPage({
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [workdir, setWorkdir] = useState(snap.session.workdir ?? snap.session.cwd ?? '');
+  const [workdir, setWorkdir] = useState(snap.session.workdir ?? '');
   const [busy, setBusy] = useState('');
   const busyRef = useRef(false);
   const [output, setOutput] = useState('');
@@ -36,11 +36,11 @@ export function RuntimeControlPage({
   const hasResources = useCapability(RESOURCES_CAPABILITY);
   const resources = useQuery({
     queryKey: ['runtime-resources'], queryFn: ({ signal }) => api.resources(signal),
-    enabled: active && hasResources, refetchInterval: 10_000, retry: false,
+    enabled: active && hasResources, retry: false,
   });
   useEffect(() => {
-    setWorkdir(snap.session.workdir ?? snap.session.cwd ?? '');
-  }, [snap.session.workdir, snap.session.cwd]);
+    setWorkdir(snap.session.workdir ?? '');
+  }, [snap.session.workdir]);
 
   const disabled = readOnly || !!busy;
   const run = async (key: string, operation: () => Promise<unknown>, message: string) => {
@@ -79,7 +79,7 @@ export function RuntimeControlPage({
         <label htmlFor={`runtime-workdir-${sid}`}><Folder size={15} />{t('operations.workdir')}</label>
         <div className="runtime-field-row">
           <input id={`runtime-workdir-${sid}`} value={workdir} onChange={event => setWorkdir(event.target.value)} disabled={disabled} />
-          <button className="button" disabled={disabled || !workdir.trim() || workdir === (snap.session.workdir ?? snap.session.cwd ?? '')}
+          <button className="button" disabled={disabled || !workdir.trim() || workdir === (snap.session.workdir ?? '')}
             onClick={() => confirmRun('cwd', zh ? '更改后，后续工作将使用新的会话目录。确认更改？' : 'Future work will use the new session directory. Apply?',
               () => api.setWorkdir(sid, workdir), t('operations.workdirUpdated'))}><Check size={15} />{zh ? '应用目录' : 'Apply directory'}</button>
         </div>

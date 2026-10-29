@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionTasks, buildMap, currentTask, replayTasks, statusKey, supersededByLaterWork, taskDependencies, latestCertifiedTask, type MapTask, type MapEvent } from "../map/model";
+import { attentionTasks, buildMap, currentTask, replayTasks, statusKey, supersededByLaterWork, taskDependencies, type MapTask } from "../map/model";
 
 const task = (
   id: string,
@@ -8,57 +8,6 @@ const task = (
   ts = 0,
 ): MapTask => ({ id, title: id, objective: "", deps, status, ts });
 describe("progress map data semantics", () => {
-  it("separates a recorded review error from execution failure without rewriting task status", () => {
-    const failed = { ...task("failed", [], "failed"), outcome: { review_status: "unavailable" } };
-    expect(statusKey(failed)).toBe("review_unavailable");
-    expect(failed.status).toBe("failed");
-    expect(statusKey({ ...failed, status: "running" })).toBe("running");
-    expect(statusKey({ ...failed, pending_question: "Choose" })).toBe("question");
-    expect(statusKey(task("plain-failure", [], "failed"))).toBe("failed");
-    expect(statusKey({ ...failed, outcome: { review_status: "blocked" } })).toBe("failed");
-  });
-  it("links only explicit final acceptance, not an intermediate success or later conversation", () => {
-    const accepted = { ...task("final", [], "done", 20), started_ts: 19, finished_ts: 20,
-      outcome: { execution_status: "completed", review_status: "done", stage_certification: "certified" } };
-    const completion: MapEvent = { id: "end", item_id: "final", type: "life.mission.completed",
-      ts: 21, text: "", overall_complete: true };
-    const rows = [task("failed", [], "failed", 10), accepted, { ...task("hello", [], "done", 30), kind: "turn" }];
-    expect(latestCertifiedTask(rows, [completion])).toBe(accepted);
-    expect(latestCertifiedTask(rows, [{ ...completion, overall_complete: false }])).toBeUndefined();
-    expect(latestCertifiedTask(rows, [])).toBeUndefined();
-    expect(latestCertifiedTask([{ ...accepted, status: "running" }], [completion])).toBeUndefined();
-    expect(rows[0].status).toBe("failed");
-  });
-  it("drops a final-acceptance banner once later work reopens the project", () => {
-    const cleanup = { ...task("cleanup", [], "done", 20), finished_ts: 20,
-      outcome: { review_status: "done", stage_certification: "certified" } };
-    const completion: MapEvent = { id: "end", item_id: "cleanup", type: "life.mission.completed",
-      ts: 21, text: "", overall_complete: true };
-    const reopened: MapEvent = { id: "next", item_id: "paper", type: "life.mission.started", ts: 40, text: "" };
-    const rows = [cleanup, task("paper", [], "failed", 40)];
-    expect(latestCertifiedTask(rows, [completion])).toBe(cleanup);
-    expect(latestCertifiedTask(rows, [completion, reopened])).toBeUndefined();
-    // A restart of the certified task itself is the same reopening.
-    expect(latestCertifiedTask(rows, [completion, { ...reopened, item_id: "cleanup" }])).toBeUndefined();
-  });
-  it("keeps the final-acceptance banner down while a question still waits on the reader", () => {
-    // Trial s-934a4569: char_count passed review while the truncate task waited
-    // on the operator, and the map said the final result had passed review.
-    const counted = { ...task("count", [], "done", 20), finished_ts: 20,
-      outcome: { review_status: "done", stage_certification: "certified" } };
-    const completion: MapEvent = { id: "end", item_id: "count", type: "life.mission.completed",
-      ts: 21, text: "", overall_complete: true };
-    const asked = { ...task("truncate", [], "parked", 10), pending_question: "A or B?" };
-    expect(latestCertifiedTask([asked, counted], [completion])).toBeUndefined();
-    expect(latestCertifiedTask([{ ...asked, status: "done", pending_question: "" }, counted], [completion])).toBe(counted);
-  });
-  it("shows a stage hold as held, not as an execution failure", () => {
-    const held = { ...task("exp", [], "failed"), last_error: "manager stage hold: keep Experiment open",
-      outcome: { execution_status: "failed", review_status: "done", stage_certification: "not_certified" } };
-    expect(statusKey(held)).toBe("held");
-    expect(held.status).toBe("failed");
-    expect(statusKey({ ...held, outcome: { ...held.outcome, stage_certification: "not_assessed" } })).toBe("failed");
-  });
   it("orders actionable questions before failures without duplicating or mutating tasks", () => {
     const rows = [
       task("failed", [], "failed"),
@@ -94,7 +43,7 @@ describe("progress map data semantics", () => {
       task("selected", ["parent", "outside"]), task("child", ["selected"]),
       task("grandchild", ["child"]), task("unrelated"),
     ]);
-    graph.links.push({ id: "related", source: "unrelated", target: "selected", kind: "relation", relation: "checks" });
+    graph.links.push({ id: "related", source: "unrelated", target: "selected", kind: "context" });
     const dependencies = taskDependencies(graph, "selected");
     expect(dependencies.upstream.map((row) => row.id).sort()).toEqual(["outside", "parent"]);
     expect(dependencies.downstream.map((row) => row.id)).toEqual(["child"]);
@@ -175,29 +124,5 @@ describe("progress map data semantics", () => {
     const tasks = [task("b", [], "done", 2), task("a", [], "failed", 1)];
     expect(replayTasks(tasks, 1)).toEqual([tasks[1]]);
     expect(tasks[0].status).toBe("done");
-  });
-  it("represents a plan replacement without inventing a one-to-one task dependency", () => {
-    const old = {
-      ...task("old", [], "superseded", 1),
-      superseded_by_plan_id: "p2",
-    };
-    const next = { ...task("new", [], "pending", 2), plan_id: "p2" };
-    const sibling = { ...task("sibling", [], "pending", 3), plan_id: "p2" };
-    const graph = buildMap([old, next, sibling]);
-    expect(graph.links).toEqual([
-      expect.objectContaining({
-        source: "old",
-        target: "new",
-        target_plan_id: "p2",
-        target_count: 2,
-        kind: "replacement",
-      }),
-    ]);
-    expect(graph.tasks.map((t) => t.id)).toEqual(["old", "new", "sibling"]);
-  });
-  it("does not fabricate a replacement target outside the selected data", () => {
-    expect(
-      buildMap([{ ...task("old"), superseded_by_plan_id: "absent" }]).links,
-    ).toEqual([]);
   });
 });

@@ -200,21 +200,17 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   assert.equal((await send('POST', `/api/trash/${sid}-copy/restore`)).status, 409);
 });
 
-test('the spend of every project, which the page asks for every few seconds', async t => {
-  const { home, get, create } = await setup(t);
-  assert.ok((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.cost-feed.v1'));
-  const [spent, idle] = [await create(), await create()];
-  const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
-  for (const cost of [0.25, 0.5]) {
-    await appendFile(join(home, 'projects', spent, 'usage.jsonl'), `${JSON.stringify({ ts: 1, role: 'engineer', tokens, cost_usd: cost })}\n`);
-  }
-  const { projects, generated_at } = await get<{ projects: Record<string, unknown>[]; generated_at: number }>('/api/projects/costs');
-  assert.ok(generated_at > 0);
-  const rows = Object.fromEntries(projects.map(row => [row.id, row]));
-  const { updated_at, ...cost } = rows[spent]!;
-  assert.deepEqual(cost, { id: spent, spend_usd: 0.75, known_cost_usd: 0.75, spend_status: 'priced', usage_calls: 2, premium_requests: 0 });
-  assert.ok(Number(updated_at) > 0);
-  assert.deepEqual([rows[idle]!.usage_calls, rows[idle]!.known_cost_usd], [0, 0]);
+test('spend lives in each snapshot, without a separate cost feed or list fields', async t => {
+  const { home, get, create, call } = await setup(t);
+  assert.equal((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.cost-feed.v1'), false);
+  const spent = await create();
+  for (const cost of [0.25, 0.5]) await appendFile(join(home, 'projects', spent, 'usage.jsonl'), `${JSON.stringify({ ts: 1, role: 'engineer', cost_usd: cost })}\n`);
+  const snapshot = await get<Record<string, unknown>>(`/api/projects/${spent}/snapshot`);
+  assert.equal(snapshot.spend_usd, 0.75);
+  assert.equal(snapshot.spend_status, 'priced');
+  assert.equal((await call('/api/projects/costs')).status, 404);
+  const rows = await get<{ projects: Record<string, unknown>[] }>('/api/projects');
+  assert.equal(Object.hasOwn(rows.projects[0]!, 'spend_usd'), false);
 });
 
 test('the manifest that makes the cockpit installable is the built one, and needs no token', async t => {
@@ -261,6 +257,9 @@ test('directory errors distinguish files, unavailable parents and real permissio
   const file = join(home, 'a-file');
   await writeFile(file, 'not a directory');
   const cases: Array<[string, string, string]> = [
+    ['relative/dir', 'workdir_relative', 'relative'],
+    ['./relative', 'workdir_relative', 'relative'],
+    ['../parent', 'workdir_relative', 'relative'],
     [file, 'workdir_not_directory', 'file'],
     [join(file, 'child'), 'workdir_not_directory', 'ENOTDIR'],
   ];
@@ -279,4 +278,9 @@ test('directory errors distinguish files, unavailable parents and real permissio
     assert.ok(body.detail.includes(reason), body.detail);
   }
   assert.equal(store.list().length, 0);
+  const created = await (await send('POST', '/api/daemons', { workdir: home })).json() as { sid: string };
+  const changed = await send('POST', `/api/projects/${created.sid}/workdir`, { workdir: 'relative/dir' });
+  assert.equal(changed.status, 400);
+  assert.equal((await changed.json() as { code: string }).code, 'workdir_relative');
+  assert.equal(store.load(created.sid).workdir, home);
 });

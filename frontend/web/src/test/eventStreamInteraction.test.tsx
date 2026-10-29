@@ -279,7 +279,7 @@ describe('conversation references', () => {
 function runtimeFixture(alive = true) {
   const now = Date.now() / 1000;
   const snapshot: Snapshot = {
-    session: { id: 'session', display_name: 'Research', objective: '', cwd: '/tmp', last_active: now },
+    session: { id: 'session', display_name: 'Research', objective: '', workdir: '/tmp', last_active: now },
     daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 30, backend: 'pi'},
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Working', age_s: 1, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null }],
     backlog: [{ id: 'task-a', title: 'Research task A', objective: '', status: 'running', started_ts: now - 20, priority: 1 }],
@@ -322,11 +322,11 @@ describe('server conversation rows and role channel', () => {
     setRoleLog(snapshot.session.id, [progress(5, 'This round only')]);
     const events: EventMsg[] = [
       { type: 'ui.question', question_id: 'q1', item_id: 'task-a', agent_layer: 'engineer', text: 'Which option?', row_id: 'q1', ts: 1 },
-      { type: 'ui.operator', text: 'Option A', row_id: 'a1', ts: 3 },
+      { type: 'ui.operator', answer_to: 'q1', text: 'Option A', row_id: 'a1', ts: 3 },
       { type: 'ui.task', item_id: 'task-a', title: 'Research task A', state: 'done', row_id: 't1', ts: 4 },
     ];
     act(() => { renderer = create(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    expect(visibleText(renderer!.root)).toContain('Engineer asks:Research task AWhich option?');
+    expect(visibleText(renderer!.root)).toContain('Engineer asks about “Research task A”: Which option?');
     expect(streamOrder()).toEqual(['thread', 'task task-a']);
     expect(visibleText(renderer!.root.findByProps({ 'data-task-work': 'task-a' }))).toBe('Done: Research task A');
     expect(visibleText(work())).toContain('This round only');
@@ -426,8 +426,8 @@ describe('result cards in the conversation', () => {
   const delivery = {
     schema_version: 1, delivery_id: 'delivery:task-a:task_completed:1', kind: 'task_completed', item_id: 'task-a',
     title: 'Sales chart', summary: '', status: 'done', review_status: 'done', delivered_at: 30,
-    primary_target: { path: 'out/figure.png', label: 'figure.png', source: 'solo_output', why: '' },
-    targets: [{ path: 'out/figure.png', label: 'figure.png', source: 'solo_output', why: '' }],
+    primary_target: { path: 'out/figure.png', label: 'figure.png', source: 'solo_output', },
+    targets: [{ path: 'out/figure.png', label: 'figure.png', source: 'solo_output', }],
   };
   const events: EventMsg[] = [
     { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', item_id: 'task-a', text: 'Drew the task A chart', event_id: 'a1', ts: 10 },
@@ -459,7 +459,8 @@ it("shows a brief the Manager hands the team by its title, folded, and a reply t
 it('renders a stopped request and the current Manager sentence without a phase-step display', () => {
   mount([{ type: 'ui.operator', text: 'Keep my request', ts: 1 }, { type: 'ui.argus', status: 'stopped', text: '', ts: 1 }]);
   expect(visibleText(renderer!.root)).toContain('Stopped. Click Resume to continue the reply.');
-  update([{ type: 'ui.argus', text: 'The latest recorded sentence', ts: 1, live: true }]);
+  update([{ type: 'ui.argus', text: '', ts: 1, live: true, status: 'running' },
+    { type: 'engineer.progress', agent_layer: 'manager', kind: 'agent_message', text: 'The latest recorded sentence', ts: 2 }]);
   expect(visibleText(renderer!.root)).toContain('The latest recorded sentence');
   expect(renderer!.root.findAllByProps({ 'aria-label': 'View work progress' })).toHaveLength(0);
 });

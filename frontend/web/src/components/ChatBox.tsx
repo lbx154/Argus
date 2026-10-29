@@ -7,7 +7,7 @@ import { completionMenu, completionToken, ghostFor, type PromptSources } from '.
 import { referenceText, splitDraft } from '../map/presentation';
 import { clampPromptCompletionSelection, promptCompletionOptionId, PromptCompletionMenu, PROMPT_COMPLETION_LISTBOX_ID } from './PromptCompletionMenu';
 import { useI18n } from '../i18n';
-import { addComposerFiles, dataTransferHasFiles, extractFilesFromDataTransfer, MESSAGE_ATTACHMENT_MAX_BYTES, MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES } from '../lib/attachments';
+import { addComposerFiles, dataTransferHasFiles, extractFilesFromDataTransfer } from '../lib/attachments';
 import { formatBytes } from '../lib/format';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import { useDraftUploadView } from '../lib/draftUploads';
@@ -155,10 +155,9 @@ export function ChatBox({
   };
   const addFiles = (incoming: File[]) => {
     if (!incoming.length || disabled || pending || submitting.current) return;
-    const { accepted, issues } = addComposerFiles(attachments, incoming);
+    const { accepted, issues } = addComposerFiles([...attachments, ...ready.map(file => ({ name: file.original_name, size: file.size_bytes, type: file.mime }))], incoming, uploads?.limits);
     if (accepted.length) onAttachmentsChange([...attachments, ...accepted]);
     setAttachmentNotice(issues.map((issue) => {
-      if (issue.code === 'unsupported') return t('chat.attachUnsupported', { name: issue.fileName });
       if (issue.code === 'too-large') return t('chat.attachTooLarge', { name: issue.fileName, size: formatBytes(issue.limitBytes) });
       if (issue.code === 'too-many') return t('chat.attachTooMany', { count: issue.limitCount });
       return t('chat.attachTotalTooLarge', { size: formatBytes(issue.limitBytes) });
@@ -214,13 +213,13 @@ export function ChatBox({
         disabled={pending}
         onRemove={() => { onAttachmentsChange(attachments.filter((item) => item !== file)); setAttachmentNotice(''); }} />)}</div>
       <div className={`text-xs ${attachmentNotice ? 'text-err' : 'text-ink-faint'}`}>
-        {attachmentNotice || (busyUploads ? (zh ? `${busyUploads} 个附件上传中，可以继续输入；现在发送会等它们传完再发出。` : `${busyUploads} file${busyUploads > 1 ? 's' : ''} uploading. Keep typing; sending now waits for them.`) : '') || t('chat.attachHint', { count: MESSAGE_ATTACHMENT_MAX_COUNT, perFile: `${MESSAGE_ATTACHMENT_MAX_BYTES / 1024 ** 2} MiB`, total: `${MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES / 1024 ** 2} MiB` })}
+        {attachmentNotice || (busyUploads ? (zh ? `${busyUploads} 个附件上传中，可以继续输入；现在发送会等它们传完再发出。` : `${busyUploads} file${busyUploads > 1 ? 's' : ''} uploading. Keep typing; sending now waits for them.`) : '') || (uploads?.limits ? t('chat.attachHint', { count: uploads.limits.max_count, perFile: formatBytes(uploads.limits.max_bytes_per_file), total: formatBytes(uploads.limits.max_total_bytes) }) : '')}
       </div>
     </div> : null}
     <ComposerSurface value={value} ghost={ghost} onAcceptGhost={acceptGhost}
       onChange={typed}
       inputRef={taRef} fileInputRef={fileInputRef} onFiles={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }}
-      onSend={() => void submit()} pending={pending} disabled={disabled}
+      onSend={() => void submit()} pending={pending} disabled={disabled || rewriting}
       sendLabel={busyUploads ? (zh ? '附件传完后发送' : 'Send when uploads finish') : undefined}
       inputProps={{
         onPaste: (event) => { const files = extractFilesFromDataTransfer(event.clipboardData); if (files.length) { event.preventDefault(); addFiles(files); } },

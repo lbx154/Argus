@@ -545,11 +545,10 @@ function ArtifactsPanel({ rows, selected, pageSize }: { rows: ArtifactInfo[]; se
             <Box key={artifact.path} flexDirection="column">
               <Box>
                 <Text color={focused ? theme.accent : 'gray'}>{focused ? '› ' : '  '}</Text>
-                <Text color={artifact.exists ? theme.success : theme.error}>{artifact.exists ? '◆ ' : '× '}</Text>
+                <Text color={theme.success}>◆ </Text>
                 <Text bold={focused} color={focused ? theme.accent : undefined}>{artifact.path}</Text>
                 <Text dimColor>{`  ${artifact.kind} · ${formatBytes(artifact.size)}`}</Text>
               </Box>
-              {artifact.why ? <Text dimColor>{`    ${artifact.why.slice(0, 110)}`}</Text> : null}
             </Box>
           );
         })
@@ -573,7 +572,6 @@ function ArtifactPanel({ artifact, page, pageSize }: { artifact: ArtifactInfo; p
     >
       <Row k="type" v={`${artifact.kind} · ${artifact.mime}`} />
       <Row k="size" v={formatBytes(artifact.size)} />
-      {artifact.why ? <Row k="reviewer" v={artifact.why} c={theme.accent} /> : null}
       <Text> </Text>
       {textual ? (
         <>

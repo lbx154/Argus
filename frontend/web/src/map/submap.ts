@@ -4,7 +4,6 @@ import {
   type MapEvent,
   type MapTask,
   type MapGraph,
-  type MapLink,
   type WorkStep,
 } from "./model";
 import { layoutGraph } from "./graphLayout";
@@ -34,8 +33,6 @@ export interface MapCard {
   previousId?: string;
   nextId?: string;
   completionScope?: string;
-  historyCount?: number;
-  historyExpanded?: boolean;
   /** Where the task stands in one line: what the review asked for, the round
    * under way. Computed over every step, so each part of a long task carries it. */
   conclusion?: string;
@@ -344,13 +341,13 @@ export function buildSubmap(
   zh: boolean,
   workspace?: string,
 ): SubmapStep[] {
-  const turn = task.kind === "turn";
+  const turn = task.turn_kind === "qa";
   const rows: SubmapStep[] = [
     {
       id: `${task.id}:brief`,
       kind: "plan",
       title: turn
-        ? zh ? (task.turn_kind === 'qa' ? '你提出的问题' : "你提出的要求") : "What you asked"
+        ? zh ? '你提出的问题' : "What you asked"
         : zh ? "任务目标" : "Task goal",
       detail: relativizeWorkspacePaths(task.objective || task.title, workspace),
       status: "recorded",
@@ -362,7 +359,7 @@ export function buildSubmap(
   let episode = 0;
   let lastReview: MapEvent | undefined;
   const sorted = events
-    .filter((e) => e.item_id === task.id)
+    .filter((e) => e.item_id === task.id && !(e.type === 'handoff' && e.to === 'operator'))
     // Format before sentence and command shortening, which could otherwise
     // cut through a long workspace prefix and lose the relative file name.
     .map(event => ({ ...event, text: relativizeWorkspacePaths(event.text || '', workspace),
@@ -397,7 +394,7 @@ export function buildSubmap(
       rows.push({
         id: e.id,
         kind: e.role === "reviewer" ? "review" : "execution",
-        title: `${name(e.role)} → ${name(e.to)}`,
+        title: e.role === e.to ? (zh ? `${name(e.role)}接着做` : `${name(e.role)} continues`) : `${name(e.role)} → ${name(e.to)}`,
         summary: clipSentence(e.text) || undefined,
         detail: e.text || noDetails(zh),
         status: "recorded",
@@ -567,7 +564,7 @@ export function buildSubmap(
   if (task.turn_kind === 'qa' && !rows.some(r => r.kind === 'result')) {
     rows.push({ id: `${task.id}:answer`, kind: 'result',
       title: ACTIVE.has(task.status) ? (zh ? '正在回答' : 'Answering') : (zh ? '回答状态' : 'Answer status'),
-      detail: task.summary || (task.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : ''),
+      detail: task.latest_action?.text || (task.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : ''),
       status: task.status, source: 'task', eventIds: [] });
   }
   if (task.turn_kind !== 'qa' && !rows.some((r) => r.kind === "execution") && ACTIVE.has(task.status))
@@ -575,7 +572,7 @@ export function buildSubmap(
       id: `${task.id}:active`,
       kind: "execution",
       title: zh ? "正在进行的工作" : "Work under way",
-      detail: task.summary || "",
+      detail: task.latest_action?.text || "",
       status: task.status,
       source: "task",
       eventIds: [],
@@ -588,7 +585,7 @@ export function buildSubmap(
       id: `${task.id}:outcome`,
       kind: "result",
       title: zh ? "任务的最终状态" : "Where this task ended up",
-      detail: task.summary || outcomeSentence(task.status, zh),
+      detail: task.latest_action?.text || outcomeSentence(task.status, zh),
       status: task.status,
       source: "task",
       eventIds: [],
@@ -843,19 +840,8 @@ function columnTitle(
 }
 
 export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height" | "stacked">) {
-  // A stacked card is the shape of a wide canvas's small card whatever its
-  // height, so a phone's map shows cards, not tall strips with their titles
-  // broken over three lines; its column of steps is drawn inside at the scale
-  // that fits it, which a phone reads at the column's width.
-  if (layout.stacked) {
-    const frame = { width: 900, height: 875 };
-    return { ...frame, scale: Math.min(frame.width / layout.width, frame.height / layout.height) };
-  }
-  const scale = Math.max(
-    600 / layout.height,
-    Math.min(1000 / layout.height, MAP_FRAME.width / layout.width),
-  );
-  return { width: layout.width * scale, height: layout.height * scale, scale };
+  const frame = layout.stacked ? { width: 900, height: 875 } : MAP_FRAME;
+  return { ...frame, scale: Math.min(frame.width / layout.width, frame.height / layout.height) };
 }
 
 /** A relationship label states what the record actually supports. */
@@ -1028,24 +1014,21 @@ export function layoutScene(
     positions: Record<string, { x: number; y: number }>;
   },
   links = graph.links,
-  expandedMissions?: ReadonlySet<string>,
+  selectedParts?: ReadonlyMap<string, number>,
   narrow = false,
   workspace?: string,
 ) {
   const cards: MapCard[] = [];
   const layouts: Record<string, SubmapLayout> = {};
-  const continuations: MapLink[] = [];
-  const lastCard = new Map<string, string>();
   for (const [ordinal, task] of graph.tasks.entries()) {
     const steps = buildSubmap(task, events, zh, workspace);
     const scope = task.status === "done" ? completionScope(latestMissionCompletion(task, events), zh) : "";
-    const conclusion = task.kind === "turn" ? "" : taskConclusion(steps, zh, ACTIVE.has(task.status));
+    const conclusion = task.turn_kind === "qa" ? "" : taskConclusion(steps, zh, ACTIVE.has(task.status));
     const pages = stepPages(steps);
     const count = pages.length;
     // A part's ordinal is stable when subsequent events arrive. Original task
     // and step IDs remain the source of truth for references and model copy.
-    const idFor = (part: number) =>
-      part === 1 ? task.id : JSON.stringify(["part", task.id, part]);
+    const idFor = (part: number) => JSON.stringify(["part", task.id, part]);
     let start = 0;
     for (let part = 1; part <= count; part++) {
       const slice = pages[part - 1];
@@ -1065,52 +1048,21 @@ export function layoutScene(
         conclusion: conclusion || undefined,
       });
       layouts[id] = layoutSubmap(task, events, zh, slice, start, narrow);
-      if (part > 1) {
-        const boundary = submapLinks([steps[start - 1], slice[0]], zh)[0];
-        continuations.push({
-          id: JSON.stringify(["continuation", task.id, part]),
-          source: idFor(part - 1),
-          target: id,
-          kind: "continuation",
-          label: boundary ? zh ? "继续" : "Continued" : zh ? '更多分支' : 'More branches',
-          evidence: boundary
-            ? `${task.title} · ${boundary.label} · ${steps[start - 1].title} → ${slice[0].title}`
-            : `${task.title} · ${zh ? '同一任务的其他分支' : 'Other branches of the same mission'}`,
-        });
-      }
       start += slice.length;
     }
-    lastCard.set(task.id, idFor(count));
   }
+  // Pages stay inside the task. The overview keeps one fixed card per task.
   const allCards = cards.slice();
-  const visibleCard = new Map<string, string>();
-  if (expandedMissions) {
-    cards.length = 0;
-    for (const card of allCards) {
-      const expanded = expandedMissions.has(card.task.id);
-      visibleCard.set(card.id, expanded ? card.id : card.task.id);
-      if (!expanded && card.part !== card.partCount) continue;
-      const id = expanded ? card.id : card.task.id;
-      layouts[id] = layouts[card.id];
-      cards.push({
-        ...card, id,
-        historyCount: card.partCount - 1,
-        historyExpanded: expanded,
-      });
-    }
+  cards.length = 0;
+  for (const task of graph.tasks) {
+    const pages = allCards.filter(card => card.task.id === task.id);
+    const card = pages.find(card => card.part === selectedParts?.get(task.id)) ?? pages.at(-1)!;
+    const layout = layouts[card.id];
+    cards.push({ ...card, id: task.id });
+    layouts[task.id] = layout;
   }
-  const resolve = (id: string) => visibleCard.get(id) ?? id;
-  const frames = Object.fromEntries(
-    cards.map(({ id }) => [id, frameForSubmap(layouts[id])]),
-  );
-  const displayLinks = [
-    ...links.map((e) => ({
-      ...e,
-      source: resolve(lastCard.get(e.source)!),
-      target: resolve(e.target),
-    })),
-    ...continuations.filter((link) => resolve(link.source) !== resolve(link.target)),
-  ];
+  const frames = Object.fromEntries(cards.map(({ id }) => [id, frameForSubmap(layouts[id])]));
+  const displayLinks = links;
   const ids = cards.map((card) => card.id);
   const structure = JSON.stringify([
     ids.map((id) => [id, frames[id].width, frames[id].height]),

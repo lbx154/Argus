@@ -3,7 +3,7 @@ import type { DeliveryReceipt } from '../../../core/src/types';
 import { deliveryNotificationPayload, subscribeDesktopDelivery } from '../lib/desktopBridge';
 
 const receipt: DeliveryReceipt = { schema_version: 1, delivery_id: 'delivery:fixture', kind: 'task_completed', item_id: 'fixture', title: 'Synthetic result', summary: 'Synthetic fixture, not review evidence', status: 'done', review_status: 'pending', delivered_at: 1,
-  primary_target: { path: 'results/report.md', label: 'Report', source: 'delivery', why: 'Synthetic fixture' }, targets: [] };
+  primary_target: { path: 'results/report.md', label: 'Report', source: 'delivery', }, targets: [] };
 const old = { deliveryId: receipt.delivery_id, title: receipt.title, summary: receipt.summary, path: receipt.primary_target!.path };
 let parent: { postMessage: ReturnType<typeof vi.fn> };
 let release: (() => void) | undefined;

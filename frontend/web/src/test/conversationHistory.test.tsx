@@ -26,6 +26,7 @@ const tree = (sid: string) => <QueryClientProvider client={client}><Probe sid={s
 
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
   rendered = [];
 });
@@ -34,6 +35,7 @@ afterEach(() => {
   renderer = undefined;
   client.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -142,7 +144,7 @@ it('keeps first-frame and appended role logs independent of snapshots and isolat
   const { ProjectRoleLogs } = await import('../components/EventStream');
   let log!: ReturnType<typeof useRoleLog>;
   const snap = roleSnapshot([], {
-    session: { id: 'a', display_name: '', objective: '', cwd: '', last_active: 1 },
+    session: { id: 'a', display_name: '', objective: '', workdir: '', last_active: 1 },
     roles: [], work_status: { state: 'running', roles: ['engineer'], role: 'engineer', taskId: '', title: '', reason: '', foreground: false,
       activityAt: null, label: { 'zh-CN': '', en: '' } },
   });
@@ -185,7 +187,7 @@ it('keeps first-frame and appended role logs independent of snapshots and isolat
   expect(log.events.map(row => row.text)).toEqual(['Only B finding']);
   expect(words()).not.toContain('A finding');
   act(() => renderer!.update(surfaces('a')));
-  expect(log.events.at(-1)?.text).toBe('Late A finding');
+  expect(log.events.at(-1)?.text).toBe('Streamed finding');
   const reconnect = vi.mocked(openConversation).mock.calls.at(-1)![2];
   act(() => reconnect({ type: 'ui.projection', cursor: 13, round: 12, rows: [], role_events: [event(13, 'New round finding')] }));
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
@@ -195,4 +197,33 @@ it('keeps first-frame and appended role logs independent of snapshots and isolat
   expect(conversation.findAllByProps({ 'data-project-work': true })).toHaveLength(0);
   expect(words().match(/New round finding/g)).toHaveLength(1);
   expect(log.events).toHaveLength(1);
+});
+
+it('a Manager step updates the reply through the role log when the rows frame contains no reply row', async () => {
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn(), requestAnimationFrame: vi.fn(() => 1), cancelAnimationFrame: vi.fn() });
+  const { openConversation } = await import('../api');
+  const { EventStream } = await import('../components/EventStream');
+  const { projectRecord } = await import('../../../../packages/core/src/serve/views');
+  const { readFileSync } = await import('node:fs');
+  const record = readFileSync(new URL('../../../../packages/core/test/fixtures/conversation-stop/events.jsonl', import.meta.url), 'utf8')
+    .trim().split('\n').map(line => JSON.parse(line));
+  const reading = projectRecord(record);
+  const message = reading.roleEvents.slice().reverse().find(row => row.agent_layer === 'manager' && row.kind === 'agent_message')!;
+  const snap = roleSnapshot([], { session: { id: 'b', display_name: '', objective: '', workdir: '', last_active: 1 } });
+  client.setQueryData(['conversation', 'b'], { pages: [{ rows: [{ type: 'ui.argus', row_id: 'reply', event_id: 1, order: 1,
+    text: 'stale text from a row', live: true, status: 'running' }], before: null, cursor: 1 }], pageParams: [undefined] });
+  function Conversation() {
+    const history = useConversationHistory('b', true, [], null);
+    return <EventStream events={history.events} snapshot={snap} connected showReasoning={false} />;
+  }
+  act(() => { renderer = create(<QueryClientProvider client={client}><Conversation /></QueryClientProvider>); });
+  const receive = vi.mocked(openConversation).mock.calls.at(-1)![2];
+  act(() => receive({ type: 'ui.projection', cursor: reading.fold.line - 1, round: reading.round, rows: [], role_events: reading.roleEvents }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  const replyText = () => renderer!.root.findByProps({ 'data-manager-reply': 'running' }).findAllByType('span').map(row => row.children.join('')).join('');
+  expect(replyText()).toContain(message.text);
+  expect(replyText()).not.toContain('stale text from a row');
+  act(() => receive({ type: 'ui.projection', cursor: reading.fold.line, round: reading.round, rows: [], role_events: [{ ...message, event_id: reading.fold.line, text: '经理下一句实时记录。' }] }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  expect(replyText()).toBe('经理下一句实时记录。');
 });

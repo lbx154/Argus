@@ -28,7 +28,7 @@ export function cacheProjectName(
               ? {
                   ...project,
                   display_name: name,
-                  label: name || project.objective || project.id,
+                  label: name || project.id,
                 }
               : project
           )),

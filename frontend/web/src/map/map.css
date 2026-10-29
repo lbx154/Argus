@@ -63,29 +63,7 @@
 .map-more-menu .map-scope-button { margin-left: 0; text-align: left; }
 /* Entries that only matter where the canvas legend is hidden. */
 .map-narrow-only { display: none; }
-.map-status-row {
-  display: flex;
-  align-items: center;
-  padding: 3px 24px 10px;
-  font-size: 12.5px;
-  color: rgb(var(--ink-dim));
-}
-.map-status-line { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; }
-.map-attention-link {
-  flex-shrink: 0;
-  color: #a06a4b;
-  font-weight: 550;
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-.map-attention-link:hover { color: #7f5238; text-decoration-style: solid; }
-[data-theme="dark"] .map-attention-link { color: #d9a883; }
-.map-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #5da890; box-shadow: 0 0 0 3px #5da89020; animation: map-live-dot 1.6s ease-in-out infinite; }
-@keyframes map-live-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (max-width: 640px) {
-  .map-status-row { padding: 2px 14px 8px; font-size: 12px; }
   .map-header { padding: 10px 14px 0; }
 }
 .map-heading h1 {
@@ -177,7 +155,6 @@
   font-size: 11px;
   border: 1px solid rgb(var(--line));
 }
-.map-attention-detail,
 .map-dependencies {
   flex-shrink: 0;
   padding: 8px 28px;
@@ -185,9 +162,6 @@
   font-size: 11px;
   color: rgb(var(--ink-dim));
 }
-.map-attention-detail { display: flex; align-items: baseline; gap: 10px; }
-.map-attention-detail > strong { flex-shrink: 0; color: #ac724a; }
-.map-attention-detail > p { max-height: 4.5em; overflow-y: auto; white-space: pre-line; }
 .map-dependencies > div { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 3px 0; }
 .map-dependencies strong { flex: 0 0 70px; font-weight: 550; }
 .map-dependencies button {
@@ -296,15 +270,11 @@
 .map-state-missing {
   --state: #9d9fa6;
 }
-.map-live-dot,
 .map-state-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: currentColor;
-}
-.map-live-dot {
-  box-shadow: 0 0 0 3px #4a86c516;
 }
 .map-card h3 {
   font-size: 14px;
@@ -568,7 +538,7 @@
   .map-canvas-wrap[data-detailed="true"] .map-fit-button {
     display: none;
   }
-  .map-attention-detail, .map-dependencies { padding: 7px 14px; }
+  .map-dependencies { padding: 7px 14px; }
   .map-dependencies strong { flex-basis: 60px; }
   .map-playback {
     padding: 0 12px;
@@ -739,8 +709,7 @@
   .map-search,
   .map-card,
   .map-canvas-toolbar > button,
-  .map-workspace-actions button,
-  .map-attention-link {
+  .map-workspace-actions button {
     transition: none;
   }
   .map-card:hover,
@@ -834,29 +803,10 @@
   .map-playback button { transition: none; }
 }
 
-/* Three-line project brief: goal, conclusion so far, next step. */
-/* The overview: the team line, then 目标 / 主要成果 / 已验证 / 等你决定. */
-.map-overview { flex-shrink: 0; font-size: 13px; line-height: 1.55; color: rgb(var(--ink)); }
-.map-overview dl { margin: 0; padding: 8px 28px 8px; display: grid; gap: 4px; }
-.map-overview dl > div { display: flex; gap: 10px; min-width: 0; align-items: baseline; }
-.map-overview dt { flex: 0 0 5em; color: rgb(var(--ink-dim)); font-weight: 550; }
-.map-overview dd { margin: 0; min-width: 0; flex: 1; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
-.map-overview-item { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 100%; padding: 1px 8px; border: 1px solid rgb(var(--line)); border-radius: 6px; background: rgb(var(--panel)); color: rgb(var(--ink)); text-align: left; cursor: pointer; }
-button.map-overview-item:hover { border-color: rgb(var(--blue)); color: rgb(var(--blue)); }
-.map-overview-item small { font-size: 11px; }
-.map-overview .is-attention dt { color: rgb(var(--warn)); }
-.map-overview-more { background: none; border: 0; padding: 0; color: rgb(var(--blue)); font-size: 12px; cursor: pointer; }
-@media (max-width: 640px) { .map-overview dl { padding: 6px 16px; } .map-overview dt { flex-basis: 4.5em; } }
-.map-attention-detail > div { max-height: 7em; overflow-y: auto; white-space: pre-line; }
-.map-attention-detail > div > p { margin: 0 0 2px; }
-.map-attention-detail details { color: rgb(var(--ink-dim)); }
-
 /* Full canvas (mapImmersive): the map fills the window. The project header,
- * the overview's goal and results, and the legend step aside; the team line
- * (with 暂停团队) and the status line with what waits on the person stay. The
+ * final review and the legend step aside; the team line stays. The
  * toolbar keeps its buttons as icons, and the toggle brings everything back. */
 .argus-map[data-immersive="true"] .map-header,
-.argus-map[data-immersive="true"] .map-overview > dl,
 .argus-map[data-immersive="true"] .map-final-review,
 .argus-map[data-immersive="true"] .map-legend {
   display: none;

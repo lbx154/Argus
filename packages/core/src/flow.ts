@@ -326,7 +326,7 @@ export class Flow {
     }
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
     if (handoff) {
-      const { to, letters } = handoff;
+      const { to, letters, tasks } = handoff;
       // What a letter hands over is files the operator can open, by their paths in the workspace: one
       // they cannot (hidden, outside it, not there) goes back once, then is left out.
       const found = (handoff.open ?? []).map(path => [path, under(project.workdir, path)?.path] as const);
@@ -337,7 +337,8 @@ export class Flow {
       const open = [...new Set(found.flatMap(([, seen]) => seen ?? []))];
       // A result's files are kept as delivered, so that what the next delivery changes can be shown.
       const delivered = open.length ? { open, snapshots: keep(project, dir, open), title: titleOf(project, open[0]!) } : {};
-      for (const letter of letters) this.record(project, { type: 'handoff', role, ...where, to, letter, ...delivered, ...answering });
+      for (const [at, letter] of letters.entries()) this.record(project, { type: 'handoff', role, ...where,
+        ...(tasks?.[at]?.task ? { task: tasks[at]!.task } : {}), to, letter, ...delivered, ...answering });
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
@@ -356,7 +357,7 @@ export class Flow {
   /** A letter to the Engineer opens a task; its first line names it. It waits only for tasks opened
    * before it, so no tasks wait for each other in a circle. */
   private open(project: Project, from: Task['from'], letter: string, after: string[] = []): Task {
-    const title = firstLine(letter).slice(0, 100);
+    const title = firstLine(letter);
     const waits = [...new Set(after)].filter(id => project.tasks.some(task => task.id === id));
     const task: Task = {
       id: `t${project.tasks.length + 1}`, title, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},

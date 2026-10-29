@@ -56,3 +56,15 @@ it("does not queue a second message until the first one is confirmed", async () 
   expect(onSend).toHaveBeenCalledTimes(1);
   await act(async () => { release(true); });
 });
+
+it('disables sending by button and Enter throughout a rewrite', async () => {
+  const onSend = vi.fn(async () => true);
+  let renderer!: ReactTestRenderer;
+  act(() => { renderer = create(createElement(MapComposer, { value: "draft", onChange: () => {}, attachments: [], onAttachmentsChange: () => {}, pending: false, focusSignal: 0, zh: false, onSend, rewriting: true })); });
+  expect(renderer.root.findAllByType('button').find(node => node.props.type === 'submit')!.props.disabled).toBe(true);
+  await act(async () => {
+    renderer.root.findByType('textarea').props.onKeyDown({ key: 'Enter', shiftKey: false, nativeEvent: {}, preventDefault() {}, stopPropagation() {}, defaultPrevented: false });
+  });
+  expect(onSend).not.toHaveBeenCalled();
+  act(() => renderer.unmount());
+});

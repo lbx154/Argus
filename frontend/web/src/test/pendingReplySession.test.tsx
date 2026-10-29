@@ -1,273 +1,64 @@
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
-import type { ReactNode } from "react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { usePendingReplySession } from "../usePendingReplySession";
-import { api } from "../api";
-import { PendingReplyDialog } from "../components/PendingReplyDialog";
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, expect, it, vi } from 'vitest';
+import { usePendingReplySession } from '../usePendingReplySession';
+import { api } from '../api';
 
-vi.mock("../api", () => ({ api: { resolveDecision: vi.fn(), answerDomain: vi.fn() } }));
-vi.mock("../components/Modal", () => ({
-  Modal: ({ open, children }: { open: boolean; children: ReactNode }) => open ? <div>{children}</div> : null,
-  ModalHeader: ({ title, sub }: { title: string; sub: string }) => <div>{title}{sub}</div>,
-}));
-
-const question = {
-  id: "decision-task-1",
-  item_id: "task-1",
-  title: "Choose an experiment",
-  question: "Continue with the local baseline?",
-  options: [{ id: "local", label: "Run the local baseline" }],
-};
-
-let opened: boolean | null = null;
-function Probe({ autoOpen }: { autoOpen?: boolean }) {
-  const { pendingReplyOpen } = usePendingReplySession({
-    activeSid: "s-1",
-    autoOpen,
-    backlog: [],
-    notify: () => {},
-    pendingQuestions: [{ id: 'task-1', operator_decision: { ...question, status: 'pending', options_source: 'agent' } }],
-    refetchSnapshot: async () => {},
-  });
-  opened = pendingReplyOpen;
+vi.mock('../api', () => ({ api: { resolveDecision: vi.fn() } }));
+const notify = vi.fn();
+const refetchSnapshot = vi.fn(async () => {});
+const questions = ['reviewer', 'engineer'].map(role => ({ id: 't1', operator_decision: {
+  id: `${role}-t1`, item_id: 't1', status: 'pending', title: 'Recorded task', question: `${role}'s question`, options: [],
+} }));
+let session: ReturnType<typeof usePendingReplySession>;
+let renderer: ReactTestRenderer;
+function Probe({ sid = 'p-one', pending = questions }: { sid?: string; pending?: typeof questions }) {
+  session = usePendingReplySession({ activeSid: sid, pendingQuestions: pending,
+    backlog: [], notify, refetchSnapshot });
   return null;
 }
+afterEach(() => { act(() => renderer?.unmount()); vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
-const storage = new Map<string, string>();
-beforeEach(() => {
-  vi.mocked(api.resolveDecision).mockReset();
-  vi.mocked(api.answerDomain).mockReset();
-  storage.clear();
-  opened = null;
-  vi.stubGlobal("window", {
-    sessionStorage: {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => void storage.set(key, value),
-    },
-  });
-});
-afterEach(() => vi.unstubAllGlobals());
-
-const mount = (autoOpen?: boolean) => {
-  let renderer: ReactTestRenderer | undefined;
-  act(() => {
-    renderer = create(<Probe autoOpen={autoOpen} />);
-  });
-  return renderer!;
-};
-
-it("surfaces a newly seen decision once", () => {
-  const renderer = mount();
-  expect(opened).toBe(true);
-  act(() => renderer.unmount());
+it('loads a question without session storage or an opened-dialog state', () => {
+  const storage = { getItem: vi.fn(), setItem: vi.fn() };
+  vi.stubGlobal('window', { sessionStorage: storage });
+  act(() => { renderer = create(<Probe />); });
+  expect(session.pendingReply.id).toBe('reviewer-t1');
+  expect(session).not.toHaveProperty('pendingReplyOpen');
+  expect(storage.getItem).not.toHaveBeenCalled();
+  expect(storage.setItem).not.toHaveBeenCalled();
 });
 
-it("stays quiet when the view opts out of auto-open", () => {
-  const renderer = mount(false);
-  expect(opened).toBe(false);
-  expect([...storage.keys()]).toEqual([]);
-  act(() => renderer.unmount());
-});
-
-it("does not re-open the same decision after a reload", () => {
-  const first = mount();
-  expect(opened).toBe(true);
-  act(() => first.unmount());
-
-  const second = mount();
-  expect(opened).toBe(false);
-  act(() => second.unmount());
-});
-
-it("auto-opens and answers the current task instead of an older unresolved provider question", async () => {
-  const pending = [
-    { id: 'old', status: 'paused_operator', operator_decision: {
-      id: 'decision-old', item_id: 'old', status: 'pending', title: 'Old planner question',
-      question: 'Recorded 429: trial_tpm_exceeded',
-    } },
-    { id: 'current', status: 'paused_operator', operator_decision: {
-      id: 'decision-current', item_id: 'current', status: 'pending', title: 'Submission facts',
-      question: 'Supply real author details',
-    } },
-  ];
-  const unchanged = JSON.stringify(pending);
-  const refetch = vi.fn(async () => {});
-  let session: ReturnType<typeof usePendingReplySession>;
-  function CurrentProbe() {
-    session = usePendingReplySession({
-      activeSid: 's-1', currentTaskId: 'current', backlog: [], pendingQuestions: pending,
-      notify: vi.fn(), refetchSnapshot: refetch,
-    });
-    return null;
-  }
-  let renderer: ReactTestRenderer;
-  act(() => { renderer = create(<CurrentProbe />); });
-  expect(session!.pendingReplyOpen).toBe(true);
-  expect(session!.pendingReply?.id).toBe('decision-current');
-  expect(api.resolveDecision).not.toHaveBeenCalled();
-  vi.mocked(api.resolveDecision).mockResolvedValue({ resolved: true, reply: 'Recorded' });
-  await act(async () => { await session!.answerPendingReply('custom', 'Author facts for this task'); });
-  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('s-1', 'decision-current', 'custom', 'Author facts for this task');
-  expect(JSON.stringify(pending)).toBe(unchanged);
-  expect(refetch).toHaveBeenCalledOnce();
-  act(() => renderer!.unmount());
-});
-
-const taskQuestions = ['a', 'b'].map(id => ({
-  id, title: `Task ${id}`, status: 'paused_operator',
-  operator_decision: {
-    id: `decision-${id}`, item_id: id, status: 'pending',
-    title: `Task ${id}`, question: `Question for task ${id}`,
-  },
-}));
-let taskSession: ReturnType<typeof usePendingReplySession>;
-function TaskProbe({ currentTaskId, autoOpen = true, activeSid = 's-1', loaded = true, questions = taskQuestions }: {
-  currentTaskId: string;
-  autoOpen?: boolean;
-  activeSid?: string;
-  loaded?: boolean;
-  questions?: Array<Record<string, unknown>>;
-}) {
-  taskSession = usePendingReplySession({
-    activeSid, currentTaskId, autoOpen, backlog: loaded ? [] : undefined,
-    pendingQuestions: loaded ? questions : undefined,
-    notify: () => {}, refetchSnapshot: async () => {},
-  });
-  return <PendingReplyDialog
-    reply={taskSession.pendingReply} open={taskSession.pendingReplyOpen} busy={taskSession.pendingReplyBusy}
-    onClose={() => taskSession.setPendingReplyOpen(false)} onSubmit={taskSession.answerPendingReply}
-  />;
-}
-
-it('keeps the open question and draft when the current task changes, then opens the current task next', () => {
-  let renderer: ReactTestRenderer;
-  act(() => { renderer = create(<TaskProbe currentTaskId="a" autoOpen={false} />); });
-  act(() => taskSession.setPendingReplyOpen(true));
-  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'My answer for task a' } }));
-
-  act(() => renderer!.update(<TaskProbe currentTaskId="b" autoOpen={false} />));
-  expect(taskSession.pendingReply?.id).toBe('decision-a');
-  expect(renderer!.root.findByType('textarea').props.value).toBe('My answer for task a');
-
-  act(() => taskSession.setPendingReplyOpen(false));
-  expect(taskSession.pendingReplyOpen).toBe(false);
-  act(() => taskSession.setPendingReplyOpen(true));
-  expect(taskSession.pendingReply?.id).toBe('decision-b');
-  expect(renderer!.root.findByType('textarea').props.value).toBe('');
-  act(() => renderer!.unmount());
-});
-
-it('finishes the displayed task before auto-opening the next current question, once per tab', async () => {
-  let finish!: (result: Awaited<ReturnType<typeof api.resolveDecision>>) => void;
+it('delivers once to the displayed asker and names that role even when the next project opens', async () => {
+  let finish!: (value: { resolved: boolean }) => void;
   vi.mocked(api.resolveDecision).mockReturnValue(new Promise(resolve => { finish = resolve; }));
-  let renderer: ReactTestRenderer;
-  act(() => { renderer = create(<TaskProbe currentTaskId="a" />); });
-  let answer!: Promise<void>;
-  act(() => { answer = taskSession.answerPendingReply('custom', 'Answer for a'); });
-  act(() => renderer!.update(<TaskProbe currentTaskId="b" />));
-  expect(taskSession.pendingReply?.id).toBe('decision-a');
-  expect(taskSession.pendingReplyOpen).toBe(true);
-  expect(taskSession.pendingReplyBusy).toBe(true);
-
-  await act(async () => { finish({ resolved: true, reply: 'Recorded' }); await answer; });
-  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('s-1', 'decision-a', 'custom', 'Answer for a');
-  expect(taskSession.pendingReply?.id).toBe('decision-b');
-  expect(taskSession.pendingReplyOpen).toBe(true);
-  expect(taskSession.pendingReplyBusy).toBe(false);
-
-  act(() => taskSession.setPendingReplyOpen(false));
-  act(() => renderer!.update(<TaskProbe currentTaskId="b" />));
-  expect(taskSession.pendingReplyOpen).toBe(false);
-  act(() => renderer!.unmount());
-  act(() => { renderer = create(<TaskProbe currentTaskId="b" />); });
-  expect(taskSession.pendingReplyOpen).toBe(false);
-  act(() => renderer!.unmount());
+  act(() => { renderer = create(<Probe />); });
+  let answer!: Promise<boolean>;
+  act(() => { answer = session.answerPendingReply('  Use the small dataset  '); });
+  expect(await session.answerPendingReply('duplicate')).toBe(false);
+  act(() => renderer.update(<Probe sid="p-two" pending={[questions[1]]} />));
+  await act(async () => { finish({ resolved: true }); expect(await answer).toBe(true); });
+  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('p-one', 'reviewer-t1', 'custom', 'Use the small dataset');
+  expect(notify).toHaveBeenCalledWith('success', 'Answer delivered to the Reviewer.');
+  expect(refetchSnapshot).toHaveBeenCalledOnce();
+  expect(session.pendingReply.id).toBe('engineer-t1');
 });
 
-it('does not close another project’s newly opened dialog when the previous answer finishes', async () => {
-  let finish!: (result: Awaited<ReturnType<typeof api.resolveDecision>>) => void;
-  vi.mocked(api.resolveDecision).mockReturnValue(new Promise(resolve => { finish = resolve; }));
-  let renderer: ReactTestRenderer;
-  act(() => { renderer = create(<TaskProbe currentTaskId="a" autoOpen={false} />); });
-  act(() => taskSession.setPendingReplyOpen(true));
-  let answer!: Promise<void>;
-  act(() => { answer = taskSession.answerPendingReply('custom', 'Answer for a'); });
-
-  act(() => renderer!.update(<TaskProbe currentTaskId="b" activeSid="s-2" autoOpen={false} />));
-  expect(taskSession.pendingReplyOpen).toBe(false);
-  act(() => taskSession.setPendingReplyOpen(true));
-  expect(taskSession.pendingReply?.id).toBe('decision-b');
-
-  await act(async () => { finish({ resolved: true, reply: 'Recorded' }); await answer; });
-  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('s-1', 'decision-a', 'custom', 'Answer for a');
-  expect(taskSession.pendingReply?.id).toBe('decision-b');
-  expect(taskSession.pendingReplyOpen).toBe(true);
-  act(() => renderer!.unmount());
+it('keeps API errors visible and never claims the answer was delivered', async () => {
+  vi.mocked(api.resolveDecision).mockRejectedValue(new Error('Connection refused'));
+  act(() => { renderer = create(<Probe />); });
+  await act(async () => { expect(await session.answerPendingReply('Use UTF-8')).toBe(false); });
+  expect(session.pendingReplyError).toBeTruthy();
+  expect(session.pendingReplyBusy).toBe(false);
+  expect(notify).not.toHaveBeenCalled();
+  expect(await session.answerPendingReply('   ')).toBe(false);
+  expect(api.resolveDecision).toHaveBeenCalledOnce();
 });
 
-it('keeps the open question and draft while snapshot data is temporarily unavailable', () => {
-  let renderer: ReactTestRenderer;
-  act(() => { renderer = create(<TaskProbe currentTaskId="a" autoOpen={false} />); });
-  act(() => taskSession.setPendingReplyOpen(true));
-  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Keep this draft' } }));
-
-  act(() => renderer!.update(<TaskProbe currentTaskId="a" autoOpen={false} loaded={false} />));
-  expect(taskSession.pendingReplyOpen).toBe(true);
-  expect(taskSession.pendingReply?.id).toBe('decision-a');
-  expect(renderer!.root.findByType('textarea').props.value).toBe('Keep this draft');
-  act(() => renderer!.update(<TaskProbe currentTaskId="a" autoOpen={false} />));
-  expect(renderer!.root.findByType('textarea').props.value).toBe('Keep this draft');
-  act(() => renderer!.unmount());
-});
-
-it('closes a question removed by a loaded snapshot and uses the remaining task on the next open', () => {
-  let renderer: ReactTestRenderer;
-  act(() => { renderer = create(<TaskProbe currentTaskId="a" autoOpen={false} />); });
-  act(() => taskSession.setPendingReplyOpen(true));
-
-  act(() => renderer!.update(<TaskProbe currentTaskId="b" autoOpen={false} questions={[taskQuestions[1]]} />));
-  expect(taskSession.pendingReplyOpen).toBe(false);
-  expect(renderer!.root.findAllByType('textarea')).toHaveLength(0);
-  act(() => taskSession.setPendingReplyOpen(true));
-  expect(taskSession.pendingReply?.id).toBe('decision-b');
-
-  act(() => renderer!.update(<TaskProbe currentTaskId="b" autoOpen={false} questions={[]} />));
-  expect(taskSession.pendingReplyOpen).toBe(false);
-  expect(taskSession.pendingReply).toBeNull();
-  act(() => renderer!.unmount());
-});
-
-it('opens an intake on the map, submits its typed choice once, and retains the draft on failure', async () => {
-  const questions = [{ operator_decision: {
-    id: 'intake-new', kind: 'domain_intake', item_id: '', status: 'pending',
-    title: 'Choose how to proceed', task_title: 'Interpret a calendar date', question: 'How should I proceed?',
-    options_source: 'workflow', options: [
-      { id: 'direct', label: 'Do it directly' },
-      { id: 'build', label: 'Build a specialist workflow' },
-    ],
-  } }];
-  let finish!: (value: { kind: string; reply: string }) => void;
-  vi.mocked(api.answerDomain).mockReturnValue(new Promise(resolve => { finish = resolve; }));
-  let renderer: ReactTestRenderer;
-  act(() => { renderer = create(<TaskProbe currentTaskId="" autoOpen={false} questions={questions} />); });
-  expect(taskSession.pendingReplyOpen).toBe(true);
-  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: 'Include sources' } }));
-  // One click on the choice sends it with the details; a second click sends nothing more.
-  const build = renderer!.root.findAllByType('button').find(b => b.props.children?.[0]?.props?.children === 'Build a specialist workflow')!;
-  act(() => { build.props.onClick(); build.props.onClick(); });
-  expect(api.answerDomain).toHaveBeenCalledExactlyOnceWith('s-1', 'intake-new', 'build', 'Include sources');
-  expect(api.resolveDecision).not.toHaveBeenCalled();
-  expect(taskSession.pendingReplyBusy).toBe(true);
-  act(() => renderer!.update(<TaskProbe currentTaskId="" autoOpen={false} questions={[]} />));
-  expect(taskSession.pendingReplyOpen).toBe(true);
-  expect(renderer!.root.findByType('textarea').props.value).toBe('Include sources');
-  act(() => renderer!.update(<TaskProbe currentTaskId="" autoOpen={false} questions={questions} />));
-  await act(async () => {
-    finish({ kind: 'error', reply: 'Temporary failure' });
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
-  expect(taskSession.pendingReplyOpen).toBe(true);
-  expect(taskSession.pendingReplyError).toBe('No reply was received. Your message has been kept; check the backend settings and retry.');
-  expect(renderer!.root.findByType('textarea').props.value).toBe('Include sources');
-  act(() => renderer!.unmount());
+it('keeps the answer draft through a view rerender and clears it when its question changes', () => {
+  act(() => { renderer = create(<Probe />); });
+  act(() => session.setPendingReplyNote('Keep this answer while I inspect the map'));
+  act(() => renderer.update(<Probe />));
+  expect(session.pendingReplyNote).toBe('Keep this answer while I inspect the map');
+  act(() => renderer.update(<Probe pending={[questions[1]]} />));
+  expect(session.pendingReplyNote).toBe('');
 });

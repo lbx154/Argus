@@ -36,7 +36,7 @@ describe('file reading experience', () => {
 
   it('expands only on explicit file selection, not when rendering', () => {
     const onOpenFile = vi.fn();
-    const file: ArtifactInfo = { path: 'preview.pdf', name: 'preview.pdf', exists: true, source: 'delivery', kind: 'pdf', mime: 'application/pdf', size: 100, mtime: 1, why: 'fixture' };
+    const file: ArtifactInfo = { path: 'preview.pdf', name: 'preview.pdf', source: 'delivery', kind: 'pdf', mime: 'application/pdf', size: 100, mtime: 1, };
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(createElement(ResearchCanvas, {
       sid: 'fixture', artifacts: [file], onExpand: vi.fn(), onOpenFile, deliveriesLoaded: true,
@@ -52,10 +52,10 @@ describe('following the newest delivery', () => {
   it('keeps the chosen file while older deliveries load, and follows one made after opening by the server clock alone', () => {
     const stored = new Map([['argus.preview.file.v1:s', 'chosen.md']]);
     vi.stubGlobal('localStorage', { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value) });
-    const artifact = (path: string): ArtifactInfo => ({ path, name: path, exists: true, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1, why: 'fixture' });
+    const artifact = (path: string): ArtifactInfo => ({ path, name: path, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1, });
     const receipt = (id: string, path: string, deliveredAt: number) => ({
       schema_version: 1, delivery_id: id, kind: 'task_completed', item_id: id, title: id, summary: '', status: 'done', review_status: 'done',
-      delivered_at: deliveredAt, primary_target: { path, label: path, source: 'solo_output', why: '' }, targets: [{ path, label: path, source: 'solo_output', why: '' }],
+      delivered_at: deliveredAt, primary_target: { path, label: path, source: 'solo_output', }, targets: [{ path, label: path, source: 'solo_output', }],
     }) as unknown as DeliveryReceipt;
     const props = { sid: 's', filesFirst: true, artifacts: ['chosen.md', 'old-a.md', 'old-b.md', 'new.md'].map(artifact), onExpand: vi.fn() };
     let renderer!: ReturnType<typeof create>;

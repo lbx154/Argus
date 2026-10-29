@@ -15,11 +15,6 @@ import {
   slashMenuVisibleRows,
   slashMenuWindow,
 } from '../src/components/SlashMenu.js';
-import {
-  daemonReplacementInputIntent,
-  DaemonReplacementPicker,
-  type DaemonReplacementState,
-} from '../src/components/DaemonReplacementPicker.js';
 import { CostGauge } from '../src/components/CostGauge.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
 import type { EventMsg, ResourceStatus, Snapshot, StatusView, UsageSummary } from '../src/api.js';
@@ -100,8 +95,8 @@ test('60-column daemon picker keeps the focused row and switch hint visible', as
     kind: 'daemons',
     selection: 1,
     data: [
-      { id: 's-live', label: 'Live paper', objective: '', last_active: 2, daemon_alive: true, daemon_pid: 42, uptime_seconds: 3 },
-      { id: 's-old', label: 'Old run', objective: '', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+      { workdir: '/work', id: 's-live', label: 'Live paper', last_active: 2, daemon_alive: true, daemon_pid: 42, },
+      { workdir: '/work', id: 's-old', label: 'Old run', last_active: 1, daemon_alive: false, daemon_pid: null, },
     ],
   }, 60);
   assert.match(output, /› ○ s-old/);
@@ -109,17 +104,17 @@ test('60-column daemon picker keeps the focused row and switch hint visible', as
   assert.ok(output.split('\n').every((line) => Array.from(line).length <= 60));
 });
 
-test('daemon picker filters by objective and exposes search/new shortcuts', async () => {
+test('daemon picker filters by name and exposes search/new shortcuts', async () => {
   const output = await renderPanel({
     kind: 'daemons',
-    query: 'recursive live',
+    query: 'kernel live',
     selection: 0,
     data: [
-      { id: 's-kernel', label: 'Kernel paper', objective: 'Reproduce recursive kernel benchmark', last_active: 2, daemon_alive: true, daemon_pid: 42, uptime_seconds: 3 },
-      { id: 's-vision', label: 'Vision notes', objective: 'Review datasets', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+      { workdir: '/work', id: 's-kernel', label: 'Kernel paper', last_active: 2, daemon_alive: true, daemon_pid: 42, },
+      { workdir: '/work', id: 's-vision', label: 'Vision notes', last_active: 1, daemon_alive: false, daemon_pid: null, },
     ],
   }, 60);
-  assert.match(output, /recursive live/);
+  assert.match(output, /kernel live/);
   assert.match(output, /Kernel paper/);
   assert.doesNotMatch(output, /Vision notes/);
   assert.match(output, /\/ search · n new/);
@@ -128,7 +123,7 @@ test('daemon picker filters by objective and exposes search/new shortcuts', asyn
 
 test('artifact list and text preview render at narrow terminal widths', async () => {
   const artifact = {
-    path: 'paper/result.md', name: 'result.md', why: 'reviewed output', exists: true,
+    path: 'paper/result.md', name: 'result.md',
     kind: 'text' as const, mime: 'text/markdown', size: 1536, mtime: 1,
     preview: '# Result\nAccuracy 78.9%\nNo leakage detected', truncated: false,
   };
@@ -251,7 +246,7 @@ test('operator decision prompt never fabricates choices when the agent supplied 
 
 test('operations panel owns cost, pid, backend, and model details', async () => {
   const snap = {
-    session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
+    session: { id: 's-ops', display_name: '', objective: '', last_active: 0, workdir: '' },
     daemon: {
       alive: true, pid: 42, uptime_seconds: 600, backend: 'copilot', backend_label: 'Copilot',
     },
@@ -302,67 +297,6 @@ test('status panel renders degraded resource status', async () => {
   assert.match(output, /CUDA\s+degraded · 1 devices/);
   assert.match(output, /could not parse one telemetry row/);
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 70));
-});
-
-test('daemon replacement picker shows running work and state-preservation promise', async () => {
-  const output = await renderNode(
-    React.createElement(DaemonReplacementPicker, {
-      width: 100,
-      state: {
-        targetProject: 's-new',
-        running: [{
-          id: 's-old',
-          label: 'Long benchmark',
-          objective: '',
-          last_active: 1,
-          daemon_alive: true,
-          daemon_pid: 42,
-          uptime_seconds: 120,
-          active_role: 'engineer',
-          activity: 'running held-out benchmark',
-        }],
-        limit: 1,
-        activeCount: 1,
-        selection: 0,
-        resumeContinuous: false,
-        busy: false,
-        error: '',
-      },
-    }),
-    100,
-  );
-  assert.match(output, /Concurrent work limit reached/);
-  assert.match(output, /Long benchmark/);
-  assert.match(output, /running held-out benchmark/);
-  assert.match(output, /checkpoints, skills, and wiki stay/);
-  assert.match(output, /saved\./);
-});
-
-test('daemon replacement modal gives Ctrl-C/Ctrl-D exit priority even while busy', () => {
-  const state: DaemonReplacementState = {
-    targetProject: 's-new',
-    running: [],
-    limit: 1,
-    activeCount: 1,
-    selection: 0,
-    resumeContinuous: false,
-    busy: true,
-    error: '',
-  };
-
-  assert.equal(
-    daemonReplacementInputIntent(state, 'c', { ctrl: true, return: true }),
-    'exit',
-  );
-  assert.equal(
-    daemonReplacementInputIntent(state, 'd', { ctrl: true, downArrow: true }),
-    'exit',
-  );
-  assert.equal(daemonReplacementInputIntent(state, '', { return: true }), null);
-  assert.equal(
-    daemonReplacementInputIntent({ ...state, busy: false }, '', { return: true }),
-    'replace',
-  );
 });
 
 const usageSummary = (overrides: Partial<UsageSummary> = {}): UsageSummary => ({
@@ -558,7 +492,7 @@ test('final Planner delivery wraps instead of truncating its tail', async () => 
 
 test('24-row operations panel stays below Ink full-screen clear threshold', async () => {
   const snap = {
-    session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
+    session: { id: 's-ops', display_name: '', objective: '', last_active: 0, workdir: '' },
     daemon: {
       alive: false, pid: null, uptime_seconds: null, backend: 'copilot', backend_label: 'Copilot',
     },
@@ -694,7 +628,7 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   assert.ok(task.split('\n').every((line) => Array.from(line).length <= 60));
 
   const snap = {
-    session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
+    session: { id: 's', display_name: '', objective: '', last_active: 0, workdir: '' },
     daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
     roles: [], backlog: [item, { ...item, id: 'done-1', title: 'Old result', status: 'done' }],
   } as Snapshot;

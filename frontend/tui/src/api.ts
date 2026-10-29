@@ -6,7 +6,6 @@ import type {
   ArtifactInfo,
   BacklogItem,
   Daemon,
-  DaemonAdmission,
   EventMsg,
   ProjectRow,
   Role,
@@ -30,7 +29,6 @@ export type {
   ArtifactInfo,
   BacklogItem,
   Daemon,
-  DaemonAdmission,
   EventMsg,
   ProjectRow,
   Role,
@@ -163,10 +161,8 @@ export interface CreatedDaemon {
   spawned: boolean;
   daemon: Daemon;
   objective: string;
-  start?: DaemonStartResult;
   command_id?: string;
   command_status?: string;
-  command_revision?: number;
 }
 
 export interface PlanPreview {
@@ -184,20 +180,12 @@ export interface PromptRewrite {
   error: string;
 }
 
-export interface DaemonStartResult extends Partial<DaemonAdmission> {
+export interface DaemonStartResult {
   rc: number;
-  already_alive?: boolean;
   error?: string;
   daemon?: Daemon;
-  admission_required?: boolean;
-  limit?: number;
-  active_count?: number;
-  running_daemons?: ProjectRow[];
-  parked_session?: string;
-  parked_state?: string;
   command_id?: string;
   command_status?: string;
-  command_revision?: number;
 }
 
 /** One decoded SSE frame from the streaming Manager endpoint. */
@@ -217,9 +205,6 @@ export interface StreamDone {
 
 export function taskDispatchMessage(result: StreamDone): string {
   const title = result.item?.title || 'new mission';
-  if (result.daemon?.admission_required) {
-    return `→ queued: choose one running session to park before starting ${title}`;
-  }
   if (result.daemon && result.daemon.rc !== 0) {
     return `→ queued but not running: ${result.daemon.error || 'background executor failed to start'}`;
   }
@@ -331,13 +316,12 @@ export class ApiClient {
     const payload: Record<string, unknown> = {
         objective,
         name,
-        launch_cwd: launchCwd,
         command_id: commandId,
         expected_revision: expectedRevision,
     };
     if (executionWorkdir) payload.workdir = executionWorkdir;
     const body = JSON.stringify(payload);
-    const send = () => fetch(`${this.httpBase}${path}`, {
+    const r = await fetch(`${this.httpBase}${path}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -346,51 +330,10 @@ export class ApiClient {
       },
       body,
     });
-    let r = await send();
-    if (
-      r.status === 400
-      && /Invalid HTTP request received/i.test(await r.clone().text())
-    ) {
-      r = await send();
-    }
     await ensureResponseOk(r, 'POST', path);
     return (await r.json()) as CreatedDaemon;
   }
 
-  async replaceDaemon(
-    victimSid: string,
-    resumeContinuous = false,
-    expectedRevision?: number,
-    commandId = randomUUID(),
-  ): Promise<DaemonStartResult> {
-    const result = await this.post('/daemon/replace', {
-      victim_sid: victimSid,
-      resume_continuous: resumeContinuous,
-      command_id: commandId,
-      expected_revision: expectedRevision,
-    });
-    return result as unknown as DaemonStartResult;
-  }
-
-  async scheduleDaemonUpgrade(
-    project: string,
-    expectedRevision?: number,
-    commandId = randomUUID(),
-  ): Promise<Record<string, unknown>> {
-    const path = `/api/projects/${encodeURIComponent(project)}/daemon/upgrade-schedule`;
-    const r = await fetch(`${this.httpBase}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({
-        command_id: commandId,
-        expected_revision: expectedRevision,
-      }),
-    });
-    await ensureResponseOk(r, 'POST', path);
-    return (await r.json()) as Record<string, unknown>;
-  }
-
-  /** Gracefully stop this session's background executor (never force-kill). */
   stopDaemon(commandId = randomUUID()): Promise<Record<string, unknown>> {
     const path = '/daemon/stop';
     return requestWithTimeout(
@@ -416,26 +359,6 @@ export class ApiClient {
         return result;
       },
     );
-  }
-
-  async setProjectLaunchCwd(project: string, launchCwd: string): Promise<void> {
-    const path = `/api/projects/${encodeURIComponent(project)}/launch-cwd`;
-    const r = await fetch(`${this.httpBase}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({ launch_cwd: launchCwd }),
-    });
-    await ensureResponseOk(r, 'POST', path);
-  }
-
-  async setProjectWorkdir(project: string, workdir: string): Promise<void> {
-    const path = `/api/projects/${encodeURIComponent(project)}/workdir`;
-    const r = await fetch(`${this.httpBase}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify({ workdir }),
-    });
-    await ensureResponseOk(r, 'POST', path);
   }
 
   async renameProject(name: string): Promise<{ ok: boolean; sid: string; name: string }> {

@@ -1,6 +1,6 @@
 import type { MessageRouteOverride } from '../api';
 import type { MapSend } from './submission';
-import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import { ArrowUp, Check, ChevronDown, CornerDownLeft, Paperclip, X } from "lucide-react";
 import { applicationBrand } from "../applicationBrand";
 import { referenceText, splitDraft } from "./presentation";
@@ -8,7 +8,6 @@ import { useI18n } from "../i18n";
 import {
   addComposerFiles,
   extractFilesFromDataTransfer,
-  MESSAGE_ATTACHMENT_ACCEPT,
   MESSAGE_TEXT_MAX_CHARS,
 } from "../lib/attachments";
 import { formatBytes } from "../lib/format";
@@ -21,12 +20,14 @@ import "./composerMotion.css";
 
 export interface MapComposerProps {
   footer?: ReactNode;
+  before?: ReactNode;
   value: string;
   onChange: (text: string) => void;
   onSend: MapSend;
   attachments: File[];
   onAttachmentsChange: (files: File[]) => void;
   pending: boolean;
+  rewriting?: boolean;
   pendingLabel?: string;
   progressVisible?: boolean;
   dispatchStatus?: "launching" | "task" | "message" | "error" | "cancelled";
@@ -49,12 +50,14 @@ function desktopPointer(): boolean {
 
 export function MapComposer({
   footer,
+  before,
   value,
   onChange,
   onSend,
   attachments,
   onAttachmentsChange,
   pending,
+  rewriting = false,
   pendingLabel,
   progressVisible = true,
   dispatchStatus,
@@ -107,7 +110,7 @@ export function MapComposer({
       const target = (event.type === "focusout" ? event.relatedTarget : event.target) as Element | null;
       // Tabbing to the closed island should announce its button, not open it.
       // The brand button also keeps the editor open while picking a file.
-      if (target?.closest?.(".map-island-launch, .map-composer-brand")) return;
+      if (target?.closest?.("[data-pending-question], .map-island-launch, .map-composer-brand")) return;
       if (dock.current?.contains(target)) setExpanded(true);
       else if (!currentDraft.current) setExpanded(false);
     };
@@ -189,7 +192,8 @@ export function MapComposer({
       window.matchMedia("(hover: hover) and (pointer: fine)").matches,
   );
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
-  const hoverEnter = () => {
+  const hoverEnter = (event?: ReactPointerEvent<HTMLDivElement>) => {
+    if ((event?.target as Element | undefined)?.closest?.("[data-pending-question]")) return;
     if (!hoverCapable.current) return;
     clearTimeout(hoverTimer.current);
     setExpanded(true);
@@ -207,7 +211,7 @@ export function MapComposer({
   const submit = async () => {
     // One send at a time: a second Enter before the first is confirmed must
     // not queue a duplicate turn.
-    if (!text.trim() || submitting.current || tooLong) return;
+    if (rewriting || !text.trim() || submitting.current || tooLong) return;
     const whileRunning = pending;
     if (whileRunning && attachments.length) {
       setAttachmentNotice(zh ? "附件要等这条回复结束后再发送" : "Attachments can be sent once this reply finishes");
@@ -232,13 +236,11 @@ export function MapComposer({
   };
   const addFiles = (files: File[]) => {
     if (pending || submitting.current || !files.length) return;
-    const { accepted, issues } = addComposerFiles(attachments, files);
+    const { accepted, issues } = addComposerFiles([...attachments, ...(uploads?.ready ?? []).map(file => ({ name: file.original_name, size: file.size_bytes, type: file.mime }))], files, uploads?.limits);
     onAttachmentsChange([...attachments, ...accepted]);
     setAttachmentNotice(
       issues
         .map((issue) => {
-          if (issue.code === "unsupported")
-            return t("chat.attachUnsupported", { name: issue.fileName });
           if (issue.code === "too-large")
             return t("chat.attachTooLarge", {
               name: issue.fileName,
@@ -291,6 +293,7 @@ export function MapComposer({
         if (event.target === dock.current && event.propertyName === "width") resizeInput();
       }}
     >
+      {before}
       {!compact && refs.length > 0 && (
         <div className="map-reference-chips">
           {refs.map((ref, i) => (
@@ -399,7 +402,7 @@ export function MapComposer({
             ref={fileInput}
             type="file"
             multiple
-            accept={MESSAGE_ATTACHMENT_ACCEPT}
+
             hidden
             disabled={pending}
             onChange={(event) => {
@@ -446,7 +449,7 @@ export function MapComposer({
             <button
               type="submit"
               tabIndex={compact ? -1 : 0}
-              disabled={!text.trim() || tooLong}
+              disabled={rewriting || !text.trim() || tooLong}
               aria-label={pending
                 ? (zh ? `在 ${applicationBrand().name} 工作时发送` : `Send while ${applicationBrand().name} works`)
                 : (zh ? "发送消息" : "Send message")}

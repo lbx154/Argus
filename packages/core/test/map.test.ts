@@ -61,9 +61,9 @@ test('map polling reads only appended bytes while task state and each reader’s
   assert.equal(asking.pending_question, '现在交付？');
   project.questions = [];
   project.tasks = [{ ...task, holder: 'reviewer', status: 'closed' }];
-  fs.appendFileSync(path, JSON.stringify({ ts, type: 'task.closed', task: 't1' }) + '\n');
+  fs.appendFileSync(path, JSON.stringify({ ts, type: 'handoff', task: 't1', role: 'reviewer', to: 'manager', letter: 'Accepted.', open: ['report.md'] }) + '\n' + JSON.stringify({ ts, type: 'task.closed', task: 't1' }) + '\n');
   const done = progressMap(store, project, 3);
-  assert.equal(done.cursor, '4');
+  assert.equal(done.cursor, '5');
   assert.equal(done.tasks[0]!.status, 'done');
   assert.deepEqual(done.tasks[0]!.result_paths, ['report.md']);
   assert.equal(done.tasks[0]!.finished_ts, Date.parse(ts) / 1000);

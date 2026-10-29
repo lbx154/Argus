@@ -45,7 +45,7 @@ describe("task submap evidence", () => {
     expect([round.kind, round.status, round.eventIds]).toEqual(["execution", "manager", ["e2", "e3", "e4"]]);
   });
 
-  it("shows a letter as who wrote it to whom, in its own words", () => {
+  it("shows team letters in their own words and leaves questions at the composer", () => {
     const rows = buildSubmap(task, [
       event("e1", "handoff", { role: "engineer", to: "reviewer", text: "Report written. See report.md." }),
       event("e2", "handoff", { role: "reviewer", to: "operator", text: "Ship it?" }),
@@ -53,7 +53,7 @@ describe("task submap evidence", () => {
     const by = (id: string) => rows.find((row) => row.id === id)!;
     expect([by("e1").kind, by("e1").title, by("e1").summary, by("e1").detail])
       .toEqual(["execution", "工程师 → 审阅者", "Report written.", "Report written. See report.md."]);
-    expect([by("e2").kind, by("e2").title, by("e2").status]).toEqual(["review", "审阅者 → 你", "recorded"]);
+    expect(rows.some(row => row.id === "e2")).toBe(false);
   });
 
   it("shows the question, its answer, remarks, direction and why the work paused", () => {
@@ -280,9 +280,9 @@ describe("connected maps with stable bounds", () => {
       expect(p.y + 180).toBeLessThanOrEqual(layout.height - 48);
     }
     const frame = frameForSubmap(layout);
-    expect(frame.width / frame.height).toBeCloseTo(
-      layout.width / layout.height,
-    );
+    expect(frame).toMatchObject({ width: 1440, height: 1080 });
+    expect(layout.width * frame.scale).toBeLessThanOrEqual(frame.width);
+    expect(layout.height * frame.scale).toBeLessThanOrEqual(frame.height);
     expect(
       frame.height -
         Math.max(
@@ -290,7 +290,7 @@ describe("connected maps with stable bounds", () => {
             (p) => (p.y + 180) * frame.scale,
           ),
         ),
-    ).toBeCloseTo(48 * frame.scale);
+    ).toBeGreaterThanOrEqual(48 * frame.scale - .001);
   });
   it("uses the true macro bounds for focus hit testing", () => {
     expect(
@@ -330,7 +330,7 @@ it("shows the result prose without runner-control fields", () => {
   ).toBe("完成 200 个独立种子。");
 });
 
-it("reuses geometry for streaming prose while recalculating changed content bounds", () => {
+it("keeps overview geometry fixed while detail content grows", () => {
   const graph = buildMap([task]);
   const first = layoutScene(graph, [], true);
   const prose = layoutScene(
@@ -344,8 +344,9 @@ it("reuses geometry for streaming prose while recalculating changed content boun
     event(`new-${i}`, "round.start", { round_index: i + 1 }),
   );
   const expanded = layoutScene(graph, rounds, true, prose);
-  expect(expanded.positions).not.toBe(prose.positions);
-  expect(expanded.frames[task.id]).not.toEqual(first.frames[task.id]);
+  expect(expanded.positions).toBe(prose.positions);
+  expect(expanded.frames[task.id]).toMatchObject({ width: 1440, height: 1080 });
+  expect(expanded.allCards.length).toBeGreaterThan(first.allCards.length);
 });
 
 describe("work segments and single-agent turns", () => {
@@ -392,14 +393,14 @@ describe("work segments and single-agent turns", () => {
   });
 
   it("lays out a single-agent turn as ask, work and answer", () => {
-    const turn: MapTask = { id: "turn:web-1", kind: "turn", title: "README 有几行？", objective: "README 有几行？", status: "done", deps: [], role: "manager" };
+    const turn: MapTask = { id: "turn:web-1", turn_kind: "qa", title: "README 有几行？", objective: "README 有几行？", status: "done", deps: [], role: "manager" };
     const steps = buildSubmap(turn, [
       { ...event("turn:web-1:work", "work.segment", { item_id: "turn:web-1", role: "manager" }), text: "",
         steps: [{ kind: "command_execution", label: "$ wc -l README.md", ts: 10, tool: "Count README lines", status: "completed" }] },
       { ...event("turn:web-1:reply", "turn.replied", { item_id: "turn:web-1", role: "manager", status: "done" }), text: "一行。" },
     ], true);
     expect(steps.map((step) => [step.kind, step.title])).toEqual([
-      ["plan", "你提出的要求"],
+      ["plan", "你提出的问题"],
       ["execution", "Argus 动手查证"],
       ["result", "Argus 的回答"],
     ]);
@@ -521,7 +522,7 @@ it("heads each step column with the round of work it holds", () => {
 });
 
 it('shows question and answer without inventing work or review stages', () => {
-  const task: MapTask = { id: 'qa', title: 'How is SFT trained?', objective: 'How is SFT trained?', status: 'done', deps: [], kind: 'turn', turn_kind: 'qa' };
+  const task: MapTask = { id: 'qa', title: 'How is SFT trained?', objective: 'How is SFT trained?', status: 'done', deps: [], turn_kind: 'qa' };
   const rows = buildSubmap(task, [{ id: 'answer', item_id: 'qa', type: 'turn.replied', ts: 5, text: 'Train on verified trajectories.' }], true);
   expect(rows.map(row => row.kind)).toEqual(['plan', 'result']);
   expect(rows[1].detail).toBe('Train on verified trajectories.');
@@ -531,7 +532,7 @@ it('shows question and answer without inventing work or review stages', () => {
 });
 
 it("stacks a short card into one column on a narrow canvas so the answer is not cut off", () => {
-  const task: MapTask = { id: "qa", title: "在吗?", objective: "在吗?", status: "done", deps: [], kind: "turn", turn_kind: "qa" };
+  const task: MapTask = { id: "qa", title: "在吗?", objective: "在吗?", status: "done", deps: [], turn_kind: "qa" };
   const rows = [{ id: "answer", item_id: "qa", type: "turn.replied", ts: 5, text: "在的，你说。" }] as MapEvent[];
   const wide = layoutSubmap(task, rows, true);
   const narrow = layoutSubmap(task, rows, true, undefined, 0, true);

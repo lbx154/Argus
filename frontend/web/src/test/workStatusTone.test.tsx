@@ -7,7 +7,7 @@ import { WorkStatusBar } from '../components/WorkStatusBar';
 describe('status dot tone', () => {
   it('shows a running dot, not "waiting for you", while the team backs off and retries', () => {
     const snapshot = {
-      session: { id: 's-research', display_name: 'Research', objective: '', cwd: '/workspace', last_active: 100 },
+      session: { id: 's-research', display_name: 'Research', objective: '', workdir: '/workspace', last_active: 100 },
       daemon: { alive: true, pid: 1, uptime_seconds: 20, backend: 'pi' },
       roles: [], backlog: [], work_status: { state: 'waiting', reason: 'awaiting_next_step', role: '', roles: [], taskId: '', title: '', foreground: false, activityAt: null, label: { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' } },
     } as Snapshot;
@@ -18,7 +18,7 @@ describe('status dot tone', () => {
   });
 
   const project = (alive: boolean, roles: Snapshot['roles'] = []) => ({
-    session: { id: 's', display_name: 'Timer', objective: 'Make a timer', cwd: '/w', last_active: 100 },
+    session: { id: 's', display_name: 'Timer', objective: 'Make a timer', workdir: '/w', last_active: 100 },
     daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: 'codex' },
     work_status: { state: alive ? 'running' : 'idle', reason: '', role: alive ? 'engineer' : '', roles: alive ? ['engineer'] : [], taskId: 't1', title: 'Write timer.html', foreground: false, activityAt: null, label: { 'zh-CN': alive ? '1 个任务进行中' : '已完成', en: alive ? '1 task in progress' : 'Done' } },
     roles, backlog: [{ id: 't1', title: 'Write timer.html', objective: '', status: alive ? 'in_progress' : 'done', priority: 0 }], }) as Snapshot;

@@ -48,6 +48,7 @@ export function ComposerAttachmentChip({
   }, [file]);
 
   const name = file?.name ?? uploaded?.original_name ?? '';
+  const mime = file ? attachmentMime(file) : uploaded?.mime;
   const size = file?.size ?? uploaded?.size_bytes ?? 0;
   const status = file ? uploads?.status(file) : undefined;
   const phase = sent ? undefined : uploaded ? 'ready' : status?.phase;
@@ -75,7 +76,7 @@ export function ComposerAttachmentChip({
         <div className="truncate font-medium text-ink">{sent && onOpen ? <button type="button" className="underline underline-offset-2" onClick={onOpen}>{name}</button> : name}</div>
         <div className={`truncate ${phase === 'failed' ? 'text-err' : phase === 'ready' ? 'text-ok' : 'text-ink-faint'}`} role={phase === 'failed' ? 'alert' : undefined}>
           {phase === 'uploading' || phase === 'retrying' ? progress
-            : [size ? formatBytes(size) : '', progress || (file ? attachmentMime(file) : uploaded?.mime), failure].filter(Boolean).join(' · ')}
+            : [size ? formatBytes(size) : '', progress || (mime?.split(';', 1)[0] === 'text/plain' ? '' : mime), failure].filter(Boolean).join(' · ')}
         </div>
         {phase === 'failed' ? <ErrorDetails error={status?.error} /> : null}
       </div>

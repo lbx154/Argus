@@ -34,7 +34,7 @@ export function previousDeliveryVersion(receipt: DeliveryReceipt, receipts: Deli
 
 /** Each path has its own occurrence count, supplied by the server's record fold. */
 export const deliveryNumberLabel = (file: DeliveryTarget, zh: boolean): string =>
-  file.delivery_number ? (zh ? `第 ${file.delivery_number} 次交付` : `Delivery ${file.delivery_number}`) : '';
+  file.delivery_number && file.delivery_number > 1 ? (zh ? `第 ${file.delivery_number} 次交付` : `Delivery ${file.delivery_number}`) : '';
 
 export function deliveryOptionLabel(receipt: DeliveryReceipt, zh: boolean): string {
   const files = deliveryFiles(receipt);

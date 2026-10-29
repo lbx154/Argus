@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type ChangeEventHandler, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
 import { ArrowUp, Paperclip, X } from 'lucide-react';
 import { useI18n } from '../i18n';
-import { MESSAGE_ATTACHMENT_ACCEPT, MESSAGE_TEXT_MAX_CHARS } from '../lib/attachments';
+import { MESSAGE_TEXT_MAX_CHARS } from '../lib/attachments';
 import { isImeComposing } from '../lib/ime';
 import { referenceText, splitDraft } from '../map/presentation';
 import { useAutosizeTextarea } from '../useAutosizeTextarea';
@@ -53,7 +53,7 @@ export function ComposerSurface({
       </div>}
       {/* A message sent while a reply runs is a follow-up, answered after it. */}
       <form className="map-composer" onSubmit={(event) => { event.preventDefault(); if (!disabled && !tooLong) onSend(); }}>
-        <input ref={fileInputRef} type="file" multiple accept={MESSAGE_ATTACHMENT_ACCEPT} hidden disabled={disabled || pending} onChange={onFiles} />
+        <input ref={fileInputRef} type="file" multiple hidden disabled={disabled || pending} onChange={onFiles} />
         <button type="button" className="map-composer-brand map-attach" aria-label={t('chat.attach')} title={t('chat.attach')} disabled={disabled || pending} onClick={() => fileInputRef.current?.click()}>
           <span aria-hidden="true"><Paperclip size={22} /></span>
         </button>

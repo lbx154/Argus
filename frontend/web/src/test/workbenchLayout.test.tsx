@@ -81,7 +81,7 @@ describe('full canvas map', () => {
   it('sizes the results panel against the 56px rail the full canvas map shows', () => {
     storage.set('argus.workspace.view.v3', 'map');
     storage.set('argus.sidebar.width.v2', '400');
-    window.innerWidth = 1100;
+    window.innerWidth = 1300;
     mount();
     const shown = layout.rightWidth;
     act(() => layout.openPreview());
@@ -100,5 +100,32 @@ describe('full canvas map', () => {
     expect(layout.workspaceView).toBe('map');
     expect(layout.mapImmersive).toBe(false);
     expect(layout.setMapFull).toBeUndefined();
+  });
+});
+
+describe('results visibility with a saved desktop preference', () => {
+  it.each([1024, 390])('starts the %s px reading view closed without losing the saved preference', width => {
+    window.innerWidth = width;
+    storage.set('argus.preview.expanded.v6', 'true');
+    mount();
+    expect(layout.mobileView).toBe('activity');
+    expect(layout.rightPanelVisible).toBe(false);
+    expect(storage.get('argus.preview.expanded.v6')).toBe('true');
+    act(() => layout.openPreview());
+    expect(layout.rightPanelVisible).toBe(true);
+    expect(layout.mobileView).toBe('preview');
+    act(() => layout.setMobileView('activity'));
+    expect(layout.rightPanelVisible).toBe(false);
+    expect(storage.get('argus.preview.expanded.v6')).toBe('true');
+  });
+
+  it('restores a wide results panel and keeps it out of an unopened map', () => {
+    storage.set('argus.preview.expanded.v6', 'true');
+    mount();
+    expect(layout.rightPanelVisible).toBe(true);
+    act(() => layout.setWorkspaceView('map'));
+    expect(layout.rightPanelVisible).toBe(false);
+    act(() => layout.openPreview());
+    expect(layout.rightPanelVisible).toBe(true);
   });
 });

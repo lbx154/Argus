@@ -28,7 +28,7 @@ export function DaemonManageModal({
   onRename: (name: string) => Promise<boolean>;
   onStart: () => Promise<boolean>;
   onDelete: () => Promise<boolean>;
-  /** Run details (cost, calls) live here, out of the top bar. */
+  /** The project's current cost and call count. */
   snapshot?: Snapshot | null;
 }) {
   const { t, locale } = useI18n();

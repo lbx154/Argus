@@ -6,7 +6,6 @@ import { ErrorMessage } from '../components/ErrorMessage';
 import { I18nProvider, translate, type Locale } from '../i18n';
 import { errorText, managerStreamFailureMessage } from '../lib/format';
 import { plainRowText } from '../lib/plainProgress';
-import { attentionSummary } from '../map/presentation';
 
 // Captured from the served cockpit before the fix, for the two reported failures.
 const recorded = JSON.parse(readFileSync(new URL('./fixtures/service-errors.json', import.meta.url), 'utf8'));
@@ -52,9 +51,6 @@ describe.each(['zh-CN', 'en'] as const)('error messages in %s', locale => {
 
   it('keeps command output out of task failure summaries, with the original reason in detail', () => {
     const raw = 'CLI exited with code 1: login required';
-    const summary = attentionSummary({ id: 'a', title: 'task', objective: '', deps: [], status: 'failed', last_error: raw }, [], locale === 'zh-CN');
-    expect(summary.reason).not.toContain(raw);
-    expect(summary.detail).toBe(raw);
     const event = { type: 'life.status', operator_alert: true, text: raw };
     const line = plainRowText(event, { text: raw } as never, locale);
     expect(line.text).toBe(translate('error.agent_failed', {}, locale));

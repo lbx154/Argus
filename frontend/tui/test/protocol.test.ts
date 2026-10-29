@@ -22,7 +22,6 @@ import {
   probeApi,
   repoBackendPath,
   resolveBin,
-  scheduleOutdatedDaemonUpgrades,
   uniqueWarningReporter,
   type ApiProbeResult,
 } from '../src/ensureApi.js';
@@ -168,105 +167,6 @@ test('startup probe reports generic backend status', async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
-});
-
-
-
-test('launcher schedules only live daemons with incompatible runtime identity', async () => {
-  const calls: string[] = [];
-  const summary = await scheduleOutdatedDaemonUpgrades([
-    {
-      id: 'stale',
-      label: 'stale',
-      objective: '',
-      last_active: 1,
-      daemon_alive: true,
-      daemon_pid: 1,
-      uptime_seconds: 10,
-      daemon_protocol_compatible: false,
-      daemon_source_owned: true,
-    },
-    {
-      id: 'current',
-      label: 'current',
-      objective: '',
-      last_active: 1,
-      daemon_alive: true,
-      daemon_pid: 2,
-      uptime_seconds: 10,
-      daemon_protocol_compatible: true,
-      daemon_source_owned: true,
-    },
-    {
-      id: 'stopped',
-      label: 'stopped',
-      objective: '',
-      last_active: 1,
-      daemon_alive: false,
-      daemon_pid: null,
-      uptime_seconds: null,
-      daemon_protocol_compatible: false,
-      daemon_source_owned: true,
-    },
-    {
-      id: 'other-install',
-      label: 'other-install',
-      objective: '',
-      last_active: 1,
-      daemon_alive: true,
-      daemon_pid: 3,
-      uptime_seconds: 10,
-      daemon_protocol_compatible: false,
-      daemon_source_owned: false,
-    },
-    {
-      id: 'pending',
-      label: 'pending',
-      objective: '',
-      last_active: 1,
-      daemon_alive: false,
-      daemon_pid: null,
-      uptime_seconds: null,
-      daemon_protocol_compatible: null,
-      daemon_source_owned: false,
-      daemon_upgrade_pending: true,
-    },
-  ], async (sid) => {
-    calls.push(sid);
-    return { scheduled: true };
-  });
-  assert.deepEqual(calls, ['stale', 'pending']);
-  assert.deepEqual(summary, {
-    outdated: ['stale', 'pending'],
-    scheduled: ['stale', 'pending'],
-    skipped: [],
-    failed: [],
-  });
-});
-
-test('launcher does not claim a refused daemon upgrade was scheduled', async () => {
-  const summary = await scheduleOutdatedDaemonUpgrades([
-    {
-      id: 'stale',
-      label: 'stale',
-      objective: '',
-      last_active: 1,
-      daemon_alive: true,
-      daemon_pid: 1,
-      uptime_seconds: 10,
-      daemon_protocol_compatible: false,
-      daemon_source_owned: true,
-    },
-  ], async () => ({
-    scheduled: false,
-    reason: 'daemon identity changed',
-  }));
-  assert.deepEqual(summary, {
-    outdated: ['stale'],
-    scheduled: [],
-    skipped: ['stale'],
-    failed: [],
-  });
 });
 
 test('warning reporter emits each warning only once', () => {

@@ -30,27 +30,22 @@ const delivery: DeliveryReceipt = {
     path: 'out/final.md',
     label: 'final.md',
     source: 'reviewer_evidence',
-    why: 'Reviewer accepted the file.',
   },
   targets: [{
     path: 'out/final.md',
     label: 'final.md',
     source: 'reviewer_evidence',
-    why: 'Reviewer accepted the file.',
   }],
 };
 
 const artifact = (path: string, source: ArtifactInfo['source']): ArtifactInfo => ({
   path,
   name: path.split('/').at(-1) || path,
-  why: 'test',
-  exists: true,
   kind: 'markdown',
   mime: 'text/markdown',
   size: 1,
   mtime: 1,
   source,
-  storage_path: `C:\\Users\\operator\\workspace\\${path.replaceAll('/', '\\')}`,
 });
 
 describe('completed delivery presentation', () => {
@@ -87,11 +82,11 @@ describe('completed delivery presentation', () => {
   });
 
 
-  it('resolves relative and absolute completion links to an allowlisted file', () => {
+  it('resolves relative completion links to an allowlisted file', () => {
     const file = artifact('out/final.md', 'delivery');
 
     expect(artifactPathFromHref('out/final.md', [file])).toBe('out/final.md');
-    expect(artifactPathFromHref('/C:/Users/operator/workspace/out/final.md', [file])).toBe('out/final.md');
+    expect(artifactPathFromHref('/C:/Users/operator/workspace/out/final.md', [file])).toBeNull();
     expect(artifactPathFromHref('https://example.com/final.md', [file])).toBeNull();
 
     const markup = renderToStaticMarkup(createElement(
@@ -99,11 +94,11 @@ describe('completed delivery presentation', () => {
       {
         artifacts: [file],
         onOpenArtifact: () => undefined,
-        children: '[final](/C:/Users/operator/workspace/out/final.md)',
+        children: '[final](out/final.md)',
       },
     ));
     expect(markup).toContain('data-artifact-path="out/final.md"');
-    expect(markup).toContain('title="C:\\Users\\operator\\workspace\\out\\final.md"');
+    expect(markup).toContain('title="out/final.md"');
   });
 
   it('fits portrait pages by height and landscape pages proportionally', () => {
@@ -154,18 +149,18 @@ describe('completed delivery presentation', () => {
 
 it('resolves document-relative model links and confined sandbox links', () => {
   const files = [
-    { path: 'study/models/model.npz', storage_path: '/workspace/study/models/model.npz' },
-    { path: 'model.npz', storage_path: '/workspace/model.npz' },
+    { path: 'study/models/model.npz', },
+    { path: 'model.npz', },
   ];
   expect(artifactPathFromHref('models/model.npz', files, 'study/README.md')).toBe('study/models/model.npz');
   expect(artifactPathFromHref('../model.npz', files, 'study/README.md')).toBe('model.npz');
   expect(artifactPathFromHref('../../model.npz', files, 'study/README.md')).toBeNull();
-  expect(artifactPathFromHref('sandbox:/workspace/study/models/model.npz', files)).toBe('study/models/model.npz');
+  expect(artifactPathFromHref('sandbox:/workspace/study/models/model.npz', files)).toBeNull();
   const markup = renderToStaticMarkup(createElement(MarkdownContent, {
     artifacts: files, basePath: 'study/README.md', onOpenArtifact: () => undefined,
     children: '[model](models/model.npz) [sandbox](sandbox:/workspace/study/models/model.npz) [unsafe](javascript:alert%281%29)',
   }));
-  expect(markup.match(/data-artifact-path="study\/models\/model.npz"/g)).toHaveLength(2);
+  expect(markup.match(/data-artifact-path="study\/models\/model.npz"/g)).toHaveLength(1);
   expect(markup).not.toContain('href="javascript:');
 });
 
@@ -190,13 +185,13 @@ it('replays per-file delivery occurrences, including unchanged text, in conversa
   const events = webEvents(fixture.text.events as Recorded[]);
   const receipts = events.flatMap(row => row.delivery ? [row.delivery as DeliveryReceipt] : []);
   const markup = renderToStaticMarkup(createElement(EventStream, { events, connected: true, showReasoning: false }));
-  expect(markup).toContain('Delivery 1');
+  expect(markup).not.toContain('Delivery 1');
   expect(markup).toContain('Delivery 2');
   expect(markup).toContain('Delivery 3');
   expect(receipts[2].targets.map(file => file.delivery_number)).toEqual([3, 2]);
   expect(receipts[1].snapshots?.[0].version).toBe(receipts[2].snapshots?.[0].version);
   expect(receipts.map(receipt => deliveryOptionLabel(receipt, true))).toEqual([
-    '版本报告 · 第 1 次交付', '版本报告 · report.md 第 2 次交付 · data.csv 第 1 次交付', '版本报告 · report.md 第 3 次交付 · data.csv 第 2 次交付',
+    '版本报告', '版本报告 · report.md 第 2 次交付 · data.csv', '版本报告 · report.md 第 3 次交付 · data.csv 第 2 次交付',
   ]);
   expect(deliveryFileUpdated(receipts[0], receipts, 'report.md')).toBe(false);
 });

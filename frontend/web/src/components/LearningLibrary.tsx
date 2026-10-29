@@ -92,6 +92,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
   const location = (entry: Entry) => `${labels.global}${entry.vertical ? ` · ${libraryVertical(entry.vertical, locale)}` : ''}`;
   const kind = zh ? '技能' : 'Skill';
   const document = skillDocument;
+  const body = document.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
   const guide = skill ? skillPresentation(skill, locale).guide : null;
   const pick = (next: LearningScope) => { setScope(next); setSelection(null); };
 
@@ -129,7 +130,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
             <span className="flex items-baseline gap-2"><span className="shrink-0 rounded bg-line/60 px-1.5 text-[10px] text-ink-dim">{kind}</span>
               <span className="break-words text-sm font-medium text-ink">{entry.title}</span></span>
             {entry.description && <span className="mt-1 block line-clamp-2 text-xs text-ink-dim">{entry.description}</span>}
-            <span className="mt-1 block text-[11px] text-ink-faint">{location(entry)}</span>
+            {entry.vertical && <span className="mt-1 block text-[11px] text-ink-faint">{libraryVertical(entry.vertical, locale)}</span>}
             {entry.updated > 0 && <time className="mt-1 block text-[11px] text-ink-faint" dateTime={new Date(entry.updated * 1000).toISOString()}>{new Date(entry.updated * 1000).toLocaleString(locale)}</time>}
           </button>)}
         </div>
@@ -155,7 +156,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
               {document.isPending && <p>{zh ? '正在加载全文…' : 'Loading document…'}</p>}
               {document.isError && <div role="alert" className="text-err"><ErrorMessage error={document.error} /> <button className="underline" onClick={() => void document.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
               {document.data && (guide ? <details><summary className="cursor-pointer py-2 text-blue">{zh ? '查看原始技能文档' : 'Read the original skill'}</summary>
-                <MarkdownContent>{document.data.content}</MarkdownContent></details> : <MarkdownContent>{document.data.content}</MarkdownContent>)}
+                <MarkdownContent>{body ?? ''}</MarkdownContent></details> : <MarkdownContent>{body ?? ''}</MarkdownContent>)}
           </div>
         </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择一份资料查看。' : 'Select material to read it.'}</div>}
       </article>

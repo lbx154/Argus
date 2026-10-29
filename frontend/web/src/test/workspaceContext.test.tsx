@@ -11,8 +11,7 @@ import type { ActiveWorkbenchPageProps } from '../research-workbench/pages/pageT
 import stoppedSnapshot from './fixtures/conversation-shell-stopped.json';
 
 const snap: Snapshot = {
-  session: { id: 's-A', display_name: 'Synthetic A', objective: '', last_active: 1,
-    cwd: '/loaded/legacy-cwd', workdir: 'D:\\Synthetic\\研究\\session-A' },
+  session: { id: 's-A', display_name: 'Synthetic A', objective: '', last_active: 1, workdir: 'D:\\Synthetic\\研究\\session-A' },
   daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
   roles: [], backlog: [], };
 const props: ActiveWorkbenchPageProps = {
@@ -46,7 +45,7 @@ describe('A3 snapshot-only session context', () => {
       const status = html.match(/class="topbar-status[^>]*>([\s\S]*?)<div class="hidden sm:block"/)?.[1];
       expect(status).toContain(locale === 'zh-CN' ? '已停止' : 'Stopped');
       expect(status).toContain(locale === 'zh-CN' ? '3小时前' : '3h ago');
-      expect(status).toContain(locale === 'zh-CN' ? '已花 $94.5' : 'Spent $94.5');
+      expect(status).toContain(locale === 'zh-CN' ? '估算 ≈$94.5（按 API 价）' : 'Est. ≈$94.5 (API prices)');
       expect(status).not.toContain('truncate');
     }
     expect(fetch).not.toHaveBeenCalled();
@@ -57,8 +56,8 @@ describe('A3 snapshot-only session context', () => {
     const html = markup(topbar({ ...recorded, work_status: { ...recorded.work_status!, activityAt: null }, spend_usd: null, spend_status: 'unpriced' }));
     expect(html).toContain(new Date(recorded.session.last_active * 1000).toISOString());
     expect(html).not.toContain('Spent $');
-    expect(markup(topbar({ ...recorded, spend_usd: 0, spend_status: 'priced' }))).toContain('Spent $0.00');
-    expect(markup(topbar({ ...recorded, spend_status: 'partial' }))).toContain('Spent ≥$94.5');
+    expect(markup(topbar({ ...recorded, spend_usd: 0, spend_status: 'priced' }))).toContain('Est. ≈$0.00 (API prices)');
+    expect(markup(topbar({ ...recorded, spend_status: 'partial' }))).toContain('Est. ≥$94.5 (API prices)');
   });
 
   it.each(['en', 'zh-CN'] as const)('shows the session directory in %s without requests', locale => {
@@ -83,9 +82,9 @@ describe('A3 snapshot-only session context', () => {
     expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['ide', 'runtime']);
   });
 
-  it('falls back to the snapshot cwd and labels missing information as pending', () => {
-    expect(markup(topbar({ ...snap, session: { ...snap.session, workdir: '' } }))).toContain('/loaded/legacy-cwd');
-    const missing = { ...snap, session: { ...snap.session, workdir: '', cwd: '' } };
+  it('uses the snapshot workdir and labels missing information as pending', () => {
+    expect(markup(topbar({ ...snap, session: { ...snap.session, workdir: '/loaded/workdir' } }))).toContain('/loaded/workdir');
+    const missing = { ...snap, session: { ...snap.session, workdir: '', } };
     expect(markup(topbar(missing))).toContain('Pending confirmation');
     expect(markup(topbar(missing), 'zh-CN')).toContain('待确认');
   });

@@ -1,7 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 import { MapComposer, type MapComposerProps } from "../map/MapComposer";
-import { MESSAGE_ATTACHMENT_ACCEPT } from "../lib/attachments";
 
 const props: MapComposerProps = {
   value: "Check these measurements",
@@ -18,7 +17,7 @@ const props: MapComposerProps = {
 it("exposes a native file picker through the Argus button using the chat file policy", () => {
   const html = renderToStaticMarkup(<MapComposer {...props} />);
   expect(html).toContain('type="file"');
-  expect(html).toContain(`accept="${MESSAGE_ATTACHMENT_ACCEPT}"`);
+  expect(html).not.toContain('accept="');
   expect(html).toContain("map-attach");
   expect(html).toContain('aria-label="attach files"');
 });

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
-import { addComposerFiles, attachmentMime, isSupportedAttachment, MESSAGE_ATTACHMENT_ACCEPT } from '../lib/attachments';
+import { addComposerFiles, attachmentMime } from '../lib/attachments';
 import { Sidebar } from '../components/Sidebar';
 import { api } from '../api';
 
@@ -9,17 +9,13 @@ import { api } from '../api';
 const file = (name: string, type = '') => ({ name, type, size: 10, lastModified: 1 }) as File;
 
 describe('attachments a researcher actually has', () => {
-  it('accepts archives, Office files, notebooks, code and LaTeX with the server-expected MIME', () => {
-    for (const name of ['data.zip', 'run.tgz', 'table.xlsx', 'draft.docx', 'slides.pptx', 'nb.ipynb', 'train.py', 'paper.tex', 'refs.bib', 'cfg.yaml']) {
-      expect(isSupportedAttachment(file(name))).toBe(true);
-      expect(MESSAGE_ATTACHMENT_ACCEPT.split(',')).toContain(name.slice(name.lastIndexOf('.')));
+  it('accepts every suffix and preserves the browser MIME or uses octet-stream', () => {
+    for (const suffix of ['.zip', '.xlsx', '.ipynb', '.py', '.tex', '.jsonl', '.npy', '.pt', '.parquet', '.out']) {
+      const chosen = file('data' + suffix);
+      expect(addComposerFiles([], [chosen]).accepted).toEqual([chosen]);
+      expect(attachmentMime(chosen)).toBe('application/octet-stream');
     }
-    expect(attachmentMime(file('train.ts', 'video/mp2t'))).toBe('text/plain');
-    expect(attachmentMime(file('nb.ipynb'))).toBe('application/x-ipynb+json');
-    expect(isSupportedAttachment(file('tool.exe'))).toBe(false);
-    const { accepted, issues } = addComposerFiles([], [file('data.zip'), file('tool.exe')]);
-    expect(accepted.map((row) => row.name)).toEqual(['data.zip']);
-    expect(issues).toEqual([{ code: 'unsupported', fileName: 'tool.exe' }]);
+    expect(attachmentMime(file('train.ts', 'video/mp2t'))).toBe('video/mp2t');
   });
 });
 

@@ -1,60 +1,20 @@
 import type { UploadedAttachment } from '../api';
 
 export const MESSAGE_TEXT_MAX_CHARS = 32_000;
-export const MESSAGE_ATTACHMENT_MAX_COUNT = 5;
-export const MESSAGE_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024;
-export const MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES = 500 * 1024 * 1024;
-// Mirrors the server's upload specs: each suffix carries the MIME the server expects.
-const CODE_TEXT_SUFFIXES = [
-  '.py', '.tex', '.bib', '.sty', '.cls', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.sh',
-  '.js', '.mjs', '.ts', '.tsx', '.jsx', '.java', '.c', '.h', '.cpp', '.hpp', '.cc', '.cu',
-  '.go', '.rs', '.rb', '.r', '.m', '.jl', '.sql', '.html', '.css', '.xml', '.tsv', '.log', '.rst',
-];
-
-const ATTACHMENT_MIME_BY_SUFFIX: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.pdf': 'application/pdf',
-  '.md': 'text/markdown',
-  '.markdown': 'text/markdown',
-  '.txt': 'text/plain',
-  '.json': 'application/json',
-  '.csv': 'text/csv',
-  '.ipynb': 'application/x-ipynb+json',
-  '.zip': 'application/zip',
-  '.gz': 'application/gzip',
-  '.tgz': 'application/gzip',
-  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  ...Object.fromEntries(CODE_TEXT_SUFFIXES.map((suffix) => [suffix, 'text/plain'])),
-};
-
-export const MESSAGE_ATTACHMENT_ACCEPT = Object.keys(ATTACHMENT_MIME_BY_SUFFIX).join(',');
+export interface AttachmentLimits {
+  max_count: number;
+  max_bytes_per_file: number;
+  max_total_bytes: number;
+  chunk_bytes: number;
+}
 
 export type ComposerAttachmentIssue =
-  | { code: 'unsupported'; fileName: string }
   | { code: 'too-large'; fileName: string; limitBytes: number }
   | { code: 'too-many'; limitCount: number }
   | { code: 'too-large-total'; limitBytes: number };
 
-export function attachmentSuffix(name: string): string {
-  const trimmed = String(name || '').trim().toLowerCase();
-  const dot = trimmed.lastIndexOf('.');
-  return dot >= 0 ? trimmed.slice(dot) : '';
-}
-
-export function attachmentMime(file: Pick<File, 'name' | 'type'>): string {
-  const suffix = attachmentSuffix(file.name);
-  return ATTACHMENT_MIME_BY_SUFFIX[suffix]
-    || String(file.type || '').split(';', 1)[0].trim()
-    || 'application/octet-stream';
-}
-
-export function isSupportedAttachment(file: Pick<File, 'name' | 'type'>): boolean {
-  return Object.hasOwn(ATTACHMENT_MIME_BY_SUFFIX, attachmentSuffix(file.name));
+export function attachmentMime(file: Pick<File, 'type'>): string {
+  return file.type || 'application/octet-stream';
 }
 
 export function isImageAttachment(file: Pick<File, 'name' | 'type'>): boolean {
@@ -73,6 +33,7 @@ function attachmentKey(file: Pick<File, 'name' | 'size' | 'type'> & { lastModifi
 export function addComposerFiles(
   existing: Array<Pick<File, 'name' | 'size' | 'type'> & { lastModified?: number }>,
   incoming: File[],
+  limits?: AttachmentLimits,
 ): { accepted: File[]; issues: ComposerAttachmentIssue[] } {
   const accepted: File[] = [];
   const issues: ComposerAttachmentIssue[] = [];
@@ -84,26 +45,22 @@ export function addComposerFiles(
     const key = attachmentKey(file);
     if (seen.has(key)) continue;
     seen.add(key);
-    if (!isSupportedAttachment(file)) {
-      issues.push({ code: 'unsupported', fileName: file.name });
+    if (limits && count >= limits.max_count) {
+      issues.push({ code: 'too-many', limitCount: limits.max_count });
       continue;
     }
-    if (count >= MESSAGE_ATTACHMENT_MAX_COUNT) {
-      issues.push({ code: 'too-many', limitCount: MESSAGE_ATTACHMENT_MAX_COUNT });
-      continue;
-    }
-    if (file.size > MESSAGE_ATTACHMENT_MAX_BYTES) {
+    if (limits && file.size > limits.max_bytes_per_file) {
       issues.push({
         code: 'too-large',
         fileName: file.name,
-        limitBytes: MESSAGE_ATTACHMENT_MAX_BYTES,
+        limitBytes: limits.max_bytes_per_file,
       });
       continue;
     }
-    if (totalBytes + file.size > MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES) {
+    if (limits && totalBytes + file.size > limits.max_total_bytes) {
       issues.push({
         code: 'too-large-total',
-        limitBytes: MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES,
+        limitBytes: limits.max_total_bytes,
       });
       continue;
     }
@@ -155,7 +112,7 @@ export function splitMessageAttachments(text: string, attachments?: UploadedAtta
       const relative_path = line.slice(2);
       const [, , attachment_id, ...parts] = relative_path.split('/');
       const name = parts.join('/');
-      return { attachment_id, relative_path, original_name: name, stored_name: name, mime: attachmentMime({ name, type: '' }), size_bytes: 0 };
+      return { attachment_id, relative_path, original_name: name, stored_name: name, mime: attachmentMime({ type: '' }), size_bytes: 0 };
     }),
   };
 }

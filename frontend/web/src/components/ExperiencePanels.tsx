@@ -9,7 +9,7 @@ import { MarkdownContent } from './MarkdownContent';
 import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { DiffLines } from './DeliveryChanges';
 import { Button } from './primitives';
-import { ErrorDetails } from './ErrorMessage';
+import { ErrorDetails, ErrorMessage } from './ErrorMessage';
 import { roleLabel } from '../lib/enumLabels';
 import './experience.css';
 
@@ -20,9 +20,8 @@ export function HistorySearch({ open, onClose, onChoose }: {
   const zh = locale === 'zh-CN';
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<SearchResult | null>(null);
   useEffect(() => {
-    const timer = window.setTimeout(() => { setQuery(input.trim()); setSelected(null); }, 300);
+    const timer = window.setTimeout(() => { setQuery(input.trim()); }, 300);
     return () => window.clearTimeout(timer);
   }, [input]);
   const results = useQuery({
@@ -48,14 +47,13 @@ export function HistorySearch({ open, onClose, onChoose }: {
         <strong>{zh ? '没有找到匹配内容' : 'No matching content'}</strong>
         <p>{zh ? '试试更短的关键词，或换一种说法。' : 'Try a shorter keyword or a different phrase.'}</p>
       </div>}
-      <div className="search-layout" data-reading={Boolean(selected)}>
       <div className="search-result-list" aria-label={zh ? '搜索结果' : 'Search results'}>
         {/* A project's results come together under its name, said once; each is quoted as the
             conversation renders it, without its Markdown's marks. */}
         {results.data?.results.map((result, index, all) => <Fragment
           key={`${result.sid}:${result.kind}:${result.line ?? result.path ?? index}:${result.version ?? ''}`}>
           {result.sid !== all[index - 1]?.sid && <h3 className="search-project">{result.title}</h3>}
-          <button type="button" aria-pressed={selected === result} onClick={() => setSelected(result)} className={selected === result ? 'is-selected' : ''}>
+          <button type="button" onClick={() => { onChoose(result); onClose(); }}>
             <small>{result.role ? roleLabel(result.role, t)
               : result.kind === 'conversation' ? zh ? '对话记录' : 'Conversation'
               : result.kind === 'edition' ? zh ? `修改稿 v${result.version}` : `Edition v${result.version}`
@@ -64,16 +62,56 @@ export function HistorySearch({ open, onClose, onChoose }: {
           </button>
         </Fragment>)}
       </div>
-      {selected && <section className="search-reader">
-        <header>
-          <Button className="search-back" onClick={() => setSelected(null)}>{zh ? '返回搜索结果' : 'Back to results'}</Button>
-          <strong>{selected.path || selected.title}</strong>
-          <Button variant="primary" onClick={() => { onChoose(selected); onClose(); }}>{zh ? '打开并定位' : 'Open in project'}</Button>
-        </header>
-        {selected.truncated && <p className="text-warn">{zh ? '这里只展示匹配位置附近的片段；文件全文可在项目内打开。' : 'Showing an excerpt around the match. Open the project file for the full content.'}</p>}
-        <MarkdownContent>{selected.text}</MarkdownContent>
-      </section>}
       </div>
+    </div>
+  </Modal>;
+}
+
+export function ProjectTrash({ open, onClose, onRestored }: {
+  open: boolean; onClose: () => void; onRestored: (sid: string) => Promise<void>;
+}) {
+  const { locale, t } = useI18n();
+  const zh = locale === 'zh-CN';
+  const [query, setQuery] = useState('');
+  const [offset, setOffset] = useState(0);
+  const [restoring, setRestoring] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const trash = useQuery({ queryKey: ['trash', query, offset],
+    queryFn: ({ signal }) => api.trash(query, offset, signal), enabled: open });
+  const restore = async (id: string) => {
+    setRestoring(id); setError(null);
+    try {
+      const restored = await api.restoreTrash(id);
+      await onRestored(restored.sid);
+      await trash.refetch({ throwOnError: true });
+    } catch (problem) { setError(problem); }
+    finally { setRestoring(''); }
+  };
+  return <Modal open={open} onClose={onClose} label={zh ? '回收站' : 'Trash'} width="max-w-2xl">
+    <div className="experience-shell">
+      <ModalHeader title={zh ? '回收站' : 'Trash'} />
+      <div className="experience-panel">
+        <input type="search" className="experience-input" data-autofocus value={query}
+          aria-label={t('operations.searchTrash')} placeholder={t('operations.searchTrash')}
+          onChange={event => { setQuery(event.target.value); setOffset(0); }} />
+        {trash.isPending && <p role="status">{t('common.loading')}</p>}
+        {(trash.isError || Boolean(error)) && <div role="alert"><ErrorMessage error={error || trash.error} />
+          <Button onClick={() => { setError(null); void trash.refetch(); }}>{zh ? '重试' : 'Retry'}</Button></div>}
+        {trash.data && <>
+          {!trash.data.total && <p role="status">{query ? zh ? '没有匹配的项目。' : 'No matching projects.' : t('operations.trashEmpty')}</p>}
+          <div className="search-result-list">
+            {trash.data.entries.map(entry => <div key={entry.trash_id} className="flex items-center gap-3 border-b border-line py-3">
+              <div className="min-w-0 flex-1"><strong className="block break-words">{entry.label}</strong>
+                <small className="block break-all text-ink-faint">{entry.launch_cwd}</small></div>
+              <Button disabled={Boolean(restoring)} onClick={() => void restore(entry.trash_id)}>
+                {restoring === entry.trash_id ? zh ? '正在恢复…' : 'Restoring…' : zh ? '恢复' : 'Restore'}</Button>
+            </div>)}
+          </div>
+          {(offset > 0 || offset + trash.data.limit < trash.data.total) && <div className="experience-toolbar">
+            <Button disabled={!offset || Boolean(restoring)} onClick={() => setOffset(Math.max(0, offset - trash.data.limit))}>{zh ? '上一页' : 'Previous'}</Button>
+            <Button disabled={offset + trash.data.limit >= trash.data.total || Boolean(restoring)} onClick={() => setOffset(offset + trash.data.limit)}>{zh ? '下一页' : 'Next'}</Button>
+          </div>}
+        </>}
       </div>
     </div>
   </Modal>;

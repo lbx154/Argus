@@ -29,7 +29,7 @@ it('carries the delivery in artifact, raw, HTML, archive and model resource requ
 
 it('isolates cached previews of the same path by delivery identity', async () => {
   const read = vi.spyOn(api, 'artifact').mockImplementation(async (_sid, path, _signal, delivery) => ({
-    path, name: path, why: '', exists: true, kind: 'text', mime: 'text/plain', size: 1, mtime: 1, preview: delivery === 'd1' ? 'Old saved text' : 'New saved text',
+    path, name: path, kind: 'text', mime: 'text/plain', size: 1, mtime: 1, preview: delivery === 'd1' ? 'Old saved text' : 'New saved text',
   }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   function Probe({ delivery }: { delivery: string }) { const q = useArtifact('s', 'report.md', null, delivery); return <p>{q.data?.preview}</p>; }

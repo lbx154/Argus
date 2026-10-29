@@ -1,21 +1,17 @@
 import type { ConversationPagination } from '../useConversationHistory';
 import { errorText } from '../lib/format';
 import { MapConversation } from './MapConversation';
-import { PendingBanner } from '../components/PendingBanner';
 import { ComposerRuntime } from '../components/ComposerRuntime';
 import { WorkStatusBar } from '../components/WorkStatusBar';
 import { Button } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
 import { MapReaderContent } from './MapReaderContent';
-import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
+import { Activity, PackageCheck, MessageCircle } from 'lucide-react';
 import { ProjectRoleLogs } from '../components/EventStream';
 import { useRoleLog } from '../useRoleLog';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
 import type { MapSend, DispatchObserver } from './submission';
-import { attentionSummary, splitDraft } from './presentation';
-import { projectOverview } from './overview';
-import { MapOverview } from './MapOverview';
-import { operatorDecisionCards } from '../../../core/src/decisions';
+import { splitDraft } from './presentation';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
@@ -54,7 +50,7 @@ import {
 } from "lucide-react";
 import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { useI18n } from "../i18n";
-import { ACTIVE, attentionTasks, buildMap, currentTask, RELATION_KINDS, statusKey, taskDependencies, latestCertifiedTask, type Dataset, } from "./model";
+import { ACTIVE, buildMap, currentTask, statusKey, taskDependencies, type Dataset, } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, type MacroNode } from "./MacroTaskNode";
@@ -84,22 +80,13 @@ interface MapWorkspaceActions {
   onOpenDelivery: () => void;
   onOpenReceipt: (receipt: DeliveryReceipt, path?: string) => void;
   onOpenArtifact: (path: string) => void;
-  onAnswer: () => void;
+  pendingQuestion?: ReactNode;
   /** Delivery receipts, newest first: the figures of the tasks they came from. */
   deliveries?: DeliveryReceipt[];
   /** The team status line with 暂停团队 / 继续, the same one the chat shows. */
   teamStatus?: ReactNode;
 }
 
-/** What each recorded relation means, for the legend's hover text. */
-const RELATION_HINTS: Partial<Record<string, [string, string]>> = {
-  carries_out: ["这项任务在执行你的某条请求", "This task carries out one of your requests"],
-  from: ["来自：这项任务由那张卡交给团队后生成", "Came from: the task was made from that card when it was handed to the team"],
-  about: ["关于：针对那张卡的提问或回答", "About: a question or answer about that card"],
-  checks: ["检查：这项工作在核查那项工作", "Checks: this work checks that work"],
-  follows: ["接续：在那项工作之后接着做", "Follows: continues after that work"],
-  replaces: ["替代：新的计划替代了旧的", "Replaces: a newer plan replaced the older one"],
-};
 /** How long the opening fit waits for saved explanations before it shows the map anyway. */
 const OPENING_WAIT_MS = 700;
 const NODE_TYPES = { task: MacroTaskNode };
@@ -131,16 +118,13 @@ export function MapCanvas({
   data,
   zh,
   composer,
-  activePhase,
   snapshot,
-  currentTaskId,
   pendingLabel,
   readOnly,
   sessionId,
   viewKey,
   paused,
   actions,
-  replacements,
   immersive = false,
   onImmersiveChange,
 }: {
@@ -148,9 +132,7 @@ export function MapCanvas({
   sessionId: string;
   zh: boolean;
   composer: MapComposerProps;
-  activePhase?: string;
   snapshot: Snapshot;
-  currentTaskId?: string | null;
   pendingLabel?: string;
   readOnly: boolean;
   viewKey: string;
@@ -158,39 +140,17 @@ export function MapCanvas({
   actions: MapWorkspaceActions;
   /** Whether plan-replacement links are drawn; the panel owns the switch so
    * the options menu can flip it on screens that hide the legend. */
-  replacements?: { shown: boolean; toggle: () => void };
   immersive?: boolean;
   onImmersiveChange?: (immersive: boolean) => void;
 }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
-  const operatorMessage = [...actions.conversationEvents].reverse().find(event => event.type === 'ui.operator');
-  const operatorMessageId = operatorMessage ? String(operatorMessage.message_id || operatorMessage.ts || '') : '';
-  const lastOperatorMessage = useRef(operatorMessageId);
-  const wasPending = useRef(composer.pending);
-  // A message about a card (交给团队 / 问这张卡) keeps the canvas in view: the
-  // conversation would cover the card and the task it makes, so a small
-  // notice links to it instead of opening it.
-  const quietUntil = useRef(0);
-  const [conversationNotice, setConversationNotice] = useState("");
-  useEffect(() => {
-    if (Date.now() < quietUntil.current) {
-      lastOperatorMessage.current = operatorMessageId;
-      wasPending.current = composer.pending;
-      return;
-    }
-    if (!readOnly && ((operatorMessageId && operatorMessageId !== lastOperatorMessage.current)
-      || (composer.pending && !wasPending.current))) showConversation();
-    lastOperatorMessage.current = operatorMessageId;
-    wasPending.current = composer.pending;
-  }, [operatorMessageId, composer.pending, readOnly]);
   const [flight, setFlight] = useState<MapDispatchFlight | null>(null);
   const dispatchSerial = useRef(0);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const graph = useMemo(() => buildMap(data.tasks), [data.tasks]);
   // Requests still being read wait by the composer; the newest few.
-  const looseRequests = useMemo(() => (data.requests ?? []).slice(-3).reverse(), [data.requests]);
   const [nodes, setNodes, onNodesChange] = useNodesState<MacroNode>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const camera = useSemanticCamera(canvasRef, !readOnly);
@@ -201,14 +161,11 @@ export function MapCanvas({
   const [fitted, setFitted] = useState(false);
   const savedView = useRef<ReturnType<typeof recalledView> | null>(null);
   if (!savedView.current) savedView.current = recalledView(viewKey);
-  const [expandedMissions, setExpandedMissions] = useState<ReadonlySet<string>>(() => {
-    const selected = savedView.current?.scene?.cards.find((card) => card.id === savedView.current?.camera?.focusId);
-    return new Set(selected && selected.id !== selected.task.id ? [selected.task.id] : []);
-  });
+  const [selectedParts, setSelectedParts] = useState<ReadonlyMap<string, number>>(() =>
+    new Map(savedView.current?.scene?.cards.map(card => [card.task.id, card.part])));
   const [pendingCard, setPendingCard] = useState<string | null>(null);
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
-  const finalReview = useMemo(() => latestCertifiedTask(data.tasks, data.events), [data.tasks, data.events]);
   const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string } | null>(null);
   const readCopy = useCallback((nodeId: string, key: string | null) => {
     // An explicit task modal outlives changes to its background card's focus.
@@ -224,8 +181,6 @@ export function MapCanvas({
   const readingAnswer = readingTask?.turn_kind === 'qa'
     ? data.events.find(event => event.item_id === readingTask.id && event.type === 'turn.replied') : undefined;
   const readingNode = readingCopy ? nodes.find(node => node.id === readingCopy.nodeId) : undefined;
-  const attention = useMemo(() => attentionTasks(data.tasks), [data.tasks]);
-  const attentionIndex = attention.findIndex((task) => task.id === focusedNode?.data.task.id);
   const [traceId, setTraceId] = useState<string | null>(null);
   const tracedTask = graph.tasks.find((task) => task.id === traceId);
   const dependencies = useMemo(
@@ -241,23 +196,17 @@ export function MapCanvas({
     () => graph.links,
     [graph, zh],
   );
-  const relationKinds = useMemo(
-    () => new Set(links.flatMap((link) => link.relation ? [link.relation] : [])),
-    [links],
-  );
+
   const sceneCache = useRef<ReturnType<typeof layoutScene> | undefined>(savedView.current.scene);
   // Before the canvas is measured the window stands in for it, so a phone
   // lays its cards out once instead of re-placing them after the first frame.
   const narrow = (camera.canvasSize.width || window.innerWidth) < 640;
-  const workspace = snapshot.session.workdir || snapshot.session.cwd;
-  // A message's reply is on its card and in the conversation; a notice links to
-  // the conversation rather than opening it over the map.
-  const showConversation = () => setConversationNotice(zh ? "回复在对话里" : "The reply is in the conversation");
+  const workspace = snapshot.session.workdir;
   const scene = useMemo(() => {
-    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions, narrow, workspace);
+    const next = layoutScene(graph, data.events, zh, sceneCache.current, links, selectedParts, narrow, workspace);
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
     return sceneCache.current;
-  }, [graph, data.events, zh, links, expandedMissions, narrow, workspace]);
+  }, [graph, data.events, zh, links, selectedParts, narrow, workspace]);
   const positions = useSettledPositions(scene.positions, camera.reducedMotion);
   const [hoverId, setHoverId] = useState<string | null>(null);
   const lit = useMemo(() => spotlight(scene.links, hoverId), [scene.links, hoverId]);
@@ -273,23 +222,7 @@ export function MapCanvas({
     const id = ++dispatchSerial.current;
     const source = canvasRef.current?.querySelector('.map-composer')?.getBoundingClientRect();
     setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100, width: source?.width ?? 260, height: source?.height ?? 56 } });
-    let hasTask = false;
-    const aboutCard = splitDraft(text).refs.length > 0;
-    if (aboutCard) {
-      quietUntil.current = Date.now() + 120_000;
-      setConversationNotice(zh ? "已发给 Argus，回复在对话里" : "Sent to Argus; the reply is in the conversation");
-    }
     const observe: DispatchObserver = (result) => {
-      if (result.type === 'task') hasTask = true;
-      if (alive.current && result.type === 'settled') {
-        if (aboutCard) quietUntil.current = 0;
-        // A card message that made a task, or got its reply, keeps the canvas
-        // in view; anything else (a plain reply, a failure, a cancel) opens
-        // the conversation, where it is shown.
-        if (aboutCard && hasTask) setConversationNotice(zh ? "已交给团队，新任务出现在画布上" : "Handed to the team; the new task is on the canvas");
-        else if (aboutCard && result.outcome === 'message') setConversationNotice(zh ? "Argus 已回复" : "Argus replied");
-        else if (aboutCard || (result.outcome === 'message' && !hasTask)) showConversation();
-      }
       if (alive.current) setFlight((current) => current?.id === id ? { ...current, result } : current);
     };
     try {
@@ -421,9 +354,6 @@ export function MapCanvas({
   const matchIndex = matches.findIndex((card) => card.id === camera.focusId);
   const [visibleCount, setVisibleCount] = useState(graph.tasks.length);
   const [playing, setPlaying] = useState(false);
-  const [localReplacements, setLocalReplacements] = useState(false);
-  const showReplacements = replacements?.shown ?? localReplacements;
-  const toggleReplacements = replacements?.toggle ?? (() => setLocalReplacements((v) => !v));
   const [focusFeedback, setFocusFeedback] = useState("");
   const traceTask = useCallback((id: string | null) => {
     setTraceId(id);
@@ -434,28 +364,16 @@ export function MapCanvas({
       camera.fit(new Set([id, ...upstream.map((task) => task.id), ...downstream.map((task) => task.id)]));
     } else camera.fit();
   }, [camera.fit, graph]);
-  const openCard = useCallback((id: string, history = false) => {
-    const card = sceneCache.current?.allCards.find((card) => card.id === id);
-    if (card && !expandedMissions.has(card.task.id) && (history || id !== card.task.id)) {
-      setExpandedMissions((current) => new Set([...current, card.task.id]));
-      setPendingCard(id);
+  const openCard = useCallback((id: string) => {
+    const part = sceneCache.current?.allCards.find(card => card.id === id);
+    if (part) {
+      setSelectedParts(current => new Map([...current, [part.task.id, part.part]]));
+      setPendingCard(part.task.id);
       return;
     }
-    if (tracedTask && card) traceTask(card.task.id === tracedTask.id ? null : card.task.id);
+    if (tracedTask) traceTask(id === tracedTask.id ? null : id);
     else camera.enter(id);
-  }, [camera.enter, tracedTask, traceTask, expandedMissions]);
-  const toggleHistory = useCallback((taskId: string) => {
-    const expanded = expandedMissions.has(taskId);
-    setExpandedMissions((current) => {
-      const next = new Set(current);
-      if (expanded) next.delete(taskId); else next.add(taskId);
-      return next;
-    });
-    if (focusedNode?.data.task.id === taskId) {
-      const last = sceneCache.current?.allCards.filter((card) => card.task.id === taskId).at(-1);
-      setPendingCard(expanded ? taskId : last?.id ?? taskId);
-    }
-  }, [expandedMissions, focusedNode?.data.task.id]);
+  }, [camera.enter, tracedTask, traceTask]);
   useEffect(() => {
     if (!pendingCard || !nodes.some((node) => node.id === pendingCard)) return;
     camera.enter(pendingCard);
@@ -482,7 +400,6 @@ export function MapCanvas({
           ...card,
           zh,
           open: openCard,
-          toggleHistory,
           readStep: camera.readStep,
           readCopy,
           menu: showMenu,
@@ -507,7 +424,6 @@ export function MapCanvas({
     zh,
     setNodes,
     openCard,
-    toggleHistory,
     camera.readStep,
     readCopy,
     showMenu,
@@ -619,8 +535,7 @@ export function MapCanvas({
       const visibleLinks = scene.links.filter(
         (e) =>
           visibleIds.has(e.source) &&
-          visibleIds.has(e.target) &&
-          (e.kind !== "replacement" || showReplacements),
+          visibleIds.has(e.target),
       );
       // Single pass over the visible links, covering all edge kinds; no
       // per-edge rescans.
@@ -668,16 +583,9 @@ export function MapCanvas({
             // of ten tasks is not annotated with the same two words nine times.
             quiet: !e.stated && (e.kind === "context" || (e.kind === "dependency" && !e.label)),
           },
-          className: `map-edge-${e.kind}${e.relation ? ` map-edge-relation-${e.relation}` : ""}${lit.edges.has(e.id) ? " is-lit" : ""}`,
+          className: `map-edge-${e.kind}${lit.edges.has(e.id) ? " is-lit" : ""}`,
           label: e.label ||
-            (e.kind === "relation"
-              ? RELATION_KINDS.find(([kind]) => kind === e.relation)?.[zh ? 1 : 2] ?? ""
-              : e.kind === "replacement"
-              ? (taskByCard.get(e.source)?.superseded_reason || "")
-                  .replace(/\s+/g, " ")
-                  .slice(0, 60) ||
-                (zh ? "转入新计划" : "New plan")
-              : e.kind === "dependency"
+            (e.kind === "dependency"
                 ? zh
                   ? "依赖"
                   : "Dependency"
@@ -686,7 +594,7 @@ export function MapCanvas({
                   : "Related work"),
           labelStyle: {
             fontSize: 30,
-            fill: e.kind === "replacement" ? "#95809f" : "#6685a4",
+            fill: "#6685a4",
           },
           labelBgPadding: [12, 6] as [number, number],
           labelBgBorderRadius: 12,
@@ -695,9 +603,7 @@ export function MapCanvas({
             opacity: muted ? 0.12 : 1,
             stroke: e.cycle
               ? "#dc6648"
-              : e.kind === "replacement"
-                ? "#a48caf"
-                : e.kind === "dependency"
+              : e.kind === "dependency"
                   ? "#527fa7"
                   : "#7594ad",
             // Dependencies stay the strongest line; context is a fainter,
@@ -714,7 +620,7 @@ export function MapCanvas({
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: e.kind === "replacement" ? "#a48caf" : "#8aa5b8",
+            color: "#8aa5b8",
             width: 32,
             height: 32,
           },
@@ -722,7 +628,7 @@ export function MapCanvas({
             e.evidence ||
             (e.kind === "dependency"
               ? `Dependency: ${e.source} → ${e.target}`
-              : `Plan replacement: ${e.source} → ${e.target_plan_id} (${e.target_count} tasks, representative ${e.target})`),
+              : `Recorded order: ${e.source} → ${e.target}`),
         };
       });
     },
@@ -730,7 +636,6 @@ export function MapCanvas({
       scene.links,
       scene.frames,
       visibleIds,
-      showReplacements,
       zh,
       growth,
         paused,
@@ -744,15 +649,7 @@ export function MapCanvas({
       ordinalOf,
     ],
   );
-  const replacementCount = graph.links.filter(
-    (e) => e.kind === "replacement",
-  ).length;
   const cyclic = graph.links.some((link) => link.cycle);
-  const decisionCards = useMemo(() => operatorDecisionCards(snapshot.pending_questions ?? [],
-    snapshot.backlog.map((item) => ({ ...item })), currentTaskId), [snapshot.pending_questions, snapshot.backlog, currentTaskId]);
-  const overview = useMemo(() => projectOverview({
-    tasks: data.tasks, decisions: decisionCards,
-  }), [data.tasks, decisionCards]);
   const focus = (id: string) => {
     setTraceId(null);
     setFocusFeedback("");
@@ -760,13 +657,6 @@ export function MapCanvas({
       Math.max(c, scene.cards.find((card) => card.id === id)?.ordinal || 1),
     );
     camera.enter(id);
-  };
-  const openFinalReview = () => {
-    const card = scene.cards.filter(item => item.task.id === finalReview?.id).at(-1);
-    if (card) {
-      setReadingCopy(null);
-      focus(card.id);
-    }
   };
   const locateCurrent = () => {
     const target = currentTask(data.tasks);
@@ -778,13 +668,6 @@ export function MapCanvas({
     } else
       setFocusFeedback(
         zh ? "发送一个目标，地图就会开始生长" : "Send a goal to start your map",
-      );
-  };
-  const locateAttention = () => {
-    const target = attention[(attentionIndex + 1) % attention.length];
-    if (target)
-      focus(
-        scene.cards.filter((card) => card.task.id === target.id).at(-1)!.id,
       );
   };
   // Map-wide shortcuts; typing surfaces (search, composer, notes) keep every key.
@@ -820,8 +703,8 @@ export function MapCanvas({
   }, [showOverview, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds]);
   const artifactScope = useMemo(
     () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact,
-      workspace: snapshot.session.workdir || snapshot.session.cwd }),
-    [actions.artifacts, actions.onOpenArtifact, snapshot.session.workdir, snapshot.session.cwd],
+      workspace: snapshot.session.workdir }),
+    [actions.artifacts, actions.onOpenArtifact, snapshot.session.workdir],
   );
   // The reveal strip floats over the canvas during replay, so the canvas never resizes and the
   // overview camera stays where the reader left it.
@@ -889,71 +772,7 @@ export function MapCanvas({
   return (
     <ZoomStepContext.Provider value={camera.zoomSteps}>
     <MapArtifactContext.Provider value={artifactScope}>
-      {!replaying && (actions.teamStatus || overview.decisions.length > 0) && (
-        <MapOverview overview={overview} zh={zh} team={actions.teamStatus}
-          onAnswer={actions.onAnswer}
-          onFocusTask={(taskId) => {
-            const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
-            if (card) focus(card.id);
-            return !!card;
-          }} />
-      )}
-      {/* The second header line: one sentence on where the work stands, and,
-          when something waits on the reader, a link straight to it. */}
-      {attention.length > 0 && <div className="map-status-row">
-        <p className="map-status-line" role="status">
-          {(composer.pending || (!paused && activePhase)) ? <i className="map-live-dot" aria-hidden /> : null}
-          {attention.length > 0 && (
-            <>
-              <button
-                type="button"
-                className="map-attention-link"
-                onClick={locateAttention}
-                title={zh ? "跳到需要你处理的任务" : "Jump to the task waiting on you"}
-                aria-label={zh ? `逐个查看 ${attention.length} 项需要你处理的任务` : `Cycle through ${attention.length} tasks needing attention`}
-              >
-                {zh
-                  ? `${attention.length} 项需要你处理`
-                  : `${attention.length} ${attention.length === 1 ? "needs" : "need"} your attention`}
-              </button>
-            </>
-          )}
-        </p>
-      </div>}
-      {finalReview && !replaying && (
-        <div className="map-final-review" role="status">
-          <span>
-            <strong>{zh ? "最终结果已检查通过" : "Final delivery passed review"}</strong>
-            {focusedNode?.data.task.id !== finalReview.id
-              && focusedNode?.data.task.outcome?.review_status === "unavailable"
-              && (finalReview.finished_ts ?? 0) > (focusedNode.data.task.finished_ts ?? 0)
-              ? <span>{zh ? " · 本项目后续已交付；此卡保留当次审查异常。" : " · This project was delivered later; this card retains its earlier review error."}</span>
-              : null}
-          </span>
-          <button type="button" onClick={openFinalReview}>{zh ? "查看结果检查" : "View final review"}</button>
-          {actions.deliveryCount > 0 && <button type="button" onClick={actions.onOpenDelivery}>
-            {zh ? "查看项目成果" : "View project deliverables"}
-          </button>}
-        </div>
-      )}
-      {!readOnly && <PendingBanner questions={snapshot.pending_questions ?? []} backlog={snapshot.backlog}
-        currentTaskId={currentTaskId} onAnswer={actions.onAnswer} onLocate={(taskId) => {
-          const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
-          if (card) focus(card.id);
-        }} />}
-      {camera.detailed && attentionIndex >= 0 && (
-        <div className="map-attention-detail" role="status">
-          <strong>{zh ? "待处理" : "Needs attention"} {attentionIndex + 1} / {attention.length}</strong>
-          {(() => {
-            const summary = attentionSummary(attention[attentionIndex], data.events, zh);
-            return <div tabIndex={0}>
-              <p>{summary.reason}</p>
-              <p>{summary.next}</p>
-              {summary.detail && <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>}
-            </div>;
-          })()}
-        </div>
-      )}
+      {!replaying && actions.teamStatus}
       {tracedTask && dependencies && (
         <nav className="map-dependencies" aria-label={zh ? "任务来路与去向" : "Task dependencies"}>
           <div>
@@ -986,13 +805,6 @@ export function MapCanvas({
           data-fitted={fitted}
           data-hovering={!!hoverId && !camera.detailed}
         >
-          {conversationNotice && !conversationOpen && (
-            <div className="canvas-upload-status canvas-conversation-notice nodrag nopan" role="status">
-              <span>{conversationNotice}</span>
-              <button type="button" onClick={() => { setConversationNotice(""); setConversationOpen(true); setAgentsOpen(false); }}>{zh ? "查看对话" : "Open conversation"}</button>
-              <button type="button" aria-label={zh ? "关闭" : "Dismiss"} onClick={() => setConversationNotice("")}>×</button>
-            </div>
-          )}
           {conversationOpen && <MapConversation snapshot={snapshot} events={actions.conversationEvents} pagination={actions.conversationPagination} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && <aside className="map-agent-drawer nowheel nodrag nopan">
             <header className="mb-3 flex items-center justify-between text-sm font-semibold">
@@ -1120,7 +932,7 @@ export function MapCanvas({
                   disabled={!focusedNode.data.previousId}
                   onClick={() =>
                     focusedNode.data.previousId &&
-                    openCard(focusedNode.data.previousId, true)
+                    openCard(focusedNode.data.previousId)
                   }
                 >
                   <ChevronLeft size={15} />
@@ -1133,7 +945,7 @@ export function MapCanvas({
                   disabled={!focusedNode.data.nextId}
                   onClick={() =>
                     focusedNode.data.nextId &&
-                    openCard(focusedNode.data.nextId, true)
+                    openCard(focusedNode.data.nextId)
                   }
                 >
                   <ChevronRight size={15} />
@@ -1163,7 +975,7 @@ export function MapCanvas({
                   title={zh ? '各个角色正在做什么' : 'What each role is doing'}
                   onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}
                 >
-                  <Activity size={15} /><i data-active={!!activePhase || composer.pending} aria-hidden /><span>{zh ? '工作详情' : 'Work details'}</span>
+                  <Activity size={15} /><i data-active={(!paused && snapshot.roles.some(role => role.active)) || composer.pending} aria-hidden /><span>{zh ? '工作详情' : 'Work details'}</span>
                 </button>
                 <button
                   type="button"
@@ -1265,12 +1077,6 @@ export function MapCanvas({
           )}
           {replaying && playbackStrip}
           <div className="map-legend nowheel">
-            {RELATION_KINDS.filter(([kind]) => relationKinds.has(kind)).map(([kind, zhName, enName]) => (
-              <span key={kind} title={RELATION_HINTS[kind]?.[zh ? 0 : 1] ?? (zh ? "记录里写明的关系" : "A relation the records state")}>
-                <b className={`relation relation-${kind}`} />
-                {zh ? zhName : enName}
-              </span>
-            ))}
             <span title={zh ? "没有记录关系的卡片按时间先后相连" : "Cards with no recorded relation are joined in time order"}>
               <b className="order" />
               {zh ? "先后" : "Order"}
@@ -1279,29 +1085,10 @@ export function MapCanvas({
               <b />
               {zh ? "任务依赖" : "Dependency"}
             </span>
-            <button
-              className={!showReplacements ? "is-muted" : ""}
-              onClick={toggleReplacements}
-              aria-pressed={showReplacements}
-              disabled={replacementCount === 0}
-              aria-label={zh ? "计划替代" : "Plan changes"}
-            >
-              <b className="replacement" />
-              {zh ? "计划替代" : "Plan changes"}
-              {replacementCount ? ` · ${replacementCount}` : ""}
-            </button>
           </div>
-          {!readOnly && !!looseRequests.length && !camera.detailed && (
-            <div className="map-loose-requests" data-testid="map-loose-requests" aria-live="polite">
-              {looseRequests.map((request) => (
-                <span key={request.id} title={request.full || request.text}>
-                  <i aria-hidden />{zh ? "你说：" : "You said: "}{request.text}
-                </span>
-              ))}
-            </div>
-          )}
+
           {!readOnly && (
-            <MapComposer {...composer} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
+            <MapComposer {...composer} before={actions.pendingQuestion} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
               dispatchStatus={flight?.result?.type === 'task' ? flight.landed ? 'task' : 'launching' : flight?.result?.outcome}
               onSend={submitFromMap} overview={!camera.detailed} startCompact={immersive} />
           )}
@@ -1351,23 +1138,13 @@ export function MapCanvas({
         {readingTask ? <>
           <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
-            {readingTask.outcome?.review_status === "unavailable" && (
-              <p className="mb-3 text-sm text-ink-dim" role="status">
-                {zh ? "当次审查异常，未形成审阅结论。" : "No review judgment was returned on this attempt."}
-                {finalReview && (finalReview.finished_ts ?? 0) > (readingTask.finished_ts ?? 0) && (
-                  <button type="button" className="ml-2 text-blue underline" onClick={openFinalReview}>
-                    {zh ? "查看本项目后续通过的最终审稿" : "View this project's later accepted final review"}
-                  </button>
-                )}
-              </p>
-            )}
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} task={readingTask}
               sessionId={sessionId} zh={zh}
               workspace={artifactScope.workspace}
               originalDetail={readingTask.turn_kind === 'qa'
-                ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.summary || (zh ? '尚无回答。' : 'No answer recorded.'))
-                : readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
+                ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.latest_action?.text || (zh ? '尚无回答。' : 'No answer recorded.'))
+                : readingTask.objective || readingTask.latest_action?.text || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
             {!readOnly ? <Button className="mt-3 text-xs" onClick={() => quote({ source: data.id, task_id: readingTask.id,
               task_title: readingTask.title,
@@ -1386,7 +1163,6 @@ export const MapPanel = memo(function MapPanel({
   immersive = false,
   onImmersiveChange,
   snapshot,
-  currentTaskId,
   events,
   draft,
   onDraftChange,
@@ -1394,6 +1170,7 @@ export const MapPanel = memo(function MapPanel({
   attachments: controlledAttachments,
   onAttachmentsChange,
   pending,
+  rewriting,
   focusSignal,
   readOnly = false,
   onOpenSettings,
@@ -1407,7 +1184,7 @@ export const MapPanel = memo(function MapPanel({
   onOpenDelivery,
   onOpenReceipt,
   onOpenArtifact,
-  onAnswer,
+  pendingQuestion,
   deliveries,
   onStopWork,
   onResumeTeam,
@@ -1417,7 +1194,6 @@ export const MapPanel = memo(function MapPanel({
   onResumeTeam?: () => void;
   teamBusy?: boolean;
   snapshot: Snapshot;
-  currentTaskId?: string | null;
   events: EventMsg[];
   draft: string;
   onDraftChange: (text: string) => void;
@@ -1425,6 +1201,7 @@ export const MapPanel = memo(function MapPanel({
   attachments?: File[];
   onAttachmentsChange?: (files: File[]) => void;
   pending: boolean;
+  rewriting?: boolean;
   focusSignal: number;
   readOnly?: boolean;
   /** The map fills the window: the header, overview and legend step aside. */
@@ -1551,17 +1328,6 @@ export const MapPanel = memo(function MapPanel({
   );
 
   const data = live.data;
-  // Plan-replacement links are off by default; the legend flips them on wide
-  // screens and the options menu does the same where the legend is hidden.
-  const [replacementsShown, setReplacementsShown] = useState(false);
-  const replacements = useMemo(
-    () => ({ shown: replacementsShown, toggle: () => setReplacementsShown((v) => !v) }),
-    [replacementsShown],
-  );
-  const replacementCount = useMemo(
-    () => data ? buildMap(data.tasks).links.filter((link) => link.kind === "replacement").length : 0,
-    [data],
-  );
   // Stable object identities: fresh actions/composer objects on every render
   // would invalidate the node-data memos in every mounted MapCanvas card.
   // The team line lives at the top of the canvas, beside the overview, so it
@@ -1572,10 +1338,10 @@ export const MapPanel = memo(function MapPanel({
   [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy, managerMessage]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
-             onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,
+             onOpenDelivery, onOpenReceipt, onOpenArtifact, pendingQuestion, deliveries,
              teamStatus }),
     [conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
-     onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries, teamStatus],
+     onOpenDelivery, onOpenReceipt, onOpenArtifact, pendingQuestion, deliveries, teamStatus],
   );
   const composer = useMemo<MapComposerProps>(
     () => ({
@@ -1588,15 +1354,16 @@ export const MapPanel = memo(function MapPanel({
       attachments,
       onAttachmentsChange: setAttachments,
       pending,
+      rewriting,
       focusSignal,
       zh, }),
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
-     pending, focusSignal, snapshot.session.display_name, snapshot.session.id,
+     pending, rewriting, focusSignal, snapshot.session.display_name, snapshot.session.id,
      zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
      readOnly, onOpenSettings, events, connected, onStopWork, onResumeTeam, teamBusy],
   );
   // Each task's figure, loaded separately from the map's task projection.
-  const workspace = snapshot.session.workdir || snapshot.session.cwd || '';
+  const workspace = snapshot.session.workdir || '';
   const cardFigures = useMemo(() => ({
     sid: snapshot.session.id,
     figures: taskFigures(deliveries ?? [], artifacts ?? [], events, workspace),
@@ -1613,25 +1380,7 @@ export const MapPanel = memo(function MapPanel({
         <div className="map-heading">
           <h1 title={snapshot.session.display_name}>{snapshot.session.display_name || t("sidebar.unnamedSession")}</h1>
         </div>
-        {replacementCount > 0 && <details className="map-more">
-          <summary aria-label={zh ? "地图选项" : "Map options"} title={zh ? "地图选项" : "Map options"}>
-            <SlidersHorizontal size={16} />
-          </summary>
-          <div className="map-more-menu">
-            {replacementCount > 0 && (
-              <button
-                type="button"
-                className="map-scope-button map-narrow-only"
-                aria-pressed={replacementsShown}
-                onClick={replacements.toggle}
-              >
-                {replacementsShown
-                  ? zh ? `隐藏计划替代连线 · ${replacementCount}` : `Hide plan changes · ${replacementCount}`
-                  : zh ? `显示计划替代连线 · ${replacementCount}` : `Show plan changes · ${replacementCount}`}
-              </button>
-            )}
-          </div>
-        </details>}
+
       </header>
       {data && live.isError && (
         <div className="map-data-error" role="status">
@@ -1657,21 +1406,14 @@ export const MapPanel = memo(function MapPanel({
             data={data}
             actions={actions}
             snapshot={snapshot}
-            currentTaskId={currentTaskId}
             pendingLabel={managerMessage}
             viewKey={viewKey}
             paused={paused}
             sessionId={snapshot.session.id}
             zh={zh}
             readOnly={readOnly}
-            replacements={replacements}
             immersive={immersive}
             onImmersiveChange={onImmersiveChange}
-            activePhase={
-              !paused
-                ? snapshot.roles.find((r) => r.active)?.role
-                : undefined
-            }
             composer={composer}
           />
         </ReactFlowProvider>

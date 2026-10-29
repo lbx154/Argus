@@ -32,7 +32,6 @@ export function operatorDecisionCards(
   const cards: OperatorDecisionCard[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
-    const itemId = text(row.id);
     const raw = row.operator_decision;
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
       const card = raw as Record<string, unknown>;
@@ -50,7 +49,8 @@ export function operatorDecisionCards(
       if (!options.some(option => option.id === 'custom')) {
         options.push(customDecisionOption(text(card.title), text(card.question)));
       }
-      const ownerId = text(card.item_id) || itemId;
+      // An empty item_id means no task; the outer row's id may name the role.
+      const ownerId = text(card.item_id);
       cards.push({
         id,
         ...(intake ? { kind: 'domain_intake' as const } : {}),
@@ -69,7 +69,7 @@ export function operatorDecisionCards(
         options_source: intake ? 'workflow' : options.length ? 'agent' : 'none',
         selected_option: '',
         note: '',
-        ...taskContext(ownerId, row),
+        ...(ownerId ? taskContext(ownerId, row) : {}),
         ...(intake ? { task_title: text(card.task_title) } : {}),
         ...(typeof card.asked_at === 'number' && Number.isFinite(card.asked_at) && card.asked_at > 0
           ? { asked_at: card.asked_at } : {}),
@@ -80,3 +80,7 @@ export function operatorDecisionCards(
   if (!currentTaskId) return cards;
   return [...cards.filter(card => card.kind === 'domain_intake'), ...cards.filter(card => card.kind !== 'domain_intake' && card.item_id === currentTaskId), ...cards.filter(card => card.kind !== 'domain_intake' && card.item_id !== currentTaskId)];
 }
+
+/** The server's answer ID is the role followed by `-<item_id>`, or just the role. */
+export const questionRole = (card: OperatorDecisionCard): string => card.item_id
+  ? card.id.slice(0, -(card.item_id.length + 1)) : card.id;

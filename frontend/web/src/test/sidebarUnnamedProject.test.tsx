@@ -5,8 +5,8 @@ import { Sidebar } from '../components/Sidebar';
 
 function markup(project: Record<string, unknown>) {
   const props = {
-    projects: [{ id: 's-0f0f0f0f', label: 's-0f0f0f0f', display_name: '', objective: '', last_active: 1,
-      daemon_alive: false, daemon_pid: null, uptime_seconds: null, launch_cwd: '/synthetic', workdir: '/synthetic', ...project }],
+    projects: [{ id: 's-0f0f0f0f', label: 's-0f0f0f0f', display_name: '', last_active: 1,
+      daemon_alive: false, daemon_pid: null, workdir: '/synthetic', ...project }],
     activeId: 's-0f0f0f0f', localCwd: '/synthetic', onSelect: vi.fn(), onManage: vi.fn(), onOpenPanel: vi.fn(),
     onOpenSkills: vi.fn(), onOpenVerticals: vi.fn(), onNew: vi.fn(), loading: false,
     onToggleCollapse: vi.fn(), themeMode: 'light' as const, onCycleTheme: vi.fn(), collapsed: false,

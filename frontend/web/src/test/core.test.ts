@@ -29,7 +29,7 @@ import {
   selectPreviewArtifacts,
 } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
-import { PendingReplyDialog } from '../components/PendingReplyDialog';
+import { PendingBanner } from '../components/PendingBanner';
 import { Sidebar } from '../components/Sidebar';
 import { BackendHandshake } from '../components/BackendHandshake';
 import { motionDistance, motionDuration, motionQueries } from '../lib/motion';
@@ -265,10 +265,10 @@ describe('shared frontend core', () => {
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
   });
 
-  it('renders operator questions in a dedicated direct-reply dialog', () => {
-    const html = renderToStaticMarkup(createElement(PendingReplyDialog, {
+  it('renders operator questions above the composer without a dialog', () => {
+    const html = renderToStaticMarkup(createElement(PendingBanner, {
       reply: {
-        id: 'decision-blocked-1',
+        id: 'engineer-blocked-1',
         item_id: 'blocked-1',
         revision: 1,
         status: 'pending',
@@ -280,16 +280,15 @@ describe('shared frontend core', () => {
         selected_option: '',
         note: '',
       },
-      open: true,
       busy: false,
-      onClose: () => undefined,
-      onSubmit: () => undefined,
+      error: '',
+      note: '',
+      onNoteChange: () => undefined,
+      onSubmit: async () => true,
     }));
-    expect(html).toContain('Decision required');
+    expect(html).not.toContain('role="dialog"');
     expect(html).toContain('Which dataset should the process use?');
-    // A written answer is the text box and its send button.
-    expect(html).toContain('Answer in your own words');
-    expect(html).toContain('Send answer');
+    expect(html).toContain('Review and respond');
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {
@@ -391,8 +390,8 @@ describe('shared frontend core', () => {
 
   it('selects live work first and gives replayed events one identity', () => {
     const rows = [
-      { id: 'new', label: 'new', objective: '', last_active: 20, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
-      { id: 'live', label: 'Research', objective: '', last_active: 10, daemon_alive: true, daemon_pid: 1, uptime_seconds: 5 },
+      { workdir: '/work', id: 'new', label: 'new', last_active: 20, daemon_alive: false, daemon_pid: null, },
+      { workdir: '/work', id: 'live', label: 'Research', last_active: 10, daemon_alive: true, daemon_pid: 1, },
     ];
     expect(defaultProject(rows)?.id).toBe('live');
     const event = { type: 'life.mission.completed', ts: 10, status: 'done' };
@@ -401,21 +400,21 @@ describe('shared frontend core', () => {
 
   it('finds projects consistently by multiple fields and palette keywords', () => {
     const rows = [
-      { id: 's-kernel-42', label: 'AAAI Paper', objective: 'Reproduce flash attention benchmark', last_active: 2, daemon_alive: true, daemon_pid: 1, uptime_seconds: 3 },
-      { id: 's-vision-7', label: 'Vision notes', objective: 'Review VLM datasets', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+      { workdir: '/work', id: 's-kernel-42', label: 'AAAI Paper', last_active: 2, daemon_alive: true, daemon_pid: 1, },
+      { workdir: '/work', id: 's-vision-7', label: 'Vision notes', last_active: 1, daemon_alive: false, daemon_pid: null, },
     ];
     expect(filterProjects(rows, 'aaai live').map((row) => row.id)).toEqual(['s-kernel-42']);
-    expect(filterProjects(rows, 'flash benchmark').map((row) => row.id)).toEqual(['s-kernel-42']);
+    expect(filterProjects(rows, 'aaai live').map((row) => row.id)).toEqual(['s-kernel-42']);
     expect(filterProjects(rows, 'vision stopped').map((row) => row.id)).toEqual(['s-vision-7']);
 
     const items: PaletteItem[] = rows.map((row) => ({
       id: row.id,
       label: row.label,
       group: 'Project',
-      keywords: `${row.id} ${row.objective}`,
+      keywords: `${row.id} ${row.label}`,
       run: () => {},
     }));
-    expect(filterPaletteItems(items, 'kernel benchmark').map((item) => item.id)).toEqual(['s-kernel-42']);
+    expect(filterPaletteItems(items, 'kernel aaai').map((item) => item.id)).toEqual(['s-kernel-42']);
     expect(resolveProjectSelection(rows, 's-kernel-42')).toEqual({
       id: 's-kernel-42', requested: 's-kernel-42', recovered: false,
     });
@@ -429,13 +428,13 @@ describe('shared frontend core', () => {
   });
 
   it('never auto-follows another operator session after initial selection', () => {
-    const current = {
-      id: 'mine', label: 'Mine', objective: '', last_active: 1,
-      daemon_alive: false, daemon_pid: null, uptime_seconds: null,
+    const current = { workdir: '/work',
+      id: 'mine', label: 'Mine', last_active: 1,
+      daemon_alive: false, daemon_pid: null,
     };
-    const other = {
-      id: 'other', label: 'Other live session', objective: '', last_active: 2,
-      daemon_alive: true, daemon_pid: 42, uptime_seconds: 3,
+    const other = { workdir: '/work',
+      id: 'other', label: 'Other live session', last_active: 2,
+      daemon_alive: true, daemon_pid: 42,
     };
     expect(reconcileProjectSelection([current], null, false).id).toBe('mine');
     expect(reconcileProjectSelection([other, current], 'mine', true).id).toBe('mine');
@@ -589,14 +588,14 @@ describe('shared frontend core', () => {
   });
 
 
-  it('falls back to an existing reviewed artifact when the live draft is pending', () => {
+  it('selects the returned live artifacts without an existence flag', () => {
     const artifacts = [
-      { path: 'FINAL_REPORT.md', name: 'FINAL_REPORT.md', why: 'live', exists: false, kind: 'markdown' as const, mime: 'text/markdown', size: 0, mtime: null, source: 'manager_live' as const },
-      { path: 'research/results.jsonl', name: 'results.jsonl', why: 'rows', exists: true, kind: 'json' as const, mime: 'application/json', size: 10, mtime: 1, source: 'reviewer_evidence' as const },
-      { path: 'paper/main.pdf', name: 'main.pdf', why: 'paper', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'reviewer_evidence' as const },
+      { path: 'FINAL_REPORT.md', name: 'FINAL_REPORT.md', kind: 'markdown' as const, mime: 'text/markdown', size: 0, mtime: null, source: 'manager_live' as const },
+      { path: 'research/results.jsonl', name: 'results.jsonl', kind: 'json' as const, mime: 'application/json', size: 10, mtime: 1, source: 'reviewer_evidence' as const },
+      { path: 'paper/main.pdf', name: 'main.pdf', kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'reviewer_evidence' as const },
     ];
     expect(selectPreviewArtifacts(artifacts).map((item) => item.path)).toEqual([
-      'paper/main.pdf', 'research/results.jsonl',
+      'paper/main.pdf', 'research/results.jsonl', 'FINAL_REPORT.md',
     ]);
     expect(selectPreferredPreviewArtifact(artifacts)?.path).toBe('paper/main.pdf');
   });

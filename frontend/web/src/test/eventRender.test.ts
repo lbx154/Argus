@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { parseSSEFrames } from '../api';
-import { activeGuardianAlert } from '../lib/guardian';
+import { activeGuardianAlert } from '../../../core/src/guardian';
 import type { EventMsg } from '../api';
 import { EventStream } from './serverSnapshot';
 import { EVENT_CORPUS } from '../../../core/src/eventCorpus.generated';

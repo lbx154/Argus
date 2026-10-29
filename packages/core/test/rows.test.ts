@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ROLE_LOG, type EventMsg } from '@argus/contracts';
+import { firstLine } from '../src/flow.js';
 import { Store, type Project } from '../src/store.js';
-import { conversationPage, conversationRows, projectRecord, snapshot, webEvents, type Live, type Reading, type Recorded } from '../src/serve/views.js';
+import { conversationPage, conversationRows, projectRecord, snapshot, webEvents, progressMap, taskTrace, type Live, type Reading, type Recorded } from '../src/serve/views.js';
 
 // Real three-task project already checked into the repository, with machine paths sanitized.
 const fixture = new URL('../../../frontend/web/src/test/fixtures/home/projects/p-c855623c/', import.meta.url);
@@ -89,9 +90,9 @@ test('snapshot status distinguishes stopped tasks, unanswered questions and conc
   assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '已停止：2 个任务暂停');
   work.questions = [{ role: 'engineer', task: work.tasks[0]!.id, question: 'Choose?' }];
   work.status = 'asking';
-  assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '等你回答 1 个问题');
+  assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '已暂停');
   const live: Live = { since: 1, calls: [{ role: 'engineer', task: work.tasks[1]!.id }], requests: [] };
-  assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '等你回答 1 个问题 · 1 个任务继续进行');
+  assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '1 个任务进行中');
   work.questions = [];
   work.status = 'working';
   assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '1 个任务进行中');
@@ -115,7 +116,8 @@ test('real stopped conversation: refresh retains the original request and Resume
   const resumed = rowsOf(stoppedRecord, { ...work, status: 'working' }, { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'stop-request-1' }], requests: [] });
   assert.equal(resumed[1]?.message_id, stopped[1]?.message_id);
   assert.equal(resumed[1]?.live, true);
-  assert.equal(resumed[1]?.text, '我正在核对第 14 项停止与继续运行记录。');
+  assert.equal(resumed[1]?.text, '');
+  assert.equal(projectRecord(stoppedRecord).roleEvents.slice().reverse().find(row => row.agent_layer === 'manager' && row.kind === 'agent_message')?.text, '我正在核对第 14 项停止与继续运行记录。');
   let reading: Reading | undefined;
   stoppedRecord.forEach((event, line) => {
     reading = projectRecord([event], reading);
@@ -123,7 +125,7 @@ test('real stopped conversation: refresh retains the original request and Resume
   });
 });
 
-test('a queued operator message keeps the current reply text and a letter from the team does not answer it', () => {
+test('a queued operator message keeps its own reply and a letter from the team does not answer it', () => {
   const events: Recorded[] = [
     { type: 'handoff', role: 'engineer', to: 'manager', letter: 'Team report', ts: at(1) },
     { type: 'call.start', role: 'manager', ts: at(2) },
@@ -136,7 +138,7 @@ test('a queued operator message keeps the current reply text and a letter from t
   const live: Live = { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'r-new' }], requests: [] };
   const rows = rowsOf(events, { ...project, tasks: [], status: 'working' }, live);
   assert.equal(rows.find(row => row.text === 'On the team report')?.request_id, undefined);
-  assert.equal(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.text, 'Checking your question');
+  assert.equal(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.text, '');
   assert.equal(rows.find(row => row.request_id === 'r-more' && row.type === 'ui.argus')?.status, 'waiting');
 });
 
@@ -155,4 +157,36 @@ test('browser record: request identities and structured attachment metadata surv
   assert.deepEqual(messages.map(row => ({ text: row.text, request_id: row.request_id, ...(row.attachments ? { attachments: row.attachments } : {}) })), captured.requests);
   assert.deepEqual(rows.filter(row => row.type === 'ui.argus').map(row => row.request_id), captured.requests.map(request => request.request_id));
   assert.ok(rows.filter(row => row.type === 'ui.argus').every(row => (row.delivery as { kind: string }).kind === 'result'));
+});
+
+test('real task fragments: progress and files share the map projection; incoming Planner letters keep their own author', t => {
+  const events = readFileSync(new URL('./fixtures/conversation-task/events.jsonl', import.meta.url), 'utf8').trim().split('\n').map(line => JSON.parse(line) as Recorded);
+  const home = mkdtempSync(join(tmpdir(), 'argus-task-letters-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const work = store.create({ request: '', workdir: home, backend: 'codex', model: null });
+  work.tasks = project.tasks.map(task => ({ ...task }));
+  work.tasks[2]!.status = 'open';
+  work.status = 'working';
+  const path = join(store.dir(work.id), 'events.jsonl');
+  const write = (rows: Recorded[]) => writeFileSync(path, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+  const before = events.slice(0, 6);
+  write(before);
+  const line = rowsOf(before, work).find(row => row.type === 'ui.task')!;
+  assert.equal(line.progress, 'text' in events[3]! ? events[3]!.text : '');
+  assert.deepEqual(line.result_paths, []);
+  const trace = taskTrace(store, work, 't3');
+  assert.deepEqual(trace.groups.map(group => group.role), ['planner', 'planner']);
+  assert.equal(trace.groups[1]!.entries[0]!.text, 'letter' in events[5]! ? events[5]!.letter : '');
+  assert.ok(!before.some(event => event.type === 'call.end' && event.task === 't3'));
+  // Append rather than replace the file: both views continue from their shared cursor.
+  writeFileSync(path, events.slice(6).map(row => JSON.stringify(row)).join('\n') + '\n', { flag: 'a' });
+  work.tasks[2]!.status = 'closed';
+  const map = progressMap(store, work, 0).tasks.find(task => task.id === 't3')!;
+  const done = rowsOf(events, work).find(row => row.type === 'ui.task')!;
+  assert.deepEqual(done.result_paths, ['result.md']);
+  assert.deepEqual(done.result_paths, map.result_paths);
+  assert.equal(done.progress, firstLine(map.latest_action!.text));
+  assert.equal(map.latest_action!.role, 'reviewer');
+  assert.deepEqual(taskTrace(store, work, 't3').groups.map(group => group.role), ['planner', 'planner', 'engineer', 'reviewer', 'planner']);
 });

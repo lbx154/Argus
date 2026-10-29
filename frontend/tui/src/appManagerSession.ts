@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import type { ApiClient, DaemonStartResult, EventMsg } from './api.js';
+import type { ApiClient, EventMsg } from './api.js';
 import { taskDispatchMessage } from './api.js';
 
 // Elapsed durations only change once per second. Updating faster forces Ink to
@@ -28,11 +28,6 @@ interface ManagerSessionArgs {
   projectRef: MutableRefObject<string>;
   setEvents: Dispatch<SetStateAction<EventMsg[]>>;
   setNotice: Dispatch<SetStateAction<string>>;
-  captureAdmission: (
-    start: DaemonStartResult | undefined,
-    targetProject: string,
-    resumeContinuous: boolean,
-  ) => void;
 }
 
 export function useManagerSession({
@@ -40,7 +35,6 @@ export function useManagerSession({
   projectRef,
   setEvents,
   setNotice,
-  captureAdmission,
 }: ManagerSessionArgs): ManagerSessionState {
   const [pending, setPending] = useState(false);
   const [startedAt, setStartedAt] = useState(0);
@@ -168,11 +162,6 @@ export function useManagerSession({
           onDone: (result) => {
             if (!isCurrent()) return;
             if (result.kind === 'task') {
-              captureAdmission(
-                result.daemon,
-                requestProject,
-                Boolean(result.continuous),
-              );
               if (!gotDelta) say(taskDispatchMessage(result));
             }
             else if (!gotDelta) {
@@ -195,11 +184,6 @@ export function useManagerSession({
           if (!isCurrent()) return;
           if (result.kind === 'chat' && result.reply) say(result.reply);
           else if (result.kind === 'task') {
-            captureAdmission(
-              result.daemon,
-              requestProject,
-              Boolean(result.continuous),
-            );
             say(taskDispatchMessage(result));
           }
           else say(result.reply || '(no response)');

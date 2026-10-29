@@ -49,7 +49,7 @@ export function recommendedSidebarScope(
   if (projects.length === 0) return 'local';
   const normalized = localCwd.trim();
   const local = normalized
-    ? projects.filter((project) => project.launch_cwd?.trim() === normalized)
+    ? projects.filter((project) => project.workdir?.trim() === normalized)
     : [];
   if (local.length === 0) return 'all';
   if (activeId && !local.some((project) => project.id === activeId)) return 'all';
@@ -69,6 +69,7 @@ export function Sidebar({
   resultsCount = 0,
   onNew,
   onSearch,
+  onOpenTrash,
   onSignOut,
   loading,
   creating = false,
@@ -93,6 +94,7 @@ export function Sidebar({
   resultsCount?: number;
   onNew: () => void;
   onSearch?: () => void;
+  onOpenTrash?: () => void;
   onSignOut?: () => void;
   loading: boolean;
   creating?: boolean;
@@ -182,7 +184,7 @@ export function Sidebar({
   const normalizedLocalCwd = localCwd.trim();
   const localProjects = useMemo(
     () => normalizedLocalCwd
-      ? projects.filter((project) => project.launch_cwd?.trim() === normalizedLocalCwd)
+      ? projects.filter((project) => project.workdir?.trim() === normalizedLocalCwd)
       : [],
     [normalizedLocalCwd, projects],
   );
@@ -203,7 +205,7 @@ export function Sidebar({
     if (scope === 'local') return [...first, ...(rest.length ? [[normalizedLocalCwd || 'Local', rest] as const] : [])];
     const groups = new Map<string, ProjectRow[]>();
     rest.forEach((project) => {
-      const path = project.launch_cwd?.trim() || t('common.unassigned');
+      const path = project.workdir?.trim() || t('common.unassigned');
       const rows = groups.get(path) ?? [];
       rows.push(project);
       groups.set(path, rows);
@@ -296,6 +298,9 @@ export function Sidebar({
               ) : null}
             </div>
           </div>
+          {onOpenTrash && <button type="button" className="mx-4 mb-2 text-left text-xs text-ink-dim hover:text-ink" onClick={onOpenTrash}>
+            {zh ? '回收站' : 'Trash'}
+          </button>}
           <div className="sidebar-project-filters" role="group" aria-label={zh ? '整理项目' : 'Organize projects'}>
             {(['active', 'followup', 'archived'] as const).map(filter => <button type="button" key={filter}
               aria-pressed={projectFilter === filter} onClick={() => { setProjectFilter(filter); setOrganizing(null); }}
@@ -354,12 +359,6 @@ export function Sidebar({
                   const work = project.work_status;
                   const workLabel = work?.label[locale === 'zh-CN' ? 'zh-CN' : 'en'];
                   const name = project.display_name?.trim() || t('sidebar.unnamedSession');
-                  const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
-                  // A release difference does not stop an existing executor.
-                  // Keep actual protocol/capability failures visibly distinct.
-                  const updateAvailable = incompatible
-                    && project.daemon_protocol_error === 'daemon release is incompatible with WebAPI release';
-                  const updateRequired = incompatible && !updateAvailable;
                   return (
                     <div
                       key={project.id}
@@ -384,28 +383,19 @@ export function Sidebar({
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot
-                            ok={project.daemon_alive && !updateRequired}
+                            ok={project.daemon_alive}
                             pulse={work ? ['running', 'waiting'].includes(work.state) : false}
-                            title={updateRequired ? t('sidebar.updateRequired') : workLabel}
+                            title={workLabel}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                           {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
                         </div>
                         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] text-ink-faint">
-                          <span className={`min-w-0 truncate ${updateRequired ? 'text-warn' : ''}`} title={workLabel}
+                          <span className="min-w-0 truncate" title={workLabel}
                             data-session-work-state={work?.state}>
-                            {updateRequired
-                              ? t('sidebar.updateRequired')
-                              : workLabel}
+                            {workLabel}
                           </span>
-                          {updateAvailable && (
-                            <span
-                              title={t('sidebar.updateAvailableHint')}
-                              className="shrink-0 rounded border border-line px-1 text-[10px] leading-4"
-                            >
-                              {t('sidebar.updateAvailable')}
-                            </span>
-                          )}
+
                         </div>
                       </button>
                       <button

@@ -25,7 +25,7 @@ export function taskFigures(
     const image = deliveryFiles(receipt).find((file) => IMAGE_FILE.test(file.path));
     if (image) figures.set(receipt.item_id, image.path);
   }
-  const exposed = new Set(artifacts.filter((file) => file.exists && (file.kind === 'image' || IMAGE_FILE.test(file.path)))
+  const exposed = new Set(artifacts.filter((file) => (file.kind === 'image' || IMAGE_FILE.test(file.path)))
     .map((file) => file.path));
   if (!exposed.size) return figures;
   const root = workspace.replace(/\/+$/, '');

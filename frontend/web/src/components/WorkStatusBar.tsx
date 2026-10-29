@@ -18,13 +18,9 @@ export function WorkStatusBar({ snapshot, connected, compact = false, pending, o
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1000), 10_000); return () => window.clearInterval(timer); }, []);
   const raw = currentWorkStatus(snapshot, now);
-  const status = { ...raw, title: relativizeWorkspacePaths(raw.title, snapshot?.session.workdir, snapshot?.session.cwd) };
+  const status = { ...raw, title: relativizeWorkspacePaths(raw.title, snapshot?.session.workdir) };
   const phase = teamPhase(status);
-  // Compact (chat header) keeps one line; only a step that needs the person adds a hint.
-  const actionable = status.reason === 'operator_input';
-  const next = compact && !actionable ? '' : actionable
-    ? zh ? '需要你的决定。查看下方问题，确认后继续。' : 'Your decision is needed. Review the question below to continue.'
-    : status.state === 'paused'
+  const next = compact || status.reason === 'operator_input' ? '' : status.state === 'paused'
       ? zh ? '当前没有继续执行。你可以调整要求，或在运行控制中查看恢复方式。' : 'Work is not continuing. Adjust the request or check runtime controls before resuming.'
       : status.state === 'idle' && status.activityAt !== null
         ? zh ? '可以查看文件与成果，或在下方提出新的要求。' : 'Review the files and results, or add your next request below.'

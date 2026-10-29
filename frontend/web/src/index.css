@@ -471,10 +471,12 @@ select optgroup {
 .workspace-tabs {
   display: flex;
   align-self: stretch;
-  gap: 1.75rem;
+  gap: clamp(.75rem, 2vw, 1.75rem);
 }
 
 .workspace-tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 0 0.125rem;
   border-bottom: 1px solid transparent;
   color: rgb(var(--ink-faint));

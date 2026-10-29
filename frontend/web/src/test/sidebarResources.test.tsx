@@ -6,8 +6,8 @@ import { Sidebar } from '../components/Sidebar';
 import { LearningLibraryEntry } from '../components/LearningLibrary';
 
 const props = {
-  projects: [{ id: 's-A', label: 'Synthetic session A', display_name: 'Synthetic session A', objective: '',
-    last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null, launch_cwd: '/synthetic', workdir: '/synthetic' }],
+  projects: [{ id: 's-A', label: 'Synthetic session A', display_name: 'Synthetic session A',
+    last_active: 1, daemon_alive: false, daemon_pid: null, workdir: '/synthetic' }],
   activeId: 's-A', localCwd: '/synthetic', onSelect: vi.fn(), onManage: vi.fn(), onOpenPanel: vi.fn(),
   onOpenLearning: vi.fn(), onOpenResults: vi.fn(), resultsCount: 2, onNew: vi.fn(), loading: false,
   onToggleCollapse: vi.fn(), themeMode: 'light' as const, onCycleTheme: vi.fn(),

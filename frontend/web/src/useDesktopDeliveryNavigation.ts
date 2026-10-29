@@ -107,7 +107,7 @@ export function useDesktopDeliveryNavigation(options: Options): () => void {
     void api.artifact(intent.target, path, intent.controller.signal).then(artifact => {
       const now = latest.current;
       if (pending.current !== intent || now.sidRef.current !== intent.target || now.loadedSid !== intent.target) return;
-      if (!artifact.exists || artifact.path !== path) throw new Error('the target file is unavailable');
+      if (artifact.path !== path) throw new Error('the target file is unavailable');
       pending.current = null;
       const receipt = now.receipts.find(row => row.delivery_id === intent.payload.deliveryId
         && deliveryFiles(row).some(file => file.path === path));

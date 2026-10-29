@@ -92,9 +92,9 @@ test('fresh Ink install selects the deliberate first-run state', () => {
     requested: 'requested-session',
     recovered: true,
   });
-  const row = {
-    id: 's-live', label: 'Live paper', objective: '', last_active: 2,
-    daemon_alive: true, daemon_pid: 42, uptime_seconds: 3,
+  const row = { workdir: '/work',
+    id: 's-live', label: 'Live paper', last_active: 2,
+    daemon_alive: true, daemon_pid: 42,
   };
   assert.equal(initialProjectId([row], 'missing'), 's-live');
   assert.deepEqual(initialProjectSelection([row], 's-live'), {
@@ -114,9 +114,9 @@ test('interactive launch is fresh by default and resumes only when explicit', ()
 
 test('resume scope excludes unassigned legacy Web sessions unless --all is used', () => {
   const rows = [
-    { id: 'local', label: 'local', objective: '', launch_cwd: '/work/repo', last_active: 3, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
-    { id: 'other', label: 'other', objective: '', launch_cwd: '/other', last_active: 2, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
-    { id: 'legacy', label: 'legacy', objective: '', cwd: '/home/me/.argus-skill/projects/legacy', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+    { workdir: '/work/repo', id: 'local', label: 'local', last_active: 3, daemon_alive: false, daemon_pid: null, },
+    { workdir: '/other', id: 'other', label: 'other', last_active: 2, daemon_alive: false, daemon_pid: null, },
+    { workdir: '/home/me/.argus-skill/projects/legacy', id: 'legacy', label: 'legacy', last_active: 1, daemon_alive: false, daemon_pid: null, },
   ];
   assert.deepEqual(projectsForLaunchCwd(rows, '/work', false).map((row) => row.id), ['local']);
   assert.equal(projectsForLaunchCwd(rows, '/work', true).length, 3);
@@ -124,8 +124,8 @@ test('resume scope excludes unassigned legacy Web sessions unless --all is used'
 
 test('resume scope normalizes Windows separators, drive case, and filesystem root', () => {
   const windowsRows = [
-    { id: 'local', label: 'local', objective: '', launch_cwd: 'C:\\Work\\Repo', last_active: 2, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
-    { id: 'other', label: 'other', objective: '', launch_cwd: 'D:\\Work', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+    { workdir: 'C:\\Work\\Repo', id: 'local', label: 'local', last_active: 2, daemon_alive: false, daemon_pid: null, },
+    { workdir: 'D:\\Work', id: 'other', label: 'other', last_active: 1, daemon_alive: false, daemon_pid: null, },
   ];
   assert.deepEqual(
     projectsForLaunchCwd(windowsRows, 'c:/work', false).map((row) => row.id),
@@ -133,17 +133,17 @@ test('resume scope normalizes Windows separators, drive case, and filesystem roo
   );
 
   const posixRows = [
-    { id: 'root-child', label: 'root-child', objective: '', launch_cwd: '/work/repo', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
+    { workdir: '/work/repo', id: 'root-child', label: 'root-child', last_active: 1, daemon_alive: false, daemon_pid: null, },
   ];
   assert.deepEqual(projectsForLaunchCwd(posixRows, '/', false).map((row) => row.id), ['root-child']);
 });
 
 test('plain startup reuses the highest-ranked live Windows session for its launch directory', () => {
   const rows = [
-    { id: 'stopped', label: 'stopped', objective: '', launch_cwd: 'C:\\Work\\Repo', last_active: 99, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
-    { id: 'older-live', label: 'older', objective: '', launch_cwd: 'c:/work/repo/sub', last_active: 2, daemon_alive: true, daemon_pid: 41, uptime_seconds: 10 },
-    { id: 'newer-live', label: 'newer', objective: '', launch_cwd: 'C:\\WORK\\REPO', last_active: 8, daemon_alive: true, daemon_pid: 42, uptime_seconds: 20 },
-    { id: 'other-live', label: 'other', objective: '', launch_cwd: 'D:\\Work\\Repo', last_active: 10, daemon_alive: true, daemon_pid: 43, uptime_seconds: 30 },
+    { workdir: 'C:\\Work\\Repo', id: 'stopped', label: 'stopped', last_active: 99, daemon_alive: false, daemon_pid: null, },
+    { workdir: 'c:/work/repo/sub', id: 'older-live', label: 'older', last_active: 2, daemon_alive: true, daemon_pid: 41, },
+    { workdir: 'C:\\WORK\\REPO', id: 'newer-live', label: 'newer', last_active: 8, daemon_alive: true, daemon_pid: 42, },
+    { workdir: 'D:\\Work\\Repo', id: 'other-live', label: 'other', last_active: 10, daemon_alive: true, daemon_pid: 43, },
   ];
   assert.deepEqual(
     liveProjectsForLaunchCwd(rows, 'c:/work/repo').map((row) => row.id),
