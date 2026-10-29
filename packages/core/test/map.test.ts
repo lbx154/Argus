@@ -128,4 +128,10 @@ test('a message is on the map while it is answered, and after only if its answer
   assert.deepEqual(cards('working'), [...done, ['q15', 'in_progress', [], []]]);
   write([{ type: 'handoff', role: 'manager', to: 'operator', letter: 'Here it is.', open: ['chart.png'], answers: 'r15' }]);
   assert.deepEqual(cards('working').at(-1), ['q15', 'done', [], ['chart.png']]);
+  // A reply alone stays till the next message, to be read on the map.
+  write([{ type: 'message', from: 'operator', text: 'Thanks!', request_id: 'r20' }, manager('r20'),
+    { type: 'handoff', role: 'manager', to: 'operator', letter: 'You are welcome.', answers: 'r20' }]);
+  assert.deepEqual(cards('working').slice(-2).map(card => card.slice(0, 2)), [['q15', 'done'], ['q20', 'done']]);
+  write([{ type: 'message', from: 'operator', text: 'One more thing.', request_id: 'r23' }]);
+  assert.deepEqual(cards('working').slice(-2).map(card => card.slice(0, 2)), [['q15', 'done'], ['q23', 'in_progress']]);
 });

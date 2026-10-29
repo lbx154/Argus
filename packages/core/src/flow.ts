@@ -180,7 +180,7 @@ export class Flow {
     const handoff = (await this.call(project, 'manager', null,
       resumed => managerPrompt(input, resumed), answers ? { answers } : {}))?.handoff ?? null;
     // The project is named once, by the first work the Manager hands on or delivers: one with work before it keeps its name.
-    const title = !handoff || project.name || begun(project) ? '' : handoff.open ? titleOf(project, handoff.open[0]!) : handoff.to === 'operator' ? '' : firstLine(read(handoff));
+    const title = !handoff || project.name || begun(project) ? '' : handoff.open ? resultTitle(project, handoff.open, read(handoff)) : handoff.to === 'operator' ? '' : firstLine(read(handoff));
     if (title) project.name = title.slice(0, 80);
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
@@ -326,7 +326,7 @@ export class Flow {
     if (handoff) {
       const { to, letters, open } = handoff;
       // A result's files are kept as delivered, so that what the next delivery changes can be shown.
-      const delivered = open ? { open, snapshots: keep(project, dir, open), title: titleOf(project, open[0]!) } : {};
+      const delivered = open ? { open, snapshots: keep(project, dir, open), title: resultTitle(project, open, letters[0]!) } : {};
       for (const letter of letters) this.record(project, { type: 'handoff', role, ...where, to, letter, ...delivered, ...answering });
       return result;
     }
@@ -402,6 +402,9 @@ export const firstLine = (text: string): string => text.split('\n')
 
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');
+
+/** A result's name: its one file's own title; for several, the first line of the letter handing them over. */
+const resultTitle = (project: Project, open: string[], letter: string): string => open.length === 1 ? titleOf(project, open[0]!) : firstLine(letter).slice(0, 100);
 
 /** Whether the team has had work: a task, or a letter to the Planner. */
 const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;

@@ -455,7 +455,7 @@ const maps = new Map<string, MapReading>();
  * that opened a task is its objective. Each message of the operator's to the Manager is a
  * question-and-answer card (`q` and its line): answering till the letter that names it comes, then
  * answered, with the files that letter hands over; the tasks that answer opens, and that wait for no
- * other, follow it; a reply alone leaves the map. A letter's id is its line, and the lines read are
+ * other, follow it; a reply alone leaves the map with the next message. A letter's id is its line, and the lines read are
  * the cursor: a page that holds one is sent only the letters after it. Like the live event stream,
  * each reading continues at the last complete line; only map fields are retained in memory. */
 export function progressMap(store: Store, project: Project, after: number) {
@@ -501,9 +501,11 @@ export function progressMap(store: Store, project: Project, after: number) {
   reading.end = end;
   maps.set(path, reading);
   // A message stays on the map while it is answered, and after if its answer set work going or handed
-  // something over; a reply alone, or one a stop or failure left unanswered, is the conversation's.
+  // something over, or till the next message comes; a reply before that, or one a stop or failure left
+  // unanswered, is the conversation's.
   const answering = project.status !== 'stopped' && project.status !== 'failed';
-  const tasks = [...[...qa.values()].filter(card => worked.has(card.id) || !card.status && answering).map(card => ({
+  const last = [...qa.values()].at(-1);
+  const tasks = [...[...qa.values()].filter(card => worked.has(card.id) || !card.status && answering || card === last && card.status === 'done').map(card => ({
     ...card, status: card.status || 'in_progress', latest_action: actions.get(card.id),
   })), ...backlog(project).map((item, index) => {
     const question = asked(project, item.id);

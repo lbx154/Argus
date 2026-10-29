@@ -100,7 +100,7 @@ test('a project with work from before names were kept keeps the name its request
   assert.equal((await say(flow, id, 'Make me a CSV summary tool')).name, undefined);
 });
 
-test('a result the Manager hands the operator keeps its files in the record, beside its letter, each as it was, named by its main file', async t => {
+test('a result the Manager hands the operator keeps its files in the record, beside its letter, each as it was; several are named by the letter', async t => {
   const open = ['summary.py', 'plot.png', 'missing.md'];
   const { home, store, flow, id, events } = await setup(t, [{ ...report, open }, { ...report, open }, { ...report, open }]);
   writeFileSync(join(home, 'summary.py'), 'print(1)\n');
@@ -110,8 +110,9 @@ test('a result the Manager hands the operator keeps its files in the record, bes
   writeFileSync(join(home, 'summary.py'), 'print(2)\n');
   const project = await say(flow, id, 'Print the totals instead');
   const handoffs = events().flatMap(event => event.type === 'handoff' ? [event] : []);
-  assert.deepEqual(handoffs.map(event => [event.letter, event.open, event.title]), [[report.letter, open, 'summary.py'], [report.letter, open, 'summary.py'], [report.letter, open, 'summary.py']]);
-  assert.equal(project.name, 'summary.py');
+  const named = 'summary.py prints the totals; checked against data.csv.';
+  assert.deepEqual(handoffs.map(event => [event.letter, event.open, event.title]), [[report.letter, open, named], [report.letter, open, named], [report.letter, open, named]]);
+  assert.equal(project.name, named);
   // A text file is copied as delivered; a binary one is named by its size and time; a missing one is left out.
   const [first, again, changed] = handoffs.map(event => event.snapshots ?? []);
   assert.deepEqual(first?.map(({ path, size, stored }) => [path, size, stored]), [['summary.py', 9, true], ['plot.png', 4, false]]);

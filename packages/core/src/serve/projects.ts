@@ -4,9 +4,9 @@
 // changed where it is held: by the work under way on it, or on disk. Its directory and backend
 // change only while nothing is under way, since the calls under way work in them.
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { ProjectCostRow } from '@argus/contracts';
 import { modelPriceFor } from '@argus/runtime';
 import type { Project, Store } from '../store.js';
@@ -37,7 +37,12 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
 export function directory(asked: string): string {
   const path = asked && resolve(asked.replace(/^~(?=$|\/)/, homedir()));
   try {
-    if (path) mkdirSync(path, { recursive: true });
+    // Each missing folder in turn, from the nearest that exists: Node's recursive mkdir never returns
+    // for a path under /proc.
+    const missing: string[] = [];
+    for (let dir = path; dir && !existsSync(dir); dir = dirname(dir)) missing.unshift(dir);
+    for (const dir of missing) mkdirSync(dir);
+    if (path && !statSync(path).isDirectory()) throw new Error('it is not a folder');
   } catch (error) {
     throw new HttpError(400, `${path} cannot be the working directory: ${error instanceof Error ? error.message : String(error)}`, 'invalid_workdir');
   }

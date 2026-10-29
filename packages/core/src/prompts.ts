@@ -73,16 +73,16 @@ function where(project: Project, store: Store, writes: boolean): string {
       ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
       : 'Your session ends with each turn, and everything you started with it.',
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
-    'Keep in the workspace anything another role or the operator should see: your /tmp may be yours alone.',
+    'Keep in the workspace what the work makes, for the other roles and the operator to see; install a tool you only check with (a browser, say) under ~/.cache, which every role and project shares. Your /tmp may be yours alone.',
     machine(),
   ].filter(Boolean).join('\n'));
 }
 
-/** The machine the work runs on, as far as Argus knows it: what is free now is for the roles to measure. */
+/** The machine the work runs on, as far as Argus knows it. */
 function machine(): string {
   const gpus = process.env.CUDA_VISIBLE_DEVICES;
   return `The machine: ${cpus().length} CPU cores, ${Math.round(totalmem() / 2 ** 30)} GiB of memory${gpus === undefined ? ''
-    : `, and the GPUs this project may use, CUDA_VISIBLE_DEVICES=${gpus || '(none)'}`}. Measure what is free (nvidia-smi, free, df) before choosing a scale, and use it.`;
+    : `, and the GPUs this project may use, CUDA_VISIBLE_DEVICES=${gpus || '(none)'}`}.`;
 }
 
 export const managerPrompt = (message: string, resumed: boolean): string => resumed ? message : section('Message', message);

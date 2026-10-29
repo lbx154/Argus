@@ -860,6 +860,13 @@ test('validation errors identify the reason without making the browser parse Eng
   const response = await post('/api/daemons', { workdir: file });
   assert.equal(response.status, 400);
   assert.equal((await response.json() as { code: string }).code, 'invalid_workdir');
+  // A folder that cannot be made anywhere is refused at once, under /proc too, where a recursive mkdir never returns.
+  for (const workdir of [join(file, 'deeper', 'still'), ...process.platform === 'linux' ? ['/proc/argus-nope/x'] : []]) {
+    assert.equal((await post('/api/daemons', { workdir })).status, 400, workdir);
+  }
+  // Folders that are missing are made, each in turn.
+  const made = join(home, 'new', 'deep');
+  assert.equal((await (await post('/api/daemons', { workdir: made })).json() as { workdir: string }).workdir, made);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const empty = await post(`/api/projects/${sid}/prompt/rewrite`, { text: '' });
   assert.equal(empty.status, 400);
