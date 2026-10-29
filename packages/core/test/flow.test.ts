@@ -496,7 +496,8 @@ test("the operator's message outlasts a Manager turn the process stopped, and re
   const controller = new AbortController();
   const { home, flow, id, events } = await setup(t, [{ role: 'manager', interrupt: true }], controller);
   const stopped = await say(flow, id, 'What is 6 times 7?');
-  assert.deepEqual(stopped.forManager, ['What is 6 times 7?']);
+  // The message waits named, so the turn that takes it up later, and its letter, name it.
+  assert.deepEqual(stopped.forManager?.map(letter => typeof letter === 'string' ? letter : [letter.text, typeof letter.request_id]), [['What is 6 times 7?', 'string']]);
   const next = agent([{ role: 'manager', to: 'operator', letter: '42' }]);
   const again = new Flow(new Store(home), next.callAgent);
   again.resume(id);

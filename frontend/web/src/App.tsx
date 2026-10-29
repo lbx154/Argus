@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
-import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, PairingRequiredError } from './api';
+import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type UploadedAttachment, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -14,7 +14,6 @@ import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRoo
 import { ChatBox } from './components/ChatBox';
 import { ContinuousSwitch } from './components/ContinuousSwitch';
 import { promptHistory, type PromptSources } from './lib/promptCompletion';
-import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps } from '../../core/src/phaseTrail';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { ConfigModal } from './components/InfoModals';
@@ -46,9 +45,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { finishManagerMessage } from './lib/messageResult';
 import { EDITIONS_CAPABILITY, POLL_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
-  dropOptimisticManagerReply,
   mergeOptimisticManagerReply,
-  mergeOptimisticManagerSteps,
+  optimisticManagerEvent,
   optimisticOperatorEvent,
   settleOptimisticManagerTurn,
 } from './lib/conversationEvents';
@@ -139,7 +137,6 @@ function useThrottledValue<T>(value: T, ms: number): T {
   return current;
 }
 
-
 export default function App() {
   const { locale, t } = useI18n();
   // The pairing error carries a fixed English message; show the localized copy instead.
@@ -224,7 +221,6 @@ export default function App() {
   const [waitingForUploads, setWaitingForUploads] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
   const localConversationSid = useRef<string | null>(null);
-  const [managerSteps, setManagerSteps] = useState<PhaseStep[]>([]);
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ path: string; version?: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -259,7 +255,7 @@ export default function App() {
     messageRequestRef.current = null;
     setChatPending(false);
     setWaitingForUploads(false);
-    setManagerSteps([]);
+
     return cancelled;
   }, []);
 
@@ -379,7 +375,6 @@ export default function App() {
     );
   }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
-
   const { createDaemon, creatingDaemon } = useCreateDaemonSession({
     localCwd,
     notify,
@@ -408,7 +403,6 @@ export default function App() {
   const startNewSessionRef = useRef(startNewSession);
   startNewSessionRef.current = startNewSession;
   useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
-
 
   const snapQ = useSnapshot(activeSid);
   const manageSnapQ = useSnapshot(manageTargetSid);
@@ -491,7 +485,6 @@ export default function App() {
     if (current?.recovered && current.sid === loadedSid) {
       messageRequestRef.current = null;
       setChatPending(false);
-      setManagerSteps([]);
       void transcriptQ.refetch();
     }
   }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
@@ -764,13 +757,12 @@ export default function App() {
         messageRequestRef.current = null;
         setChatPending(false);
         setWaitingForUploads(false);
-        setManagerSteps([]);
+
       }
     };
 
     setChatPending(true);
-    setManagerSteps([]);
-    let attachmentRefs: Array<{ attachment_id: string }> = [];
+    let attachmentRefs: UploadedAttachment[] = [];
     if (attachments.length || uploadOptions?.ready?.length) {
       if (messageRequestRef.current) messageRequestRef.current.uploading = true;
       try {
@@ -784,9 +776,7 @@ export default function App() {
         setWaitingForUploads(false);
         const uploaded = await api.uploadAttachments(requestSid, attachments, controller.signal, { ready: uploadOptions?.ready, completed });
         if (!isCurrent()) return false;
-        attachmentRefs = uploaded.attachments.map((attachment) => ({
-          attachment_id: attachment.attachment_id,
-        }));
+        attachmentRefs = uploaded.attachments;
         if (messageRequestRef.current) messageRequestRef.current.uploading = false;
         setWaitingForUploads(false);
       } catch (error) {
@@ -799,10 +789,11 @@ export default function App() {
     }
     const sameConversation = localConversationSid.current === requestSid;
     localConversationSid.current = requestSid;
-    setLocalConversationEvents((current) => mergeOptimisticManagerSteps([
+    setLocalConversationEvents((current) => [
       ...(sameConversation ? current : []),
-      optimisticOperatorEvent(requestSid, requestId, text),
-    ], requestSid, requestId, []));
+      optimisticOperatorEvent(requestSid, serverRequestId, text, Date.now(), attachmentRefs),
+      optimisticManagerEvent(requestSid, serverRequestId),
+    ]);
 
     const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
@@ -844,58 +835,26 @@ export default function App() {
     void (async () => {
       let gotDelta = false;
       let streamErr: Error | null = null;
-      // Append-only record of the real steps in this turn (see phaseTrail.ts).
-      // Kept in a local rather than state because React batches setManagerSteps
-      // and a reply block can land in the same tick as the phase before it.
-      let trail: PhaseStep[] = [];
       // A project's first message names it and starts its work: the list and the project are
       // read again once the server has it.
       let named = Boolean(projects.find(project => project.id === requestSid)?.objective);
       try {
         try {
           await api.messageStream(requestSid, text, {
-            onPhase: (label, role, meta) => {
-              if (!named) {
-                named = true;
-                void projectsQ.refetch();
-                void queryClient.invalidateQueries({ queryKey: ['snapshot', requestSid] });
-              }
-              if (!isCurrent() || meta.heartbeat) return;
-              trail = appendPhaseStep(trail, {
-                label,
-                role,
-                kind: meta.kind,
-                detail: meta.detail,
-                heartbeat: meta.heartbeat,
-                quietS: meta.quietS,
-                tool: meta.tool,
-                toolKind: meta.toolKind,
-                callId: meta.callId,
-                status: meta.status,
-                output: meta.output,
-              });
-              setManagerSteps(trail);
-              // Tool work shows up in the conversation as it happens, under
-              // the reply that is still being written.
-              const steps = trailToTurnSteps(trail);
-              if (steps.length) {
-                setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
-                  current, requestSid, requestId, steps, Date.now(), true,
-                ));
-              }
+            onAccepted: () => {
+              if (!isCurrent() || named) return;
+              named = true;
+              void projectsQ.refetch();
+              void queryClient.invalidateQueries({ queryKey: ['snapshot', requestSid] });
             },
             onDelta: (reply) => {
               if (!isCurrent()) return;
               gotDelta = true;
-              setLocalConversationEvents((current) => mergeOptimisticManagerReply(current, requestId, reply));
+              setLocalConversationEvents((current) => mergeOptimisticManagerReply(current, serverRequestId, reply));
             },
             onDone: (result) => {
               if (!isCurrent()) return;
               if (result.kind !== 'error') setRouteOverride('auto');
-              trail = closePhaseTrail(trail);
-              setManagerSteps(trail);
-              // A reply is its row in the record; a turn that ended without one reads as the record does.
-              if (!gotDelta) setLocalConversationEvents((current) => dropOptimisticManagerReply(current, requestId));
               finishMessage(result);
               const item = result.item as { id?: unknown } | undefined;
               if (result.kind !== 'task' || typeof item?.id !== 'string')
@@ -926,7 +885,7 @@ export default function App() {
       } finally {
         // Whatever ended the turn, nothing in it is live any more.
         setLocalConversationEvents((current) => settleOptimisticManagerTurn(
-          current, requestId, Date.now(), streamErr && !controller.signal.aborted ? 'failed' : 'stopped',
+          current, serverRequestId, streamErr && !controller.signal.aborted ? 'failed' : 'stopped',
         ));
         if (controller.signal.aborted) observe?.({ type: 'settled', outcome: 'cancelled' });
         resetCurrentRequest();
@@ -1128,19 +1087,19 @@ export default function App() {
         {snap ? (
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
-              {workspaceView !== 'map' && <TopBar
+              <TopBar
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
                 onStop={stopWork}
                 pending={messagePending}
+                showRunControl={workspaceView !== 'map'}
                 onManage={() => activeSid && requestManageSession(activeSid)}
-                onOpenPalette={() => setOverlay('palette')}
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
                 missionView={missionView}
-              />}
+              />
               <nav aria-label={t('mobile.views')} className="hidden h-11 shrink-0 items-center gap-3 border-b border-line/60 px-5 lg:flex">
                 <div className="workspace-tabs">
                   <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
@@ -1161,7 +1120,7 @@ export default function App() {
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
                 onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRoute}
@@ -1284,7 +1243,6 @@ export default function App() {
                   onStop={stopWork}
                   pending={messagePending}
                   onManage={() => activeSid && requestManageSession(activeSid)}
-                  onOpenPalette={() => setOverlay('palette')}
                   busy={daemonBusy}
                   snapshotStale={snapQ.isError}
                   readOnly={kiosk}

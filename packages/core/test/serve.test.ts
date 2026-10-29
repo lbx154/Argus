@@ -150,7 +150,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // The operator reads the Manager's letter to the team: the brief is its reply.
   // The reply is its row in the record, as the conversation shows it after a reload: whom it is to, and the message it answers.
   assert.deepEqual(reply[1], { type: 'delta', event: { type: 'ui.argus', ts: (reply[1]!.event as EventMsg).ts, event_id: 3,
-    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', row_id: 'm0-argus', order: 3 } });
+    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', request_id: 'r1', row_id: 'm0-argus', order: 3 } });
   assert.deepEqual(reply[2], { type: 'done', result: { kind: 'task', reply: brief } });
 
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot?compact=true&events_limit=1`),
@@ -481,7 +481,10 @@ test('a robot model opens in 3D, with the meshes it names read from beside it', 
 });
 
 test('a message whose reply a stop cut off waits for Resume, which the page offers', async t => {
-  const { get, post, requests } = await setup(t, [{ role: 'manager', hang: true }, { role: 'manager', to: 'operator', letter: '42' }]);
+  let finish!: () => void;
+  const until = new Promise<void>(resolve => { finish = resolve; });
+  const { get, post, requests } = await setup(t, [{ role: 'manager', hang: true },
+    { role: 'manager', says: 'Checking the original question', until, to: 'operator', letter: '42' }]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
   const reply = frames(await post(`${P}/message/stream`, { text: 'What is 6 times 7?', request_id: 'r1' }));
@@ -491,10 +494,22 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   assert.deepEqual((await reply).at(-1), { type: 'done', result: { kind: 'stopped', reply: null } });
   const stopped = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   assert.equal(stopped.daemon.resumable, true);
+  const refreshed = await get<ConversationPage>(`${P}/conversation`);
+  assert.deepEqual(refreshed.rows.map(row => [row.type, row.request_id, row.status]),
+    [['ui.operator', 'r1', undefined], ['ui.argus', 'r1', 'stopped']]);
   await post(`${P}/daemon/start`, { command_id: 'c2' });
-  const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.length === 2);
+  const replying = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles[0]!.active);
+  assert.equal(replying.work_status?.label['zh-CN'], '正在回复你的消息');
+  assert.equal(replying.manager_requests?.[0]?.request_id, 'r1');
+  const inFlight = await get<ConversationPage>(`${P}/conversation`);
+  assert.equal(inFlight.rows[1]?.text, 'Checking the original question');
+  assert.equal(inFlight.rows[1]?.live, true);
+  assert.match(requests[1]!.prompt, /What is 6 times 7\?/);
+  finish();
+  const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows[1]?.text === '42');
   assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'], ['ui.argus', '42']]);
   assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
+  assert.equal(answered.rows[1]?.message_id, refreshed.rows[1]?.message_id);
   assert.equal(requests.length, 2);
 });
 
@@ -594,9 +609,9 @@ test('a message typed while a reply is under way is answered after it', async t 
   assert.equal((await post(`${P}/message/followup`, { text: ' ' })).status, 400);
   release();
   await first;
-  const { rows: turns } = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.length === 4);
+  const { rows: turns } = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.text === 'Second answered.'));
   assert.deepEqual(turns.map(turn => [turn.type, turn.text]), [
-    ['ui.operator', 'first'], ['ui.argus', 'First answered.'], ['ui.operator', 'second'], ['ui.argus', 'Second answered.'],
+    ['ui.operator', 'first'], ['ui.operator', 'second'], ['ui.argus', 'First answered.'], ['ui.argus', 'Second answered.'],
   ]);
 });
 
@@ -672,7 +687,7 @@ interface Attachment { attachment_id: string; relative_path: string; original_na
 interface UploadState { attachment_id: string; offset: number; size_bytes: number; complete: boolean; attachment?: Attachment }
 
 test('attached files land in the workdir, and the message that carries them says where', async t => {
-  const { call, get, post, requests } = await setup(t, [{ role: 'manager', to: 'manager', letter: 'Read them.' }]);
+  const { store, call, get, post, requests } = await setup(t, [{ role: 'manager', to: 'manager', letter: 'Read them.' }]);
   const { sid, workdir } = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
   const P = `/api/projects/${sid}`;
   assert.deepEqual(await get(`${P}/attachments/limits`), { max_count: 5, max_bytes_per_file: 100 << 20, max_total_bytes: 500 << 20, chunk_bytes: 4 << 20 });
@@ -716,8 +731,11 @@ test('attached files land in the workdir, and the message that carries them says
 
   // The Manager is told where they are, and reads them there.
   assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: [{ attachment_id: notes!.attachment_id }] })).status, 400);
-  const files = [csv!, weights].map(({ attachment_id }) => ({ attachment_id }));
-  assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: files })).status, 200);
+  const files = [csv!, weights];
+  assert.equal((await post(`${P}/message`, { text: 'Use these', request_id: 'browser-upload', attachments: files })).status, 200);
+  const message = readEvents(store, sid).find(event => event.type === 'message');
+  assert.deepEqual(message && { text: message.text, request_id: message.request_id, attachments: message.attachments },
+    { text: 'Use these', request_id: 'browser-upload', attachments: files });
   assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
 });
 
@@ -824,7 +842,7 @@ test('a result the Manager hands the operator shows as its result card, its file
     { ts, type: 'handoff', role: 'manager', to: 'operator', letter: 'Nothing to open.' },
   ] satisfies Recorded[]);
   assert.deepEqual(reply!.delivery, {
-    schema_version: 1, delivery_id: 'd0', kind: 'task_completed', item_id: '', title: 'The totals report done',
+    schema_version: 1, delivery_id: 'd0', kind: 'result', item_id: '', title: 'The totals report done',
     summary: '# The [totals report](/work/report/index.html) **done**\nIt checks against data.csv.', status: 'done', review_status: '', delivered_at: Date.parse(ts) / 1000,
     primary_target: { path: 'report/index.html', label: 'index.html', source: 'manager', why: '' },
     targets: [

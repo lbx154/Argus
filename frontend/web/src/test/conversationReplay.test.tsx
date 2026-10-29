@@ -8,6 +8,7 @@ import { EventStream } from '../components/EventStream';
 import { mergeConversationEvents, mergeOptimisticManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
 
 // Real records: the Manager doing small work itself, and a brief it handed the Planner for three tasks.
+// Each message is named, and the Manager's turn and letter on it name it, as the record now holds them.
 const store = new Store(fileURLToPath(new URL('./fixtures/home', import.meta.url)));
 const PROJECTS = ['p-0444b8d3', 'p-c855623c'];
 
@@ -20,17 +21,17 @@ describe('one record, one conversation', () => {
     // put it up when it was sent, and each reply as its message's stream brought it.
     let reading: Reading | undefined;
     let local: EventMsg[] = [];
-    let waiting: { request: number; reply: string } | null = null;
+    let waiting: { request: string; reply: string } | null = null;
     record.forEach((event, line) => {
       if (event.type === 'message' && !event.to) {
-        const request = line + 1;
+        const request = String(event.request_id);
         local = [...local, optimisticOperatorEvent(id, request, event.text, Date.parse(event.ts) - 1_000)];
         waiting = { request, reply: `m${line}-argus` };
       }
       reading = projectRecord([event], reading);
       const streamed = conversationRows(reading, store.load(id), { since: null, calls: [], requests: [] });
       for (const row of streamed) {
-        if (waiting && row.type === 'ui.argus' && row.message_id === waiting.reply) {
+        if (waiting && !row.live && row.type === 'ui.argus' && row.message_id === waiting.reply) {
           local = mergeOptimisticManagerReply(local, waiting.request, row);
           waiting = null;
         }
@@ -45,8 +46,8 @@ describe('one record, one conversation', () => {
     const rows = conversationRows(projectRecord(readEvents(store, 'p-c855623c')), store.load('p-c855623c'), { since: null, calls: [], requests: [] });
     const brief = rows.find(row => row.type === 'ui.argus' && row.to === 'planner')!;
     expect(brief.message_id).toBe('m0-argus');
-    const sent = optimisticOperatorEvent('p-c855623c', 1, String(rows[0]!.text), Number(rows[0]!.ts) * 1_000 - 1_000);
-    const live = mergeOptimisticManagerReply([sent], 1, brief);
+    const sent = optimisticOperatorEvent('p-c855623c', 'r1', String(rows[0]!.text), Number(rows[0]!.ts) * 1_000 - 1_000);
+    const live = mergeOptimisticManagerReply([sent], 'r1', brief);
     for (const events of [mergeConversationEvents([], live), mergeConversationEvents(rows, [])]) {
       expect(renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} embedded />))
         .toContain('data-testid="conversation-brief"');

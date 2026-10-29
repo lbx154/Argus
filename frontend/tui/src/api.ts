@@ -207,15 +207,6 @@ export interface SSEFrame {
   [k: string]: unknown;
 }
 
-export interface ManagerPhaseMeta {
-  heartbeat: boolean;
-  quietS: number;
-  /** Progress kind ('command_execution', 'tool_use', …) when the backend sent one. */
-  kind: string;
-  /** Longer redacted body for the step (e.g. the full command). */
-  detail: string;
-}
-
 /** The final ``done`` frame's payload — the same shape blocking ``message()`` returns. */
 export interface StreamDone {
   kind?: string;
@@ -527,19 +518,10 @@ export class ApiClient {
     return (await r.json()) as StreamDone;
   }
 
-  /**
-   * Streaming Manager front-door (Server-Sent Events). The reply arrives live —
-   * ``onPhase`` for each real step ("Manager · reading events.jsonl"), ``onDelta``
-   * for each reply block as it's produced, ``onDone`` with the final
-   * classification + reply, ``onError`` on failure. This is what un-freezes the
-   * CLI: the operator sees Argus think and the answer type in, instead of a dead
-   * screen until the whole turn finishes. Falls back to blocking ``message()``
-   * at the call site if the stream can't be opened.
-   */
+  /** The Manager's reply and final classification over Server-Sent Events. */
   async messageStream(
     text: string,
     handlers: {
-      onPhase?: (label: string, role: string, meta: ManagerPhaseMeta) => void;
       onDelta?: (block: string, messageId: string, fragmentMode: string) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
@@ -556,20 +538,7 @@ export class ApiClient {
     if (!res.body) throw new Error('Manager stream returned no response body');
     const dispatch = (frame: SSEFrame) => {
       if (signal?.aborted) return;
-      if (frame.type === 'phase') {
-        const quietS = Number(frame.quiet_s ?? 0);
-        handlers.onPhase?.(
-          String(frame.label ?? ''),
-          String(frame.role ?? 'manager'),
-          {
-            heartbeat: frame.heartbeat === true,
-            quietS: Number.isFinite(quietS) ? quietS : 0,
-            kind: String(frame.kind ?? ''),
-            detail: String(frame.detail ?? ''),
-          },
-        );
-      }
-      else if (frame.type === 'delta') {
+      if (frame.type === 'delta') {
         handlers.onDelta?.(
           String(frame.text ?? ''),
           String(frame.message_id ?? ''),

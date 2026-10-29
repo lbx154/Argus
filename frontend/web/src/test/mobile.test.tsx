@@ -3,6 +3,31 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { MobileTabBar } from '../components/MobileTabBar';
 import { useVisualViewport } from '../useVisualViewport';
+import { TopBar } from '../components/TopBar';
+import type { Snapshot } from '../api';
+import stoppedSnapshot from './fixtures/conversation-shell-stopped.json';
+
+describe('mobile project header', () => {
+  it('keeps Stop readable, gives the status its own row and leaves commands to the existing desktop navigation', () => {
+    const snapshot = stoppedSnapshot as Snapshot;
+    const html = renderToStaticMarkup(<TopBar snap={{ ...snapshot, daemon: { ...snapshot.daemon, alive: true } }}
+      streamOk onStart={() => {}} onStop={() => {}} onManage={() => {}} busy={false} />);
+    expect(html).toContain('project-header');
+    expect(html).toMatch(/data-stop-work[\s\S]*?<span>Stop<\/span>/);
+    expect(html).not.toContain('hidden sm:inline');
+    expect(html).toMatch(/<div class="hidden sm:block"><details class="session-workdir"/);
+    expect(html).not.toContain('Commands');
+  });
+
+  it('reuses the project header on the map while leaving its existing team run control in place', () => {
+    const snapshot = stoppedSnapshot as Snapshot;
+    const html = renderToStaticMarkup(<TopBar snap={snapshot} showRunControl={false}
+      streamOk onStart={() => {}} onStop={() => {}} onManage={() => {}} busy={false} />);
+    expect(html).toContain(snapshot.session.display_name);
+    expect(html).not.toContain('data-resume-work');
+    expect(html).not.toContain('data-stop-work');
+  });
+});
 
 describe('MobileTabBar', () => {
   const markup = (active: 'map' | 'activity' | 'workbench' | 'preview' = 'map') =>

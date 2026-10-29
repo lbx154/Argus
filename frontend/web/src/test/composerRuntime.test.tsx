@@ -1,12 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { describe, expect, it, vi } from 'vitest';
-import type { ConfigSnapshot, Role } from '../api';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ConfigSnapshot, ModelChoices, Role } from '../api';
 import { ComposerRuntime } from '../components/ComposerRuntime';
 
 let config: Partial<Pick<ConfigSnapshot, 'roles' | 'backends'>> = {};
 const backends = { copilot: 'Copilot CLI', claude: 'Claude Code' };
-vi.mock('../hooks', () => ({ useConfig: () => ({ data: config }) }));
+let choices: ModelChoices | undefined;
+beforeEach(() => { choices = { backend: 'copilot', options: [{ model: 'backend-default', default: true, price: null }] }; });
+vi.mock('../hooks', () => ({ useConfig: () => ({ data: config }), useModelChoices: () => ({ data: choices }) }));
 vi.mock('../components/ModelPicker', () => ({
   ModelPicker: ({ open, onOpenSettings }: { open: boolean; onOpenSettings?: () => void }) =>
     open ? <button type="button" data-picker-open onClick={onOpenSettings} /> : null,
@@ -17,14 +19,14 @@ const roles: Role[] = [
 ] as Role[];
 
 describe('composer runtime information', () => {
-  it('shows the active role backend/model and returns to the manager when stopped', () => {
+  it('does not treat a role snapshot of historical models as an explicit model setting', () => {
     config = { backends, roles: [] };
     const active = renderToStaticMarkup(<ComposerRuntime sid="s-test" roles={roles} running />);
-    expect(active).toContain('engineer-model');
+    expect(active).toContain('Automatic');
     expect(active).toContain('Claude Code');
     expect(active).not.toContain('manager-model');
     const stopped = renderToStaticMarkup(<ComposerRuntime sid="s-test" roles={roles} running={false} />);
-    expect(stopped).toContain('manager-model');
+    expect(stopped).toContain('Automatic (backend-default)');
     expect(stopped).not.toContain('engineer-model');
   });
 
@@ -56,11 +58,32 @@ describe('composer runtime follows the real calls', () => {
     expect(renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} lastCall={lastCall} />)).not.toContain('called-model');
   });
 
-  it('names what Automatic came to from the latest call', () => {
+  it('keeps Automatic and the backend default for new projects and after a reply', () => {
+    config = { roles: configRoles('') } as typeof config;
+    for (const call of [undefined, lastCall]) {
+      const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} lastCall={call} />);
+      expect(html).toMatch(/class="composer-model-name">Automatic \(backend-default\)</);
+      expect(html).not.toContain('called-model');
+      expect(html).not.toContain('data-runtime-earlier');
+    }
+  });
+
+  it('names a running call separately when the next automatic turn uses a different default', () => {
     config = { roles: configRoles('') } as typeof config;
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} />);
-    expect(html).toMatch(/class="composer-model-name">called-model</);
-    expect(html).not.toContain('data-runtime-earlier');
+    expect(html).toContain('Automatic (backend-default)');
+    expect(html).toContain('this turn: called-model');
+  });
+
+  it('uses the current backend default and leaves an unreported default unnamed', () => {
+    config = { roles: configRoles('', 'claude') } as typeof config;
+    const stale = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} />);
+    expect(stale).not.toContain('backend-default');
+    choices = { backend: 'claude', options: [{ model: 'claude-default', default: true, price: null }] };
+    expect(renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} />)).toContain('Automatic (claude-default)');
+    choices = undefined;
+    const unknown = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} />);
+    expect(unknown).toMatch(/class="composer-model-name">Automatic</);
   });
 
   it('matches the call to the role that made it, not to the manager by default', () => {

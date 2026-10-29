@@ -486,83 +486,12 @@ test('usage gauge shows token inputs behind model API spend', async () => {
 test('pending Manager line exposes stop-waiting help at narrow widths', async () => {
   for (const width of [40, 60]) {
     const output = await renderNode(
-      React.createElement(ThinkingLine, { tick: 2, phase: 'Manager · reading context', elapsedS: 3 }),
+      React.createElement(ThinkingLine, { tick: 2, elapsedS: 3 }),
       width,
     );
     assert.match(output.replace(/\s+/g, ' '), /Esc stop waiting/);
     assert.ok(output.split('\n').every((line) => Array.from(line).length <= width));
   }
-});
-
-test('Manager heartbeat keeps rotating Argus phrases while reporting real silence', async () => {
-  const first = await renderNode(
-    React.createElement(ThinkingLine, {
-      tick: 2,
-      phase: 'Manager · waiting for the next model event · 12s quiet',
-      heartbeat: true,
-      quietS: 12,
-      elapsedS: 12,
-    }),
-    100,
-  );
-  const second = await renderNode(
-    React.createElement(ThinkingLine, {
-      tick: 22,
-      phase: 'Manager · waiting for the next model event · 14s quiet',
-      heartbeat: true,
-      quietS: 14,
-      elapsedS: 14,
-    }),
-    100,
-  );
-  assert.match(first.replace(/\s+/g, ' '), /turning it over… · Manager alive · 12s quiet/);
-  assert.match(second.replace(/\s+/g, ' '), /consulting a hundred eyes… · Manager alive · 14s quiet/);
-});
-
-test('the live step trail shows every real action, not one overwritten line', async () => {
-  // The trail is the cure for "I can't see what the CLI is doing": finished
-  // steps stay on screen with their duration, the newest one is active.
-  const now = Date.now() / 1000;
-  const steps = [
-    { id: 's1', role: 'manager', label: '$ rg -n cockpit src', detail: '', kind: 'command_execution', startedTs: now - 9, endedTs: now - 5, heartbeat: false },
-    { id: 's2', role: 'manager', label: '\u2699 view \u00b7 src/App.tsx', detail: '', kind: 'tool_use', startedTs: now - 5, endedTs: now - 2, heartbeat: false },
-    { id: 's3', role: 'manager', label: '$ pytest -q tests/a.py', detail: '', kind: 'command_execution', startedTs: now - 2, endedTs: 0, heartbeat: false },
-  ];
-  const out = await renderNode(
-    React.createElement(ThinkingLine, {
-      tick: 3,
-      phase: 'Manager \u00b7 running',
-      elapsedS: 9,
-      steps,
-      width: 120,
-    }),
-    120,
-  );
-  assert.match(out, /rg -n cockpit src/);
-  assert.match(out, /view \u00b7 src\/App\.tsx/);
-  assert.match(out, /pytest -q tests\/a\.py/);
-  assert.match(out, /\u2713/, 'finished steps are ticked off');
-  assert.match(out, /4s/, 'each finished step reports its own duration');
-});
-
-test('the trail window keeps the newest steps when a turn runs long', async () => {
-  const now = Date.now() / 1000;
-  const steps = Array.from({ length: 10 }, (_, i) => ({
-    id: `s${i}`,
-    role: 'manager',
-    label: `$ step-${i}`,
-    detail: '',
-    kind: 'command_execution',
-    startedTs: now - (10 - i),
-    endedTs: i === 9 ? 0 : now - (9 - i),
-    heartbeat: false,
-  }));
-  const out = await renderNode(
-    React.createElement(ThinkingLine, { tick: 1, phase: '', elapsedS: 10, steps, width: 120 }),
-    120,
-  );
-  assert.doesNotMatch(out, /step-0\b/, 'the oldest steps scroll out of the window');
-  assert.match(out, /step-9/, 'the active step is always visible');
 });
 
 test('slash menu scales with terminal height while retaining a bounded ceiling', () => {
@@ -724,17 +653,6 @@ test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
 });
 
 test('pending Manager frame does not trigger Ink full-screen repaint', async () => {
-  const now = Date.now() / 1000;
-  const steps = Array.from({ length: 6 }, (_, index) => ({
-    id: `step-${index}`,
-    role: 'manager',
-    label: `Manager step ${index}`,
-    detail: '',
-    kind: 'tool_use',
-    startedTs: now - (6 - index),
-    endedTs: index === 5 ? 0 : now - (5 - index),
-    heartbeat: false,
-  }));
   const output = await renderInteractiveNode(
     React.createElement(
       Box,
@@ -754,10 +672,7 @@ test('pending Manager frame does not trigger Ink full-screen repaint', async () 
       }),
       React.createElement(ThinkingLine, {
         tick: 1,
-        phase: 'Manager · working',
         elapsedS: 6,
-        steps,
-        width: 100,
       }),
       React.createElement(PromptBox, {
         edit: { value: '', cursor: 0 },
@@ -771,7 +686,8 @@ test('pending Manager frame does not trigger Ink full-screen repaint', async () 
   );
   assert.doesNotMatch(output, /\u001B\[2J/, 'Ink must not clear the terminal while thinking');
   assert.match(output.replace(ANSI, ''), /MISSION Waiting for a mission/);
-  assert.match(output.replace(ANSI, ''), /Manager step 5/);
+  assert.match(output.replace(ANSI, ''), /Replying to your message/);
+  assert.doesNotMatch(output.replace(ANSI, ''), /Manager step/);
 });
 
 test('24-row operations panel stays below Ink full-screen clear threshold', async () => {
@@ -871,13 +787,12 @@ test('Manager waiting line distinguishes the foreground message and hides handof
   const output = await renderNode(
     React.createElement(ThinkingLine, {
       tick: 2,
-      phase: 'Manager · SELF: one Copilot handling [SESSION HANDOFF — internal context]',
       elapsedS: 5,
     }),
     120,
   );
   assert.match(output, /Your message/);
-  assert.match(output, /working on your message/);
+  assert.match(output, /Replying to your message/);
   assert.doesNotMatch(output, /SESSION HANDOFF|internal context/);
 });
 

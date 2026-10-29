@@ -1,4 +1,4 @@
-import type { ConversationPage } from '@argus/contracts';
+import type { ConversationPage, UploadedAttachment } from '@argus/contracts';
 /**
  * Browser client for the argus webapi — same surface as the terminal client
  * (frontend/tui/src/api.ts) but using the browser fetch, with server-sent events for streams.
@@ -243,17 +243,8 @@ export interface PromptRewrite {
   error: string;
   error_code?: string;
 }
-export interface UploadedAttachment {
-  attachment_id: string;
-  relative_path: string;
-  original_name: string;
-  stored_name: string;
-  mime: string;
-  size_bytes: number;
-}
-export interface MessageAttachmentRef {
-  attachment_id: string;
-}
+export type { UploadedAttachment } from '@argus/contracts';
+export type MessageAttachmentRef = UploadedAttachment;
 export interface ContinuousUpdateResult {
   ok: boolean;
   daemon?: {
@@ -726,8 +717,6 @@ export interface StreamDone {
   kind?: string;
   reply?: string | null;
   item?: BacklogItem | null;
-  /** Tool steps journaled with the reply (see core/phaseTrail TurnStep). */
-  steps?: unknown;
   [k: string]: unknown;
 }
 
@@ -1187,7 +1176,7 @@ export const api = {
     );
   },
   /**
-   * Streaming Manager front-door (SSE): ``onPhase`` per real step, ``onDelta``
+   * Streaming Manager front-door (SSE): ``onAccepted`` when the request starts, ``onDelta``
    * with the reply's row in the record, ``onDone`` with the final classification,
    * ``onError`` on failure. Callers must not automatically replay a failed POST.
    */
@@ -1195,22 +1184,7 @@ export const api = {
     sid: string,
     text: string,
     handlers: {
-      onPhase?: (
-        label: string,
-        role: string,
-        meta: {
-          heartbeat: boolean;
-          quietS: number;
-          kind: string;
-          detail: string;
-          /** Plain title of the tool call, its runner-side id and how it ended. */
-          tool: string;
-          toolKind: string;
-          callId: string;
-          status: string;
-          output: string;
-        },
-      ) => void;
+      onAccepted?: () => void;
       /** The reply, as the conversation has it once the record is read. */
       onDelta?: (reply: EventMsg) => void;
       onDone?: (result: StreamDone) => void;
@@ -1230,24 +1204,7 @@ export const api = {
     const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride, requestId), signal);
     const dispatch = (f: SSEFrame) => {
       if (signal?.aborted) return;
-      if (f.type === 'phase') {
-        const quietS = Number(f.quiet_s ?? 0);
-        handlers.onPhase?.(
-          String(f.label ?? ''),
-          String(f.role ?? 'manager'),
-          {
-            heartbeat: f.heartbeat === true,
-            quietS: Number.isFinite(quietS) ? quietS : 0,
-            kind: String(f.kind ?? ''),
-            detail: String(f.detail ?? ''),
-            tool: String(f.tool ?? ''),
-            toolKind: String(f.tool_kind ?? ''),
-            callId: String(f.call_id ?? ''),
-            status: String(f.status ?? ''),
-            output: String(f.output ?? ''),
-          },
-        );
-      }
+      if (f.type === 'phase') handlers.onAccepted?.();
       else if (f.type === 'delta') handlers.onDelta?.(f.event as EventMsg);
       else if (f.type === 'done') {
         handlers.onDone?.((f.result ?? {}) as StreamDone);

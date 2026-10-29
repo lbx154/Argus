@@ -52,7 +52,8 @@ it('lists Automatic first and each model with the price on record, and never cal
   expect(renderer!.root.findAll(node => node.props['data-model-row'] !== undefined && node.type === 'div').map(node => node.props['data-model-row']))
     .toEqual(['', 'gpt-6.1-sol', 'gpt-5.6-luna', 'gpt-6-astra']);
   // Automatic names the backend's default; the model in use is marked.
-  expect(textOf(row('').findByProps({ 'data-meta': true }) as never)).toBe("Codex's default model · gpt-6.1-sol");
+  expect(textOf(row('') as never)).toContain('Automatic (gpt-6.1-sol)');
+  expect(textOf(row('').findByProps({ 'data-meta': true }) as never)).toBe("Codex's default model");
   expect(row('gpt-5.6-luna').props['aria-checked']).toBe(true);
   expect(textOf(row('gpt-5.6-luna') as never)).toContain('in use');
   expect(textOf(row('gpt-6.1-sol').findByProps({ 'data-meta': true }) as never)).toBe('$2 in · $10 out per 1M tokens');
@@ -80,7 +81,7 @@ it("goes back to the backend's default by choosing Automatic", async () => {
   const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
   await mount();
   await act(async () => { row('').props.onClick(); });
-  expect(textOf(renderer!.root.findByProps({ 'data-choice-summary': true }) as never)).toBe('Automatic · High');
+  expect(textOf(renderer!.root.findByProps({ 'data-choice-summary': true }) as never)).toBe('Automatic (gpt-6.1-sol) · High');
   await act(async () => { renderer!.root.findByProps({ 'data-use-model': true }).props.onClick(); });
   expect(setConfig.mock.calls).toEqual([['one', 'ARGUS_SKILL_MODEL', '']]);
 });

@@ -1,3 +1,9 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import replay from '../../../../packages/core/test/fixtures/conversation-fixes/after.json';
+import { webEvents, type Recorded } from '../../../../packages/core/src/serve/views';
+import { EventStream } from '../components/EventStream';
+import { ResearchCanvas } from '../components/ResearchCanvas';
+import { deliveryHeadingKey } from '../lib/deliveryKind';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -185,8 +191,8 @@ describe('completed delivery presentation', () => {
   });
 
   it('a reply recorded with a delivery replaces the page’s row for it, delivery and all', () => {
-    const recorded = { type: 'ui.argus', text: 'Done', ts: 2, event_id: 5, message_id: 'm3-argus', delivery };
-    const events = mergeConversationEvents([recorded], [{ type: 'ui.argus', text: 'Done', ts: 1.5, message_id: 'm3-argus' }]);
+    const recorded = { type: 'ui.argus', text: 'Done', ts: 2, event_id: 5, message_id: 'm3-argus', request_id: 'r1', delivery };
+    const events = mergeConversationEvents([recorded], [{ type: 'ui.argus', text: 'Done', ts: 1.5, message_id: 'm3-argus', request_id: 'r1' }]);
     expect(events).toEqual([recorded]);
   });
 });
@@ -206,4 +212,19 @@ it('resolves document-relative model links and confined sandbox links', () => {
   }));
   expect(markup.match(/data-artifact-path="study\/models\/model.npz"/g)).toHaveLength(2);
   expect(markup).not.toContain('href="javascript:');
+});
+
+it('browser record: a Manager answer with a file is a neutral result in chat and Results & files', () => {
+  const answer = webEvents(replay.events as Recorded[]).filter(row => row.type === 'ui.argus').at(-1)!;
+  const receipt = answer.delivery as DeliveryReceipt;
+  expect(receipt.kind).toBe('result');
+  expect(deliveryHeadingKey(receipt)).toBe('mission.result');
+  const chat = renderToStaticMarkup(createElement(EventStream, { events: [answer], connected: true, showReasoning: false }));
+  const files = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() },
+    createElement(ResearchCanvas, { sid: null, artifacts: [], filesFirst: true, deliveriesLoaded: true, latestDelivery: receipt, onExpand: () => undefined })));
+  expect(chat).toContain('data-delivery-kind="result"');
+  expect(chat).toContain('Result');
+  expect(files).toContain('Latest result');
+  expect(files).toContain('Result');
+  expect(chat + files).not.toContain('Task completed');
 });

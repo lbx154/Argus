@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { ApiClient, DaemonStartResult, EventMsg } from './api.js';
 import { taskDispatchMessage } from './api.js';
-import {
-  appendPhaseStep,
-  closePhaseTrail,
-  summarizeTrail,
-  type PhaseStep,
-} from '../../core/src/phaseTrail.js';
 
 // Elapsed durations only change once per second. Updating faster forces Ink to
 // diff and repaint the entire live frame without adding useful information.
@@ -21,11 +15,6 @@ export interface ActiveManagerRequest {
 
 export interface ManagerSessionState {
   pending: boolean;
-  phase: string;
-  phaseHeartbeat: boolean;
-  phaseQuietS: number;
-  /** Append-only record of every real step in the current turn. */
-  steps: PhaseStep[];
   startedAt: number;
   tick: number;
   managerRequestRef: MutableRefObject<ActiveManagerRequest | null>;
@@ -54,10 +43,6 @@ export function useManagerSession({
   captureAdmission,
 }: ManagerSessionArgs): ManagerSessionState {
   const [pending, setPending] = useState(false);
-  const [phase, setPhase] = useState('');
-  const [phaseHeartbeat, setPhaseHeartbeat] = useState(false);
-  const [phaseQuietS, setPhaseQuietS] = useState(0);
-  const [steps, setSteps] = useState<PhaseStep[]>([]);
   const [startedAt, setStartedAt] = useState(0);
   const [tick, setTick] = useState(0);
   const managerRequestRef = useRef<ActiveManagerRequest | null>(null);
@@ -69,10 +54,7 @@ export function useManagerSession({
     managerRequestRef.current?.controller.abort();
     managerRequestRef.current = null;
     setPending(false);
-    setPhase('');
-    setPhaseHeartbeat(false);
-    setPhaseQuietS(0);
-    setSteps([]);
+
     setStartedAt(0);
     return cancelled;
   };
@@ -135,8 +117,7 @@ export function useManagerSession({
         local_optimistic: true,
       } as EventMsg,
     ]);
-    setPhase('');
-    setSteps([]);
+
     setStartedAt(Date.now());
     setTick(0);
     setPending(true);
@@ -164,52 +145,15 @@ export function useManagerSession({
       ));
     };
 
-    // The live trail disappears with the status line, so fold it into the
-    // scrollback ONCE — right before the first reply block — and let the
-    // operator scroll back through exactly what Argus did. The trail is kept in
-    // a ref as well as state: React batches setSteps, and a reply block can
-    // arrive in the same tick as the phase that preceded it.
-    let trail: PhaseStep[] = [];
-    let trailFlushed = false;
-    const flushTrail = () => {
-      if (trailFlushed || !isCurrent()) return;
-      trailFlushed = true;
-      const summary = summarizeTrail(closePhaseTrail(trail));
-      if (!summary) return;
-      setEvents((events) => (
-        isCurrent()
-          ? [...events, { type: 'ui.activity', text: summary, ts: Date.now() / 1000 } as EventMsg]
-          : events
-      ));
-    };
-
     let gotDelta = false;
     let streamErr: Error | null = null;
     try {
       try {
         await api.messageStream(text, {
-          onPhase: (label, role, meta) => {
-            if (!isCurrent()) return;
-            setPhase(label);
-            setPhaseHeartbeat(meta.heartbeat);
-            setPhaseQuietS(meta.quietS);
-            trail = appendPhaseStep(trail, {
-              label,
-              role,
-              kind: meta.kind,
-              detail: meta.detail,
-              heartbeat: meta.heartbeat,
-              quietS: meta.quietS,
-            });
-            setSteps(trail);
-          },
           onDelta: (block, messageId, fragmentMode) => {
             if (!isCurrent()) return;
             gotDelta = true;
-            flushTrail();
-            setPhase('');
-            setPhaseHeartbeat(false);
-            setPhaseQuietS(0);
+
             const activeMessageId = messageId || replyId;
             const request = managerRequestRef.current;
             if (request?.id === requestId) request.messageId = activeMessageId;
@@ -223,7 +167,6 @@ export function useManagerSession({
           },
           onDone: (result) => {
             if (!isCurrent()) return;
-            flushTrail();
             if (result.kind === 'task') {
               captureAdmission(
                 result.daemon,
@@ -266,22 +209,14 @@ export function useManagerSession({
       }
     } finally {
       if (managerRequestRef.current?.id === requestId) {
-        flushTrail();
         managerRequestRef.current = null;
         setPending(false);
-        setPhaseHeartbeat(false);
-        setPhaseQuietS(0);
-        setSteps([]);
       }
     }
   };
 
   return {
     pending,
-    phase,
-    phaseHeartbeat,
-    phaseQuietS,
-    steps,
     startedAt,
     tick,
     managerRequestRef,

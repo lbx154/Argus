@@ -8,6 +8,7 @@ import { I18nProvider, type Locale } from '../i18n';
 import { WORKBENCH_MODULES } from '../research-workbench/modules';
 import { IdePage } from '../research-workbench/pages/IdePage';
 import type { ActiveWorkbenchPageProps } from '../research-workbench/pages/pageTypes';
+import stoppedSnapshot from './fixtures/conversation-shell-stopped.json';
 
 const snap: Snapshot = {
   session: { id: 's-A', display_name: 'Synthetic A', objective: '', last_active: 1,
@@ -25,7 +26,7 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   vi.stubGlobal('fetch', fetch); fetch.mockClear();
 });
-afterEach(() => { client.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { client.clear(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers(); });
 function markup(element: ReactElement, locale: Locale = 'en') {
   vi.stubGlobal('localStorage', { getItem: () => locale });
   return renderToStaticMarkup(<QueryClientProvider client={client}><I18nProvider>{element}</I18nProvider></QueryClientProvider>);
@@ -35,6 +36,32 @@ function topbar(snapshot = snap) {
 }
 
 describe('A3 snapshot-only session context', () => {
+  it('dates the recorded activity and shows ledger spend directly in the status row', () => {
+    // Recorded through the isolated built Argus HTTP service during t3's browser reproduction.
+    const recorded = stoppedSnapshot as Snapshot;
+    vi.stubEnv('TZ', 'UTC');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date((recorded.work_status!.activityAt! + 3 * 3600) * 1000));
+    for (const locale of ['zh-CN', 'en'] as const) {
+      const html = markup(topbar(recorded), locale);
+      const status = html.match(/class="topbar-status[^>]*>([\s\S]*?)<div class="hidden sm:block"/)?.[1];
+      expect(status).toContain(locale === 'zh-CN' ? '已停止' : 'Stopped');
+      expect(status).toContain(locale === 'zh-CN' ? '3小时前' : '3h ago');
+      expect(status).toContain(locale === 'zh-CN' ? '已花 $94.5' : 'Spent $94.5');
+      expect(status).not.toContain('truncate');
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses the session activity time when no work activity is recorded, without inventing unknown spend', () => {
+    const recorded = stoppedSnapshot as Snapshot;
+    const html = markup(topbar({ ...recorded, work_status: { ...recorded.work_status!, activityAt: null }, spend_usd: null, spend_status: 'unpriced' }));
+    expect(html).toContain(new Date(recorded.session.last_active * 1000).toISOString());
+    expect(html).not.toContain('Spent $');
+    expect(markup(topbar({ ...recorded, spend_usd: 0, spend_status: 'priced' }))).toContain('Spent $0.00');
+    expect(markup(topbar({ ...recorded, spend_status: 'partial' }))).toContain('Spent ≥$94.5');
+  });
+
   it.each(['en', 'zh-CN'] as const)('shows the session directory in %s without requests', locale => {
     const html = markup(topbar(), locale);
     expect(html).toContain(locale === 'en' ? 'Project folder' : '项目目录');

@@ -563,7 +563,7 @@ describe('web API protocol handshake', () => {
       expect(path).toBe('/api/projects/s-test/message');
       expect(JSON.parse(String(init?.body))).toEqual({
         text: 'summarize the note',
-        attachments: [{ attachment_id: 'att-123456789abc' }],
+        attachments: [{ attachment_id: 'att-123456789abc', relative_path: '.argus/attachments/s-test/att-123456789abc/notes.json', original_name: 'notes.json', stored_name: 'notes.json', mime: 'application/json', size_bytes: 7 }],
       });
       return Response.json({ kind: 'chat', reply: 'ok' });
     });
@@ -573,9 +573,7 @@ describe('web API protocol handshake', () => {
 
     const upload = await api.uploadAttachments('s-test', [file]);
     const result = await api.message('s-test', 'summarize the note', {
-      attachments: upload.attachments.map((attachment) => ({
-        attachment_id: attachment.attachment_id,
-      })),
+      attachments: upload.attachments,
     });
 
     expect(upload.attachments[0].attachment_id).toBe('att-123456789abc');

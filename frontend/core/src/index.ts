@@ -18,5 +18,4 @@ export * from './activity.js';
 export * from './protocol.js';
 export * from './splash.js';
 export * from './thinking.js';
-export * from './phaseTrail.js';
 export * from './shortcuts.js';

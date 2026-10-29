@@ -234,8 +234,8 @@ describe('the web feed line', () => {
     expect(line({ type: 'ui.operator', text: '继续实验' })).toMatchObject({ label: 'You', text: '继续实验', rule: true });
     expect(zh({ type: 'ui.operator', text: '继续实验' })?.label).toBe('你');
     expect(line({ type: 'ui.argus', text: '已开始运行' })).toMatchObject({ role: 'manager', label: 'Argus', text: '已开始运行', rule: true });
-    // A reply still being worked on has steps before it has words: keep the row.
-    expect(line({ type: 'ui.argus', text: '', steps: [{ label: 'reading' }] })).toMatchObject({ role: 'manager', text: '' });
+    // A pending or stopped reply has a state before it has final words.
+    expect(line({ type: 'ui.argus', text: '', status: 'stopped' })).toMatchObject({ role: 'manager', text: '' });
     expect(line({ type: 'ui.argus', text: '' })).toBeNull();
     expect(line({ type: 'ui.operator', text: '   ' })).toBeNull();
   });
@@ -419,7 +419,7 @@ describe('EventStream role grouping', () => {
     expect(html).toContain('data-role="planner"');
     expect(html).toContain('data-role="engineer"');
     expect(html).toContain('data-role="reviewer"');
-    expect(html).toContain('aria-expanded="true"');
+    expect(html).not.toContain('aria-expanded="true"');
   });
 
   it('does not mount details for collapsed role and system groups', () => {

@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { appendFileSync, mkdirSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import { join } from 'node:path';
+import type { UploadedAttachment } from '@argus/contracts';
 import type { Project } from '../store.js';
 import { HttpError, type Handler } from './index.js';
 
@@ -19,23 +20,27 @@ const PART = '.part';
 interface Upload {
   sid: string;
   dir: string;
-  attachment: { attachment_id: string; relative_path: string; original_name: string; stored_name: string; mime: string; size_bytes: number };
+  attachment: UploadedAttachment;
 }
 
 const folder = (workdir: string, id: string): string => join(workdir, '.argus', 'attachments', id);
 
 const listed = (dir: string): string[] => { try { return readdirSync(dir); } catch { return []; } };
 
-/** What a message says of the files it carries: where each is in the workdir. */
-export function attached({ workdir }: Project, refs: unknown): string {
-  if (!Array.isArray(refs) || !refs.length) return '';
-  const paths = refs.map(ref => {
-    const id = String((ref as { attachment_id?: unknown } | null)?.attachment_id ?? '');
-    const name = ID.test(id) ? listed(folder(workdir, id)).find(name => name !== PART) : undefined;
+/** Resolve uploaded receipts against the project's files before recording them. */
+export function attached({ workdir }: Project, refs: unknown): UploadedAttachment[] {
+  if (refs === undefined) return [];
+  if (!Array.isArray(refs) || refs.length > LIMITS.max_count) throw new HttpError(400, 'invalid attachments', 'invalid_request');
+  return refs.map(ref => {
+    const { attachment_id: id, original_name, mime } = (ref ?? {}) as Partial<UploadedAttachment>;
+    const name = typeof id === 'string' && ID.test(id) ? listed(folder(workdir, id)).find(name => name !== PART) : undefined;
     if (!name) throw new HttpError(400, `no attachment ${id} has been uploaded to this project`, 'attachment_missing');
-    return `- .argus/attachments/${id}/${name}`;
+    if (typeof original_name !== 'string' || !original_name || typeof mime !== 'string') {
+      throw new HttpError(400, 'attachments need their upload metadata', 'invalid_request');
+    }
+    return { attachment_id: id!, relative_path: `.argus/attachments/${id}/${name}`, original_name, stored_name: name,
+      mime, size_bytes: statSync(join(folder(workdir, id!), name)).size };
   });
-  return `\n\nAttached, in the workdir:\n${paths.join('\n')}`;
 }
 
 export function attachments(project: (id: string) => Project): [string, RegExp, Handler][] {

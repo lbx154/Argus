@@ -64,10 +64,13 @@ export function useProjectDaemonActions({
     actions.startDaemon.mutate(undefined, actionFeedback(t('daemon.startRequested'))),
   [actionFeedback, actions.startDaemon, t]);
 
-  /** Immediate interruption; callers confirm with the operator first. */
+  /** Interrupt the current work; the conversation records what waits for Resume. */
   const requestStopDaemon = useCallback(() =>
-    actions.stopDaemon.mutate(undefined, actionFeedback(t('daemon.stopRequested'))),
-  [actionFeedback, actions.stopDaemon, t]);
+    actions.stopDaemon.mutate(undefined, {
+      onSuccess: () => notify('info', t('daemon.stopRequested')),
+      onError: (error: Error) => notify('error', errorText(error), error),
+    }),
+  [notify, actions.stopDaemon, t]);
 
   const manageStartDaemon = useCallback(async (): Promise<boolean> => {
     try {

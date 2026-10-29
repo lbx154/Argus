@@ -6,7 +6,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, AgentResult, CallAgent } from '../src/types.js';
-import { Store, type FlowEvent } from '../src/store.js';
+import { Store, type FlowEvent, type ManagerLetter } from '../src/store.js';
+
+/** The letters waiting for the Manager, as their words. */
+const texts = (letters: ManagerLetter[] = []) => letters.map(letter => typeof letter === 'string' ? letter : letter.text);
 import { Flow } from '../src/flow.js';
 
 type Turn = (request: AgentRequest) => Promise<{ to: string; letters: string[]; tasks?: { task: string; after: string[] }[] } | null>;
@@ -53,7 +56,7 @@ test("a message waiting behind a Manager turn when the work stops is in the conv
   controller.abort();
   assert.equal(await second, null);
   await flow.settled(id);
-  assert.deepEqual([said(), store.load(id).forManager], [['First', 'Second: use the newer model'], ['First', 'Second: use the newer model']]);
+  assert.deepEqual([said(), texts(store.load(id).forManager)], [['First', 'Second: use the newer model'], ['First', 'Second: use the newer model']]);
   const { callAgent, requests: asked } = agent([async () => ({ to: 'operator', letters: ['On the first'] }), async () => ({ to: 'operator', letters: ['On the second'] })]);
   const resumed = new Flow(store, callAgent);
   resumed.resume(id);
@@ -130,5 +133,5 @@ test('an answer on a stopped project goes to its asker, and hands no stopped mes
   const later = new Flow(store, callAgent);
   later.answer(id, stopped.questions[0]!, 'data.csv');
   const project = await later.settled(id);
-  assert.deepEqual([asked.length, project.status, project.tasks.length, project.forManager], [0, 'stopped', 2, ['Rewrite it all in Rust']]);
+  assert.deepEqual([asked.length, project.status, project.tasks.length, texts(project.forManager)], [0, 'stopped', 2, ['Rewrite it all in Rust']]);
 });

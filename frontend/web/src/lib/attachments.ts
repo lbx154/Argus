@@ -1,3 +1,5 @@
+import type { UploadedAttachment } from '../api';
+
 export const MESSAGE_TEXT_MAX_CHARS = 32_000;
 export const MESSAGE_ATTACHMENT_MAX_COUNT = 5;
 export const MESSAGE_ATTACHMENT_MAX_BYTES = 100 * 1024 * 1024;
@@ -140,4 +142,20 @@ export function extractFilesFromDataTransfer(
     if (file instanceof File) files.push(file);
   }
   return files;
+}
+
+/** Old records stored the upload paths at the end of the operator's words. */
+export function splitMessageAttachments(text: string, attachments?: UploadedAttachment[]): { text: string; attachments: UploadedAttachment[] } {
+  if (attachments) return { text, attachments };
+  const tail = /\n\nAttached, in the workdir:\n((?:- \.argus\/attachments\/att-[0-9a-f]{12}\/[^\r\n]+(?:\n|$))+)$/.exec(text);
+  if (!tail) return { text, attachments: [] };
+  return {
+    text: text.slice(0, tail.index),
+    attachments: tail[1].trimEnd().split('\n').map(line => {
+      const relative_path = line.slice(2);
+      const [, , attachment_id, ...parts] = relative_path.split('/');
+      const name = parts.join('/');
+      return { attachment_id, relative_path, original_name: name, stored_name: name, mime: attachmentMime({ name, type: '' }), size_bytes: 0 };
+    }),
+  };
 }

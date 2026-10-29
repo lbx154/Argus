@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import type { Role, Snapshot } from '../api';
-import { useConfig } from '../hooks';
+import { useConfig, useModelChoices } from '../hooks';
 import { useI18n } from '../i18n';
 import { backendLabel } from '../lib/backend';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { ModelPicker } from './ModelPicker';
+import { automaticModel, modelChoiceLabel } from '../lib/modelChoice';
 
 type LastCall = NonNullable<Snapshot['last_call']>;
 
@@ -12,12 +13,10 @@ type LastCall = NonNullable<Snapshot['last_call']>;
 // project: the next call will follow the current settings instead.
 const LAST_CALL_CURRENT_S = 6 * 3600;
 
-const unset = (value: string | null | undefined) => !value || ['auto', 'inherit', 'default'].includes(value.toLowerCase());
-
 /**
  * What the work runs on, as one quiet chip under the message box: the model and
- * effort the settings choose, or, set to Automatic, what the newest real call
- * used; a dot that lights while the team works; and, while a turn begun on an
+ * effort the settings choose, including the backend's default in Automatic;
+ * a dot that lights while the team works; and, while a turn begun on an
  * earlier choice is still running, the model that turn keeps. Clicking opens the
  * model chooser, which links on to the full settings.
  */
@@ -30,6 +29,7 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
 }) {
   const { locale, t } = useI18n();
   const { data } = useConfig(sid, true);
+  const { data: choices } = useModelChoices(sid, true);
   const [pickerOpen, setPickerOpen] = useState(false);
   const zh = locale === 'zh-CN';
   const role = (running ? roles.find((item) => item.active) : undefined)
@@ -38,12 +38,14 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
   const actual = recent && lastCall?.backend ? lastCall : null;
   // The settings of the role at work, read so that a model just chosen shows here at once.
   const configured = data?.roles.find((item) => item.role === (actual?.role ?? role?.role));
-  const model = !unset(configured?.model) ? configured!.model : actual ? (actual.model || 'auto') : role?.model;
+  const model = configured?.model;
   const backend = configured?.backend || actual?.backend || role?.backend;
   const effort = configured?.reasoning_effort || actual?.effort || role?.effort;
-  const earlier = running && actual && !unset(actual.model) && actual.model !== model ? actual.model : '';
+  const defaultModel = choices && choices.backend === backend ? choices.options.find(option => option.default)?.model : undefined;
+  const nextModel = automaticModel(model) ? defaultModel : model;
+  const earlier = running && actual && !automaticModel(actual.model) && nextModel && actual.model !== nextModel ? actual.model : '';
   const effortName = effort ? ({ low: zh ? '低' : 'low', medium: zh ? '中' : 'medium', high: zh ? '高' : 'high' } as Record<string, string>)[effort] ?? effort : '';
-  const shown = model && !unset(model) ? model : (zh ? '自动' : 'Automatic');
+  const shown = modelChoiceLabel(model, defaultModel, locale);
   // Everything else about the run is a hover away: the backend, and the role at work.
   const detail = [
     backend ? backendLabel(backend, data) : '',

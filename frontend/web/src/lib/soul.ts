@@ -5,9 +5,7 @@
 export const TAGLINE = 'operator console';
 
 export {
-  THINKING_LINES,
   SPINNER,
-  rotateByTick,
   spinnerFrame,
 } from '../../../core/src/thinking';
 

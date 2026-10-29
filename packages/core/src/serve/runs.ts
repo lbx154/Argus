@@ -3,6 +3,7 @@
 // call under way on it, and its work stays where it was, to be resumed; once nothing is under way,
 // its roles' sessions end, and everything they left running.
 
+import type { UploadedAttachment } from '@argus/contracts';
 import { Flow } from '../flow.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
 import type { CallAgent } from '../types.js';
@@ -68,7 +69,7 @@ export class Runs {
 
   /** The operator's message. Its frames follow the Manager's turn and end with the reply; the
    * team's work it starts, or that was under way, goes on after the stream has ended. */
-  async message(id: string, text: string, request: string, send: (frame: Frame) => void): Promise<Frame> {
+  async message(id: string, text: string, request: string, send: (frame: Frame) => void, attachments: UploadedAttachment[] = []): Promise<Frame> {
     const requests = this.requests.get(id) ?? new Set<string>();
     this.requests.set(id, requests);
     if (requests.has(request)) return { type: 'error', error: 'This request is already under way.' };
@@ -76,14 +77,14 @@ export class Runs {
     this.changed(id);
     send({ type: 'phase', role: 'manager', label: 'Manager' });
     try {
-      const handoff = await this.start(id, flow => flow.say(id, text));
+      const handoff = await this.start(id, flow => flow.say(id, text, { request_id: request, ...(attachments.length ? { attachments } : {}) }));
       // A Manager turn that failed says why; one a stop cut off ends, its message waiting for Resume.
       if (!handoff) {
         const failed = this.store.load(id).failures?.filter(failure => failure.role === 'manager').at(-1);
         return failed ? { type: 'error', error: failed.error } : { type: 'done', result: { kind: 'stopped', reply: null } };
       }
       // The reply is its row in the record, as the conversation shows it: whom it is to, the message it answers.
-      const event = conversationRows(readRecord(this.store, id), this.store.load(id), this.live(id)).filter(row => row.type === 'ui.argus').at(-1);
+      const event = conversationRows(readRecord(this.store, id), this.store.load(id), this.live(id)).find(row => row.type === 'ui.argus' && row.request_id === request && row.live !== true);
       send({ type: 'delta', event });
       return { type: 'done', result: { kind: handoff.to === 'operator' ? 'chat' : 'task', reply: handoff.letters.join('\n\n') } };
     } catch (error) {
@@ -107,7 +108,7 @@ export class Runs {
     const flow = new Flow(this.store, this.callAgent, {
       signal: controller.signal,
       onEvent: event => {
-        if (event.type === 'call.start') calls.push({ role: event.role, task: event.task });
+        if (event.type === 'call.start') calls.push({ role: event.role, task: event.task, ...event.answers ? { answers: event.answers } : {} });
         else if (event.type === 'call.end') calls.splice(calls.findIndex(call => call.role === event.role && call.task === event.task), 1);
         this.changed(id, event);
       },

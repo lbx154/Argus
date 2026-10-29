@@ -1,3 +1,6 @@
+import { splitMessageAttachments } from '../lib/attachments';
+import { ComposerAttachmentChip } from './ComposerAttachmentChip';
+import type { UploadedAttachment } from '../api';
 import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { applicationBrand } from '../applicationBrand';
@@ -30,8 +33,6 @@ import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
 import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
 import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
-import { TurnSteps } from './TurnSteps';
-import { turnStepsFrom } from '../../../core/src/phaseTrail';
 import { plainDetail } from '../lib/plainStatus';
 import { isCallRow, plainRowText, roleHeadline, roleSaid, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, eventTaskId } from '../lib/workStatus';
@@ -303,13 +304,13 @@ function ConversationRow({
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
   const operator = String(ev.type) === 'ui.operator';
-  const reportText = typeof ev.text === 'string' ? ev.text : r.text;
+  const message = operator ? splitMessageAttachments(typeof ev.text === 'string' ? ev.text : r.text, ev.attachments as UploadedAttachment[] | undefined) : null;
+  const reportText = message?.text ?? (typeof ev.text === 'string' ? ev.text : r.text);
   const draft = operator ? splitDraft(reportText) : null;
   const references = draft?.refs ?? [];
   const text = draft && references.length ? draft.text : reportText;
   // A question's numbered options become buttons; typing a free answer still works.
   const asked = !operator ? splitReplyOptions(reportText) : null;
-  const steps = operator ? [] : turnStepsFrom(ev.steps);
   const rewriteLabel = locale === 'zh-CN' ? '改写后重发' : 'Rewrite and resend';
   const rowRef = useRef<HTMLElement>(null);
   useGsapMotion(rowRef, (gsap, reduceMotion) => {
@@ -334,6 +335,9 @@ function ConversationRow({
       {operator ? (
         <div className="flex items-end justify-end gap-2">
           <div className="conversation-message">
+            {message?.attachments.length ? <div className="mb-2 space-y-2" aria-label={locale === 'zh-CN' ? '附件' : 'Attachments'}>
+              {message.attachments.map(file => <ComposerAttachmentChip key={file.attachment_id} uploaded={file} />)}
+            </div> : null}
             {references.length ? <div className="mb-2 space-y-2">
               {references.map((reference, index) => <blockquote
                 key={`${reference.source}:${reference.task_id}:${reference.step_id}:${index}`}
@@ -353,16 +357,19 @@ function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
-            {reportText ? <div><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
-            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText)}
-              status={String(ev.status ?? '')} /> : null}
+            {ev.live === true ? <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim" role="status" data-manager-reply="running">
+              <span className="status-dot" data-tone="running" aria-hidden="true" />
+              <span className="min-w-0 truncate" title={reportText || undefined}>{reportText || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
+            </div> : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
+              : ev.status === 'failed' ? <p className="text-sm text-err">{locale === 'zh-CN' ? '回复中断，请查看错误提示后继续运行。' : 'Reply interrupted. Check the error before resuming.'}</p>
+              : reportText ? <div><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
           </div>
         </div>
       )}
       {ev.live !== true && <div className={`conversation-meta ${operator ? 'justify-end' : ''}`}>
         <time>{clockOf(ev)}</time>
         <div className="conversation-tools">
-        <CopyButton text={reportText} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
+        {reportText ? <CopyButton text={reportText} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" /> : null}
         {/* A question is rewritten and sent again, its new answer kept beside the first;
             the answers so far are read from the same place. */}
         {rewritePrompt && onAction && operator && <button type="button" aria-label={rewriteLabel} title={rewriteLabel} onClick={() => onAction(rewritePrompt)}><PencilLine size={14} /><span>{rewriteLabel}</span></button>}
@@ -390,16 +397,13 @@ function RoleLogGroup({
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
-  const logScroller = useRef<HTMLDivElement>(null);
-  const following = useRef(true);
-  const savedScrollTop = useRef(0);
-  const [readingHistory, setReadingHistory] = useState(false);
-  const tailLength = rows[rows.length - 1]?.r.text.length ?? 0;
+  const [visibleCount, setVisibleCount] = useState(5);
   // The commands a role ran are its process: folded until the reader asks.
   const [showCommands, setShowCommands] = useState(false);
   const commandCount = useMemo(() => rows.filter(row => isCallRow(row.ev)).length, [rows]);
   const shown = useMemo(() => showCommands ? rows : rows.filter(row => !isCallRow(row.ev)), [rows, showCommands]);
   const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
+  const visible = folded.slice(-visibleCount);
   // The collapsed header says what the role concluded, or at work what it does now: what it
   // said since the operator last wrote on the tasks the server says it is on, else its newest step.
   const taskTitle = useContext(TaskTitleContext);
@@ -418,22 +422,6 @@ function RoleLogGroup({
   const each = useMemo(() => several ? tasks.map(id => ({
     id, title: taskTitle(id) || id, now: doing(rows.filter(row => eventTaskId(row.ev) === id)),
   })) : [], [several, tasks, rows, doing, taskTitle]);
-  useEffect(() => {
-    if (open && !following.current && logScroller.current) {
-      logScroller.current.scrollTop = savedScrollTop.current;
-    }
-  }, [open]);
-  useEffect(() => {
-    if (!open) return;
-    const frame = window.requestAnimationFrame(() => {
-      // Read the ref in the frame too: the user may scroll up after a new
-      // event scheduled this follow, before the browser paints it.
-      if (following.current && logScroller.current) {
-        logScroller.current.scrollTop = logScroller.current.scrollHeight;
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [open, rows.length, tailLength]);
   return (
     <section
       className="role-log-group border-b border-line/50"
@@ -472,26 +460,10 @@ function RoleLogGroup({
               {showCommands ? t('stream.hideCommands') : t('stream.showCommands')}
             </button>
           </div> : null}
-          <div className="relative min-h-0 overflow-hidden">
-            <div ref={logScroller}
-              onScroll={(event) => {
-                const element = event.currentTarget;
-                savedScrollTop.current = element.scrollTop;
-                following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
-                setReadingHistory(!following.current);
-              }}
-              className="max-h-72 overflow-x-hidden overflow-y-auto border-t border-line/40 scroll-thin">
-              {folded.length > 0 ? <FeedRows rows={folded} /> : commandCount > 0 ? null : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
-            </div>
-            {readingHistory ? <button
-              type="button"
-              onClick={() => {
-                following.current = true;
-                setReadingHistory(false);
-                if (logScroller.current) logScroller.current.scrollTop = logScroller.current.scrollHeight;
-              }}
-              className="absolute bottom-2 right-3 rounded-full border border-line/60 bg-panel px-3 py-1 text-xs text-ink-dim shadow-glow hover:text-ink"
-            >↓ {t('stream.jumpToLatest')}</button> : null}
+          <div className="border-t border-line/40" data-role-log>
+            {folded.length > visibleCount ? <button type="button" data-role-earlier onClick={() => setVisibleCount(count => count + 5)}
+              className="w-full px-4 py-2 text-left text-xs text-ink-faint hover:text-ink-dim">{zh ? '显示更早' : 'Show earlier'}</button> : null}
+            {visible.length > 0 ? <FeedRows rows={visible} /> : commandCount > 0 ? null : <div className="px-4 py-3 text-xs text-ink-faint">{t('stream.noLogs')}</div>}
           </div>
         </div>
       ) : null}
@@ -514,10 +486,7 @@ export function partitionRoleRows(rows: ActivityRow[]) {
       systemRows.push(row);
     }
   });
-  const lastRole = [...rows].reverse().find((row) =>
-    ROLE_ORDER.includes(row.r.role as typeof ROLE_ORDER[number]),
-  )?.r.role ?? '';
-  return { roleRows, systemRows, lastRole };
+  return { roleRows, systemRows };
 }
 
 function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
@@ -547,23 +516,15 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active, tasks, followLatest }: {
+function RoleLogCollection({ rows, active, tasks }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
   /** The tasks the role is at work on now. */
   tasks: (role: string) => string[];
-  followLatest: boolean;
 }) {
-  const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
-  const [openRoles, setOpenRoles] = useState<Set<string>>(
-    () => new Set(followLatest && lastRole ? [lastRole] : []),
-  );
-  const userToggledRole = useRef(false);
-  useEffect(() => {
-    if (!followLatest || !lastRole || userToggledRole.current) return;
-    setOpenRoles(new Set([lastRole]));
-  }, [lastRole, followLatest]);
+  const { roleRows, systemRows } = useMemo(() => partitionRoleRows(rows), [rows]);
+  const [openRoles, setOpenRoles] = useState<Set<string>>(() => new Set());
 
   return (
     <div className="bg-bg/25">
@@ -577,7 +538,6 @@ function RoleLogCollection({ rows, active, tasks, followLatest }: {
           active={active(role)}
           tasks={tasks(role)}
           onToggle={() => {
-            userToggledRole.current = true;
             setOpenRoles((current) => {
               const next = new Set(current);
               if (next.has(role)) next.delete(role);
@@ -1006,7 +966,7 @@ export function EventStream({
             {roleRows.length || working.size ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
               className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
               <div className="overflow-hidden rounded-lg border border-line/70">
-                <RoleLogCollection rows={roleRows} active={role => working.has(role)} key={String(roleRound)} followLatest
+                <RoleLogCollection rows={roleRows} active={role => working.has(role)} key={String(roleRound)}
                   tasks={role => snapshot?.roles.find(row => row.role === role)?.tasks ?? []} />
               </div>
             </section> : null}

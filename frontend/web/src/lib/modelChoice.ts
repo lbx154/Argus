@@ -16,6 +16,16 @@ export function formatLatency(ms: number, locale: 'en' | 'zh-CN'): string {
 export type Effort = 'low' | 'medium' | 'high';
 export const EFFORTS: Effort[] = ['low', 'medium', 'high'];
 
+export const automaticModel = (model: string | null | undefined): boolean =>
+  !model || ['auto', 'inherit', 'default'].includes(model.toLowerCase());
+
+/** Automatic names the backend's reported default, independently of past calls. */
+export function modelChoiceLabel(model: string | null | undefined, defaultModel: string | undefined, locale: 'en' | 'zh-CN'): string {
+  if (!automaticModel(model)) return model!;
+  const automatic = locale === 'zh-CN' ? '自动' : 'Automatic';
+  return defaultModel ? (locale === 'zh-CN' ? `${automatic}（${defaultModel}）` : `${automatic} (${defaultModel})`) : automatic;
+}
+
 /** The settings writes that apply a choice: the project's one model ('' for the backend's default)
  * and effort, each only if it changes. */
 export function choiceWrites(chosen: { model: string; effort: Effort | '' }, current: { model: string; effort: string }) {

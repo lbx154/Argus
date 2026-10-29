@@ -97,28 +97,35 @@ test("the tasks a message's answer opens follow it; a result handed over from th
   assert.ok(!map.events.some(letter => letter.item_id === 'q0' && letter.id === 'e102'));
 });
 
-test('a message is on the map while it is answered, and after only if its answer set work going or handed something over', t => {
+test('a message is on the map while it is answered, and after only if its answer set work going or handed something over; only a letter naming it answers it', t => {
   const home = fs.mkdtempSync(join(tmpdir(), 'argus-map-deliveries-'));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   const store = new Store(home);
   const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
-  project.tasks = [{ ...task, status: 'closed' }, { ...task, id: 't2', status: 'closed', after: ['t1'] }];
-  const manager = { type: 'call.start', role: 'manager' };
+  project.tasks = [{ ...task, from: 'planner', status: 'closed' }, { ...task, id: 't2', from: 'planner', status: 'closed', after: ['t1'] },
+    { ...task, id: 't3', title: 'Second part of it' }];
+  const manager = (answers?: string) => ({ type: 'call.start', role: 'manager', ...answers ? { answers } : {} });
   const path = join(store.dir(project.id), 'events.jsonl');
   let second = 0;
   const write = (rows: object[]) => fs.appendFileSync(path, rows.map(row =>
     `${JSON.stringify({ ts: new Date(Date.UTC(2026, 9, 29, 11, 0, second++)).toISOString(), ...row })}\n`).join(''));
   write([
-    { type: 'message', from: 'operator', text: 'Build it.' }, manager, { type: 'handoff', role: 'manager', to: 'planner', letter: 'Plan it.' },
+    { type: 'message', from: 'operator', text: 'Build it.', request_id: 'r0' }, manager('r0'),
+    { type: 'handoff', role: 'manager', to: 'planner', letter: 'Plan it.', answers: 'r0' },
     { type: 'task.added', task: project.tasks[0] }, { type: 'task.added', task: project.tasks[1] }, { type: 'task.closed', task: 't1' },
-    { type: 'message', from: 'operator', text: 'How is it going?' }, manager, { type: 'handoff', role: 'manager', to: 'operator', letter: 'Half way.' },
-    { type: 'task.closed', task: 't2' }, manager, { type: 'handoff', role: 'manager', to: 'operator', letter: 'Done.', open: ['report.md'] },
-    { type: 'message', from: 'operator', text: 'Why?' }, manager, { type: 'call.end', role: 'manager', completed: false },
-    { type: 'message', from: 'operator', text: 'Chart it.' }, manager,
+    { type: 'message', from: 'operator', text: 'How is it going?', request_id: 'r6' }, manager('r6'),
+    { type: 'handoff', role: 'manager', to: 'operator', letter: 'Half way.', answers: 'r6' },
+    // Turns on the team's letters answer no message, and what they open follows none.
+    { type: 'task.closed', task: 't2' }, manager(), { type: 'handoff', role: 'manager', to: 'operator', letter: 'Done.', open: ['report.md'] },
+    manager(), { type: 'handoff', role: 'manager', to: 'engineer', letter: 'Second part of it.' }, { type: 'task.added', task: project.tasks[2] },
+    { type: 'message', from: 'operator', text: 'Chart it.', request_id: 'r15' }, manager('r15'), manager('r15'),
+    { type: 'call.end', role: 'manager', completed: false },
   ]);
-  const cards = () => progressMap(store, project, 0).tasks.map(card => [card.id, card.status, card.deps, card.result_paths]);
-  // A turn on a letter from the team answers no message: its result is the conversation's, not a card.
-  assert.deepEqual(cards(), [['q0', 'done', [], []], ['t1', 'done', ['q0'], []], ['t2', 'done', ['t1'], []], ['q15', 'in_progress', [], []]]);
-  write([{ type: 'handoff', role: 'manager', to: 'operator', letter: 'Here it is.', open: ['chart.png'] }]);
-  assert.deepEqual(cards().at(-1), ['q15', 'done', [], ['chart.png']]);
+  const cards = (status: typeof project.status) => progressMap(store, { ...project, status }, 0).tasks.map(card => [card.id, card.status, card.deps, card.result_paths]);
+  const done = [['q0', 'done', [], []], ['t1', 'done', ['q0'], []], ['t2', 'done', ['t1'], []], ['t3', 'in_progress', [], []]];
+  // A reply alone is the conversation's; one a failure left unanswered waits for Resume, off the map.
+  assert.deepEqual(cards('failed'), done);
+  assert.deepEqual(cards('working'), [...done, ['q15', 'in_progress', [], []]]);
+  write([{ type: 'handoff', role: 'manager', to: 'operator', letter: 'Here it is.', open: ['chart.png'], answers: 'r15' }]);
+  assert.deepEqual(cards('working').at(-1), ['q15', 'done', [], ['chart.png']]);
 });

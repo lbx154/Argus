@@ -262,10 +262,6 @@ export function App({
 
   const {
     pending,
-    phase,
-    phaseHeartbeat,
-    phaseQuietS,
-    steps: managerSteps,
     startedAt,
     tick,
     managerRequestRef,
@@ -845,14 +841,11 @@ export function App({
   const slashMenuOpen = comps.length > 0 && !replacement && !daemonDraft && !panel;
   const backgroundExcludedRoles = pending ? ['manager'] : [];
   const eventRoles = overlayRoleActivities(snap?.roles ?? [], events);
-  const managerPhase = (phase || 'handling your message')
-    .replace(/^Manager\s*·\s*/i, '')
-    .replace(/[.…]+$/u, '');
   const displayRoles = pending
     ? overlayActiveRole(
         eventRoles,
         'manager',
-        managerPhase,
+        'Replying to your message',
         Math.max(0, (Date.now() - startedAt) / 1000),
       )
     : eventRoles;
@@ -928,11 +921,6 @@ export function App({
               {pending && !slashMenuOpen && (
                 <ThinkingLine
                   tick={tick}
-                  phase={phase}
-                  heartbeat={phaseHeartbeat}
-                  quietS={phaseQuietS}
-                  steps={managerSteps}
-                  width={terminal.columns}
                   elapsedS={Math.max(0, Math.floor((Date.now() - startedAt) / 1000))}
                 />
               )}

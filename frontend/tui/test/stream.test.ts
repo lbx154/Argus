@@ -589,30 +589,6 @@ test('Ink Manager requests forward AbortSignal and suppress frames after cancell
   }
 });
 
-test('Ink Manager stream preserves heartbeat metadata for phrase rotation', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(
-    'data: {"type":"phase","role":"manager","label":"Manager · waiting","heartbeat":true,"quiet_s":15}\n\n',
-    { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
-  )) as typeof fetch;
-  try {
-    const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
-    const phases: Array<{ label: string; heartbeat: boolean; quietS: number; kind: string; detail: string }> = [];
-    await api.messageStream('wait', {
-      onPhase: (label, _role, meta) => phases.push({ label, ...meta }),
-    });
-    assert.deepEqual(phases, [{
-      label: 'Manager · waiting',
-      heartbeat: true,
-      quietS: 15,
-      kind: '',
-      detail: '',
-    }]);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
 test('a Manager turn\'s first words are replaced by its reply, by message id', () => {
   const op = { type: 'ui.operator', text: 'format_ratio 是干嘛的？', message_id: 'web-1-operator' } as EventMsg;
   const draft = { type: 'ui.argus', text: '我先看一下 core.py', message_id: 'web-1-argus', in_progress: true, live: true } as EventMsg;

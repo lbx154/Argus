@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { choiceWrites, formatLatency, formatRate } from '../lib/modelChoice';
+import { choiceWrites, formatLatency, formatRate, modelChoiceLabel } from '../lib/modelChoice';
 
 describe('model figures', () => {
+  it('keeps Automatic visible with the backend default, with no invented model when none is reported', () => {
+    expect(modelChoiceLabel('', 'gpt-6.1-sol', 'zh-CN')).toBe('自动（gpt-6.1-sol）');
+    expect(modelChoiceLabel('auto', 'copilot-default', 'en')).toBe('Automatic (copilot-default)');
+    expect(modelChoiceLabel('inherit', undefined, 'zh-CN')).toBe('自动');
+    expect(modelChoiceLabel('chosen-model', 'other-model', 'zh-CN')).toBe('chosen-model');
+  });
   it('formats rates and call times', () => {
     expect(formatRate(2)).toBe('$2');
     expect(formatRate(1.25)).toBe('$1.25');

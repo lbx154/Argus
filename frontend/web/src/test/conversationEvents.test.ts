@@ -1,80 +1,62 @@
+import replay from '../../../../packages/core/test/fixtures/conversation-fixes/after.json';
+import { webEvents, type Recorded } from '../../../../packages/core/src/serve/views';
 import { describe, expect, it } from 'vitest';
-
 import type { EventMsg } from '../api';
-import {
-  dropOptimisticManagerReply,
-  durableMessageId,
-  mergeConversationEvents,
-  mergeOptimisticManagerReply,
-  mergeOptimisticManagerSteps,
-  optimisticOperatorEvent,
-  settleOptimisticManagerTurn,
-} from '../lib/conversationEvents';
+import { durableMessageId, mergeConversationEvents, mergeOptimisticManagerReply, optimisticOperatorEvent, optimisticManagerEvent, settleOptimisticManagerTurn } from '../lib/conversationEvents';
 
-// Rows as the server's reading of the record makes them: the line is the event id.
-const asked: EventMsg = { type: 'ui.operator', agent_layer: 'operator', text: '分三个任务做', ts: 10, event_id: 4, message_id: 'm4-operator' };
-const brief: EventMsg = { type: 'ui.argus', agent_layer: 'manager', to: 'planner', text: '# 三个任务\n请规划。', ts: 20, event_id: 7, message_id: 'm4-argus' };
+const asked: EventMsg = { type: 'ui.operator', agent_layer: 'operator', text: '分三个任务做', ts: 10, event_id: 4, message_id: 'm4-operator', request_id: 'r1' };
+const brief: EventMsg = { type: 'ui.argus', agent_layer: 'manager', to: 'planner', text: '# 三个任务\n请规划。', ts: 20, event_id: 7, message_id: 'm4-argus', request_id: 'r1' };
 
-describe('optimistic Manager conversation', () => {
-  it('creates the operator row synchronously before any network result exists', () => {
-    expect(optimisticOperatorEvent('s-fast', 1, '你好', 1_000)).toMatchObject({
-      type: 'ui.operator', text: '你好', ts: 1, event_id: 'local-s-fast-1-operator',
-    });
+describe('recorded requests replace optimistic conversation rows', () => {
+  it('creates both waiting rows before any network response', () => {
+    expect(optimisticOperatorEvent('s', 'r1', '你好', 1000)).toMatchObject({ type: 'ui.operator', text: '你好', request_id: 'r1' });
+    expect(optimisticManagerEvent('s', 'r1', 1000)).toMatchObject({ type: 'ui.argus', live: true, request_id: 'r1' });
   });
-
-  it('keys conversation revisions only by transcript ids, never by the page-local placeholder', () => {
-    // A reload restarts request ids at 1, so the placeholder would collide across days.
-    const operator = optimisticOperatorEvent('s-fast', 1, '分三个任务做', 9_000);
+  it('uses the transcript id for revisions once the answer arrives', () => {
+    const operator = optimisticOperatorEvent('s', 'r1', '分三个任务做');
     expect(durableMessageId(operator)).toBeUndefined();
-    expect(durableMessageId(mergeOptimisticManagerReply([operator], 1, brief)[0])).toBe('m4-operator');
+    expect(durableMessageId(mergeOptimisticManagerReply([operator], 'r1', brief)[0])).toBe('m4-operator');
   });
-
-  it('the reply is its row in the record, with whom it is to, in place of the row put up while waiting', () => {
-    const operator = optimisticOperatorEvent('s', 1, '分三个任务做', 9_000);
-    const waiting = mergeOptimisticManagerSteps([operator], 's', 1, [], 9_500, true);
-    const replied = mergeOptimisticManagerReply(waiting, 1, brief);
-    expect(replied).toHaveLength(2);
-    expect(replied[1]).toMatchObject({ ...brief, local_request_id: 1 });
-    expect(replied[1]).not.toHaveProperty('live');
+  it('keeps the stopped reply until its corresponding record row arrives', () => {
+    const waiting = [optimisticOperatorEvent('s', 'r1', '分三个任务做'), optimisticManagerEvent('s', 'r1')];
+    const stopped = settleOptimisticManagerTurn(waiting, 'r1', 'stopped');
+    expect(stopped[1]).toMatchObject({ live: false, status: 'stopped' });
+    const recordedStop = { ...brief, text: '', status: 'stopped' };
+    expect(mergeConversationEvents([asked, recordedStop], stopped)).toEqual([asked, recordedStop]);
+    expect(mergeConversationEvents([asked, brief], stopped)).toEqual([asked, brief]);
   });
-
-  it('the record replaces the page’s rows: the same id, or the same words recorded once they were sent', () => {
-    const operator = optimisticOperatorEvent('s', 1, '分三个任务做', 9_000);
-    // The Manager has taken the message up; its reply has not come.
-    expect(mergeConversationEvents([asked], [operator])).toEqual([asked]);
-    const replied = mergeOptimisticManagerReply([operator], 1, brief);
-    expect(mergeConversationEvents([asked, brief], replied)).toEqual([asked, brief]);
-    // Before the stream has the reply, the page shows it as the record will.
-    expect(mergeConversationEvents([asked], replied)).toEqual([asked, { ...brief, local_request_id: 1 }]);
+  it('does not turn a final answer into a stopped reply', () => {
+    expect(settleOptimisticManagerTurn([brief], 'r1', 'stopped')).toEqual([brief]);
   });
-
-  it('a turn that ended without a reply, stopped or failed, leaves what the record has', () => {
-    const operator = optimisticOperatorEvent('s', 1, '分三个任务做', 9_000);
-    const waiting = mergeOptimisticManagerSteps([operator], 's', 1, [], 9_500, true);
-    expect(dropOptimisticManagerReply(waiting, 1)).toEqual([operator]);
-    expect(mergeConversationEvents([asked], dropOptimisticManagerReply(waiting, 1))).toEqual([asked]);
+  it('does not confuse repeated messages, even with equal text and timestamps', () => {
+    const repeated = optimisticOperatorEvent('s', 'r2', asked.text as string, 10000);
+    expect(mergeConversationEvents([asked], [repeated])).toEqual([asked, repeated]);
+    expect(mergeConversationEvents([asked], [optimisticOperatorEvent('s', 'r1', 'with attachments', 10000)])).toEqual([asked]);
   });
-
-  it('does not hide a repeated new greeting behind an old one', () => {
-    const old = { ...asked, text: '你好', ts: 1 };
-    expect(mergeConversationEvents([old], [optimisticOperatorEvent('s', 2, '你好', 20_000)])).toHaveLength(2);
-  });
-
-  it('preserves the server row order even when timestamps differ', () => {
+  it('preserves server row order', () => {
     expect(mergeConversationEvents([brief, asked], [])).toEqual([brief, asked]);
   });
-
 });
-
-describe('tool steps behind a Manager reply', () => {
-  it('shows the work before any words arrive, and stops its clock when the turn ends without a reply', () => {
-    const operator = optimisticOperatorEvent('s-fast', 1, '数一下行数', 1_000);
-    const step = { kind: 'command_execution', label: '$ wc -l', status: 'running', started_ts: 1, ended_ts: 0 };
-    const working = mergeOptimisticManagerSteps([operator], 's-fast', 1, [step], 1_500, true);
-    expect(working[1]).toMatchObject({ type: 'ui.argus', text: '', live: true, steps: [step] });
-
-    const settled = settleOptimisticManagerTurn(working, 1, 3_000);
-    expect(settled[1]).toMatchObject({ live: false });
-    expect((settled[1].steps as Array<Record<string, unknown>>)[0]).toMatchObject({ status: 'stopped', ended_ts: 3 });
+// Captured at the real cockpit on port 18801, with the browser clock one hour ahead/behind.
+describe('browser record: request identity and clock skew', () => {
+  const events = webEvents(replay.events as Recorded[]).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus');
+  const first = events[0];
+  const secondRequest = replay.requests[1];
+  it('claims the send with its request id even when the browser is an hour ahead', () => {
+    const local = optimisticOperatorEvent('browser', replay.requests[0].request_id, replay.requests[0].text, Number(first.ts) * 1000 + 3600000);
+    expect(mergeConversationEvents([first], [local])).toEqual([first]);
+  });
+  it('appends a repeated send after recorded rows, even when the browser is an hour behind', () => {
+    const local = optimisticOperatorEvent('browser', secondRequest.request_id, secondRequest.text, Number(first.ts) * 1000 - 3600000);
+    const recorded = events.slice(0, 2);
+    expect(mergeConversationEvents(recorded, [local])).toEqual([...recorded, local]);
+    expect(mergeConversationEvents(events.slice(0, 3), [local])).toEqual(events.slice(0, 3));
+  });
+  it('uses only request ids: equal text, timestamps and message ids do not claim a row', () => {
+    const local = { ...first, request_id: secondRequest.request_id };
+    expect(mergeConversationEvents([first], [local])).toEqual([first, local]);
+    const missing = { ...first, request_id: undefined };
+    expect(mergeConversationEvents([missing], [missing])).toEqual([missing, missing]);
+    expect(mergeConversationEvents([first], [{ ...first, type: 'ui.argus' }])).toHaveLength(2);
   });
 });

@@ -57,7 +57,7 @@ export function RunControl({ snapshot, pending = false, busy = false, onStop, on
   return <>
     <button type="button" data-stop-work disabled={busy} onClick={() => setAsking(true)} className={className}
       aria-label={zh ? '停止' : 'Stop'} title={zh ? '停止现在的工作' : 'Stop the work under way'}>
-      <FontAwesomeIcon icon={faStop} className="h-3 w-3" /><span className="hidden sm:inline">{zh ? '停止' : 'Stop'}</span>
+      <FontAwesomeIcon icon={faStop} className="h-3 w-3" /><span>{zh ? '停止' : 'Stop'}</span>
     </button>
     <Modal open={asking} onClose={() => setAsking(false)} label={zh ? '停止现在的工作' : 'Stop the work under way'} width="max-w-md" align="bottom">
       <div className="modal-header"><h2>{zh ? '停止现在的工作？' : 'Stop the work under way?'}</h2></div>

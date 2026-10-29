@@ -9,9 +9,10 @@
 // waits for the operator while the rest of the work goes on. Nothing retries a failed turn; a
 // hand-off Argus refuses goes back to its writer once.
 
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
-import type { FlowEvent, Note, Project, Question, Status, Store, Task } from './store.js';
+import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf } from './serve/files.js';
 
@@ -41,11 +42,14 @@ export class Flow {
   /** The operator's message. The Manager reads it in its next turn, and what its letter hands on
    * joins the work; like a letter from the team it waits in the record until a turn takes it.
    * Resolves with the Manager's hand-off, or null when the turn failed or was interrupted. */
-  say(id: string, text: string): Promise<HandOff | null> {
+  say(id: string, text: string, { request_id = randomUUID(), attachments }: Omit<OperatorMessage, 'text'> = {}): Promise<HandOff | null> {
     const project = this.project(id);
     project.request ||= text;
+    // The message is named: the Manager's turn on it, and the letter that answers it, name it in turn.
+    const message: OperatorMessage = { text, request_id, ...attachments?.length ? { attachments } : {} };
+    this.record(project, { type: 'message', from: 'operator', ...message });
     this.retry(project);
-    return this.writeToManager(project, text, { operator: true });
+    return this.writeToManager(project, message);
   }
 
   /** The operator's answer to one of the open questions goes to whoever asked it. */
@@ -69,7 +73,7 @@ export class Flow {
   /** The operator stops the work: no turn starts after those under way. */
   stop(id: string): void {
     const project = this.project(id);
-    if (project.status === 'working') this.status(project, 'stopped');
+    if (project.status !== 'stopped') this.status(project, 'stopped');
   }
 
   /** Carry on where the work stopped: after the operator stopped it, an interruption, or a failed call the operator retries. */
@@ -158,8 +162,8 @@ export class Flow {
   }
 
   /** The Manager's turns on a project come one after another, in the order their letters came. */
-  private manager(project: Project, message: string, turn: ManagerTurn = {}): Promise<HandOff | null> {
-    const next = (this.managing.get(project.id) ?? Promise.resolve()).then(() => this.managerTurn(project, message, turn));
+  private manager(project: Project, message: ManagerLetter): Promise<HandOff | null> {
+    const next = (this.managing.get(project.id) ?? Promise.resolve()).then(() => this.managerTurn(project, message));
     const last: Promise<unknown> = next.catch(() => null).finally(() => {
       if (this.managing.get(project.id) === last) this.managing.delete(project.id);
     });
@@ -167,11 +171,14 @@ export class Flow {
     return next;
   }
 
-  private async managerTurn(project: Project, message: string, { operator }: ManagerTurn): Promise<HandOff | null> {
-    // The operator's message is recorded when the Manager takes it up, so the letter that follows is its reply.
-    if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
+  private async managerTurn(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
+    const operator = typeof letter !== 'string';
+    const message = typeof letter === 'string' ? letter : letter.text;
+    const input = message + (typeof letter !== 'string' && letter.attachments?.length
+      ? `\n\nAttached, in the workdir:\n${letter.attachments.map(file => `- ${file.relative_path}`).join('\n')}` : '');
+    const answers = typeof letter === 'string' ? undefined : letter.request_id;
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(message, resumed)))?.handoff ?? null;
+      resumed => managerPrompt(input, resumed), answers ? { answers } : {}))?.handoff ?? null;
     // The project is named once, by the first work the Manager hands on or delivers: one with work before it keeps its name.
     const title = !handoff || project.name || begun(project) ? '' : handoff.open ? titleOf(project, handoff.open[0]!) : handoff.to === 'operator' ? '' : firstLine(read(handoff));
     if (title) project.name = title.slice(0, 80);
@@ -216,23 +223,23 @@ export class Flow {
   }
 
   /** A letter to the Manager stays in the record until a Manager turn takes it. */
-  private writeToManager(project: Project, letter: string, turn: ManagerTurn = {}): Promise<HandOff | null> {
+  private writeToManager(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
     (project.forManager ??= []).push(letter);
     this.store.save(project);
-    return this.handOver(project, letter, turn);
+    return this.handOver(project, letter);
   }
 
   /** The letters put into a turn under way, which its hand-off shows it has read. */
   private readonly steered = new WeakSet<Note>();
 
   /** Each project's letters a Manager turn is taking or will take, one entry for each. */
-  private readonly handing = new Map<Project, string[]>();
+  private readonly handing = new Map<Project, Array<ManagerLetter>>();
 
-  private async handOver(project: Project, letter: string, turn: ManagerTurn = {}): Promise<HandOff | null> {
+  private async handOver(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
     const handing = this.handing.get(project) ?? [];
     this.handing.set(project, [...handing, letter]);
     try {
-      const handoff = await this.manager(project, letter, turn);
+      const handoff = await this.manager(project, letter);
       const at = project.forManager?.indexOf(letter) ?? -1;
       if (handoff && at >= 0) {
         project.forManager!.splice(at, 1);
@@ -280,15 +287,16 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string } = {}): Promise<AgentResult | null> {
-    const { refused } = turn;
+                     turn: { refused?: string; answers?: string } = {}): Promise<AgentResult | null> {
+    const { refused, answers } = turn;
+    const answering = answers ? { answers } : {};
     const { signal } = this.options;
     if (signal?.aborted) return null;
     const key = task ? `${task.id}.${role}` : role;
     const resume = project.sessions[key];
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
-    this.record(project, { type: 'call.start', role, ...where });
+    this.record(project, { type: 'call.start', role, ...where, ...answering });
     let result: AgentResult;
     try {
       result = await this.callAgent({
@@ -319,7 +327,7 @@ export class Flow {
       const { to, letters, open } = handoff;
       // A result's files are kept as delivered, so that what the next delivery changes can be shown.
       const delivered = open ? { open, snapshots: keep(project, dir, open), title: titleOf(project, open[0]!) } : {};
-      for (const letter of letters) this.record(project, { type: 'handoff', role, ...where, to, letter, ...delivered });
+      for (const letter of letters) this.record(project, { type: 'handoff', role, ...where, to, letter, ...delivered, ...answering });
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
@@ -394,9 +402,6 @@ export const firstLine = (text: string): string => text.split('\n')
 
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');
-
-/** A Manager turn on the operator's message, or on a letter from the team. */
-type ManagerTurn = { operator?: boolean };
 
 /** Whether the team has had work: a task, or a letter to the Planner. */
 const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;

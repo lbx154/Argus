@@ -26,7 +26,6 @@ function scrollNode() {
 
 let renderer: ReactTestRenderer | undefined;
 let frames: Map<number, FrameRequestCallback>;
-let inner: ReturnType<typeof scrollNode>;
 let outer: ReturnType<typeof scrollNode>;
 let content: object;
 let observers: { targets: Set<object>; notify: () => void }[];
@@ -35,7 +34,6 @@ let nextFrame: number;
 beforeEach(() => {
   frames = new Map();
   nextFrame = 0;
-  inner = scrollNode();
   outer = scrollNode();
   content = {};
   observers = [];
@@ -64,7 +62,7 @@ afterEach(() => {
 const nodeMock = (element: { props: { className?: string; 'data-event-stream-content'?: boolean } }) => {
   if (element.props['data-event-stream-content']) return content;
   const classes = element.props.className ?? '';
-  return classes.includes('max-h-72') ? inner : classes.includes('overflow-y-auto pb-6') ? outer : null;
+  return classes.includes('overflow-y-auto pb-6') ? outer : null;
 };
 const progress = (id: number, text = `Recorded finding ${id}`): EventMsg => ({
   type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', text,
@@ -84,16 +82,6 @@ function paint() {
 }
 function roleGroup() {
   return renderer!.root.findByProps({ 'data-role': 'engineer' });
-}
-function log() {
-  return roleGroup().find(node => node.type === 'div' && String(node.props.className).includes('max-h-72'));
-}
-function scrollTo(top: number) {
-  inner.scrollTop = top;
-  act(() => log().props.onScroll({ currentTarget: inner }));
-}
-function jumpButtons() {
-  return roleGroup().findAll(node => node.type === 'button' && node.children.includes('Jump to latest'));
 }
 function resize(target: object) {
   const matching = observers.filter(observer => observer.targets.has(target));
@@ -119,65 +107,25 @@ function visibleText(node: ReactTestInstance): string {
   return node.children.map(child => typeof child === 'string' ? child : visibleText(child)).join('');
 }
 
-describe('role log scroll following', () => {
-  it('follows new events at the bottom, preserves history during append and streaming growth, and resumes on request', () => {
+describe('role logs in the main conversation scroll', () => {
+  it('stays collapsed during a run and as new logs arrive', () => {
     mount([progress(1)]);
-    paint();
-    expect(inner.scrollTop).toBe(600);
-    inner.scrollHeight = 1200;
-    update([progress(1), progress(2)]);
-    paint();
-    expect(inner.scrollTop).toBe(900);
-
-    scrollTo(120);
-    expect(jumpButtons()).toHaveLength(1);
-    inner.scrollHeight = 1500;
-    update([progress(1), progress(2), progress(3)]);
-    paint();
-    expect(inner.scrollTop).toBe(120);
-    inner.scrollHeight = 1800;
-    update([progress(1), progress(2), progress(3, 'The newest finding is still growing in the same event.')]);
-    paint();
-    expect(inner.scrollTop).toBe(120);
-
-    act(() => jumpButtons()[0].props.onClick());
-    expect(inner.scrollTop).toBe(1500);
-    expect(jumpButtons()).toHaveLength(0);
-    inner.scrollHeight = 2000;
-    update([progress(1), progress(2), progress(3), progress(4)]);
-    paint();
-    expect(inner.scrollTop).toBe(1700);
-  });
-
-  it('does not execute a queued follow after the reader scrolls up, and detects manually returning to the bottom', () => {
-    mount([progress(1)]);
-    paint();
-    inner.scrollHeight = 1400;
-    update([progress(1), progress(2)]);
-    scrollTo(80);
-    paint();
-    expect(inner.scrollTop).toBe(80);
-    scrollTo(1100);
-    expect(jumpButtons()).toHaveLength(0);
-    inner.scrollHeight = 1600;
-    update([progress(1), progress(2), progress(3)]);
-    paint();
-    expect(inner.scrollTop).toBe(1300);
-  });
-
-  it('keeps the reading position when the same role log is closed and reopened', () => {
-    mount([progress(1)]);
-    paint();
-    scrollTo(150);
-    act(() => roleGroup().findAllByType('button')[0].props.onClick());
     expect(roleGroup().props['data-open']).toBe('false');
-    inner.scrollHeight = 1400;
-    inner.scrollTop = 0; // A newly mounted scrolling element starts at the top.
     update([progress(1), progress(2)]);
+    expect(roleGroup().props['data-open']).toBe('false');
+  });
+  it('shows five recent rows, expands earlier rows on request, and has no inner scroller', () => {
+    mount(Array.from({ length: 14 }, (_, i) => progress(i + 1)));
     act(() => roleGroup().findAllByType('button')[0].props.onClick());
-    paint();
-    expect(inner.scrollTop).toBe(150);
-    expect(jumpButtons()).toHaveLength(1);
+    const log = () => roleGroup().findByProps({ 'data-role-log': true });
+    expect(visibleText(log())).toContain('Recorded finding 14');
+    expect(visibleText(log())).not.toContain('Recorded finding 9');
+    expect(log().findAll(node => String(node.props.className).includes('overflow-y-auto'))).toHaveLength(0);
+    act(() => roleGroup().findByProps({ 'data-role-earlier': true }).props.onClick());
+    expect(visibleText(log())).toContain('Recorded finding 5');
+    act(() => roleGroup().findByProps({ 'data-role-earlier': true }).props.onClick());
+    expect(visibleText(log())).toContain('Recorded finding 1');
+    expect(roleGroup().findAllByProps({ 'data-role-earlier': true })).toHaveLength(0);
   });
 });
 
@@ -430,6 +378,7 @@ describe('project work progress in plain words', () => {
     expect(header('reviewer')).toBe('ReviewerLast: The survey covers every requirement; one record still names the wrong source.');
     const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
     expect(visibleText(group)).not.toMatch(/python|research-plan|continue/);
+    act(() => group.findAllByType('button')[0].props.onClick());
     const [toggle] = toggles('reviewer');
     expect(toggle.props['aria-expanded']).toBe(false);
     expect(visibleText(toggle)).toBe('Show commands');
@@ -448,6 +397,7 @@ describe('project work progress in plain words', () => {
     mount([view('a.py'), view('b.py'), view('c.py'), engineer('command_execution', 'pytest -q'), engineer('command_execution', 'pytest -q')]);
     // A role that said nothing yet is headed by its newest tool step in words.
     expect(header('engineer')).toBe('EngineerLast: Read c.py');
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
     act(() => toggles('engineer')[0].props.onClick());
     const group = renderer!.root.findByProps({ 'data-feed-group': 'read' });
     expect(group.props['data-open']).toBe('false');
@@ -464,6 +414,7 @@ describe('project work progress in plain words', () => {
         reason: 'The content passed; one internal record still needs a fix.', next_action: 'Correct the attribution in source-verification.md.', event_id: 'v2', ts: 2 },
     ]);
     const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
+    act(() => group.findAllByType('button')[0].props.onClick());
     expect(visibleText(group)).toContain('This path is making no new progress, so the team is trying a different approach.');
     expect(visibleText(group)).not.toMatch(/replan_requested|\bcontinue\b/);
     expect(header('reviewer')).toBe('ReviewerLast: The content passed; one internal record still needs a fix.');
@@ -506,4 +457,26 @@ it("shows a brief the Manager hands the team by its title, folded, and a reply t
   const summary = briefs[0]!.findByType('summary');
   expect(summary.children.join('')).toContain('Handed to the Planner: ');
   expect(summary.findByType('span').children).toEqual(['Compare the two sorts']);
+});
+
+it('renders a stopped request and the current Manager sentence without a phase-step display', () => {
+  mount([{ type: 'ui.operator', text: 'Keep my request', ts: 1 }, { type: 'ui.argus', status: 'stopped', text: '', ts: 1 }]);
+  expect(visibleText(renderer!.root)).toContain('Stopped. Click Resume to continue the reply.');
+  update([{ type: 'ui.argus', text: 'The latest recorded sentence', ts: 1, live: true }]);
+  expect(visibleText(renderer!.root)).toContain('The latest recorded sentence');
+  expect(renderer!.root.findAllByProps({ 'aria-label': 'View work progress' })).toHaveLength(0);
+});
+
+it('shows the task of each record after a running role is opened', () => {
+  const events = [progress(1, 'Checking primes.py.'), progress(2, 'Checking fib.py.')].map((event, i) => ({ ...event, item_id: `t${i + 1}` }));
+  const snapshot = roleSnapshot(events, {
+    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'codex' },
+    roles: [{ role: 'engineer', active: true, status: 'running', label: 'Engineer', age_s: null, backend: 'codex', backend_label: 'Codex', model: '', effort: null, tasks: ['t1', 't2'] }],
+    backlog: ['primes', 'fib'].map((name, i) => ({ id: `t${i + 1}`, title: `Write ${name}.py`, objective: '', status: 'in_progress', priority: 1 })),
+  });
+  act(() => { renderer = create(<EventStream events={[]} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
+  expect(roleGroup().props['data-open']).toBe('false');
+  act(() => roleGroup().findAllByType('button')[0].props.onClick());
+  expect(visibleText(roleGroup().findByProps({ 'data-row-task': 't1' }))).toBe('Write primes.py');
+  expect(visibleText(roleGroup().findByProps({ 'data-row-task': 't2' }))).toBe('Write fib.py');
 });

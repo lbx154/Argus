@@ -892,6 +892,21 @@ button {
 @media (prefers-reduced-motion: reduce) { .status-dot[data-tone='running'] { animation: none; } }
 
 .workspace-header { background: rgb(var(--panel)); border-bottom: 0; }
+.project-header {
+  display: grid;
+  height: auto;
+  min-height: 56px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding-block: 8px;
+}
+.project-header .topbar-title { grid-column: 1; grid-row: 1; }
+.project-header .topbar-status { display: flex; flex-wrap: wrap; grid-column: 1; grid-row: 2; gap: 0 6px; }
+.project-header .topbar-actions { grid-column: 2; grid-row: 1 / span 2; }
+@media (max-width: 639px) {
+  .project-header .topbar-status { grid-column: 1 / -1; }
+  .project-header .topbar-actions { grid-row: 1; }
+}
 .workspace-header + nav { border-bottom-color: rgb(var(--line)) !important; }
 
 /* Chat context: the conversation's tools, at the right. */

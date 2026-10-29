@@ -6,7 +6,7 @@ import { uploadPercent, useDraftUploadView } from '../lib/draftUploads';
 import { errorText, formatBytes } from '../lib/format';
 import { ErrorDetails } from './ErrorMessage';
 
-/** One draft attachment: what it is, and how far its upload has got. */
+/** One attachment: what it is, and how far its upload has got. */
 export function ComposerAttachmentChip({
   file,
   uploaded,
@@ -17,8 +17,8 @@ export function ComposerAttachmentChip({
   file?: File;
   /** A file uploaded before a reload, when only the project copy remains. */
   uploaded?: UploadedAttachment;
-  removeLabel: string;
-  onRemove: () => void;
+  removeLabel?: string;
+  onRemove?: () => void;
   disabled?: boolean;
 }) {
   const { locale } = useI18n();
@@ -57,7 +57,7 @@ export function ComposerAttachmentChip({
   const moving = phase === 'queued' || phase === 'uploading' || phase === 'retrying' || phase === 'validating';
 
   return (
-    <div data-upload-phase={phase ?? 'none'} title={failure || name}
+    <div data-attachment-id={uploaded?.attachment_id} data-upload-phase={phase ?? 'none'} title={failure || name}
       className={`relative flex min-w-0 items-center gap-2 overflow-hidden rounded-2xl border bg-panel/80 px-2.5 py-2 text-xs shadow-[0_10px_24px_-20px_rgb(0_0_0/0.2)] ${phase === 'failed' ? 'border-err/50' : 'border-line/50'}`}>
       {previewUrl ? (
         <img
@@ -70,7 +70,7 @@ export function ComposerAttachmentChip({
         <div className="truncate font-medium text-ink">{name}</div>
         <div className={`truncate ${phase === 'failed' ? 'text-err' : phase === 'ready' ? 'text-ok' : 'text-ink-faint'}`} role={phase === 'failed' ? 'alert' : undefined}>
           {phase === 'uploading' || phase === 'retrying' ? progress
-            : [formatBytes(size), progress || (file ? attachmentMime(file) : uploaded?.mime), failure].filter(Boolean).join(' · ')}
+            : [size ? formatBytes(size) : '', progress || (file ? attachmentMime(file) : uploaded?.mime), failure].filter(Boolean).join(' · ')}
         </div>
         {phase === 'failed' ? <ErrorDetails error={status?.error} /> : null}
       </div>
@@ -80,7 +80,7 @@ export function ComposerAttachmentChip({
           {zh ? '重试' : 'Retry'}
         </button>
       ) : null}
-      <button
+      {onRemove ? <button
         type="button"
         onClick={onRemove}
         disabled={disabled}
@@ -89,7 +89,7 @@ export function ComposerAttachmentChip({
         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line/60 text-ink-faint transition-colors hover:border-err/50 hover:bg-err/10 hover:text-err disabled:opacity-50"
       >
         ×
-      </button>
+      </button> : null}
       {moving ? (
         <div className="absolute inset-x-0 bottom-0 h-[3px] bg-line/40" role="progressbar" aria-label={zh ? `${name} 上传进度` : `${name} upload progress`}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent}>

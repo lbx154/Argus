@@ -347,7 +347,7 @@ describe('EventStream renders folded rows', () => {
     expect(html).toContain('<code>sizefmt/core.py</code>');
     expect(html).not.toContain('**');
     expect(html).not.toContain('ls sizefmt/__init__.py');
-    expect(html).toContain('Show commands');
+    expect(html).toContain('data-open="false"');
   });
 
   it('shows the server role log even when no dialogue rows are loaded', () => {
@@ -367,8 +367,8 @@ describe('EventStream renders folded rows', () => {
     const lane = html.slice(html.indexOf('data-role="reviewer"'));
     expect(lane).toContain('Fix the off-by-one.');
     // The verdict's mark may take its tone; the words it says do not.
-    expect(lane).toMatch(/<div class="mt-0\.5 [^"]*text-ink [^"]*"[^>]*>(?:(?!<\/div>)[^])*Fix the off-by-one\./);
-    expect(lane).not.toMatch(/<div class="mt-0\.5 [^>]*style=/);
+    expect(lane).toMatch(/<span data-role-headline="true" class="[^"]*text-ink-faint/);
+    expect(lane).not.toContain('style=');
   });
 
   it('names the task of each record, and a role at work on two tasks says what it does on each', () => {
@@ -388,8 +388,7 @@ describe('EventStream renders folded rows', () => {
     expect(lane).toContain('· 2 tasks under way');
     expect(lane).toMatch(/data-role-task="t1"[^]*?Write primes\.py[^]*?Now: [^]*?Checking primes\.py\./);
     expect(lane).toMatch(/data-role-task="t2"[^]*?Write fib\.py[^]*?Now: [^]*?Checking fib\.py\./);
-    // Opened, each record names its task.
-    expect(lane).toMatch(/data-row-task="t1"[^>]*>Write primes\.py</);
-    expect(lane).toMatch(/data-row-task="t2"[^>]*>Write fib\.py</);
+    // Records stay folded until the reader opens the role.
+    expect(lane).not.toContain('data-row-task=');
   });
 });

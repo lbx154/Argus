@@ -4,7 +4,7 @@ import { api, type ModelProbeResult } from '../api';
 import { useConfig, useModelChoices } from '../hooks';
 import { useI18n } from '../i18n';
 import { backendLabel } from '../lib/backend';
-import { EFFORTS, choiceWrites, formatLatency, formatRate, type Effort } from '../lib/modelChoice';
+import { EFFORTS, automaticModel, modelChoiceLabel, choiceWrites, formatLatency, formatRate, type Effort } from '../lib/modelChoice';
 import { requestFailureText } from '../lib/requestFailure';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner } from './primitives';
@@ -13,8 +13,6 @@ import { rawErrorText } from '../lib/format';
 import './modelPicker.css';
 
 type Probe = 'running' | ModelProbeResult | { ok: false; error: string };
-
-const unset = (model: string | undefined) => !model || ['auto', 'inherit', 'default'].includes(model.toLowerCase());
 
 /** One row of the list: a radio with the model's name, what is on record of it, and an action. */
 function ModelRow({ name, model, meta, selected, current, onSelect, action, children }: {
@@ -72,7 +70,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
 
   // A project has one model and effort, which every role runs on.
   const settings = config.data?.roles[0];
-  const current = { model: unset(settings?.model) ? '' : settings!.model, effort: settings?.reasoning_effort ?? '' };
+  const current = { model: automaticModel(settings?.model) ? '' : settings!.model, effort: settings?.reasoning_effort ?? '' };
 
   useEffect(() => {
     if (!open || !config.data) return;
@@ -122,10 +120,11 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
   };
 
   const effortName = (value: Effort) => t(`models.effort.${value}`);
-  const summary = [model || t('models.none'), effort ? effortName(effort) : ''].filter(Boolean).join(' · ');
+  const defaultModel = options.find(choice => choice.default)?.model;
+  const automaticLabel = modelChoiceLabel('', defaultModel, locale);
+  const summary = [modelChoiceLabel(model, defaultModel, locale), effort ? effortName(effort) : ''].filter(Boolean).join(' · ');
   const loading = config.isLoading || choicesQuery.isLoading;
   const failed = config.isError || choicesQuery.isError;
-  const fallback = options.find(choice => choice.default)?.model;
 
   return (
     <Modal open={open} onClose={onClose} label={t('models.title')} width="max-w-2xl" align="bottom">
@@ -144,8 +143,8 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
             </div>
           </div>
           <div className="model-list" role="radiogroup" aria-label={t('models.title')}>
-            <ModelRow name={t('models.none')} model="" selected={model === ''} current={current.model === ''} onSelect={() => select('')}
-              meta={[t('models.autoHint', { backend: backendLabel(choices.backend, config.data) }), fallback].filter(Boolean).join(' · ')} />
+            <ModelRow name={automaticLabel} model="" selected={model === ''} current={current.model === ''} onSelect={() => select('')}
+              meta={t('models.autoHint', { backend: backendLabel(choices.backend, config.data) })} />
             {options.map(choice => {
               const result = probes[choice.model];
               return (

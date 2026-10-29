@@ -123,8 +123,10 @@ conversation from `events.jsonl` in the cockpit's event vocabulary, results from
 files created or changed since the project began. The operator may write at any time: the
 Manager takes the message up in its next turn, at once unless it is answering a letter from the
 team, while the team's work goes on, and what its letter hands on joins that work. The message
-is recorded when the Manager takes it up, so the Manager's letter after it is its reply; the
-message's stream follows that turn and ends with the reply. Stop interrupts every call under
+is recorded when it arrives, with its request id and attachment metadata. Manager calls take
+waiting letters in order, so replies and interrupted messages keep their request identity;
+attachment instructions are added only to the Manager's prompt. The message's stream follows
+that turn and ends with the reply. Stop interrupts every call under
 way on the project and records it `stopped`: no turn starts again till Start, or the Manager
 handing the team new work at the operator's word. A turn goes on next time in the session its
 backend reported, whether it ended, was cut off or failed. When `argus` starts, the projects a

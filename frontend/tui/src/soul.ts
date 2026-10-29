@@ -29,9 +29,7 @@ export const IDLE_LINES = [
 ];
 
 export {
-  THINKING_LINES,
   SPINNER,
-  rotateByTick,
   spinnerFrame,
 } from '../../core/src/thinking.js';
 

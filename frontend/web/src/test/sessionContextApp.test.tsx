@@ -192,7 +192,7 @@ describe('App session composer ownership', () => {
   });
   it('reads the project list again once the first message has reached the server, so the new row is named by it', async () => {
     vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
-      handlers.onPhase?.('Manager', 'manager', { heartbeat: false, quietS: 0, kind: '', detail: '', tool: '', toolKind: '', callId: '', status: '', output: '' });
+      handlers.onAccepted?.();
       // The reply is still being written.
       await new Promise(() => {});
     });
@@ -340,6 +340,8 @@ describe('App session composer ownership', () => {
     act(() => { props().onAttachmentsChange([file]); props().onRouteOverrideChange!('task'); });
     await act(async () => renderer.root.findAllByType('button').find(node => node.children[0] === 'Research map')!.props.onClick());
     const map = renderer.root.findByType(MapPanel);
+    expect(renderer.root.findByType(TopBar).props.snap.session.id).toBe('s-A');
+    expect(renderer.root.findByType(TopBar).props.showRunControl).toBe(false);
     expect(map.props.draft).toBe('shared'); expect(map.props.attachments[0]).toBe(file);
     act(() => map.props.onDraftChange('map edit'));
     expect(props().value).toBe('map edit');

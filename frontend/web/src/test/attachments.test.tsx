@@ -1,7 +1,12 @@
+import before from '../../../../packages/core/test/fixtures/conversation-fixes/before.json';
+import after from '../../../../packages/core/test/fixtures/conversation-fixes/after.json';
+import { EventStream } from '../components/EventStream';
+import type { UploadedAttachment } from '../api';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ComposerAttachmentChip } from '../components/ComposerAttachmentChip';
 import {
+  splitMessageAttachments,
   addComposerFiles,
   attachmentMime,
   dataTransferHasFiles,
@@ -75,5 +80,32 @@ describe('composer attachment chip', () => {
     expect(html).toContain('15 B');
     expect(html).toContain('text/csv');
     expect(html).toContain('remove attachment table.csv');
+  });
+});
+
+describe('browser record: operator attachments', () => {
+  const old = before.events.find(event => event.type === 'message' && event.text?.includes('Attached, in the workdir:'))!;
+  const sent = after.requests[2];
+  const files = sent.attachments as UploadedAttachment[];
+  it('restores only the old attachment tail to the existing file block', () => {
+    const message = splitMessageAttachments(old.text!);
+    expect(message.text).toBe(before.requests[2].text);
+    expect(message.attachments).toMatchObject([{ original_name: '问题材料.csv', relative_path: expect.stringContaining('.argus/attachments/') }]);
+    const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.operator', text: old.text, ts: 1 }]} connected showReasoning={false} />);
+    expect(html).toContain('data-attachment-id=');
+    expect(html).toContain('问题材料.csv');
+    expect(html).not.toContain('Attached, in the workdir:');
+    expect(html).not.toContain('0 B');
+    expect(splitMessageAttachments('Attached, in the workdir: is a quoted heading')).toEqual({ text: 'Attached, in the workdir: is a quoted heading', attachments: [] });
+    expect(splitMessageAttachments(old.text! + '\nThis is still the operator’s text.').text).toBe(old.text! + '\nThis is still the operator’s text.');
+  });
+  it('keeps new words exactly as sent and shows one non-removable uploaded file block', () => {
+    expect(splitMessageAttachments(sent.text, files)).toEqual({ text: sent.text, attachments: files });
+    const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.operator', text: sent.text, attachments: files, ts: 1 }]} connected showReasoning={false} />);
+    expect(html.match(/data-attachment-id=/g)).toHaveLength(1);
+    expect(html).toContain('8 B');
+    expect(html).toContain('问题材料.csv');
+    expect(html).not.toContain('Attached, in the workdir:');
+    expect(html).not.toContain('aria-label="remove');
   });
 });

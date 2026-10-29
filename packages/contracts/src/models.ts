@@ -599,3 +599,13 @@ export interface VerticalManageResult {
   action: VerticalAction;
   operation: VerticalOperation | null;
 }
+
+/** A completed operator upload, kept separately from the message text. */
+export interface UploadedAttachment {
+  attachment_id: string;
+  relative_path: string;
+  original_name: string;
+  stored_name: string;
+  mime: string;
+  size_bytes: number;
+}

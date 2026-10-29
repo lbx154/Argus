@@ -147,8 +147,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
     const { text, request_id: request, attachments: files } = await body();
     if (typeof text !== 'string' || !text.trim()) throw new HttpError(400, 'empty message', 'input_required');
     const work = project(id!);
-    const said = text + attached(work, files);
-    return send => runs.message(work.id, said, typeof request === 'string' && request ? request : randomUUID(), send);
+    const uploaded = attached(work, files);
+    return send => runs.message(work.id, text, typeof request === 'string' && request ? request : randomUUID(), send, uploaded);
   };
   const command = (id: string, body: Record<string, unknown>) =>
     ({ rc: 0, command_id: body.command_id ?? '', command_status: 'applied', daemon: daemon(project(id), runs.live(id)) });

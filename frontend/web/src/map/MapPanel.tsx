@@ -62,7 +62,6 @@ import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { MAP_CAPABILITY, useCapability } from "../lib/capabilities";
 import { useI18n } from "../i18n";
-import { roleLabel } from "../lib/enumLabels";
 import { ACTIVE, attentionTasks, buildMap, connectMap, currentTask, RELATION_KINDS, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, relationPorts } from "./graphLayout";
@@ -2034,7 +2033,6 @@ export const MapPanel = memo(function MapPanel({
   snapshot,
   currentTaskId,
   events,
-  managerSteps = [],
   draft,
   onDraftChange,
   onSend,
@@ -2066,7 +2064,6 @@ export const MapPanel = memo(function MapPanel({
   snapshot: Snapshot;
   currentTaskId?: string | null;
   events: EventMsg[];
-  managerSteps?: Array<{ role: string; label: string; detail?: string }>;
   draft: string;
   onDraftChange: (text: string) => void;
   onSend: MapSend;
@@ -2370,7 +2367,7 @@ export const MapPanel = memo(function MapPanel({
             snapshot={snapshot}
             currentTaskId={currentTaskId}
             events={events}
-            pendingLabel={managerSteps.at(-1)?.detail || (managerSteps.length ? roleLabel(managerSteps.at(-1)!.role, t) : undefined)}
+            pendingLabel={snapshot.role_events?.filter(event => event.agent_layer === 'manager' && event.kind === 'agent_message').at(-1)?.text as string | undefined}
             viewKey={viewKey}
             paused={paused}
             sessionId={snapshot.session.id}

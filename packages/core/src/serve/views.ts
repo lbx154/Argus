@@ -17,8 +17,9 @@ import { ROLES, type Backend, type Role, type Step } from '../types.js';
 export interface Live {
   /** When the run under way started (epoch seconds); null when none is. */
   since: number | null;
-  /** Each call under way, by its role and the task it is on: tasks run side by side. */
-  calls: Array<{ role: Role; task: string | undefined }>;
+  /** Each call under way, by its role and the task it is on: tasks run side by side; a Manager's
+   * turn on an operator message names it. */
+  calls: Array<{ role: Role; task: string | undefined; answers?: string }>;
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
@@ -40,7 +41,7 @@ export const named = ({ name, request }: Project): string => name || request.spl
 function delivered({ letter, open = [], snapshots, title, ts }: Extract<Recorded, { type: 'handoff' }>, line: number): DeliveryReceipt {
   const targets = open.map(path => ({ path, label: basename(path), source: 'manager', why: '' }));
   return {
-    schema_version: 1, delivery_id: `d${line}`, kind: 'task_completed', item_id: '', title: title ?? firstLine(letter),
+    schema_version: 1, delivery_id: `d${line}`, kind: 'result', item_id: '', title: title ?? firstLine(letter),
     summary: letter, status: 'done', review_status: '', delivered_at: seconds(ts), primary_target: targets[0] ?? null, targets,
     ...snapshots ? { snapshots } : {},
   };
@@ -67,13 +68,15 @@ export function jsonLines(path: string, from = 0): { rows: Record<string, unknow
 export const readEvents = (store: Store, id: string): Recorded[] =>
   jsonLines(join(store.dir(id), 'events.jsonl')).rows as unknown as Recorded[];
 
-/** Where a fold of the record has got to: the next line, the operator message a Manager letter
- * answers, and the call under way of each role on each task, which tasks run side by side. */
-export interface Fold { line: number; asked: number | null; calls: Map<string, string> }
+/** Where a fold of the record has got to: the next line, the operator's messages to the Manager not
+ * yet answered (by request, at their line), the one the Manager's turn under way answers, and the
+ * call under way of each role on each task, which tasks run side by side. A Manager turn and its
+ * letter name the message they answer: nothing here is inferred from the order of the record. */
+export interface Fold { line: number; asked: Map<string, number>; turn: string | null; calls: Map<string, string> }
 
 /** The record in the cockpit's event vocabulary, folded on from `fold`. `event_id` is the line,
  * so a replay and the live stream agree; a reply's message id names the operator message it answers. */
-export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: null, calls: new Map() }): EventMsg[] {
+export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map() }): EventMsg[] {
   const rows: EventMsg[] = [];
   const { calls } = fold;
   for (const event of events) {
@@ -86,16 +89,18 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
     switch (event.type) {
       case 'message':
         // A message to the Manager waits for its reply; an answer to another role's question does not.
-        if (!event.to) fold.asked = line;
-        row('ui.operator', { agent_layer: 'operator', text: event.text, message_id: `m${line}-operator` });
+        if (!event.to && event.request_id) fold.asked.set(event.request_id, line);
+        row('ui.operator', { agent_layer: 'operator', text: event.text, message_id: `m${line}-operator`, ...(event.request_id ? { request_id: event.request_id } : {}),
+          ...(event.attachments ? { attachments: event.attachments } : {}) });
         break;
       case 'call.start':
+        if (event.role === 'manager') fold.turn = event.answers ?? null;
         calls.set(caller, `c${line}`);
         row('provider.request.started', { call_id: `c${line}`, run_label: event.role, agent_layer: event.role, ...where });
         break;
       case 'call.end':
-        // A Manager turn that ended without a letter replies to nothing; the next letter answers no message.
-        if (event.role === 'manager' && !event.completed) fold.asked = null;
+        // An interrupted message stays unanswered; Resume takes it up again.
+        if (event.role === 'manager') fold.turn = null;
         row('provider.request.completed', {
           call_id: calls.get(caller) ?? '', run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
         });
@@ -103,11 +108,12 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
       case 'handoff':
         // Every letter of the Manager's is in the conversation: its reply, and what it hands the team, with whom to.
         if (event.role === 'manager') {
+          const at = event.answers === undefined ? undefined : fold.asked.get(event.answers);
           row('ui.argus', {
-            agent_layer: 'manager', to: event.to, text: event.letter, message_id: `m${fold.asked ?? line}-argus`,
-            ...event.open ? { delivery: delivered(event, line) } : {},
+            agent_layer: 'manager', to: event.to, text: event.letter, message_id: `m${at ?? line}-argus`,
+            ...at === undefined ? {} : { request_id: event.answers }, ...event.open ? { delivery: delivered(event, line) } : {},
           });
-          fold.asked = null;
+          if (event.answers) fold.asked.delete(event.answers);
         } else if (event.role === 'planner') {
           row('life.planner.verdict', { status: event.to, enqueued_tasks: event.to === 'engineer' ? 1 : 0 });
         } else {
@@ -138,7 +144,7 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
  * cockpit events of the lines appended since the last, the first call those of all. */
 export function follow(store: Store, id: string): () => EventMsg[] {
   const path = join(store.dir(id), 'events.jsonl');
-  const fold: Fold = { line: 0, asked: null, calls: new Map() };
+  const fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map() };
   let offset = 0;
   return () => {
     const { rows, end } = jsonLines(path, offset);
@@ -220,7 +226,7 @@ export interface Reading {
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
-  end: 0, fold: { line: 0, asked: null, calls: new Map() }, rows: new Map(),
+  end: 0, fold: { line: 0, asked: new Map(), turn: null, calls: new Map() }, rows: new Map(),
   roleEvents: [], round: 0, status: '', activityAt: null, calls: new Set(), tasks: new Map(), questions: new Map(),
 }): Reading {
   for (const event of events) {
@@ -245,7 +251,15 @@ export function projectRecord(events: Recorded[], reading: Reading = {
         put({ ...row, answer_to: question.question_id }, String(row.message_id), line + 0.1);
         reading.questions.delete(asker({ role: event.to!, task: event.task ?? null }));
         move(String(question.item_id ?? ''));
-      } else put(row, String(row.message_id));
+      } else {
+        put(row, String(row.message_id));
+        if (!event.to && event.request_id) put({ type: 'ui.argus', agent_layer: 'manager', text: '', ts, event_id: line,
+          message_id: `m${line}-argus`, request_id: event.request_id }, `m${line}-argus`, line + 0.1);
+      }
+    } else if (event.type === 'step' && event.role === 'manager' && event.kind === 'message' && reading.fold.turn !== null) {
+      const id = `m${reading.fold.asked.get(reading.fold.turn)}-argus`;
+      const reply = reading.rows.get(id);
+      if (reply) reading.rows.set(id, { ...reply, text: event.text, event_id: line });
     } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
       const row = { type: 'ui.question', ts, event_id: line, question_id: `q${line}`, agent_layer: event.role,
         item_id: event.task ?? '', text: event.letter, order: line };
@@ -295,7 +309,18 @@ export function readRecord(store: Store, id: string): Reading {
 }
 
 export function conversationRows(reading: Reading, project: Project, live: Live): EventMsg[] {
-  const rows = [...reading.rows.values()];
+  const projected = new Map(reading.rows);
+  // Pending replies come from the complete dialogue, including messages interrupted before any words.
+  for (const [request, line] of reading.fold.asked) {
+    const operator = reading.rows.get(`m${line}-operator`)!;
+    const liveReply = live.calls.some(call => call.answers === request);
+    const status = project.status === 'stopped' ? 'stopped' : project.failures?.some(f => f.role === 'manager') ? 'failed' : liveReply ? 'running' : 'waiting';
+    const latest = projected.get(`m${line}-argus`)!;
+    projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
+      request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.fold.line - 1, order: line + 0.1,
+      text: status === 'running' ? String(latest.text) : '', live: status === 'running' || status === 'waiting', status });
+  }
+  const rows = [...projected.values()];
   const items = backlog(project);
   for (const [id, task] of reading.tasks) {
     const item = items.find(item => item.id === id);
@@ -326,12 +351,12 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
   const running = new Set(live.calls.flatMap(call => call.task ?? [])).size;
   const questions = project.questions.length;
   const stopped = project.status === 'stopped' || project.status === 'failed';
-  const foreground = live.requests.length > 0;
+  const foreground = live.requests.length > 0 || live.calls.some(call => call.answers);
   const state = stopped ? 'paused' : foreground || roles.length ? 'running' : questions ? 'paused' : live.since !== null ? 'waiting' : 'idle';
   const label = stopped
     ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务暂停` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} tasks paused` : ''}` }
+    : foreground ? { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' }
     : questions ? { 'zh-CN': `等你回答 ${questions} 个问题${running ? ` · ${running} 个任务继续进行` : roles.length ? ' · 团队继续工作' : ''}`, en: `Waiting for ${questions} answer${questions === 1 ? '' : 's'}${roles.length ? ' · Other work continues' : ''}` }
-    : foreground ? { 'zh-CN': '正在处理你的请求', en: 'Working on your request' }
     : state === 'running' ? { 'zh-CN': running ? `${running} 个任务进行中` : '团队正在工作', en: running ? `${running} task${running === 1 ? '' : 's'} in progress` : 'The team is working' }
     : state === 'waiting' ? { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' }
     : { 'zh-CN': project.request ? '已完成' : '等你开始', en: project.request ? 'Done' : 'Waiting for you to start' };
@@ -375,7 +400,8 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<Snapshot['spend_status']>, usage_summary: summary,
     daemon_commands: null, observability: null, mission_view: null,
     pending_questions: questions(project),
-    manager_requests: live.requests.map(request_id => ({ request_id, status: 'running' as const })),
+    manager_requests: [...new Set([...live.requests, ...live.calls.flatMap(call => call.answers ?? [])])]
+      .map(request_id => ({ request_id, status: 'running' as const })),
     goal: project.request,
     partial: false,
     diagnostics: [],
@@ -403,8 +429,8 @@ type MapCard = BacklogItem & { role: string; turn_kind?: 'qa' };
 /** How far each record has been read for the map, and what the map keeps of it: when each task
  * was added and closed, the latest thing said on it (a message or a letter, not a command), the
  * files its latest letter handed over (once it has closed, its result), the letters written about
- * tasks, by line, the operator's messages as the Manager took them up, and which tasks follow the
- * message that set them going. */
+ * tasks, by line, the operator's messages to the Manager, and which tasks follow the message whose
+ * answer set them going. */
 interface MapReading {
   end: number;
   line: number;
@@ -413,11 +439,12 @@ interface MapReading {
   actions: Map<string, BacklogItem['latest_action']>;
   opened: Map<string, string[]>;
   letters: { line: number; letter: Record<string, unknown> }[];
-  qa: MapCard[];
-  /** The message the Manager's turn under way answers, and whether its letter has come. */
-  turn: { card: MapCard; answered: boolean } | null;
-  /** The message whose answer last handed work to the team. */
-  handed: string | null;
+  /** The operator's messages to the Manager, by request. */
+  qa: Map<string, MapCard>;
+  /** The message the Manager's turn under way has answered, whose tasks follow it; and the one
+   * whose answer last briefed the Planner, whose tasks follow it. */
+  answered: string | null;
+  briefed: string | null;
   /** The messages whose answer handed work to the team or handed over files. */
   worked: Set<string>;
   follows: Map<string, string>;
@@ -425,40 +452,34 @@ interface MapReading {
 const maps = new Map<string, MapReading>();
 
 /** The progress map: a card per task, and on it a step per letter written about it; the letter
- * that opened a task is its objective. Each message of the operator's the Manager takes up is a
- * question-and-answer card from then on (`q` and its line): answering while the Manager works, then
- * answered by its letter, with the files that letter hands over; the tasks that letter opens, and
- * that wait for no other, follow it; a reply alone leaves the map. A letter's id is its line, and the lines read are the cursor: a page that
- * holds one is sent only the letters after it. Like the live event stream, each reading continues
- * at the last complete line; only map fields are retained in memory. */
+ * that opened a task is its objective. Each message of the operator's to the Manager is a
+ * question-and-answer card (`q` and its line): answering till the letter that names it comes, then
+ * answered, with the files that letter hands over; the tasks that answer opens, and that wait for no
+ * other, follow it; a reply alone leaves the map. A letter's id is its line, and the lines read are
+ * the cursor: a page that holds one is sent only the letters after it. Like the live event stream,
+ * each reading continues at the last complete line; only map fields are retained in memory. */
 export function progressMap(store: Store, project: Project, after: number) {
   const path = join(store.dir(project.id), 'events.jsonl');
   const reading: MapReading = maps.get(path) ?? {
-    end: 0, line: 0, added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: [],
-    turn: null, handed: null, worked: new Set(), follows: new Map(),
+    end: 0, line: 0, added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
+    answered: null, briefed: null, worked: new Set(), follows: new Map(),
   };
   const { added, closed, actions, opened, letters, qa, worked, follows } = reading;
   const { rows, end } = jsonLines(path, reading.end);
   for (const event of rows as unknown as Recorded[]) {
     const line = reading.line++;
     const ts = seconds(event.ts);
-    if (event.type === 'message' && !event.to) {
-      const card: MapCard = {
+    if (event.type === 'message' && !event.to && event.request_id) {
+      qa.set(event.request_id, {
         id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text).slice(0, 100), objective: event.text, priority: 0, deps: [], status: '',
         role: 'manager', ts, started_ts: ts, finished_ts: null, result_paths: [],
-      };
-      qa.push(card);
-      reading.turn = { card, answered: false };
+      });
     }
-    // A Manager turn after the answered one is on a letter from the team; one that failed answers nothing.
-    else if (event.type === 'call.start' && event.role === 'manager' && reading.turn?.answered) reading.turn = null;
-    else if (event.type === 'call.end' && event.role === 'manager' && !event.completed && reading.turn && !reading.turn.answered) {
-      reading.turn.card.status = 'cancelled';
-      reading.turn = null;
-    }
+    else if (event.type === 'call.start' && event.role === 'manager') reading.answered = null;
     else if (event.type === 'task.added') {
       added.set(event.task.id, ts);
-      if (!event.task.after?.length && reading.handed) follows.set(event.task.id, reading.handed);
+      const follow = event.task.from === 'manager' ? reading.answered : reading.briefed;
+      if (!event.task.after?.length && follow) follows.set(event.task.id, follow);
     }
     else if (event.type === 'task.closed') closed.set(event.task, ts);
     else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts });
@@ -467,11 +488,11 @@ export function progressMap(store: Store, project: Project, after: number) {
       actions.set(event.task, { role: event.role, text: event.letter, ts });
       letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
     }
-    else if (event.type === 'handoff' && event.role === 'manager' && reading.turn) {
-      const { card } = reading.turn;
-      reading.turn.answered = true;
+    else if (event.type === 'handoff' && event.role === 'manager' && event.answers && qa.has(event.answers)) {
+      const card = qa.get(event.answers)!;
       Object.assign(card, { status: 'done', finished_ts: ts, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
-      if (event.to !== 'operator') reading.handed = card.id;
+      reading.answered = card.id;
+      if (event.to === 'planner') reading.briefed = card.id;
       if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
       actions.set(card.id, { role: event.role, text: event.letter, ts });
       letters.push({ line, letter: { id: `e${line}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
@@ -480,8 +501,9 @@ export function progressMap(store: Store, project: Project, after: number) {
   reading.end = end;
   maps.set(path, reading);
   // A message stays on the map while it is answered, and after if its answer set work going or handed
-  // something over; a reply alone, or one cut short, is the conversation's.
-  const tasks = [...qa.filter(card => worked.has(card.id) || !card.status && project.status !== 'stopped').map(card => ({
+  // something over; a reply alone, or one a stop or failure left unanswered, is the conversation's.
+  const answering = project.status !== 'stopped' && project.status !== 'failed';
+  const tasks = [...[...qa.values()].filter(card => worked.has(card.id) || !card.status && answering).map(card => ({
     ...card, status: card.status || 'in_progress', latest_action: actions.get(card.id),
   })), ...backlog(project).map((item, index) => {
     const question = asked(project, item.id);

@@ -7,29 +7,11 @@ import type { MissionRoleWorkItem, Role } from '../../../core/src/types';
 import { AgentActivity } from '../components/AgentActivity';
 import { EventStream } from '../components/EventStream';
 import { liveStaleness } from '../components/agentActivityModel';
-import { stepText } from '../components/TurnSteps';
 import { plainCommand, plainToolLabel, readableGlob, renderFeedRows } from '../lib/feedSteps';
 
 const tool = (text: string, tool_name?: string) => ({ type: 'engineer.progress', kind: 'tool_use', text, ...(tool_name ? { tool_name } : {}) }) as unknown as EventMsg;
 
 describe('progress in plain words', () => {
-  it('turn steps lead with the plain label and fold the raw arguments', () => {
-    const step = { kind: 'tool_use', label: '查阅 main.py', tool: 'view', detail: 'view: {"path": "/abs/proj/main.py"}', status: 'completed', started_ts: 1, ended_ts: 2 };
-    expect(stepText(step)).toEqual({ primary: '查阅 main.py', secondary: 'view: {"path": "/abs/proj/main.py"}' });
-    expect(stepText({ ...step, kind: 'command_execution', label: '$ pytest -q', tool: 'Run tests', detail: '' }).primary).toBe('pytest -q');
-  });
-
-  it('turn steps saved before plain labels existed are relabelled when shown', () => {
-    // Stored shape of an older turn: glyph + tool + clipped JSON, full args in detail.
-    const detail = '{"cells": null, "includeOutputs": null, "limit": 100, "path": "/data/proj/README.md"}';
-    const old = { kind: 'tool_use', label: '⚙ read · {"cells": null, "includeOutputs": null, "limit"…', tool: 'read', detail, status: 'completed', started_ts: 1, ended_ts: 2 };
-    const { primary, secondary } = stepText(old, 'zh-CN');
-    expect(primary).toBe('查阅 README.md');
-    expect(secondary).toBe(detail);
-    const view = stepText({ ...old, label: '⚙ view · {"path": "/data/proj/src"}', tool: 'view', detail: '{"path": "/data/proj/src"}' }, 'en');
-    expect(view.primary).toBe('Read src');
-  });
-
   it('feed tool rows read as verb + object without JSON or absolute paths', () => {
     const cases: Array<[EventMsg, string]> = [
       [tool('view: {"path": "/data/proj/work/RESEARCH_NOTES.md"}', 'view'), '查阅 RESEARCH_NOTES.md'],
@@ -145,7 +127,7 @@ describe('real rows from a dogfood session', () => {
     const events = [{ type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: command, ts: 1, status: 'running' }] as unknown as EventMsg[];
     const html = renderToStaticMarkup(<EventStream events={[]} snapshot={roleSnapshot(events)} connected showReasoning={false} />);
     // The command waits behind its role's "Show commands" (eventStreamInteraction opens it).
-    expect(html).toContain('Show commands');
+    expect(html).toContain('data-open="false"');
     expect(html).not.toContain('pytest -q');
     expect(plainCommand(command)).toBe('mkdir -p …/files && pytest -q | tee …/pytest.log');
   });
@@ -163,7 +145,7 @@ describe('real rows from a dogfood session', () => {
       { type: 'engineer.progress', kind: 'tool_result', agent_layer: 'engineer', text: 'Public package: /work/datefmt/datefmt/__init__.py | /usr/lib/python3/site-packages/x.py', ts: 2 },
     ] as unknown as EventMsg[];
     const html = renderToStaticMarkup(<EventStream events={[]} snapshot={{ ...snapshot, role_events: events }} connected showReasoning={false} />);
-    expect(html).toContain('Show commands');
+    expect(html).toContain('data-open="false"');
     expect(html).not.toContain('rm -r --');
     expect(plainCommand(command, snapshot.session.workdir)).toBe('rm -r -- build /work/datefmt2/build && ls .');
     expect(renderFeedRows(events, { locale: 'en', showReasoning: false, workspace: '/work/datefmt' }).list[1].r.text)

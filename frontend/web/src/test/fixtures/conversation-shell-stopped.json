@@ -1,0 +1,44 @@
+{
+  "session": {
+    "id": "p-a",
+    "display_name": "长项目名称：跨平台研究工作台与移动端交互一致性验证",
+    "objective": "确认项目状态和模型标签。",
+    "created": 1793280326.648,
+    "last_active": 1793280326.648,
+    "cwd": "/fastdata/v-boxiuli/argus-work/scratch/self9/argus/.argus/conversation-fixes/t3/home/workspaces/p-a/一个很长的项目目录用于确认手机顶栏隐藏项目目录",
+    "workdir": "/fastdata/v-boxiuli/argus-work/scratch/self9/argus/.argus/conversation-fixes/t3/home/workspaces/p-a/一个很长的项目目录用于确认手机顶栏隐藏项目目录",
+    "launch_cwd": "/fastdata/v-boxiuli/argus-work/scratch/self9/argus/.argus/conversation-fixes/t3/home/workspaces/p-a/一个很长的项目目录用于确认手机顶栏隐藏项目目录"
+  },
+  "daemon": {
+    "alive": false,
+    "resumable": true,
+    "pid": null,
+    "uptime_seconds": null,
+    "started_at_iso": null,
+    "backend": "codex",
+    "backend_label": "Codex",
+    "read_status": "ok",
+    "read_error": "",
+    "protocol_compatible": true,
+    "protocol_error": ""
+  },
+  "work_status": {
+    "state": "paused",
+    "reason": "not_running",
+    "role": "",
+    "roles": [],
+    "taskId": "",
+    "title": "",
+    "foreground": false,
+    "activityAt": 1793280326.648,
+    "label": {
+      "zh-CN": "已停止",
+      "en": "Stopped"
+    }
+  },
+  "roles": [],
+  "backlog": [],
+  "recent_events": [],
+  "spend_usd": 94.5,
+  "spend_status": "priced"
+}

@@ -97,4 +97,62 @@ test('snapshot status distinguishes stopped tasks, unanswered questions and conc
   assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '1 个任务进行中');
   live.calls.push({ role: 'reviewer', task: work.tasks[0]!.id });
   assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '2 个任务进行中');
+  work.questions = [{ role: 'engineer', task: work.tasks[0]!.id, question: 'Choose?' }];
+  live.requests.push('r1');
+  assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '正在回复你的消息');
+});
+
+// Captured from the baseline build on port 18802 with the controllable Codex proxy.
+const stoppedRecord = readFileSync(new URL('./fixtures/conversation-stop/events.jsonl', import.meta.url), 'utf8')
+  .trim().split('\n').map(line => JSON.parse(line) as Recorded);
+test('real stopped conversation: refresh retains the original request and Resume reuses its reply row', () => {
+  const stop = stoppedRecord.findIndex(event => event.type === 'call.end');
+  const work = { ...project, tasks: [], status: 'stopped' as const };
+  const stopped = rowsOf(stoppedRecord.slice(0, stop + 1), work);
+  assert.equal(stopped.length, 2);
+  assert.match(String(stopped[0]?.text), /不要丢掉这条消息/);
+  assert.equal(stopped[1]?.status, 'stopped');
+  const resumed = rowsOf(stoppedRecord, { ...work, status: 'working' }, { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'stop-request-1' }], requests: [] });
+  assert.equal(resumed[1]?.message_id, stopped[1]?.message_id);
+  assert.equal(resumed[1]?.live, true);
+  assert.equal(resumed[1]?.text, '我正在核对第 14 项停止与继续运行记录。');
+  let reading: Reading | undefined;
+  stoppedRecord.forEach((event, line) => {
+    reading = projectRecord([event], reading);
+    assert.deepEqual(conversationRows(reading, work, idle), rowsOf(stoppedRecord.slice(0, line + 1), work));
+  });
+});
+
+test('a queued operator message keeps the current reply text and a letter from the team does not answer it', () => {
+  const events: Recorded[] = [
+    { type: 'handoff', role: 'engineer', to: 'manager', letter: 'Team report', ts: at(1) },
+    { type: 'call.start', role: 'manager', ts: at(2) },
+    { type: 'message', from: 'operator', text: 'My new question', request_id: 'r-new', ts: at(3) },
+    { type: 'handoff', role: 'manager', to: 'operator', letter: 'On the team report', ts: at(4) },
+    { type: 'call.start', role: 'manager', answers: 'r-new', ts: at(5) },
+    { type: 'step', role: 'manager', kind: 'message', text: 'Checking your question', ts: at(6) },
+    { type: 'message', from: 'operator', text: 'One more question', request_id: 'r-more', ts: at(7) },
+  ];
+  const live: Live = { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'r-new' }], requests: [] };
+  const rows = rowsOf(events, { ...project, tasks: [], status: 'working' }, live);
+  assert.equal(rows.find(row => row.text === 'On the team report')?.request_id, undefined);
+  assert.equal(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.text, 'Checking your question');
+  assert.equal(rows.find(row => row.request_id === 'r-more' && row.type === 'ui.argus')?.status, 'waiting');
+});
+
+// Real sends, refreshes and replies from the controlled browser service on port 18801.
+test('browser record: request identities and structured attachment metadata survive every replay prefix', () => {
+  const captured = JSON.parse(readFileSync(new URL('./fixtures/conversation-fixes/after.json', import.meta.url), 'utf8')) as {
+    events: Recorded[]; requests: Array<{ text: string; request_id: string; attachments?: unknown[] }>;
+  };
+  let reading: Reading | undefined;
+  captured.events.forEach((event, line) => {
+    reading = projectRecord([event], reading);
+    assert.deepEqual(conversationRows(reading, project, idle), rowsOf(captured.events.slice(0, line + 1)));
+  });
+  const rows = rowsOf(captured.events);
+  const messages = rows.filter(row => row.type === 'ui.operator');
+  assert.deepEqual(messages.map(row => ({ text: row.text, request_id: row.request_id, ...(row.attachments ? { attachments: row.attachments } : {}) })), captured.requests);
+  assert.deepEqual(rows.filter(row => row.type === 'ui.argus').map(row => row.request_id), captured.requests.map(request => request.request_id));
+  assert.ok(rows.filter(row => row.type === 'ui.argus').every(row => (row.delivery as { kind: string }).kind === 'result'));
 });
