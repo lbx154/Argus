@@ -1,11 +1,10 @@
-"""The research notes replace the older HANDOFF.md without disturbing a live project."""
+"""The research notes at the project root and the stage context that carries them."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 from argus.verticals.research.notes import (
-    LEGACY_NOTES_FILENAME,
     RESEARCH_NOTES_FILENAME,
     notes_heading,
 )
@@ -22,15 +21,14 @@ def test_headings_name_the_stage_in_plain_words() -> None:
     assert notes_heading("review") == "# Research notes"
 
 
-def test_stage_context_loads_the_notes_under_the_new_name(tmp_path: Path) -> None:
+def test_stage_context_loads_the_notes(tmp_path: Path) -> None:
     assert active_context_paths("experiment") == (RESEARCH_NOTES_FILENAME,)
-    (tmp_path / LEGACY_NOTES_FILENAME).write_text(
-        "# HANDOFF — EXPERIMENT\n\nUNIQUE_THESIS_LINE", encoding="utf-8"
+    (tmp_path / RESEARCH_NOTES_FILENAME).write_text(
+        "# Research notes — Experiment stage\n\nUNIQUE_THESIS_LINE", encoding="utf-8"
     )
     block = active_research_context("experiment", tmp_path)
     assert "UNIQUE_THESIS_LINE" in block
     assert f"`{RESEARCH_NOTES_FILENAME}`" in block
-    assert (tmp_path / RESEARCH_NOTES_FILENAME).exists()
 
 
 def test_the_engineer_rewrites_the_notes_for_the_next_stage() -> None:
