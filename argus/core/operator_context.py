@@ -12,20 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Literal, TypeAlias, cast
 
-from .atomic_replace import write_atomic
 from .file_lock import exclusive_file_lock
 from .operator_context_storage import (
     DELIVERY_STATE_KEY,
-    MAX_OPERATOR_DELIVERY_RECEIPTS,
-    MAX_OPERATOR_DELIVERY_STREAMS,
     MAX_SOURCE_BYTES,
-    RECEIPT_FORMAT,
     ContextDocument,
     bounded_mission,
     checkpoint_bytes,
     compact_document,
-    encode,
-    operator_delivery_identity,
     preference_key,
     read_document,
     settled_revisions,
@@ -83,18 +77,6 @@ class StaleOperatorContextWrite(RuntimeError):
 
 class OperatorContextCapacityError(ValueError):
     """Live operator authority cannot be silently evicted to fit a storage cap."""
-
-
-class OperatorDeliveryConflict(ValueError):
-    """A delivery identity or frozen application disagrees with its durable record."""
-
-
-class OperatorDeliveryClosed(OperatorDeliveryConflict):
-    """The acknowledged delivery prefix is closed and cannot be applied again."""
-
-
-class OperatorDeliveryCapacityError(OperatorContextCapacityError):
-    """Replay metadata is full; the source must retain its pending delivery."""
 
 
 def operator_context_state_root(memory: Any) -> Path:
@@ -347,14 +329,6 @@ def _read_cache(root: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _write_cache(root: Path, payload: dict[str, Any]) -> None:
-    write_atomic(
-        root / PROJECTION_FILENAME,
-        json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
-        fsync=True,
-    )
-
-
 def _current_mission_id(root: Path) -> str:
     from ..life.memory import LifeMemory
 
@@ -381,33 +355,6 @@ def _standing_directive_key(
         roles,
         record.source.endswith(".standing_sounding"),
     )
-
-
-def _frozen_operator_plan(value: Any) -> dict[str, Any]:
-    if (
-        not isinstance(value, dict) or set(value) != {"version", "target_root", "effect"}
-        or type(value["version"]) is not int or value["version"] != 1
-    ):
-        raise ValueError("invalid frozen operator intake plan")
-    target = value["target_root"]
-    if (
-        not isinstance(target, str) or len(target) > 4096
-        or not Path(target).is_absolute() or str(Path(target).resolve()) != target
-    ):
-        raise ValueError("frozen operator target must be a canonical absolute path")
-    effect = value["effect"]
-    if effect is not None:
-        if not isinstance(effect, dict) or type(effect.get("revision")) is not int or effect["revision"] != 1:
-            raise ValueError("frozen operator effect must contain a record prototype")
-        record = _record_from_dict(effect)
-        if encode(effect) != encode(asdict(record)):
-            raise ValueError("frozen operator effect must have canonical record fields")
-        if isinstance(record, DirectiveRecord):
-            if record.source.startswith("manager.supervision"):
-                raise ValueError("Manager supervision is advisory, not operator authority")
-            if record.lifetime == "bounded_increment" and not record.mission_id:
-                raise ValueError("frozen bounded instruction requires its original mission")
-    return cast(dict[str, Any], json.loads(encode(value)))
 
 
 class OperatorContextStore:
@@ -483,24 +430,6 @@ class OperatorContextStore:
                 # cache has vanished, there is no evidence authorizing replay.
                 doc.state["consumed_once"] = uncertain
                 doc.state["legacy_consumption_uncertain"] = True
-        # Subagent completion reports reach the inbox as ephemeral host reports
-        # since db79822a; an idle copy stored before then was delivered long
-        # ago, and no Planner decision settles a report another job wrote (a
-        # later one is text the operator pasted). Revoke each, once. Records
-        # carry UTC ISO time, which orders as text.
-        revoked = set(doc.state.get("revoked", []))
-        stale = {
-            row["revision"] for row in doc.records
-            if row["type"] == "directive" and row["lifetime"] == "bounded_increment"
-            and row["revision"] not in revoked
-            and row["text"].startswith("## Subagent Report:")
-            and row["created_at"] < "2026-09-30T09:58:20Z"
-            and bounded_mission(row["mission_id"], row["revision"], doc.state["bounded_missions"])
-            == _NO_MISSION
-        }
-        if stale:
-            doc.state["revoked"] = sorted(revoked | stale)
-            doc.needs_checkpoint = True
         return doc
 
     def _ensure_ownership(self) -> None:
@@ -529,32 +458,6 @@ class OperatorContextStore:
         with self._locked():
             return self._load().revision
 
-    def _write_projection(self, doc: ContextDocument) -> None:
-        revoked = {int(row["target_revision"]) for row in doc.records if row["type"] == "revoke"}
-        revoked.update(int(value) for value in doc.state.get("revoked", []))
-        payload = {
-            "version": 2,
-            "revision": doc.revision,
-            "base_revision": doc.base_revision,
-            "canonical_established": self.ledger_path.exists(),
-            "consumed_once": [],
-            "acknowledged_revisions": {},
-            "bounded_missions": {},
-            "records": [
-                row
-                for row in doc.records
-                if row["type"] != "revoke" and row["revision"] not in revoked
-            ],
-            **doc.state,
-        }
-        try:
-            _write_cache(self.root, payload)
-        except OSError:
-            log.warning(
-                "operator projection cache write failed; canonical state remains committed",
-                exc_info=True,
-            )
-
     def _save(
         self,
         doc: ContextDocument,
@@ -581,7 +484,6 @@ class OperatorContextStore:
         else:
             self._append_lines([_record_from_dict(row) for row in new_rows])
         self._ensure_ownership()
-        self._write_projection(doc)
 
     def acknowledged_revision(self, role: Role) -> int:
         if role not in _ROLES:
@@ -767,76 +669,6 @@ class OperatorContextStore:
         doc.revision = written.revision
         return written, True
 
-    def apply_operator_delivery(self, plan: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
-        """Apply a frozen effect and its replay receipt in the same target checkpoint."""
-        plan, identity = _frozen_operator_plan(plan), operator_delivery_identity(identity)
-        if plan["target_root"] != str(self.root.resolve()):
-            raise OperatorDeliveryConflict("frozen operator intake names another target")
-        with self._locked():
-            doc = self._load()
-            replay = doc.state.setdefault(DELIVERY_STATE_KEY, {"version": 1, "streams": {}})
-            streams = replay["streams"]
-            stream = streams.get(identity["stream"])
-            if stream is None:
-                if len(streams) >= MAX_OPERATOR_DELIVERY_STREAMS:
-                    raise OperatorDeliveryCapacityError("operator delivery stream capacity is full")
-                stream = {"generation": identity["generation"], "closed_sequence": 0, "receipts": {}}
-                streams[identity["stream"]] = stream
-            elif identity["generation"] < stream["generation"]:
-                raise OperatorDeliveryClosed("operator delivery generation is already closed")
-            elif identity["generation"] > stream["generation"]:
-                if stream["receipts"]:
-                    raise OperatorDeliveryConflict("operator delivery generation still has unclosed receipts")
-                stream.update(generation=identity["generation"], closed_sequence=0, receipts={})
-            if identity["sequence"] <= stream["closed_sequence"]:
-                raise OperatorDeliveryClosed("operator delivery sequence is already closed")
-            previous = stream["receipts"].get(str(identity["sequence"]))
-            if previous is not None:
-                # A version-1 receipt bound a digest of its plan, not the plan.
-                if (
-                    operator_delivery_identity(previous["identity"]) != identity
-                    or previous.get("plan", plan) != plan
-                    or previous["target_root"] != plan["target_root"]
-                ):
-                    raise OperatorDeliveryConflict("operator delivery identity has a different frozen effect")
-                return cast(dict[str, Any], json.loads(encode(previous)))
-            if sum(len(row["receipts"]) for row in streams.values()) >= MAX_OPERATOR_DELIVERY_RECEIPTS:
-                raise OperatorDeliveryCapacityError("operator delivery receipt capacity is full")
-            revision = doc.revision
-            if plan["effect"] is not None:
-                written, _appended = self._stage_record(doc, _record_from_dict(plan["effect"]))
-                revision = written.revision
-            receipt = {
-                "format": RECEIPT_FORMAT, "identity": identity,
-                "target_root": plan["target_root"], "plan": plan, "revision": revision,
-            }
-            stream["receipts"][str(identity["sequence"])] = receipt
-            # The v3 checkpoint contains both the authority effect and receipt.
-            # Once replaced, a failed projection/response may only replay this receipt.
-            self._save(doc, checkpoint=True)
-            return cast(dict[str, Any], json.loads(encode(receipt)))
-
-    def close_operator_delivery_prefix(self, prefix: dict[str, Any]) -> dict[str, Any]:
-        """Close only a source-acknowledged prefix; retain bounded stream tombstones."""
-        prefix = operator_delivery_identity(prefix)
-        result = {"format": "operator-delivery-close-v1", "target_root": str(self.root.resolve()), **prefix}
-        with self._locked():
-            doc = self._load()
-            stream = doc.state.get(DELIVERY_STATE_KEY, {}).get("streams", {}).get(prefix["stream"])
-            if stream is None or prefix["generation"] > stream["generation"]:
-                raise OperatorDeliveryConflict("operator delivery prefix has no applied generation")
-            if prefix["generation"] < stream["generation"] or prefix["sequence"] <= stream["closed_sequence"]:
-                return result
-            if str(prefix["sequence"]) not in stream["receipts"]:
-                raise OperatorDeliveryConflict("operator delivery prefix has no terminal application receipt")
-            stream["receipts"] = {
-                sequence: receipt for sequence, receipt in stream["receipts"].items()
-                if int(sequence) > prefix["sequence"]
-            }
-            stream["closed_sequence"] = prefix["sequence"]
-            self._save(doc, checkpoint=True)
-            return result
-
     def _append_lines(self, records: list[OperatorRecord]) -> None:
         payload = b"".join(
             (json.dumps(asdict(record), ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
@@ -907,8 +739,6 @@ class OperatorContextStore:
                 doc.state["consumed_once"] = sorted(consumed | set(newly_consumed))
                 doc.state.pop("legacy_consumption_uncertain", None)
                 self._save(doc, checkpoint=True)
-            else:
-                self._write_projection(doc)
             directives: list[DirectiveRecord] = []
             seen: set[tuple[str, Scope, tuple[str, ...], bool]] = set()
             for directive in sorted(
@@ -1173,78 +1003,22 @@ def import_deterministic_credential(
 def freeze_operator_intake(
     life_dir: Path | str,
     text: str,
-    decision: IntakeDecision | None,
+    decision: IntakeDecision,
     *,
     source: str = "operator.inbox",
     mission_id: str = "",
     global_root: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Freeze target and effect before a durable source permits any application.
+    """Freeze the target of one inbox message before the running round takes it.
 
-    This performs no canonical writes. An empty effect records acceptance only;
-    the source still owns delivery of any transient text to its consumer.
+    The inbox carries guidance, never authority, so the plan has no effect and
+    nothing is written; the source still owns delivery of the transient text.
     """
-    normalized = str(text or "").strip()
-    target = Path(life_dir)
-    # Validate the caller's namespace even for a local or no-authority plan.
+    # Validate the caller's namespace even though nothing is written.
     operator_context_global_root(life_dir, global_root)
-    record: OperatorRecord | None = None
-    if decision is not None:
-        if decision.kind not in {
-            "ephemeral", "objective_amendment", "standing_directive", "preference",
-            "credential_grant", "revocation",
-        }:
-            raise ValueError("invalid frozen operator intake decision")
-        if type(decision.target_revision) is not int or decision.target_revision < 0:
-            raise ValueError("invalid frozen revocation target")
-        if decision.kind == "preference" or (decision.kind == "revocation" and decision.target_revision > 0):
-            target = preference_state_root(life_dir, scope=decision.scope, global_root=global_root)
-    if normalized and (decision is None or decision.kind != "ephemeral"):
-        if decision is not None and decision.kind == "preference":
-            record = PreferenceRecord(
-                decision.preference_kind, decision.preference_value.strip() or normalized,
-                decision.scope, decision.applies_to_roles, 1,
-            )
-        elif decision is not None and decision.kind == "revocation" and decision.target_revision > 0:
-            record = RevokeRecord(decision.target_revision, normalized, 1)
-        else:
-            lifetime: Lifetime = "standing"
-            scope: Scope = "project" if decision is None else decision.scope
-            roles: AppliesToRoles = "all" if decision is None else decision.applies_to_roles
-            record_source = source
-            if decision is None:
-                if not standing_sounding(normalized):
-                    scope, lifetime = "mission", "bounded_increment"
-            elif decision.kind == "objective_amendment":
-                scope, lifetime = "mission", "bounded_increment"
-            elif decision.kind == "standing_directive":
-                normalized = decision.preference_value.strip() or normalized
-            elif decision.kind == "revocation":
-                normalized = f"Revocation request needs a target revision: {normalized}"
-                scope, lifetime = "mission", "once"
-            elif decision.kind == "credential_grant":
-                normalized = "Credential-like content was not imported because its format was ambiguous."
-                scope, lifetime, roles = "mission", "once", ("manager",)
-                record_source = f"{source}.ambiguous_credential"
-            record = DirectiveRecord(
-                normalized, scope, roles, lifetime, record_source, 1, _utc_now(),
-                mission_id=(str(mission_id).strip() or _NO_MISSION) if lifetime == "bounded_increment" else "",
-            )
-    effect = asdict(_record_from_dict(asdict(record))) if record is not None else None
-    return _frozen_operator_plan({"version": 1, "target_root": str(target.expanduser().resolve()), "effect": effect})
-
-
-def apply_operator_delivery(plan: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
-    """Return the original durable receipt when an unacknowledged effect replays."""
-    plan = _frozen_operator_plan(plan)
-    return OperatorContextStore(plan["target_root"]).apply_operator_delivery(plan, identity)
-
-
-def close_operator_delivery_prefix(
-    target_root: Path | str, prefix: dict[str, Any],
-) -> dict[str, Any]:
-    """Prune receipts only after the source has durably retained its acceptance."""
-    return OperatorContextStore(target_root).close_operator_delivery_prefix(prefix)
+    if decision.kind != "ephemeral":
+        raise ValueError("the inbox freezes only ephemeral guidance")
+    return {"version": 1, "target_root": str(Path(life_dir).expanduser().resolve()), "effect": None}
 
 
 def persist_intake_decision(
@@ -1557,9 +1331,6 @@ __all__ = [
     "OperatorContextCapacityError",
     "OperatorContextStore",
     "OperatorContextUnavailable",
-    "OperatorDeliveryCapacityError",
-    "OperatorDeliveryClosed",
-    "OperatorDeliveryConflict",
     "PreferenceRecord",
     "PROJECTION_FILENAME",
     "RevokeRecord",
@@ -1569,10 +1340,8 @@ __all__ = [
     "append_operator_context",
     "append_preference",
     "append_revoke",
-    "apply_operator_delivery",
     "build_operator_context_block",
     "build_settleable_planner_context_block",
-    "close_operator_delivery_prefix",
     "freeze_operator_intake",
     "import_deterministic_credential",
     "operator_context_revision_from_text",
