@@ -19,7 +19,7 @@
 .delivery-summary { margin-top: 8px; font-size: 13px; color: rgb(var(--ink-dim)); }
 .delivery-summary summary { cursor: pointer; width: fit-content; padding: 3px 0; color: rgb(var(--ink-faint)); }
 .delivery-summary summary:hover { color: rgb(var(--ink)); }
-.delivery-summary p { white-space: pre-wrap; max-height: 16dvh; overflow-y: auto; line-height: 1.7; margin-top: 6px; }
+.delivery-summary-body { max-height: 16dvh; overflow-y: auto; line-height: 1.7; margin-top: 6px; }
 .delivery-files { flex-shrink: 0; display: flex; gap: 22px; overflow-x: auto; padding: 4px 24px 0; border-bottom: 1px solid rgb(var(--line)); }
 .delivery-files button { display: flex; align-items: center; gap: 8px; padding: 10px 0 9px; margin-bottom: -1px; border: 0; border-bottom: 1px solid transparent; border-radius: 0; color: rgb(var(--ink-faint)); white-space: nowrap; font-size: 13px; transition: color 150ms ease, border-color 150ms ease; }
 .delivery-files button:hover { color: rgb(var(--ink-dim)); }
