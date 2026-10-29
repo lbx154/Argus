@@ -844,7 +844,7 @@ export function EventStream({
     [snapshot?.role_events, locale, showReasoning, workspace]);
   const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
     [connected, snapshot?.daemon.alive, snapshot?.roles]);
-  const roleRound = snapshot?.role_events?.[0]?.event_id ?? 0;
+  const roleRound = snapshot?.role_round ?? 0;
   const rowById = new Map(rows.list.map(row => [row.ev, row]));
   const loadEarlier = useRef({ hasOlder, loadingOlder, onLoadOlder });
   loadEarlier.current = { hasOlder, loadingOlder, onLoadOlder };

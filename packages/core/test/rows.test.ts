@@ -3,7 +3,7 @@ import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { EventMsg } from '@argus/contracts';
+import { ROLE_LOG, type EventMsg } from '@argus/contracts';
 import { Store, questionId, type Project } from '../src/store.js';
 import { conversationPage, conversationRows, projectRecord, snapshot, webEvents, type Live, type Reading, type Recorded } from '../src/serve/views.js';
 
@@ -35,6 +35,13 @@ test('real three-task replay: completed tasks survive a 140-step tail and a fres
   } while (before !== undefined);
   assert.deepEqual(pages, expected);
   assert.ok(!pages.some(row => row.type === 'engineer.progress'));
+});
+
+test("a round's role log keeps each role's newest entries, however long the round runs", () => {
+  const roles = projectRecord(longReplay).roleEvents.map(event => event.agent_layer);
+  for (const role of new Set(roles)) assert.ok(roles.filter(other => other === role).length <= ROLE_LOG);
+  assert.equal(roles.filter(role => role === 'engineer').length, ROLE_LOG);
+  assert.equal(projectRecord(longReplay).roleEvents.at(-1)!.ts, Date.parse(longReplay.at(-1)!.ts) / 1000);
 });
 
 test('each prefix of the real record has identical live and refreshed rows and current-round logs', () => {

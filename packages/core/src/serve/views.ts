@@ -4,7 +4,7 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import {
-  SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type Daemon, type DeliveryReceipt, type EventMsg, type OperatorDecisionCard, type ProjectRow,
+  newestPerRole, SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type Daemon, type DeliveryReceipt, type EventMsg, type OperatorDecisionCard, type ProjectRow,
   type Snapshot, type UsageSummary, type ConversationPage, type ProjectWorkStatus,
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
@@ -279,7 +279,7 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       // Task lifecycle announcements have no author and never enter a role's log.
       const log = event.type === 'handoff' ? { type: 'engineer.progress', ts, event_id: line,
         agent_layer: event.role, item_id: event.task ?? '', kind: 'agent_message', text: event.letter } : converted[0]!;
-      reading.roleEvents.push(log);
+      reading.roleEvents = newestPerRole([...reading.roleEvents, log]);
       reading.activityAt = ts;
     }
   }
@@ -360,7 +360,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
-    role_events: reading.roleEvents,
+    role_events: reading.roleEvents, role_round: reading.round,
     work_status: projectStatus(project, live, reading),
     roles: ROLES.map(role => {
       const under = live.calls.filter(call => call.role === role);

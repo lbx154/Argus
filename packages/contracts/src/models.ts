@@ -368,8 +368,10 @@ export interface Snapshot {
   };
   daemon: Daemon;
   roles: Role[];
-  /** The server's current-round role log and canonical project status. */
+  /** The server's current-round role log, each role's newest `ROLE_LOG` entries, and canonical project status. */
   role_events?: EventMsg[];
+  /** The line of the operator message the round began with. */
+  role_round?: number;
   work_status?: ProjectWorkStatus;
   /** The newest model call this project opened: what it actually ran on. */
   last_call?: { backend: string; model: string; effort: string; run_label: string; role?: string; ts: number } | null;
@@ -401,6 +403,20 @@ export interface Snapshot {
     error_type: string;
     message: string;
   }>;
+}
+
+/** How many of a role's newest entries its log holds: a round can run for hours, and its earlier
+ * entries are in the record. */
+export const ROLE_LOG = 30;
+
+/** A role's log kept to its newest `ROLE_LOG` entries, in order. */
+export function newestPerRole(events: EventMsg[]): EventMsg[] {
+  const seen = new Map<unknown, number>();
+  return [...events].reverse().filter(event => {
+    const count = (seen.get(event.agent_layer) ?? 0) + 1;
+    seen.set(event.agent_layer, count);
+    return count <= ROLE_LOG;
+  }).reverse();
 }
 
 export interface ProjectWorkStatus {
