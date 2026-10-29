@@ -64,9 +64,10 @@ describe('starting and revisiting work', () => {
   it('lets a narrow-screen search reader return to results without opening a project', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('window', Object.assign(new EventTarget(), { localStorage, setTimeout, clearTimeout }));
-    const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, snippet: 'Needle excerpt', text: 'Full recorded answer' };
+    const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, snippet: 'Needle in `code`', text: 'Full recorded answer' };
+    const request = { ...result, kind: 'project' as const, snippet: 'Find the **Needle**', text: 'Find the Needle' };
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
-    client.setQueryData(['history-search', 'Needle'], { results: [result], partial: false, errors: [] });
+    client.setQueryData(['history-search', 'Needle'], { results: [request, result], partial: false, errors: [] });
     const onChoose = vi.fn();
     const onClose = vi.fn();
     try {
@@ -75,13 +76,17 @@ describe('starting and revisiting work', () => {
         view.root.findByProps({ type: 'search' }).props.onChange({ target: { value: 'Needle' } });
       });
       await act(async () => { await vi.advanceTimersByTimeAsync(350); });
-      act(() => button('Matching project').props.onClick());
+      // The project is named once over its results, which read without Markdown's marks.
+      expect(view.root.findAllByProps({ className: 'search-project' }).map(text)).toEqual(['Matching project']);
+      expect(text(view.root)).toContain('Needle in code');
+      expect(text(view.root)).not.toContain('`');
+      act(() => button('Needle in code').props.onClick());
       expect(text(view.root)).toContain('Full recorded answer');
       act(() => button('返回搜索结果').props.onClick());
       expect(text(view.root)).not.toContain('Full recorded answer');
       expect(onChoose).not.toHaveBeenCalled();
       expect(onClose).not.toHaveBeenCalled();
-      act(() => button('Matching project').props.onClick());
+      act(() => button('Needle in code').props.onClick());
       act(() => button('打开并定位').props.onClick());
       expect(onChoose).toHaveBeenCalledWith(result);
       expect(onClose).toHaveBeenCalledOnce();

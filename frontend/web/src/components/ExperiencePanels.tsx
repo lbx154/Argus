@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api, type Edition, type SearchResult } from '../api';
 import { useI18n } from '../i18n';
@@ -6,6 +6,7 @@ import { errorText } from '../lib/format';
 import { downloadBlob } from '../lib/downloadBlob';
 import { Modal, ModalHeader } from './Modal';
 import { MarkdownContent } from './MarkdownContent';
+import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { DiffLines } from './DeliveryChanges';
 import { Button } from './primitives';
 import { ErrorDetails } from './ErrorMessage';
@@ -47,14 +48,18 @@ export function HistorySearch({ open, onClose, onChoose }: {
       </div>}
       <div className="search-layout" data-reading={Boolean(selected)}>
       <div className="search-result-list" aria-label={zh ? '搜索结果' : 'Search results'}>
-        {results.data?.results.map((result, index) => <button type="button"
-          key={`${result.sid}:${result.kind}:${result.line ?? result.path ?? index}:${result.version ?? ''}`}
-          aria-pressed={selected === result} onClick={() => setSelected(result)} className={selected === result ? 'is-selected' : ''}>
-          <strong>{result.title}</strong><small>{result.kind === 'conversation' ? zh ? '对话记录' : 'Conversation'
-            : result.kind === 'edition' ? zh ? `修改稿 v${result.version}` : `Edition v${result.version}`
-              : result.kind === 'artifact' ? result.path : zh ? '项目' : 'Project'}</small>
-          <span>{result.snippet}</span>
-        </button>)}
+        {/* A project's results come together under its name, said once; each is quoted as the
+            conversation renders it, without its Markdown's marks. */}
+        {results.data?.results.map((result, index, all) => <Fragment
+          key={`${result.sid}:${result.kind}:${result.line ?? result.path ?? index}:${result.version ?? ''}`}>
+          {result.sid !== all[index - 1]?.sid && <h3 className="search-project">{result.title}</h3>}
+          <button type="button" aria-pressed={selected === result} onClick={() => setSelected(result)} className={selected === result ? 'is-selected' : ''}>
+            <small>{result.kind === 'conversation' ? zh ? '对话记录' : 'Conversation'
+              : result.kind === 'edition' ? zh ? `修改稿 v${result.version}` : `Edition v${result.version}`
+                : result.kind === 'artifact' ? result.path : zh ? '项目' : 'Project'}</small>
+            <span><MarkdownExcerpt>{result.snippet}</MarkdownExcerpt></span>
+          </button>
+        </Fragment>)}
       </div>
       {selected && <section className="search-reader">
         <header>
