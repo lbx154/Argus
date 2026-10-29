@@ -73,7 +73,7 @@ const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
 
-test("the project's request is the message that first set the team working, not a greeting before it", async t => {
+test('a project is named once, by the first work the Manager hands on, not by a greeting before it', async t => {
   const { flow, id } = await setup(t, [
     { role: 'manager', to: 'operator', letter: 'Hello! What shall we work on?' },
     toEngineer,
@@ -87,9 +87,11 @@ test("the project's request is the message that first set the team working, not 
   ]);
   // A project made on the page has no request till its first message.
   flow.edit(id, project => { project.request = ''; });
-  assert.equal((await say(flow, id, 'Hello')).request, 'Hello');
-  assert.equal((await say(flow, id, 'Make me a CSV summary tool')).request, 'Make me a CSV summary tool');
-  assert.equal((await say(flow, id, 'Also export a PDF')).request, 'Make me a CSV summary tool');
+  const hello = await say(flow, id, 'Hello');
+  assert.deepEqual([hello.request, hello.name], ['Hello', undefined]);
+  assert.equal((await say(flow, id, 'Make me a CSV summary tool')).name, 'Build the CSV summary tool.');
+  const later = await say(flow, id, 'Also export a PDF');
+  assert.deepEqual([later.request, later.name], ['Hello', 'Build the CSV summary tool.']);
 });
 
 test('a result the Manager hands the operator keeps its files in the record, beside its letter, each as it was, named by its main file', async t => {
@@ -103,6 +105,7 @@ test('a result the Manager hands the operator keeps its files in the record, bes
   const project = await say(flow, id, 'Print the totals instead');
   const handoffs = events().flatMap(event => event.type === 'handoff' ? [event] : []);
   assert.deepEqual(handoffs.map(event => [event.letter, event.open, event.title]), [[report.letter, open, 'summary.py'], [report.letter, open, 'summary.py'], [report.letter, open, 'summary.py']]);
+  assert.equal(project.name, 'summary.py');
   // A text file is copied as delivered; a binary one is named by its size and time; a missing one is left out.
   const [first, again, changed] = handoffs.map(event => event.snapshots ?? []);
   assert.deepEqual(first?.map(({ path, size, stored }) => [path, size, stored]), [['summary.py', 9, true], ['plot.png', 4, false]]);

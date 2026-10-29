@@ -310,7 +310,7 @@ test('a task in full, a role\'s letters to download, and a search of every proje
   // A record from before there could be several questions holds its one as `question`.
   const question = { role: 'engineer' as const, task: 't2', question: 'Which years?' };
   await writeFile(join(store.dir(id), 'project.json'), JSON.stringify({
-    ...record, status: 'asking', question, tasks: [{ ...chart, status: 'closed', note: { from: 'reviewer', text: 'The chart matches the data.' } }, years],
+    ...record, name: chart.title, status: 'asking', question, tasks: [{ ...chart, status: 'closed', note: { from: 'reviewer', text: 'The chart matches the data.' } }, years],
   }));
   assert.deepEqual([questions, store.load(id).questions], [[], [question]]);
   const P = `/api/projects/${id}`;

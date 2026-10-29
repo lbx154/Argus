@@ -172,10 +172,11 @@ export class Flow {
     if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
     const handoff = (await this.call(project, 'manager', null,
       resumed => managerPrompt(message, resumed)))?.handoff ?? null;
+    // The project is named once, by the first work the Manager hands on or delivers.
+    const title = !handoff || project.name ? '' : handoff.open ? titleOf(project, handoff.open[0]!) : handoff.to === 'operator' ? '' : firstLine(read(handoff));
+    if (title) project.name = title.slice(0, 80);
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
-      // The project's request is the message that first set the team working; till then, the first one.
-      if (operator && !begun(project)) project.request = message;
       const letter = read(handoff);
       if (handoff.to === 'engineer') this.open(project, 'manager', letter);
       else project.inbox.push(handedTo('manager', null, letter));
@@ -396,9 +397,6 @@ const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
 /** A Manager turn on the operator's message, or on a letter from the team. */
 type ManagerTurn = { operator?: boolean };
-
-/** Whether the team has had work: a task, or a letter to the Planner. */
-const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;
 
 /** Whether a question or a failed turn holds up the task, or with none, the Planner: it waits for the operator. */
 const held = ({ questions, failures = [] }: Project, task: Task | null): boolean =>

@@ -32,10 +32,8 @@ const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', com
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
-/** A project's name: the operator's, else the title the Manager gave the project's first task,
- * else its request's first line. */
-export const named = ({ name, tasks: [first], request }: Project): string =>
-  name || (first?.from === 'manager' ? first.title : '') || request.split('\n')[0]!.slice(0, 80);
+/** A project's name: its own, else its request's first line. */
+export const named = ({ name, request }: Project): string => name || request.split('\n')[0]!.slice(0, 80);
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it, named as
  * it was when delivered (a record from before then, by the letter's first line). */

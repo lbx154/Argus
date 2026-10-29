@@ -160,15 +160,9 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   assert.deepEqual([(await row())?.label, (await row())?.display_name], ['Column totals', 'Column totals']);
   assert.equal((await get<Snapshot>(`/api/projects/${sid}/snapshot`)).session.display_name, 'Column totals');
   await send('PATCH', `/api/projects/${sid}`, { name: ' ' });
-  // Unnamed again, it is named by its request, or once the Manager has opened a task, by that task's title.
+  // Unnamed again, it is named by its request.
   store.save({ ...store.load(sid), request: 'Total the columns of data.csv\nand plot them' });
   assert.deepEqual([(await row())?.label, (await row())?.display_name], [sid, 'Total the columns of data.csv']);
-  const task = { id: 't1', title: 'Column totals of data.csv', from: 'manager' as const, objective: '', status: 'closed' as const, holder: 'engineer' as const, note: null };
-  store.save({ ...store.load(sid), tasks: [task] });
-  assert.equal((await row())?.display_name, 'Column totals of data.csv');
-  // A task the Manager opens later, after the Planner's, names nothing.
-  store.save({ ...store.load(sid), tasks: [{ ...task, from: 'planner' }, task] });
-  assert.equal((await row())?.display_name, 'Total the columns of data.csv');
   const stop = await busy(sid);
   assert.equal((await send('PATCH', `/api/projects/${sid}`, { name: 'Later' })).status, 200);
   assert.equal((await row())?.label, 'Later');
