@@ -140,13 +140,13 @@ for (const mode of ['line-limit', 'queue-limit', 'text-limit']) {
   });
 }
 
-for (const mode of ['descendant', 'inherited-pipe']) {
-  test(`reclaims POSIX ${mode} after parent exit`, { skip: process.platform === 'win32', timeout: 10_000 }, async () => {
+for (const mode of ['descendant', 'detached', 'inherited-pipe']) {
+  test(`a POSIX run waits for the ${mode} job its process left, till its deadline ends it`, { skip: process.platform === 'win32', timeout: 10_000 }, async () => {
     const { result, events } = await collect(backend(mode));
     const event = events.find(item => item.type === 'provider_event' && item.event.type === 'descendant');
     assert.ok(event?.type === 'provider_event');
     await assertTerminated(Number(event.event.pid));
-    assert.equal(result.stopKind, mode === 'inherited-pipe' ? 'transport_error' : null);
+    assert.equal(result.stopKind, 'idle_timeout');
   });
 }
 

@@ -178,6 +178,41 @@ for (const backend of BACKENDS) {
   });
 }
 
+// What a job started with `nohup … &` and one started with `setsid` noted in their files.
+const jobs = (): string[] => ['nohup', 'setsid'].map(how => {
+  const file = join(work, `job-${how}.txt`);
+  const noted = readFileSync(file, 'utf8');
+  rmSync(file);
+  return noted;
+});
+const unseen = process.platform === 'win32' && 'Windows shows a turn nothing its CLI started once the CLI has exited';
+
+test('a turn ends when everything it started has ended, however it was detached', { skip: unseen, timeout: 30_000 }, async () => {
+  const result = await call('codex', { output: handoff, jobs: { ms: 1_500 } });
+  assert.equal(result.handoff?.to, 'reviewer');
+  assert.deepEqual(jobs(), ['started\nended\n', 'started\nended\n']);
+});
+
+test('stopping a turn ends what it started, however it was detached', { skip: unseen, timeout: 30_000 }, async () => {
+  const server = createServer().listen(0, '127.0.0.1').unref();
+  await once(server, 'listening');
+  const held: Socket[] = [];
+  server.on('connection', (job: Socket) => held.push(job.unref().on('error', () => {}).resume()));
+  const controller = new AbortController();
+  const pending = call('codex', { output: handoff, jobs: { ms: 60_000, port: (server.address() as AddressInfo).port } }, { signal: controller.signal });
+  for (let waited = 0; held.length < 2; waited += 50) {
+    assert.ok(waited < 10_000, 'the jobs did not start');
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  controller.abort();
+  await pending;
+  for (let waited = 0; held.some(job => !job.closed); waited += 50) {
+    assert.ok(waited < 10_000, 'a job outlived the stop');
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.deepEqual(jobs(), ['started\n', 'started\n']);
+});
+
 test('a CLI not on PATH says how to install it', async () => {
   // Nothing on PATH, so no CLI installed on this machine can answer either.
   const path = process.env.PATH;

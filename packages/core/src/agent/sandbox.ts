@@ -152,8 +152,9 @@ function gitCommonDir(cwd: string): string[] {
 const SYSTEM = ['/usr', '/bin', '/sbin', '/lib', '/lib32', '/lib64', '/libx32', '/etc', '/opt', '/sys'];
 
 // A bubblewrap sandbox ends with its first process, killing everything else in it: a job the
-// CLI started detached would die with the CLI. This shell outlives the CLI until nothing else
-// in the sandbox runs, then exits with the CLI's code: a turn ends when all it started has.
+// CLI started detached would die with the CLI, before the turn could wait for it (a run ends
+// when all it started has: executeProcess). This shell outlives the CLI until nothing else in
+// the sandbox runs, then exits with the CLI's code.
 const WAIT_FOR_EVERYTHING = `
 "$@"
 code=$?

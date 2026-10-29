@@ -1,5 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { readFile, readdir } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { PROCESS_GUARD, isJsonObject, type RunnerStopKind } from '@argus/contracts';
@@ -72,7 +74,29 @@ function positive(value: number | undefined, fallback: number, name: string): nu
   return result;
 }
 
-/** No shell interpolation; stdout/stderr and process lifetime remain independent. */
+/** The processes whose environment holds `entry`. Linux and macOS show a process's environment to
+ * its owner. Windows shows it to no other process, and Node offers no job object to hold what a
+ * process starts: there a run sees what its CLI started only while the CLI lives (taskkill /T) or
+ * while it holds the run's output pipes. */
+async function carrying(entry: string): Promise<number[]> {
+  if (process.platform === 'win32') return [];
+  if (process.platform === 'linux') {
+    const pids = (await readdir('/proc').catch(() => [])).filter(name => /^\d+$/.test(name));
+    const environs = await Promise.all(pids.map(pid => readFile(`/proc/${pid}/environ`, 'latin1').catch(() => '')));
+    return pids.filter((_, at) => environs[at]!.split('\0').includes(entry)).map(Number);
+  }
+  // ps -E puts a process's environment after its command.
+  const listing = await new Promise<string>(resolve => {
+    execFile('ps', ['-AEww', '-o', 'pid,command'], { maxBuffer: 2 ** 30 }, (_, stdout) => resolve(stdout ?? ''));
+  });
+  return listing.split('\n').filter(line => line.includes(` ${entry}`)).map(line => parseInt(line, 10));
+}
+
+/** No shell interpolation; stdout/stderr and process lifetime remain independent. A run ends when
+ * everything it started has ended: what holds its output pipes, what stays in its process group,
+ * and what carries its ARGUS_TURN, which every descendant inherits however it detaches (nohup,
+ * setsid, a double fork) unless it clears its environment. A stop ends all of them. Windows
+ * shows a run only part of this (see `carrying`). */
 export async function* executeProcess(options: ProcessOptions): AsyncGenerator<Line | ProcessExit> {
   const wallMs = options.wallTimeoutMs === undefined ? null : positive(options.wallTimeoutMs, 0, 'wallTimeoutMs');
   const idleMs = options.idleTimeoutMs === undefined ? null : positive(options.idleTimeoutMs, 0, 'idleTimeoutMs');
@@ -101,8 +125,9 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     }) + '\n';
     if (Buffer.byteLength(configuration) > PROCESS_GUARD.max_config_bytes) throw new Error('guarded process configuration exceeds its limit');
   }
+  const turn = randomUUID();
   const child = spawn(launchExecutable, launchArgs, {
-    cwd: launchCwd, env: launchEnv,
+    cwd: launchCwd, env: { ...launchEnv, ARGUS_TURN: turn },
     stdio: ['pipe', 'pipe', 'pipe'], shell: false,
     detached: process.platform !== 'win32', windowsHide: true,
   });
@@ -112,14 +137,27 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
   let error: string | null = null;
   let closed = false;
   let exited = false;
-  let groupCleanupAttempted = false;
+  let forced = false;
+  // Once empty, a process group's number is free for another to take.
+  let groupGone = process.platform === 'win32' || !child.pid;
   let escalation: NodeJS.Timeout | undefined;
-  let drain: NodeJS.Timeout | undefined;
+  let wake = (): void => {};
   let windowsKill: Promise<void> | undefined;
   let guardReceipt: { code: number | null; signal: string | null; error: string | null } | undefined;
   let resolveClose: () => void = () => {};
   const closePromise = new Promise<void>(resolve => { resolveClose = resolve; });
 
+  /** What the run still runs, as signal targets: its process group and what carries its turn. */
+  const running = async (): Promise<number[]> => {
+    const targets = await carrying(`ARGUS_TURN=${turn}`);
+    if (!groupGone) {
+      try { process.kill(-child.pid!, 0); targets.push(-child.pid!); } catch { groupGone = true; }
+    }
+    return targets;
+  };
+  const kill = (targets: number[], signal: NodeJS.Signals): void => {
+    for (const target of targets) try { process.kill(target, signal); } catch { /* it has ended */ }
+  };
   const killTree = (force: boolean): void => {
     if (!child.pid) return;
     if (guardian) {
@@ -142,25 +180,21 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
       });
       return;
     }
-    if (groupCleanupAttempted) return;
-    if (force) groupCleanupAttempted = true;
-    try { process.kill(-child.pid, force ? 'SIGKILL' : 'SIGTERM'); }
-    catch (cause) {
-      const code = (cause as NodeJS.ErrnoException).code;
-      // Darwin answers EPERM rather than ESRCH for a group whose members have
-      // all exited but are not yet reaped; after the leader exits it is empty.
-      if (code !== 'ESRCH' && !(code === 'EPERM' && exited)) {
-        error ??= `Unable to terminate process group: ${String(cause)}`;
-        stopKind ??= 'transport_error';
-      }
-    }
+    void running().then(targets => kill(targets, force ? 'SIGKILL' : 'SIGTERM'));
   };
   const requestStop = (kind: RunnerStopKind, message: string): void => {
     if (stopKind || closed) return;
     stopKind = kind;
     error ??= message;
     killTree(false);
-    escalation = setTimeout(() => killTree(true), graceMs);
+    wake();
+    escalation = setTimeout(() => {
+      forced = true;
+      killTree(true);
+      // What a stop cannot reach (on Windows, all the CLI started once it has exited) holds the run no longer.
+      child.stdout.destroy();
+      child.stderr.destroy();
+    }, graceMs);
   };
   const wall = wallMs === null ? undefined : setTimeout(() => requestStop('wall_timeout', 'Runner wall-clock deadline exceeded.'), wallMs);
   const idle = idleMs === null ? undefined : setTimeout(() => requestStop('idle_timeout', 'Runner output idle deadline exceeded.'), idleMs);
@@ -205,7 +239,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
       }
     };
     const data = (chunk: Buffer): void => {
-      if (!exited) idle?.refresh();
+      idle?.refresh();
       if (!stopKind) consume(decoder.write(chunk));
     };
     const end = (): void => {
@@ -265,25 +299,24 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     exitSignal = signal;
     exited = true;
     if (guardian) killTree(true);
-    clearTimeout(wall);
-    clearTimeout(idle);
-    // Descendants may retain inherited pipes after the CLI itself exits.
-    drain = setTimeout(() => {
-      requestStop('transport_error', 'Provider exited but its output pipes did not close.');
-      killTree(true);
-      child.stdout.destroy();
-      child.stderr.destroy();
-    }, graceMs);
   });
   child.on('close', (code, signal) => {
     exitCode = code;
     exitSignal = signal;
-    // Reclaim while ownership is fresh, not after an arbitrarily slow consumer
-    // resumes iteration (the numeric PID could have been reused by then).
-    killTree(true);
-    closed = true;
-    channel.close();
-    resolveClose();
+    // Polled, as only a parent can wait for a process: seldom while it runs, often once it is
+    // stopped; past a stop's grace, what is left is killed.
+    void (async () => {
+      for (let left = await running(); left.length; left = await running()) {
+        if (forced) kill(left, 'SIGKILL');
+        await new Promise<void>(resolve => {
+          const timer = setTimeout(resolve, stopKind ? 100 : 5_000);
+          wake = () => { clearTimeout(timer); resolve(); };
+        });
+      }
+      closed = true;
+      channel.close();
+      resolveClose();
+    })();
   });
   if (guardian) child.stdin.write(configuration, 'utf8');
   else child.stdin.end(options.input, 'utf8');
@@ -298,7 +331,6 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     clearTimeout(wall);
     clearTimeout(idle);
     clearTimeout(escalation);
-    clearTimeout(drain);
     options.signal?.removeEventListener('abort', abort);
   }
   if (guardian) {
