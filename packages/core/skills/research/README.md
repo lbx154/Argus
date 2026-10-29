@@ -25,6 +25,20 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
 
 ## Suspect the setup before the idea
 
+- Measure the starting point before building the method: the unchanged model or system, through
+  the real evaluator on the development split, the number kept with its command. Every arm is
+  compared with it. Three runs found theirs late or never: one trained arm then scored 43.6%
+  against an untrained 47-50%, one base model scored 180/180 on its development evaluation, and
+  one environment gave the base 0, so every gain was 0. A score at the evaluator's ceiling or floor
+  means the evaluation cannot show the effect: change it before building on it.
+- A tolerance or bar written before its quantity was measured is provisional: the first measurement
+  keeps it or replaces it. One team wrote a 0.1 error bound before measuring, measured 0.1546 while
+  the operator's own measure was clean, and chased its invented bound through four reviews and
+  eleven diagnostic configs: 3 h 14 min and $46.43, the project's costliest task.
+- Before arms that share a runner start side by side, run each arm's own config one short step on
+  the real development data through the analysis the comparison uses. One project's runner passed
+  its own config, then the arms met two of its defects; each cost a send-back, a new plan, a repair
+  and a rerun of 25-40 minutes.
 - One campaign measured 6.0% on MATH-500 for a model published at 79.7%. Raising a token cap took
   it to 68.8%; executing the tool the published protocol assumes took it to 76.4%. At every stage
   the number looked like a finding, and it was written up as a "boundary result". A result far from

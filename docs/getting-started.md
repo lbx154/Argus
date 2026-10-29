@@ -208,7 +208,7 @@ signing and the update channel.
 | `~/.argus/projects/<id>/project.json` | a project's current state: directory, request, name, backend and model, tasks, role sessions, the open questions |
 | `~/.argus/projects/<id>/events.jsonl` | what happened, in order: messages, letters, calls and the steps each took (what a role said, ran and changed as it worked), task changes |
 | `~/.argus/projects/<id>/usage.jsonl` | one record per backend call: tokens and cost |
-| `~/.argus/projects/<id>/calls/` | each call's raw output from the backend |
+| `~/.argus/projects/<id>/calls/` | each call's prompt as sent, and its raw output from the backend |
 | `~/.argus/skills/` | the roles' and your skills and plugins |
 | `~/.argus/workspaces/<id>/` | the folder of a project that was not given a directory |
 | `~/.argus/sandbox/` | under bubblewrap, a private home per project directory |

@@ -3,7 +3,7 @@
 // record its raw output and usage.
 
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, createWriteStream, mkdirSync } from 'node:fs';
+import { appendFileSync, createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isJsonObject, type PayloadSchema } from '@argus/contracts';
 import { executeProcess, type ProcessExit } from '@argus/runtime';
@@ -38,6 +38,8 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
   const callId = `${new Date(started).toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(3).toString('hex')}`;
   mkdirSync(request.callsDir, { recursive: true });
   const stem = join(request.callsDir, callId);
+  // What the role was told, as sent: a turn can be read, and replayed, from the record.
+  writeFileSync(`${stem}.prompt.md`, request.prompt);
   const raw = createWriteStream(`${stem}.jsonl`);
   try {
     const confined = sandboxed();
