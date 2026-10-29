@@ -66,7 +66,9 @@ function search(store: Store, query: string) {
     match(project.request, 'project');
     try {
       const events = readEvents(store, project.id);
-      for (const { text, role, ts, message_id } of turns(webEvents(events))) match(String(text), 'conversation', { role, ts, message_id });
+      for (const { type, text, ts, message_id } of turns(webEvents(events))) {
+        match(String(text), 'conversation', { role: type === 'ui.operator' ? 'operator' : 'argus', ts, message_id });
+      }
       // The Manager's letters are the conversation's replies; the others' open the project.
       for (const event of events) {
         if (event.type === 'handoff' && event.role !== 'manager') match(event.letter, 'project', { role: event.role, ts: Date.parse(event.ts) / 1000 });
