@@ -32,7 +32,7 @@ it('keeps the pending question out of conversation rows, role headlines, map pro
   const { store, project, snap, html } = replay([added, ask]);
   expect(snap.pending_questions?.[0]).toMatchObject({ operator_decision: { id: 'engineer-t1', item_id: 't1', question } });
   expect(html).not.toContain(question);
-  expect(snap.work_status?.label.en).toBe('Paused');
+  expect(snap.work_status?.label.en).toBe('Waiting for your answer');
   expect(progressMap(store, project, 0).tasks[0].latest_action).toBeUndefined();
 });
 

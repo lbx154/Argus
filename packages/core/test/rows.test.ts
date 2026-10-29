@@ -90,7 +90,7 @@ test('snapshot status distinguishes stopped tasks, unanswered questions and conc
   assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '已停止：2 个任务暂停');
   work.questions = [{ role: 'engineer', task: work.tasks[0]!.id, question: 'Choose?' }];
   work.status = 'asking';
-  assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '已暂停');
+  assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '等你回答');
   const live: Live = { since: 1, calls: [{ role: 'engineer', task: work.tasks[1]!.id }], requests: [] };
   assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '1 个任务进行中');
   work.questions = [];

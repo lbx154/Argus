@@ -371,7 +371,7 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
   const state = foreground ? 'running' : stopped ? 'paused' : roles.length ? 'running' : questions ? 'paused' : live.since !== null ? 'waiting' : 'idle';
   const label = foreground ? { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' }
     : stopped ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务暂停` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} tasks paused` : ''}` }
-    : state === 'paused' ? { 'zh-CN': '已暂停', en: 'Paused' }
+    : state === 'paused' ? { 'zh-CN': '等你回答', en: 'Waiting for your answer' }
     : state === 'running' ? { 'zh-CN': running ? `${running} 个任务进行中` : '团队正在工作', en: running ? `${running} task${running === 1 ? '' : 's'} in progress` : 'The team is working' }
     : state === 'waiting' ? { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' }
     : { 'zh-CN': project.request ? '已回复' : '等你开始', en: project.request ? 'Replied' : 'Waiting for you to start' };

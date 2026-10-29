@@ -173,7 +173,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual([asking.roles.find(role => role.role === 'engineer')?.model, asking.last_call?.role, asking.last_call?.model], ['fake-model', 'reviewer', 'fake-model']);
   assert.equal('role_events' in asking, false);
   assert.equal('role_round' in asking, false);
-  assert.equal(asking.work_status?.label['zh-CN'], '已暂停');
+  assert.equal(asking.work_status?.label['zh-CN'], '等你回答');
   const card = (asking.pending_questions![0] as { operator_decision: { id: string; question: string; options: unknown[] } }).operator_decision;
   assert.deepEqual([card.question, card.options], ['Ship it as is?', []]);
 
