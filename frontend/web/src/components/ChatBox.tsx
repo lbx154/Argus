@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Undo2 } from 'lucide-react';
 import type { MessageRouteOverride } from '../api';
 import { isImeComposing } from '../lib/ime';
 import { spinnerFrame } from '../lib/soul';
 import { completionMenu, completionToken, ghostFor, type PromptSources } from '../lib/promptCompletion';
 import { referenceText, splitDraft } from '../map/presentation';
-import { isPromptRewriteShortcut } from '../../../core/src/shortcuts';
 import { clampSlashCompletionSelection, slashCompletionOptionId, SlashCompletionMenu, SLASH_COMPLETION_LISTBOX_ID } from './SlashCompletionMenu';
 import { useI18n } from '../i18n';
 import { COMMANDS_CAPABILITY, useCapability } from '../lib/capabilities';
@@ -16,27 +15,6 @@ import { useDraftUploadView } from '../lib/draftUploads';
 import { ComposerSurface } from './ComposerSurface';
 import { RouteSegment } from './RouteSegment';
 
-interface RewriteShortcutEvent {
-  key: string;
-  ctrlKey: boolean;
-  metaKey: boolean;
-  preventDefault: () => void;
-}
-interface RewriteShortcutState {
-  value: string;
-  disabled: boolean;
-  pending: boolean;
-  rewriting: boolean;
-  onRewrite?: (draft: string) => void;
-}
-export function handlePromptRewriteShortcut(event: RewriteShortcutEvent, state: RewriteShortcutState): boolean {
-  if (!state.onRewrite || !isPromptRewriteShortcut(event.key, event.ctrlKey, event.metaKey)) return false;
-  event.preventDefault();
-  const draft = state.value.trim();
-  if (draft && !state.disabled && !state.pending && !state.rewriting) state.onRewrite(draft);
-  return true;
-}
-
 /** The focused textarea's caret as of the visible text it was read from; blur or any
  *  other text (a restored draft, a rewrite, another tab) leaves no caret, so nothing pops
  *  up uninvited. An `@`/`#` menu opens only where typing, not a caret move, left it. */
@@ -44,7 +22,7 @@ interface Caret { text: string; at: number; fits: boolean; typed: boolean }
 
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
-  attachments, onAttachmentsChange, onRewrite, rewriting = false,
+  attachments, onAttachmentsChange, onRewrite, onUndoRewrite, rewriting = false,
   slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote,
   settings, completion,
 }: {
@@ -59,6 +37,8 @@ export function ChatBox({
   attachments: File[];
   onAttachmentsChange: (files: File[]) => void;
   onRewrite?: (draft: string) => void;
+  /** Puts the text before the last rewrite back; given while the draft is still that rewrite. */
+  onUndoRewrite?: () => void;
   rewriting?: boolean;
   slashSelection: number;
   onSlashSelectionChange: (n: number) => void;
@@ -199,7 +179,6 @@ export function ChatBox({
   };
   const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (isImeComposing(event)) return;
-    if (handlePromptRewriteShortcut(event, { value, disabled, pending, rewriting, onRewrite })) return;
     // Shift+Tab and modified Tabs always keep moving focus.
     const plainTab = event.key === 'Tab' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
     if (completionOpen) {
@@ -254,7 +233,7 @@ export function ChatBox({
       sendLabel={busyUploads ? (zh ? '附件传完后发送' : 'Send when uploads finish') : undefined}
       inputProps={{
         onPaste: (event) => { const files = extractFilesFromDataTransfer(event.clipboardData); if (files.length) { event.preventDefault(); addFiles(files); } },
-        onKeyDown: onKey, 'aria-label': t('chat.messageArgus'), 'aria-keyshortcuts': 'Control+R Meta+R',
+        onKeyDown: onKey, 'aria-label': t('chat.messageArgus'),
         onSelect: (event) => readCursor(event.currentTarget.value, false),
         onBlur: () => setCursor(null),
         onCompositionStart: () => setComposing(true),
@@ -273,8 +252,10 @@ export function ChatBox({
       {settings}
       {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
     </details>}
-    {onRewrite && value.trim() ? <button type="button" className="composer-rewrite" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
-      title={`Ctrl/⌘+R · ${t('chat.rewriteHint')}`} aria-label={t('chat.rewriteLabel')} aria-keyshortcuts="Control+R Meta+R">
+    {onUndoRewrite ? <button type="button" className="composer-rewrite" onClick={onUndoRewrite} disabled={disabled || pending}>
+      <Undo2 size={13} aria-hidden="true" />{t('chat.undoRewrite')}
+    </button> : onRewrite && value.trim() ? <button type="button" className="composer-rewrite" onClick={() => onRewrite(value.trim())} disabled={disabled || pending || rewriting}
+      title={t('chat.rewriteHint')}>
       {rewriting ? spinnerFrame(thinkTick) : <Sparkles size={13} aria-hidden="true" />}{rewriting ? t('chat.rewriting') : t('chat.rewrite')}
     </button> : null}
     </div>

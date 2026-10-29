@@ -30,6 +30,8 @@ function isUploadedAttachment(value: unknown): value is UploadedAttachment {
 export function useSessionComposer(sid: string | null) {
   const drafts = useRef(new Map<string, SessionDraft>());
   const rewrites = useRef(new Map<string, RewriteOperation>());
+  /** Each session's text before its last rewrite, and the rewrite: undone while the draft is still the rewrite. */
+  const rewritten = useRef(new Map<string, { before: string; after: string }>());
   const sequence = useRef(0);
   const mounted = useRef(true);
   const storageErrors = useRef(new Map<string, boolean>());
@@ -156,13 +158,16 @@ export function useSessionComposer(sid: string | null) {
     if (rewrites.current.get(operation.sid) !== operation) return false;
     rewrites.current.delete(operation.sid);
     const current = isCurrent(operation);
-    if (current && text !== undefined) put(operation.sid, { ...operation, text });
-    else if (mounted.current) redraw();
+    if (current && text !== undefined) {
+      rewritten.current.set(operation.sid, { before: operation.text, after: text });
+      put(operation.sid, { ...operation, text });
+    } else if (mounted.current) redraw();
     return current;
   }, [isCurrent, put]);
   const drop = useCallback((id: string) => {
     drafts.current.set(id, { ...EMPTY, attachments: [], revision: ++sequence.current });
     rewrites.current.delete(id);
+    rewritten.current.delete(id);
     try {
       if (!globalThis.localStorage) throw new Error('Browser storage unavailable');
       localStorage.removeItem(draftKey(id));
@@ -172,14 +177,21 @@ export function useSessionComposer(sid: string | null) {
     if (mounted.current) redraw();
   }, []);
 
+  const draft = sid ? read(sid) : EMPTY;
+  const rewrite = sid ? rewritten.current.get(sid) : undefined;
   return {
-    draft: sid ? read(sid) : EMPTY,
+    draft,
     storageError: Boolean(sid && storageErrors.current.get(sid)),
     seed: (id: string, text: string, attachments: File[] = []) => put(id, { text, attachments }),
     dismissMissingAttachments: () => {
       if (sid) put(sid, { ...(drafts.current.get(sid) ?? EMPTY), missingAttachments: [] });
     },
     rewriting: Boolean(sid && rewrites.current.has(sid)),
+    /** Puts back the text as it was before the rewrite; offered until the rewrite is edited. */
+    undoRewrite: rewrite && rewrite.after === draft.text ? () => {
+      rewritten.current.delete(sid!);
+      setText(rewrite.before);
+    } : undefined,
     setText, setAttachments, capture, consume, restore, beginRewrite, finishRewrite, drop, rememberUploaded, removeUploaded,
   };
 }

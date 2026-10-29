@@ -332,7 +332,7 @@ export default function App() {
   const {
     draft: { text: composerDraft, attachments: composerAttachments, missingAttachments = [], uploaded: composerUploaded = [] },
     storageError: draftStorageError, seed: seedDraft, dismissMissingAttachments,
-    rewriting, setText: setComposerDraft, setAttachments: setComposerAttachments,
+    rewriting, undoRewrite, setText: setComposerDraft, setAttachments: setComposerAttachments,
     capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
     beginRewrite, finishRewrite, drop: dropSessionDraft,
     rememberUploaded, removeUploaded,
@@ -402,10 +402,8 @@ export default function App() {
    * Let the Manager restate a short draft before it is sent.
    *
    * The rewrite replaces the composer draft — the operator always reads and
-   * edits it before anything is dispatched. The Manager may propose metrics or
-   * constraints the operator never mentioned, but only as questions surfaced
-   * here — never silently inside the rewritten text. A failed rewrite leaves
-   * the original untouched.
+   * edits it before anything is dispatched, and can put the original back until
+   * they edit it. A failed rewrite leaves the original untouched.
    */
   const rewriteDraft = useCallback((draft: string) => {
     const body = (draft || '').trim();
@@ -422,12 +420,7 @@ export default function App() {
     void api.rewritePrompt(sid, body).then(
       (result) => {
         if (result.error || !result.rewritten.trim()) return failed(result.error);
-        if (!finishRewrite(operation, result.rewritten) || sidRef.current !== sid) return;
-        setComposerFocus((x) => x + 1);
-        const open = result.questions.length
-          ? `${zh ? ' 还想跟你确认：' : ' One thing to check: '}${result.questions.join(' · ')}`
-          : '';
-        notify('success', `${zh ? '改写好了，看一下再发送。' : 'Rewritten. Have a look, then send.'}${open}`);
+        if (finishRewrite(operation, result.rewritten) && sidRef.current === sid) setComposerFocus((x) => x + 1);
       },
       (error) => failed(errorText(error)),
     );
@@ -1522,6 +1515,7 @@ export default function App() {
                       focusSignal={composerFocus}
                       embedded
                       onRewrite={rewriteDraft}
+                      onUndoRewrite={undoRewrite}
                       rewriting={rewriting}
                       slashSelection={slashSelection}
                       onSlashSelectionChange={setSlashSelection}

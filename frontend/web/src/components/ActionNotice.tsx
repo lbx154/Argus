@@ -9,7 +9,8 @@ export interface UiNotice {
   message: string;
 }
 
-/** Short, accessible feedback for actions that otherwise change state silently. */
+/** Short, accessible feedback for actions that otherwise change state silently; below the
+ * header, never over the composer and its buttons. */
 export function ActionNotice({
   notice,
   onClose,
@@ -27,15 +28,15 @@ export function ActionNotice({
 
   if (!notice) return null;
   const colors = notice.tone === 'error'
-    ? 'border-err/60 bg-err/10 text-err'
+    ? 'border-err/60 text-err'
     : notice.tone === 'success'
-    ? 'border-ok/60 bg-ok/10 text-ok'
-    : 'border-blue-deep/60 bg-panel text-blue-sky';
+    ? 'border-ok/60 text-ok'
+    : 'border-blue-deep/60 text-blue-sky';
   return (
     <div
       role={notice.tone === 'error' ? 'alert' : 'status'}
       aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
-      className={`fixed bottom-20 left-4 right-4 z-[70] flex items-start gap-2 rounded-md border px-3 py-2.5 shadow-glow sm:left-auto sm:max-w-md lg:bottom-4 ${colors}`}
+      className={`fixed left-4 right-4 top-16 z-[70] flex items-start gap-2 rounded-md border bg-panel px-3 py-2.5 shadow-glow sm:left-auto sm:max-w-md lg:top-[108px] ${colors}`}
     >
       <span aria-hidden="true" className="mt-px shrink-0">
         {notice.tone === 'error' ? '!' : notice.tone === 'success' ? '✓' : 'i'}

@@ -8,7 +8,6 @@ const BINDINGS: { keys: string; desc: string }[] = [
   { keys: '⌘K / Ctrl+K', desc: 'help.palette' },
   { keys: '⌘B / Ctrl+B', desc: 'help.sessions' },
   { keys: '⌘J / Ctrl+J', desc: 'help.managerChat' },
-  { keys: '⌘R / Ctrl+R', desc: 'help.rewrite' },
   { keys: '⌘T / Ctrl+T', desc: 'help.reasoning' },
   { keys: '⌘. / Ctrl+.', desc: 'help.kiosk' },
   { keys: '/', desc: 'help.composer' },

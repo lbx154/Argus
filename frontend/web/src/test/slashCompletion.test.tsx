@@ -69,7 +69,7 @@ describe('slash completion menu', () => {
     expect(html).toContain(`id="${SLASH_COMPLETION_LISTBOX_ID}"`);
     // Options stay out of the Tab order: the textarea answers the keys.
     expect(html.match(/role="option"/g)!.length).toBe(html.match(/role="option" tabindex="-1"/g)!.length);
-    expect(html).toContain('aria-keyshortcuts="Control+R Meta+R"');
+    expect(html).not.toContain('Control+R');
     expect(html).toContain('type="file"');
     expect(html).toContain(`accept="${MESSAGE_ATTACHMENT_ACCEPT}"`);
     expect(MESSAGE_ATTACHMENT_ACCEPT).toContain('.zip');

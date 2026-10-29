@@ -282,7 +282,12 @@ describe('App session composer ownership', () => {
     expect(props().rewriting).toBe(true);
     await act(async () => b.resolve({ original: 'B original', rewritten: 'B rewritten', changes: [], questions: [], error: '' }));
     expect(props().value).toBe('B rewritten');
+    // Done, the rewrite announces itself by offering the original back, not by a notice over the composer.
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('Rewritten.');
     select('s-A'); expect(props().value).toBe('A rewritten');
+    act(() => props().onUndoRewrite!());
+    expect(props().value).toBe('A original');
+    expect(props().onUndoRewrite).toBeUndefined();
   });
 
   it.each(['new text', 'same text'])('rejects a rewrite after clearing and typing %s', async text => {
