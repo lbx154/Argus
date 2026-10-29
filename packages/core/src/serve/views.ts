@@ -31,11 +31,15 @@ const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', com
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
+/** A letter's first line as a heading reads it: a link as its words, without markup. */
+const firstLine = (text: string): string => text.split('\n')
+  .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
+
 /** The result a Manager's letter hands the operator, as the page's result card shows it. */
 function delivered(letter: string, open: string[], ts: number, line: number): DeliveryReceipt {
   const targets = open.map(path => ({ path, label: basename(path), source: 'manager', why: '' }));
   return {
-    schema_version: 1, delivery_id: `d${line}`, kind: 'task_completed', item_id: '', title: letter.split('\n')[0]!.replace(/^#+\s*/, ''),
+    schema_version: 1, delivery_id: `d${line}`, kind: 'task_completed', item_id: '', title: firstLine(letter),
     summary: letter, status: 'done', review_status: '', delivered_at: ts, primary_target: targets[0] ?? null, targets,
   };
 }
@@ -212,8 +216,7 @@ function lastWords(store: Store, id: string): Said {
   const reading = readings.get(path) ?? { end: 0, said: {} };
   const { rows, end } = jsonLines(path, reading.end);
   for (const event of rows as unknown as Recorded[]) {
-    const text = event.type === 'handoff' ? event.letter : event.type === 'step' && event.kind === 'message' ? event.text : '';
-    const line = text.split('\n').map(line => line.replace(/^#+\s*/, '').trim()).find(Boolean);
+    const line = firstLine(event.type === 'handoff' ? event.letter : event.type === 'step' && event.kind === 'message' ? event.text : '');
     if (line && 'role' in event) reading.said[event.role] = { text: line.slice(0, 300), ts: seconds(event.ts) };
   }
   readings.set(path, { end, said: reading.said });
