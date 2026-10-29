@@ -22,7 +22,8 @@ export const codex: StartBackend = (request, { confined, schema }) => {
     // leaves it /tmp to run a check in; outside it, codex's own. On Windows that is off, and every
     // command refused, until one is chosen: this one needs no administrator.
     '-c', 'windows.sandbox="unelevated"',
-    ...confined ? ['-c', 'sandbox_mode="danger-full-access"']
+    // A private home holds none of the operator's plugins, only the catalog codex would clone into each.
+    ...confined ? ['-c', 'sandbox_mode="danger-full-access"', '-c', 'features.plugins=false']
       : request.access !== 'write' ? ['-c', 'sandbox_mode="read-only"']
       : ['-c', 'sandbox_mode="workspace-write"', '-c', 'sandbox_workspace_write.network_access=true',
         '-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(request.writeDirs ?? [])}`],

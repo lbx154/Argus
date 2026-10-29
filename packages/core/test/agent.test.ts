@@ -92,6 +92,7 @@ test('under bubblewrap a turn writes the directories it is given to write only w
   const cache = join(homedir(), '.cache');
   assert.deepEqual(argv.slice(argv.indexOf(cache) - 2, argv.indexOf(cache) + 1), ['--bind-try', join(root, 'argus', 'cache'), cache]);
   assert.equal(argv[argv.indexOf('XDG_CACHE_HOME') + 1], cache);
+  assert.equal(argv[argv.indexOf('npm_config_cache') + 1], join(cache, 'npm'));
 });
 
 test('under bubblewrap codex reads the files its config names, however the config quotes them', { skip: process.platform !== 'linux' && 'Linux only' }, t => {

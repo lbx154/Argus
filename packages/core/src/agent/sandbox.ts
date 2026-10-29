@@ -176,7 +176,7 @@ export function confine(argv: string[], request: AgentRequest): string[] {
     mounts.push(...namedAs(dir).map((target): [string, string, boolean] => [copy, target, true]));
   }
   // What a role downloads (a model, a package, a browser) the next project's roles find: they share
-  // one cache, Argus's own, not the machine's, which may hold its owner's tokens. So one project
+  // one cache, npm's too, Argus's own, not the machine's, which may hold its owner's tokens. So one project
   // reads what another left there, a token a CLI saves in its cache among it: projects are their
   // operator's alike, and none of them reaches the machine's.
   const cache = join(real(argusHome()), 'cache');
@@ -197,6 +197,7 @@ export function confine(argv: string[], request: AgentRequest): string[] {
     '--proc', '/proc', '--dev-bind', '/dev', '/dev', '--tmpfs', '/dev/shm', '--tmpfs', '/tmp',
     ...ordered.flatMap(([source, target, writable]) => [writable ? '--bind-try' : '--ro-bind-try', source, target]),
     // The sandbox ends with the CLI, and everything in it: a session's CLI outlives what it started.
-    '--setenv', 'TMPDIR', '/tmp', '--setenv', 'XDG_CACHE_HOME', join(homedir(), '.cache'), '--chdir', cwd, '--', executable, ...args,
+    '--setenv', 'TMPDIR', '/tmp', '--setenv', 'XDG_CACHE_HOME', join(homedir(), '.cache'), '--setenv', 'npm_config_cache', join(homedir(), '.cache', 'npm'),
+    '--chdir', cwd, '--', executable, ...args,
   ];
 }
