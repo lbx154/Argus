@@ -1504,7 +1504,6 @@ export default function App() {
                     events={activityEvents}
                     connected={connected && !snapQ.isError}
                     showReasoning={showReasoning}
-                    onToggleReasoning={() => setShowReasoning((value) => !value)}
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}

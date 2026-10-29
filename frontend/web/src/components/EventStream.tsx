@@ -4,7 +4,7 @@ import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
-import { isDraftReply, isReasoning, type EventViewFilter } from '../../../core/src/events';
+import { isDraftReply, type EventViewFilter } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
@@ -67,8 +67,6 @@ const WorkspaceContext = createContext('');
 const ConversationActionContext = createContext<((target: ConversationRevision) => void) | undefined>(undefined);
 /** The project whose files the conversation shows, for inline images. */
 export const SessionIdContext = createContext<string | null>(null);
-/** Opens one task's work log ("how it was made"); undefined when it left none. */
-const OpenWorkContext = createContext<(taskId: string) => (() => void) | undefined>(() => undefined);
 /** A task's title by its id, so a round names the task it belongs to. */
 const TaskTitleContext = createContext<(id: string) => string>(() => '');
 /** Run, offered on a task's newest receipt while that task waits to be resumed. */
@@ -443,7 +441,7 @@ function RoleLogGroup({
   onToggle: () => void;
 }) {
   const { t, locale } = useI18n();
-  const color = theme.role[role];
+  const zh = locale === 'zh-CN';
   const logScroller = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const savedScrollTop = useRef(0);
@@ -489,11 +487,14 @@ function RoleLogGroup({
         <span
           data-role-dot={role}
           aria-hidden="true"
-          className={`h-2 w-2 shrink-0 rounded-full ${active ? 'animate-pulse motion-reduce:animate-none' : ''}`}
-          style={{ background: color }}
+          className={`h-2 w-2 shrink-0 rounded-full ${active ? 'bg-ok animate-pulse motion-reduce:animate-none' : 'bg-ink-faint/50'}`}
         />
-        <span className="text-xs font-semibold text-ink-dim">{roleLabel(role, t)}</span>
-        {headline ? <span data-role-headline className="min-w-0 flex-1 truncate text-xs text-ink-faint" title={headline.replace(/\*\*|`/g, '')}><RowWords text={headline} prose /></span> : <span className="flex-1" />}
+        <span className={`text-xs font-semibold ${active ? 'text-ok' : 'text-ink-faint'}`}>{roleLabel(role, t)}</span>
+        <span data-role-headline className="min-w-0 flex-1 truncate text-xs text-ink-faint" title={headline.replace(/\*\*|`/g, '') || undefined}>
+          {headline
+            ? <>{active ? (zh ? '现在：' : 'Now: ') : (zh ? '之前：' : 'Last: ')}<RowWords text={headline} prose /></>
+            : rows.length ? null : zh ? '还没开始' : 'Not started'}
+        </span>
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
@@ -581,12 +582,11 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, live, followLatest, activeRole, activeTaskId }: {
+function RoleLogCollection({ rows, active, followLatest }: {
   rows: ActivityRow[];
-  live: boolean;
+  /** Whether the role is at work now. */
+  active: (role: string) => boolean;
   followLatest: boolean;
-  activeRole?: string;
-  activeTaskId?: string;
 }) {
   const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(
@@ -606,8 +606,7 @@ function RoleLogCollection({ rows, live, followLatest, activeRole, activeTaskId 
           role={role}
           rows={roleRows[role]}
           open={openRoles.has(role)}
-          active={live && (activeRole ?? lastRole) === role
-            && (!activeTaskId || roleRows[role].some(row => eventTaskId(row.ev) === activeTaskId))}
+          active={active(role)}
           onToggle={() => {
             userToggledRole.current = true;
             setOpenRoles((current) => {
@@ -670,8 +669,7 @@ function DeliveryCard({
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const sid = useContext(SessionIdContext);
-  const workFor = useContext(OpenWorkContext);
-  const howMade = onHowMade ?? workFor(delivery.item_id);
+  const howMade = onHowMade;
   const stage = isStagePackage(delivery);
   const files = deliveryFiles(delivery);
   // Result first: a delivered robot, model, chart or picture shows itself, not
@@ -840,14 +838,15 @@ const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [stri
  * happening now and a way to the full progress; once settled, its result in
  * one line with the process folded underneath.
  */
-function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenWork, onOpenDelivery, onPause }: {
+function TaskWorkCard({ block, state, title, snapshot, view, events, working, onOpenDelivery, onPause }: {
   block: Extract<TimelineBlock, { kind: 'task' }>;
   state: TaskCardState;
   title: string;
   snapshot?: Snapshot;
   view?: MissionView | null;
   events: EventMsg[];
-  onOpenWork: () => void;
+  /** The roles at work now. */
+  working: Set<string>;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   onPause?: () => void;
 }) {
@@ -884,25 +883,21 @@ function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenWork,
                 {!label && saidLine ? <span className="text-ink-faint"> · {zh ? '最近：' : 'Latest: '}{saidLine}</span> : null}
               </>}
           </span>
-          {running
-            ? <button type="button" onClick={onOpenWork} className="task-line-action">
-              {zh ? '查看工作进展' : 'View work progress'}
-            </button>
-            : <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}
-              className="task-line-action">
-              {zh ? `${open ? '收起' : '查看'}过程（${block.rows.length}）` : `${open ? 'Hide' : 'Show'} the process (${block.rows.length})`}
-            </button>}
+          <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open}
+            className="task-line-action">
+            {zh ? `${open ? '收起' : '查看'}过程（${block.rows.length}）` : `${open ? 'Hide' : 'Show'} the process (${block.rows.length})`}
+          </button>
         </div>
         {activity?.note ? <p className="mt-1 pl-[17px] text-xs text-ink-faint">
           {activity.note}
           {activity.tone === 'stalled' && onPause ? <button type="button" onClick={onPause} className="ml-2 text-blue-sky">{zh ? '暂停' : 'Pause'}</button> : null}
         </p> : null}
       </div>
-      {open && !running ? <div className="task-line-process mt-1 overflow-hidden">
-        <RoleLogCollection rows={block.rows} live={false} followLatest={false} />
+      {open ? <div className="task-line-process mt-1 overflow-hidden">
+        <RoleLogCollection rows={block.rows} active={role => running && working.has(role)} followLatest={running} />
       </div> : null}
       {block.deliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery}
-        onHowMade={running ? onOpenWork : () => setOpen(true)} />)}
+        onHowMade={() => setOpen(true)} />)}
     </section>
   );
 }
@@ -1033,7 +1028,6 @@ export function EventStream({
   events,
   connected,
   showReasoning,
-  onToggleReasoning,
   embedded = false,
   showHeader = true,
   filter = 'all',
@@ -1058,7 +1052,6 @@ export function EventStream({
   events: EventMsg[];
   connected: boolean;
   showReasoning: boolean;
-  onToggleReasoning: () => void;
   embedded?: boolean;
   showHeader?: boolean;
   filter?: EventViewFilter;
@@ -1166,13 +1159,9 @@ export function EventStream({
     const workRows = rows.list.filter((row) => row.ev.type !== 'ui.operator' && row.ev.type !== 'ui.argus');
     return { blocks, latestTask: latest?.key, workRows };
   }, [rows.list]);
-  // The full progress feed opens beside the conversation instead of above it.
-  const [workOpen, setWorkOpen] = useState(false);
-  // A result card opens its own task's log; elsewhere the drawer shows all work.
-  const [workTask, setWorkTask] = useState<string | null>(null);
-  const openWork = () => { setWorkTask(null); setWorkOpen(true); };
-  const taskBlock = (taskId: string | null) => timeline.blocks.find((block): block is Extract<TimelineBlock, { kind: 'task' }> =>
-    block.kind === 'task' && Boolean(taskId) && block.taskId === taskId);
+  // Who works now, as the server knows it: several roles can at once, and none while the run is down.
+  const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
+    [connected, snapshot?.daemon.alive, snapshot?.roles]);
   const resumable = useMemo(() => resumableTaskIds(snapshot), [snapshot]);
   const resumeFor = useMemo(() => {
     // Only a task's newest receipt offers Run; earlier ones are history.
@@ -1185,9 +1174,6 @@ export function EventStream({
     return (taskId: string, messageId: string) => onResumeWork && resumable.has(taskId) && newest.get(taskId) === messageId
       ? onResumeWork : undefined;
   }, [deferredEvents, onResumeWork, resumable]);
-  const workFor = (taskId: string) => taskBlock(taskId)?.rows.length ? () => { setWorkTask(taskId); setWorkOpen(true); } : undefined;
-  const drawerTask = taskBlock(workTask);
-  const drawerRows = drawerTask?.rows ?? timeline.workRows;
   const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
     const completed = [...block.rows].reverse().find(row => row.ev.type === 'life.mission.completed');
@@ -1206,10 +1192,6 @@ export function EventStream({
       : locale === 'zh-CN' ? '项目工作' : 'Project work'));
   };
 
-  const reasoningTotal = useMemo(
-    () => deferredEvents.filter(isReasoning).length,
-    [deferredEvents],
-  );
   const tailContentLength = useMemo(
     () => rows.list.slice(-20).reduce((total, row) => total + row.r.text.length, 0),
     [rows.list],
@@ -1299,20 +1281,13 @@ export function EventStream({
     <StepProcessContext.Provider value={stepProcess}>
     <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
-    <OpenWorkContext.Provider value={workFor}>
     <ResumeTaskContext.Provider value={resumeFor}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
-      {showHeader && (timeline.workRows.length > 0 || reasoningTotal > 0 || !connected || refreshingKept) ? <div className="chat-context">
+      {showHeader && (!connected || refreshingKept) ? <div className="chat-context">
         <h2 className="sr-only">{t('panel.activity')}</h2>
         <div className="chat-context-tools">
-          {timeline.workRows.length > 0 ? <button type="button" onClick={() => (workOpen && !drawerTask ? setWorkOpen(false) : openWork())} aria-expanded={workOpen && !drawerTask}>
-            {locale === 'zh-CN' ? '查看工作进展' : 'View work progress'}
-          </button> : null}
-          <button type="button" onClick={onToggleReasoning} aria-pressed={showReasoning} title={t('stream.toggleReasoning')}>
-            {t('stream.reasoning')}{reasoningTotal ? ` ·${reasoningTotal}` : ''}
-          </button>
           {refreshingKept ? <span role="status" data-refreshing-kept>
             {t('stream.refreshingKept')}
           </span> : connected ? <span className="sr-only">{t('common.live')}</span> : <span className="chat-context-offline">
@@ -1361,9 +1336,16 @@ export function EventStream({
                 onOpenDelivery={onOpenDelivery}
               />;
               return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={blockTitle(block)}
-                snapshot={snapshot} view={missionView} events={deferredEvents} onOpenWork={openWork}
+                snapshot={snapshot} view={missionView} events={deferredEvents} working={working}
                 onOpenDelivery={onOpenDelivery} onPause={onPauseWork} />;
             })}
+            {/* The team's progress: each role, what it does now or did last, its work a click away. */}
+            {timeline.workRows.length ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
+              className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
+              <div className="overflow-hidden rounded-lg border border-line/70">
+                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} followLatest />
+              </div>
+            </section> : null}
           </>
         )}
         </div>
@@ -1378,25 +1360,8 @@ export function EventStream({
           ↓
         </button>
       )}
-      {/* Kept mounted while closed so each role log keeps its reading place. */}
-      {timeline.workRows.length > 0 ? <aside data-work-drawer data-open={workOpen}
-        aria-label={locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}
-        className={`${workOpen ? 'flex' : 'hidden'} absolute inset-y-0 right-0 z-30 w-full max-w-md flex-col border-l border-line/80 bg-panel shadow-glow`}>
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line/40 px-4 text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-          <span data-work-heading className={`min-w-0 truncate ${drawerTask ? 'normal-case tracking-normal' : ''}`}>{drawerTask ? blockTitle(drawerTask) : locale === 'zh-CN' ? '项目工作进展' : 'Project work progress'}</span>
-          <span className="font-mono font-normal tracking-normal">{drawerRows.length}</span>
-          <button type="button" onClick={() => setWorkOpen(false)}
-            className="ml-auto rounded px-1.5 py-0.5 text-xs font-normal normal-case tracking-normal text-ink-dim hover:bg-bg hover:text-ink">
-            {locale === 'zh-CN' ? '关闭' : 'Close'}
-          </button>
-        </div>
-        <section data-project-work className="min-h-0 flex-1 overflow-y-auto scroll-thin">
-          <RoleLogCollection rows={drawerRows} live={live} followLatest activeRole={drawerTask ? undefined : work?.role} activeTaskId={drawerTask?.taskId ?? work?.taskId} />
-        </section>
-      </aside> : null}
     </section>
     </ResumeTaskContext.Provider>
-    </OpenWorkContext.Provider>
     </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>
     </StepProcessContext.Provider>

@@ -58,7 +58,7 @@ describe('one compact work-progress area', () => {
 
   it('renders a single waiting area before tools or text, including the map conversation', () => {
     const events = mergeOptimisticManagerSteps([{ type: 'ui.operator', text: 'Question', ts: 1 }], 's-A', 1, [], 2000);
-    const html = renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} onToggleReasoning={() => undefined} />);
+    const html = renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} />);
     expect(html.match(/class="turn-steps /g)).toHaveLength(1);
     expect(html).toContain('Preparing a reply');
     const map = renderToStaticMarkup(<MapConversation events={events} connected pending artifacts={[]} zh={false}

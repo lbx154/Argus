@@ -72,7 +72,7 @@ const progress = (id: number, text = `Recorded finding ${id}`): EventMsg => ({
   type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', text,
   event_id: `progress-${id}`, ts: id,
 });
-const feed = (events: EventMsg[]) => <EventStream events={events} connected showReasoning={false} onToggleReasoning={() => {}} />;
+const feed = (events: EventMsg[]) => <EventStream events={events} connected showReasoning={false} />;
 function mount(events: EventMsg[]) {
   act(() => { renderer = create(feed(events), { createNodeMock: nodeMock }); });
 }
@@ -114,8 +114,8 @@ function timelineSections() {
 function streamOrder() {
   return timelineSections().map(section => section.props['data-task-work'] ? `task ${section.props['data-task-work']}` : 'thread');
 }
-function drawer() {
-  return renderer!.root.findByProps({ 'data-work-drawer': true });
+function work() {
+  return renderer!.root.findByProps({ 'data-project-work': true });
 }
 function visibleText(node: ReactTestInstance): string {
   return node.children.map(child => typeof child === 'string' ? child : visibleText(child)).join('');
@@ -269,7 +269,7 @@ describe('conversation history readiness', () => {
   it('distinguishes loading, failed history and a confirmed empty conversation', () => {
     const retry = vi.fn();
     const view = (historyStatus: 'loading' | 'error' | 'ready') => <EventStream
-      events={[]} connected showReasoning={false} onToggleReasoning={() => {}}
+      events={[]} connected showReasoning={false}
       historyStatus={historyStatus} onRetryHistory={retry} />;
     act(() => { renderer = create(view('loading'), { createNodeMock: nodeMock }); });
     expect(visibleText(renderer!.root)).toContain('Loading conversation history');
@@ -287,7 +287,7 @@ describe('conversation history readiness', () => {
   it('retains loaded messages when refreshing their history fails', () => {
     act(() => { renderer = create(<EventStream
       events={[{ type: 'ui.argus', text: 'A previously loaded answer.', ts: 1 }]}
-      connected showReasoning={false} onToggleReasoning={() => {}} historyStatus="error"
+      connected showReasoning={false} historyStatus="error"
       onRetryHistory={() => {}} />, { createNodeMock: nodeMock }); });
     expect(visibleText(renderer!.root)).toContain('A previously loaded answer.');
     expect(visibleText(renderer!.root)).toContain('Could not load conversation history');
@@ -355,7 +355,7 @@ it('restores an opted-in conversation reading position without jumping to the la
     setItem,
   });
   act(() => { renderer = create(<EventStream events={[{ type: 'ui.argus', text: 'Earlier result', ts: 1 }]}
-    snapshot={snapshot} connected showReasoning={false} onToggleReasoning={() => {}} rememberPosition embedded />,
+    snapshot={snapshot} connected showReasoning={false} rememberPosition embedded />,
     { createNodeMock: nodeMock }); });
   paint();
   expect(outer.scrollTop).toBe(140);
@@ -374,7 +374,7 @@ describe('historical task receipts', () => {
     const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
       message_id: 'mission-result-old-task', mission_result: true, item_id: 'old-task', success: false };
     act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
-      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+      connected showReasoning={false} />, { createNodeMock: nodeMock }); });
     const row = renderer!.root.findByProps({ 'data-task-receipt-id': receipt.message_id });
     const prose = visibleText(row.findByProps({ 'data-task-receipt-prose': true }));
     expect(prose).toContain(expected);
@@ -426,7 +426,7 @@ describe('historical task receipts', () => {
     const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
       message_id: 'mission-result-old-task-paused_daemon_shutdown', mission_result: true, item_id: 'old-task', success: false };
     act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
-      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+      connected showReasoning={false} />, { createNodeMock: nodeMock }); });
     const row = renderer!.root.findByProps({ 'data-task-receipt': true });
     expect(visibleText(row.findByProps({ 'data-task-receipt-header': true }))).toContain('Task report · Recorded then');
     const time = row.findByType('time');
@@ -445,7 +445,7 @@ describe('historical task receipts', () => {
 });
 
 describe('project work status and conversation separation', () => {
-  it('keeps a reply under its question, shows the task as one card after it and opens its progress beside the conversation', () => {
+  it('keeps a reply under its question, shows the task as one card after it and the team\'s progress in the conversation', () => {
     const events: EventMsg[] = [
       { type: 'ui.operator', text: 'Start research task A', ts: 1 },
       { ...progress(2), item_id: 'task-a' },
@@ -460,18 +460,14 @@ describe('project work status and conversation separation', () => {
     const card = renderer!.root.findByProps({ 'data-task-work': 'task-a' });
     expect(card.props['data-state']).toBe('running');
     expect(visibleText(card)).toContain('Engineer：Recorded finding 2');
-    expect(drawer().props['data-open']).toBe(false);
-    act(() => card.find(node => node.type === 'button' && node.children.includes('View work progress')).props.onClick());
-    expect(drawer().props['data-open']).toBe(true);
-    expect(visibleText(drawer())).toContain('Recorded finding 2');
-    // The progress opens beside the conversation; following the newest message continues.
+    // The team's progress shows in the conversation without a click; following the newest message continues.
+    expect(visibleText(work())).toContain('Recorded finding 2');
     outer.scrollHeight = 1200;
     update([...events, { ...progress(4), item_id: 'task-a' }]);
     paint();
     expect(outer.scrollTop).toBe(900);
     expect(streamOrder()).toEqual(['thread', 'task task-a']);
-    act(() => drawer().find(node => node.type === 'button' && node.children.includes('Close')).props.onClick());
-    expect(drawer().props['data-open']).toBe(false);
+    expect(visibleText(work())).toContain('Recorded finding 4');
   });
 
   it('keeps ongoing task A work out of the later question B conversation and preserves the role log reading state', () => {
@@ -532,7 +528,7 @@ describe('project work status and conversation separation', () => {
       roleWork('engineer:round', 40, 'engineer', 'Engineer built the CSV tool'),
     ] };
     act(() => {
-      renderer = create(<EventStream events={events} missionView={view} connected showReasoning={false} onToggleReasoning={() => {}} />,
+      renderer = create(<EventStream events={events} missionView={view} connected showReasoning={false} />,
         { createNodeMock: nodeMock });
     });
     expect(streamOrder()).toEqual([
@@ -560,8 +556,8 @@ describe('project work status and conversation separation', () => {
     expect(visibleText(csv)).toContain('Reviewer：Reviewer checked the CSV tool');
     expect(visibleText(csv)).not.toContain('pytest');
     expect(renderer!.root.findByProps({ 'data-task-work': 'task-format' }).props['data-state']).toBe('running');
-    // The whole process is one click away: the drawer feed holds every role's work in time order.
-    expect(visibleText(drawer())).toContain('Planner created the CSV task');
+    // The whole process is in the conversation: the team's progress holds every role's work in time order.
+    expect(visibleText(work())).toContain('Planner created the CSV task');
     // The question's own process stays attached to it, and the receipt follows its report.
     const sections = timelineSections();
     expect(sections[1].findAllByType(TurnSteps)).toHaveLength(1);
@@ -588,7 +584,7 @@ describe('project work status and conversation separation', () => {
 
   it('does not pulse paused or disconnected work, while keeping the latest role initially open', () => {
     const value = runtimeFixture(false);
-    const show = (connected: boolean) => <EventStream {...value} connected={connected} showReasoning={false} onToggleReasoning={() => {}} />;
+    const show = (connected: boolean) => <EventStream {...value} connected={connected} showReasoning={false} />;
     act(() => { renderer = create(show(true), { createNodeMock: nodeMock }); });
     expect(roleGroup().props['data-active']).toBe('false');
     expect(roleGroup().props['data-open']).toBe('true');
@@ -605,16 +601,9 @@ describe('project work status and conversation separation', () => {
 
   it('gates legacy role and provider activity on the live connection too', () => {
     const events = [progress(1), { type: 'agent.io.start', call_id: 'call-1', ts: 2 }];
-    act(() => { renderer = create(<EventStream events={events} connected={false} showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+    act(() => { renderer = create(<EventStream events={events} connected={false} showReasoning={false} />, { createNodeMock: nodeMock }); });
     expect(roleGroup().props['data-active']).toBe('false');
     expect(visibleText(renderer!.root)).not.toContain('Argus is working in the background');
-  });
-
-  it('does not mark another task’s old role log active from the current task’s runtime', () => {
-    const value = runtimeFixture();
-    value.events = [{ ...value.events[0], item_id: 'task-b' }];
-    act(() => { renderer = create(<EventStream {...value} connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
-    expect(roleGroup().props['data-active']).toBe('false');
   });
 
   it('heads each role with its newest step as the log says it, never the host footer or a raw call', () => {
@@ -649,7 +638,7 @@ describe('project work progress in plain words', () => {
       reviewer('command_execution', heredoc),
       reviewer('command_execution', "/usr/bin/bash -lc 'cat research-plan.md'"),
     ]);
-    expect(header('reviewer')).toBe('ReviewerThe survey covers every requirement; one record still names the wrong source.');
+    expect(header('reviewer')).toBe('ReviewerLast: The survey covers every requirement; one record still names the wrong source.');
     const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
     expect(visibleText(group)).not.toMatch(/python|research-plan|continue/);
     const [toggle] = toggles('reviewer');
@@ -669,7 +658,7 @@ describe('project work progress in plain words', () => {
     const view = (path: string) => engineer('tool_use', `view: ${JSON.stringify({ path })}`, { tool_name: 'view', status: 'running' });
     mount([view('a.py'), view('b.py'), view('c.py'), engineer('command_execution', 'pytest -q'), engineer('command_execution', 'pytest -q')]);
     // A role that said nothing yet is headed by its newest tool step in words.
-    expect(header('engineer')).toBe('EngineerRead c.py');
+    expect(header('engineer')).toBe('EngineerLast: Read c.py');
     act(() => toggles('engineer')[0].props.onClick());
     const group = renderer!.root.findByProps({ 'data-feed-group': 'read' });
     expect(group.props['data-open']).toBe('false');
@@ -688,7 +677,7 @@ describe('project work progress in plain words', () => {
     const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
     expect(visibleText(group)).toContain('This path is making no new progress, so the team is trying a different approach.');
     expect(visibleText(group)).not.toMatch(/replan_requested|\bcontinue\b/);
-    expect(header('reviewer')).toBe('ReviewerThe content passed; one internal record still needs a fix.');
+    expect(header('reviewer')).toBe('ReviewerLast: The content passed; one internal record still needs a fix.');
     expect(group.findAllByProps({ 'data-full-text': true })).toHaveLength(0);
     const fullToggles = group.findAll(node => node.type === 'button' && node.props['data-full-toggle']);
     act(() => fullToggles[fullToggles.length - 1].props.onClick());
@@ -713,30 +702,6 @@ describe('result cards in the conversation', () => {
     mount(events);
     expect(visibleText(renderer!.root.findByProps({ 'data-delivery-kind': 'task_completed' }))).toContain('figure.png');
   });
-
-  it('opens only its own task under "how it was made"', () => {
-    mount(events);
-    const card = renderer!.root.findByProps({ 'data-delivery-kind': 'task_completed' });
-    const howMade = card.find(node => node.type === 'button' && node.props.className === 'result-card-how');
-    act(() => howMade.props.onClick());
-    const drawer = visibleText(renderer!.root.findByProps({ 'data-project-work': true }));
-    expect(drawer).toContain('Drew the task A chart');
-    expect(drawer).not.toContain('Working on task B now');
-  });
-
-  it('names the task its log belongs to, and the header button switches to all work', () => {
-    mount(events);
-    const card = renderer!.root.findByProps({ 'data-delivery-kind': 'task_completed' });
-    act(() => card.find(node => node.type === 'button' && node.props.className === 'result-card-how').props.onClick());
-    const heading = () => visibleText(renderer!.root.findByProps({ 'data-work-heading': true }));
-    expect(heading()).not.toMatch(/项目工作进展|Project work progress/);
-    const all = renderer!.root.find(node => node.type === 'button' && 'aria-expanded' in node.props && /查看工作进展|View work progress/.test(visibleText(node)));
-    act(() => all.props.onClick());
-    expect(heading()).toMatch(/项目工作进展|Project work progress/);
-    expect(visibleText(renderer!.root.findByProps({ 'data-project-work': true }))).toContain('Working on task B now');
-    act(() => all.props.onClick());
-    expect(renderer!.root.findByProps({ 'data-project-work': true }).parent!.props.className).toContain('hidden');
-  });
 });
 
 describe('a parked task offers Resume where its receipt says so', () => {
@@ -754,7 +719,7 @@ describe('a parked task offers Resume where its receipt says so', () => {
     const onResumeWork = vi.fn();
     act(() => { renderer = create(<EventStream snapshot={parked('parked', 'provider_fence')} onResumeWork={onResumeWork}
       events={[receipt('mission-result-old', 1), receipt('mission-result-new', 2)]}
-      connected showReasoning={false} onToggleReasoning={() => {}} />, { createNodeMock: nodeMock }); });
+      connected showReasoning={false} />, { createNodeMock: nodeMock }); });
     const buttons = renderer!.root.findAllByProps({ 'data-receipt-resume': true });
     expect(buttons).toHaveLength(1);
     expect(visibleText(buttons[0])).toBe('Resume');
@@ -768,7 +733,7 @@ describe('a parked task offers Resume where its receipt says so', () => {
     for (const snapshot of [{ ...parked('parked', 'provider_fence'), daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'pi' } },
       parked('parked', 'operator_question')]) {
       act(() => { renderer = create(<EventStream snapshot={snapshot as Snapshot} onResumeWork={() => {}}
-        events={[receipt('mission-result-new', 2)]} connected showReasoning={false} onToggleReasoning={() => {}} />,
+        events={[receipt('mission-result-new', 2)]} connected showReasoning={false} />,
       { createNodeMock: nodeMock }); });
       expect(renderer!.root.findAllByProps({ 'data-receipt-resume': true })).toHaveLength(0);
       act(() => renderer?.unmount());

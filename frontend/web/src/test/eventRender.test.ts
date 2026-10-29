@@ -411,10 +411,9 @@ describe('EventStream role grouping', () => {
       ] as EventMsg[],
       connected: true,
       showReasoning: true,
-      onToggleReasoning: () => undefined,
     }));
 
-    expect(html).toContain('Project work progress');
+    expect(html).toContain('Team progress');
     expect(html).toContain('data-role="planner"');
     expect(html).toContain('data-role="engineer"');
     expect(html).toContain('data-role="reviewer"');
@@ -443,7 +442,6 @@ describe('EventStream role grouping', () => {
       ] as EventMsg[],
       connected: true,
       showReasoning: true,
-      onToggleReasoning: () => undefined,
     }));
 
     expect(html).toContain('active planner detail sentinel');

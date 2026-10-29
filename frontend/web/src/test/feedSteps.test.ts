@@ -336,7 +336,6 @@ describe('EventStream renders folded rows', () => {
       events: [shell('ls sizefmt/__init__.py'), said('**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中，`format_kib` 舍弃小数。')],
       connected: true,
       showReasoning: false,
-      onToggleReasoning: () => undefined,
     }));
 
     expect(html).toContain('<strong>尚未实现：取整规则存在歧义。</strong>');
@@ -362,7 +361,6 @@ describe('EventStream renders folded rows', () => {
       missionView,
       connected: true,
       showReasoning: false,
-      onToggleReasoning: () => undefined,
     }));
 
     expect(html).toMatch(/data-role="manager"[^]*?data-role-headline[^]*?The request is understood and the project goal is set\. · Hand it to the team\./);
