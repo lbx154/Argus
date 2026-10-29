@@ -30,7 +30,7 @@ describe('one record, one conversation', () => {
       }
       for (const row of webEvents([event], fold)) {
         streamed.push(row);
-        if (row.type === 'ui.argus' && row.message_id === waiting?.reply) {
+        if (waiting && row.type === 'ui.argus' && row.message_id === waiting.reply) {
           local = mergeOptimisticManagerReply(local, waiting.request, row);
           waiting = null;
         }
