@@ -103,7 +103,8 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   if (status.reason === 'operator_input') return zh ? '有个问题在等你回答' : 'A question is waiting for your answer';
   if (status.state === 'running') {
     if (status.foreground) return zh ? '正在处理你的请求' : 'Working on your request';
-    if (status.roles.length > 1) {
+    // With several tasks under way none names the work: it says who is at work.
+    if (status.roles.length > 1 || !status.title && ['engineer', 'reviewer'].includes(status.role)) {
       const names = status.roles.map(role => ROLE_NAMES[`role.${role}`]?.[zh ? 1 : 0] ?? role);
       return zh ? `${names.join('、')}正在工作` : `${names.join(', ')} at work`;
     }
