@@ -41,29 +41,29 @@ describe('optimistic Manager conversation', () => {
   it('the record replaces the page’s rows: the same id, or the same words recorded once they were sent', () => {
     const operator = optimisticOperatorEvent('s', 1, '分三个任务做', 9_000);
     // The Manager has taken the message up; its reply has not come.
-    expect(mergeConversationEvents([asked], [], [operator])).toEqual([asked]);
+    expect(mergeConversationEvents([asked], [operator])).toEqual([asked]);
     const replied = mergeOptimisticManagerReply([operator], 1, brief);
-    expect(mergeConversationEvents([asked, brief], [], replied)).toEqual([asked, brief]);
+    expect(mergeConversationEvents([asked, brief], replied)).toEqual([asked, brief]);
     // Before the stream has the reply, the page shows it as the record will.
-    expect(mergeConversationEvents([asked], [], replied)).toEqual([asked, { ...brief, local_request_id: 1 }]);
+    expect(mergeConversationEvents([asked], replied)).toEqual([asked, { ...brief, local_request_id: 1 }]);
   });
 
   it('a turn that ended without a reply, stopped or failed, leaves what the record has', () => {
     const operator = optimisticOperatorEvent('s', 1, '分三个任务做', 9_000);
     const waiting = mergeOptimisticManagerSteps([operator], 's', 1, [], 9_500, true);
     expect(dropOptimisticManagerReply(waiting, 1)).toEqual([operator]);
-    expect(mergeConversationEvents([asked], [], dropOptimisticManagerReply(waiting, 1))).toEqual([asked]);
+    expect(mergeConversationEvents([asked], dropOptimisticManagerReply(waiting, 1))).toEqual([asked]);
   });
 
   it('does not hide a repeated new greeting behind an old one', () => {
     const old = { ...asked, text: '你好', ts: 1 };
-    expect(mergeConversationEvents([], [old], [optimisticOperatorEvent('s', 2, '你好', 20_000)])).toHaveLength(2);
+    expect(mergeConversationEvents([old], [optimisticOperatorEvent('s', 2, '你好', 20_000)])).toHaveLength(2);
   });
 
-  it('the transcript and the stream are the same rows, kept once, in the record’s order', () => {
-    const step: EventMsg = { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'planner', text: '规划中', ts: 20, event_id: 6 };
-    expect(mergeConversationEvents([brief, step], [asked, brief], [])).toEqual([asked, step, brief]);
+  it('preserves the server row order even when timestamps differ', () => {
+    expect(mergeConversationEvents([brief, asked], [])).toEqual([brief, asked]);
   });
+
 });
 
 describe('tool steps behind a Manager reply', () => {

@@ -1,3 +1,4 @@
+import { roleSnapshot } from './serverSnapshot';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
@@ -402,14 +403,14 @@ describe('the web feed line', () => {
 describe('EventStream role grouping', () => {
   it('keeps autonomous work in per-role collapsible groups', () => {
     const html = renderToStaticMarkup(createElement(EventStream, {
-      events: [
+      events: [], snapshot: roleSnapshot([
         { type: 'life.planner.task_added', title: 'Choose conjecture', ts: 1 },
         {
           type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
           text: 'Checking authoritative sources.', ts: 2,
         },
         { type: 'round.review.started', round_index: 1, ts: 3 },
-      ] as EventMsg[],
+      ] as EventMsg[]),
       connected: true,
       showReasoning: true,
     }));
@@ -423,7 +424,7 @@ describe('EventStream role grouping', () => {
 
   it('does not mount details for collapsed role and system groups', () => {
     const html = renderToStaticMarkup(createElement(EventStream, {
-      events: [
+      events: [], snapshot: roleSnapshot([
         {
           type: 'life.manager.intent.started', agent_layer: 'manager',
           text: 'collapsed manager history sentinel', ts: 1,
@@ -440,7 +441,7 @@ describe('EventStream role grouping', () => {
           type: 'life.daemon.idle_timeout',
           text: 'collapsed system detail sentinel', ts: 4,
         },
-      ] as EventMsg[],
+      ] as EventMsg[]),
       connected: true,
       showReasoning: true,
     }));

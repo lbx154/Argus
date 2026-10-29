@@ -6,8 +6,7 @@ import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
-import { errorText, formatRelativeTime, shortcut, uptime } from '../lib/format';
-import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
+import { errorText, shortcut } from '../lib/format';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
@@ -61,7 +60,6 @@ export function recommendedSidebarScope(
 export function Sidebar({
   projects,
   activeId,
-  activeWork,
   localCwd,
   onSelect,
   onPrefetch,
@@ -85,7 +83,6 @@ export function Sidebar({
 }: {
   projects: ProjectRow[];
   activeId: string | null;
-  activeWork?: { sessionId: string; status: WorkStatus; connected: boolean };
   localCwd: string;
   onSelect: (id: string) => void;
   onPrefetch?: (id: string) => void;
@@ -356,8 +353,8 @@ export function Sidebar({
                 </button> : null}
                 {(path === '__pinned__' ? !groupIsCollapsed(path) : rows.length === 1 || grouped.length === 1 || !groupIsCollapsed(path)) ? rows.map((project) => {
                   const active = project.id === activeId;
-                  const work = active && activeWork?.sessionId === project.id ? activeWork : undefined;
-                  const workLabel = work ? workStatusLabel(work.status, locale, work.connected) : undefined;
+                  const work = project.work_status;
+                  const workLabel = work?.label[locale === 'zh-CN' ? 'zh-CN' : 'en'];
                   const name = project.display_name?.trim() || t('sidebar.unnamedSession');
                   const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
                   // A release difference does not stop an existing executor.
@@ -390,22 +387,18 @@ export function Sidebar({
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot
                             ok={project.daemon_alive && !updateRequired}
-                            pulse={work ? ['running', 'waiting'].includes(work.status.state) : project.daemon_alive}
-                            title={updateRequired ? t('sidebar.updateRequired') : project.daemon_alive ? t('sidebar.daemonAlive') : t('sidebar.stopped')}
+                            pulse={work ? ['running', 'waiting'].includes(work.state) : false}
+                            title={updateRequired ? t('sidebar.updateRequired') : workLabel}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                           {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
                         </div>
                         <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] text-ink-faint">
                           <span className={`min-w-0 truncate ${updateRequired ? 'text-warn' : ''}`} title={workLabel}
-                            data-session-work-state={work?.status.state}>
+                            data-session-work-state={work?.state}>
                             {updateRequired
                               ? t('sidebar.updateRequired')
-                              : workLabel ?? (project.daemon_alive
-                                ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds, locale) })
-                                : project.last_active > 0
-                                  ? t('sidebar.lastActive', { time: formatRelativeTime(project.last_active, locale) })
-                                  : t('sidebar.stopped'))}
+                              : workLabel}
                           </span>
                           {updateAvailable && (
                             <span

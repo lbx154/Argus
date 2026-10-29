@@ -1,6 +1,6 @@
 import { WorkspaceHeader } from './WorkspaceShell';
 import { SessionWorkdir } from './SessionWorkdir';
-import type { Snapshot, EventMsg } from '../api';
+import type { Snapshot } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { roleLabel } from '../lib/enumLabels';
 import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
@@ -9,7 +9,6 @@ import { faTerminal } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { isFreshProject } from '../lib/workStatus';
 import { shortcut } from '../lib/format';
 
 export type ThemeMode = 'light' | 'dark';
@@ -33,7 +32,6 @@ export function TopBar({
   snapshotStale = false,
   readOnly = false,
   missionView,
-  events = [],
 }: {
   snap: Snapshot;
   streamOk: boolean;
@@ -52,10 +50,9 @@ export function TopBar({
   snapshotStale?: boolean;
   readOnly?: boolean;
   missionView?: MissionView | null;
-  events?: EventMsg[];
 }) {
   const { t, locale } = useI18n();
-  const work = currentWorkStatus(snap, missionView, events);
+  const work = currentWorkStatus(snap);
   const missionTerminal = ['complete', 'completed', 'done', 'success'].includes(
     String(missionView?.mission.status || '').toLowerCase(),
   );
@@ -70,10 +67,7 @@ export function TopBar({
     || '', snap.session.workdir, snap.session.cwd);
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
   const phase = teamPhase(work);
-  // A project nobody has written to yet has finished nothing: it waits for the person (rule 6).
-  const untouched = isFreshProject(snap) && phase === 'done' && !events.length && !focus;
-  const statusWords = !streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale')
-    : untouched ? (locale === 'zh-CN' ? '等你开始' : 'Waiting for you to start') : workStatusLabel(work, locale);
+  const statusWords = workStatusLabel(work, locale);
   const healthTitle = degraded
     ? [
         ...(snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`),
@@ -101,7 +95,7 @@ export function TopBar({
         <div className="topbar-status flex min-w-0 items-center gap-2 text-xs text-ink-faint">
           <span
             className="status-dot"
-            data-tone={!streamOk || snapshotStale || untouched ? 'idle' : PHASE_TONE[phase]}
+            data-tone={!streamOk || snapshotStale ? 'idle' : PHASE_TONE[phase]}
             data-role-dot={roleActive ? roleName : undefined}
             aria-label={roleActive ? t('topbar.roleActive', { role: roleLabel(roleName, t) }) : undefined}
             aria-hidden={roleActive ? undefined : true}

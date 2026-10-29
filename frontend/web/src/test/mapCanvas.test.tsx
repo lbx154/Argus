@@ -5,6 +5,7 @@ import type { Edge, Node } from "@xyflow/react";
 import type { ComponentProps } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "../api";
+import { EventStream } from '../components/EventStream';
 import { MapCanvas } from "../map/MapPanel";
 import { EMPTY_CANVAS, placeAroundPeople, type CanvasRecord } from "../map/canvas";
 import type { Dataset } from "../map/model";
@@ -32,6 +33,7 @@ vi.mock("../map/useSemanticCamera", async () => {
   };
 });
 vi.mock("../map/MapComposer", () => ({ MapComposer: () => null }));
+vi.mock('../components/EventStream', () => ({ EventStream: () => null }));
 vi.mock("../map/viewMemory", () => ({ recalledView: () => ({}), rememberView: () => {} }));
 
 const data: Dataset = {
@@ -242,6 +244,19 @@ it.each(["error", "cancelled"] as const)("drops the card notice and opens the co
   expect(onSend).toHaveBeenCalledTimes(1);
   expect(renderer.root.findAll((n) => n.type === "span" && n.children.includes("已发给 Argus，回复在对话里"))).toHaveLength(0);
   expect(renderer.root.findAllByProps({ className: "map-conversation nowheel nodrag nopan" })).toHaveLength(1);
+});
+
+it('passes the shared conversation pagination through the map drawer to its event stream', () => {
+  const pagination = { hasOlder: true, loadingOlder: false, onLoadOlder: vi.fn() };
+  remount({ actions: { ...props.actions, conversationPagination: pagination,
+    conversationEvents: [{ type: 'ui.task', row_id: 't20', item_id: 't20', title: 'Recent task', state: 'done' }] } });
+  act(() => renderer.root.findByProps({ 'aria-label': '对话' }).props.onClick());
+  const stream = renderer.root.findByType(EventStream);
+  expect(stream.props.hasOlder).toBe(true);
+  expect(stream.props.loadingOlder).toBe(false);
+  expect(stream.props.onLoadOlder).toBe(pagination.onLoadOlder);
+  act(() => stream.props.onLoadOlder());
+  expect(pagination.onLoadOlder).toHaveBeenCalledTimes(1);
 });
 
 it("keeps the person's draft: a hand-off then waits in the composer", async () => {

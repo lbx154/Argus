@@ -458,8 +458,8 @@ export default function App() {
     if (loadedSid && canvasRevision) refreshCanvas(queryClient, loadedSid, canvasRevision);
   }, [canvasRevision, loadedSid, queryClient]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events, locale), [events, locale]);
-  const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
-    loadedSid, true, events, localConversationEvents, localConversationSid.current,
+  const { query: transcriptQ, events: activityEvents, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
+    loadedSid, true, localConversationEvents, localConversationSid.current,
   );
   const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
   const promptHistoryList = useMemo(() => promptHistory(activityEvents), [activityEvents]);
@@ -500,12 +500,11 @@ export default function App() {
     }
   }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
   // The map view follows the stream at a beat, not per token.
-  const mapInput = useMemo(() => ({ sid: loadedSid, events, conversation: activityEvents }), [loadedSid, events, activityEvents]);
+  const mapInput = useMemo(() => ({ sid: loadedSid, events }), [loadedSid, events]);
   const mapHistory = useThrottledValue(mapInput, 250);
   // A pending throttle belongs to its original project, even when the next
   // project's snapshot is already cached and renders synchronously.
   const mapEvents = mapHistory.sid === loadedSid ? mapHistory.events : [];
-  const mapConversationEvents = mapHistory.sid === loadedSid ? mapHistory.conversation : [];
   const missionView = useMemo(
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
@@ -559,9 +558,9 @@ export default function App() {
   }), [loadedSid, snap, missionView, operatorTaskComplete, delivery, health, locale]);
   const projectBusy = useMemo(() => {
     if (!snap?.daemon.alive) return false;
-    const state = currentWorkStatus(snap, missionView, events).state;
+    const state = currentWorkStatus(snap).state;
     return state === 'running' || state === 'waiting';
-  }, [events, missionView, snap]);
+  }, [snap]);
   useAttentionSignals({
     projectName: snap?.session.display_name || '',
     attention,
@@ -1113,11 +1112,6 @@ export default function App() {
         <Sidebar
           projects={projects}
           activeId={activeSid}
-          activeWork={loadedSid ? {
-            sessionId: loadedSid,
-            status: currentWorkStatus(snap, missionView, activityEvents),
-            connected: connected && !snapQ.isError,
-          } : undefined}
           localCwd={localCwd}
           onSelect={(id) => {
             selectProject(id);
@@ -1167,7 +1161,6 @@ export default function App() {
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               {workspaceView !== 'map' && <TopBar
-                events={activityEvents}
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
@@ -1204,7 +1197,7 @@ export default function App() {
                 onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRoute}
-                conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
+                conversationEvents={activityEvents} conversationPagination={conversationPagination} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
                   if (selection) openDelivery(selection.receipt, selection.path);
@@ -1228,12 +1221,12 @@ export default function App() {
                   <EventStream
                     key={loadedSid}
                     snapshot={snap}
-                    missionView={missionView}
                     events={activityEvents}
                     connected={connected && !snapQ.isError}
                     showReasoning={false}
                     historyStatus={historyStatus}
-                    historyRefreshing={transcriptQ.isFetching}
+                    historyRefreshing={transcriptQ.isRefetching}
+                    {...conversationPagination}
                     refreshingKept={refreshingKept}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
@@ -1319,7 +1312,6 @@ export default function App() {
               className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel lg:flex lg:flex-none lg:w-[var(--preview-width)]`}>
               <div className="lg:hidden">
                 <TopBar
-                  events={activityEvents}
                   snap={snap}
                   streamOk={connected}
                   onStart={requestStartDaemon}

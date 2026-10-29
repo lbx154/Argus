@@ -2,7 +2,6 @@ import type { EventMsg, MissionRoleWorkItem, MissionView, Role } from '../../../
 import { visibleAgentText } from '../../../core/src/events';
 import type { Locale } from '../i18n';
 import { plainCommand, plainToolLabel, toolName } from '../lib/feedSteps';
-import { plainStatus } from '../lib/plainStatus';
 
 export { AGENT_ROLES } from '../lib/agentRoles';
 const PUBLIC_KINDS = new Set(['grounding', 'task', 'decision', 'agent_message', 'assistant_message', 'command_execution', 'tool_use', 'tool_result', 'handoff', 'review', 'verdict', 'completion', 'plan', 'file_change', 'result']);
@@ -49,30 +48,6 @@ export function agentWork(view: MissionView | null | undefined, role: string, ta
     unique.set(row.id, { ...row, detail: detail && CALL_KINDS.has(row.kind) ? callDetail(row.kind, detail, locale) : detail });
   }
   return [...unique.values()].sort((a, b) => b.ts - a.ts);
-}
-// A step whose detail is the goal itself says its title alone: the reader wrote the goal.
-const RESTATES_GOAL = new Set(['grounding', 'planning', 'task']);
-const SAID_KINDS = new Set([...CALL_KINDS, 'agent_message', 'assistant_message', 'message']);
-/** What each role did before the oldest event loaded, as feed events from the
- * mission view's record of each role's work. The feed loads only the newest
- * events, so a role that worked early came back from a reload with an empty
- * lane (trial s-7898efea: "经理 0 暂无活动"). What the feed shows as no row of its own
- * stays out: a tool's output, told with its call, and a stage the runtime closed. */
-export function earlierRoleWork(view: MissionView | null | undefined, events: EventMsg[], locale: Locale): EventMsg[] {
-  const since = Math.min(...events.filter((event) => !['ui.operator', 'ui.argus'].includes(String(event.type)))
-    .map((event) => Number(event.ts) || Infinity));
-  return (view?.role_work ?? []).filter((work) => work.ts < since && work.kind !== 'tool_result'
-    && !(work.kind === 'stage_decision' && !work.detail))
-    .sort((a, b) => a.ts - b.ts)
-    .map((work) => ({
-      type: 'engineer.progress', agent_layer: work.role, ts: work.ts, item_id: work.item_id, event_id: work.id,
-      // What the row was, so the progress feed can say a verdict in one line and fold the rest.
-      work_kind: work.kind, work_status: work.status, work_title: plainStatus(work.title, locale), work_detail: work.detail,
-      ...(SAID_KINDS.has(work.kind) ? { kind: work.kind, text: work.detail } : {
-        kind: 'message',
-        text: [plainStatus(work.title, locale), RESTATES_GOAL.has(work.kind) ? '' : cleanActivityText(work.detail)].filter(Boolean).join(' · '),
-      }),
-    }));
 }
 export function latestAgentTool(events: EventMsg[], role: string, taskId?: string, notBefore = 0) {
   return [...events].reverse().find((event) => event.type === 'engineer.progress'

@@ -42,7 +42,7 @@ describe('conversation cache across reloads', () => {
     const before = new QueryClient();
     const stop = persistQueryCache(before, () => storage, 'build-1', clock.target);
     before.setQueryData(['snapshot', 's-1'], { session: { id: 's-1' } }, { updatedAt: 1_000 });
-    before.setQueryData(['transcript', 's-1', 120], [{ role: 'operator', text: 'Hello', ts: 1 }], { updatedAt: 1_000 });
+    before.setQueryData(['conversation', 's-1', 120], [{ role: 'operator', text: 'Hello', ts: 1 }], { updatedAt: 1_000 });
     before.setQueryData(['artifacts', 's-1'], [{ path: 'big.bin' }], { updatedAt: 1_000 });
     clock.run();
     stop();
@@ -50,7 +50,7 @@ describe('conversation cache across reloads', () => {
 
     const after = new QueryClient({ defaultOptions: { queries: { staleTime: 3_000 } } });
     expect(restoreQueryCache(after, () => storage, 'build-1', 2_000)).toBe(2);
-    expect(after.getQueryData(['transcript', 's-1', 120])).toEqual([{ role: 'operator', text: 'Hello', ts: 1 }]);
+    expect(after.getQueryData(['conversation', 's-1', 120])).toEqual([{ role: 'operator', text: 'Hello', ts: 1 }]);
     expect(after.getQueryState(['snapshot', 's-1'])?.dataUpdatedAt).toBe(1_000);
     expect(after.getQueryData(['artifacts', 's-1'])).toBeUndefined();
     // Another build may read different shapes: it starts clean.

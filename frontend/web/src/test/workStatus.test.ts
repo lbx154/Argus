@@ -26,78 +26,16 @@ describe('shared work status', () => {
   });
 });
 
-const role = (name: string, active: boolean, last?: number) => ({
-  role: name, active, backend: 'codex', backend_label: 'Codex', model: 'gpt', effort: null, label: name,
-  status: active ? 'running' : 'idle', age_s: null, last: last ? { text: `${name} said`, ts: last } : null,
-});
-const task = (id: string, status: string) => ({ id, title: `Task ${id}`, objective: '', status, priority: 0 });
-const question = (id: string) => ({ id, title: 'The Reviewer asks', status: 'blocked', operator_decision: {
-  id: `q-${id}`, item_id: id, revision: 1, status: 'pending', title: 'Ship it?', reason: '', question: 'Ship it as is?',
-  evidence: [], options_source: 'agent', selected_option: '', note: '', options: [] } });
-
-describe('work status, as the server says it', () => {
-  it('is the Manager answering while a reply of the operator\'s is under way', () => {
-    const snapshot = { ...fixture(false), manager_requests: [{ request_id: 'r1', status: 'running' as const }] };
-    const status = currentWorkStatus(snapshot);
-    expect(status).toMatchObject({ state: 'running', role: 'manager', foreground: true });
-    expect(workStatusLabel(status, 'zh-CN')).toBe('正在处理你的请求');
-  });
-
-  it('is running while any role is at work, and names every role at work', () => {
-    // Trial screenshots 01-d-first and 01-m-first: three tasks side by side read "这一步已结束"
-    // while the Reviewer was at work on one of them.
-    const snapshot = fixture();
-    snapshot.backlog = [task('a', 'done'), task('b', 'done'), task('c', 'in_progress')];
-    snapshot.roles = [role('manager', false), role('reviewer', true)];
-    const one = currentWorkStatus(snapshot);
-    expect(one).toMatchObject({ state: 'running', role: 'reviewer', roles: ['reviewer'], taskId: 'c', title: 'Task c' });
-    expect(workStatusLabel(one, 'zh-CN')).toBe('正在检查结果：Task c');
-    snapshot.backlog = [task('a', 'in_progress'), task('b', 'in_progress')];
-    snapshot.roles = [role('engineer', true), role('reviewer', true)];
-    const two = currentWorkStatus(snapshot);
-    expect(two).toMatchObject({ state: 'running', roles: ['engineer', 'reviewer'], taskId: '', title: '' });
-    expect(workStatusLabel(two, 'zh-CN')).toBe('工程师、审阅者正在工作');
-    expect(workStatusLabel(two, 'en')).toBe('Engineer, Reviewer at work');
-    // One role on both tasks is not "the current task".
-    snapshot.roles = [role('engineer', true)];
-    expect(workStatusLabel(currentWorkStatus(snapshot), 'zh-CN')).toBe('工程师正在工作');
-  });
-
-  it('waits for the operator when a question is open and no role is at work', () => {
+describe('server work status', () => {
+  it('uses the server label across surfaces without inferring a conflicting state from tasks', () => {
     const snapshot = fixture(false);
-    snapshot.backlog = [task('t1', 'blocked')];
-    snapshot.pending_questions = [question('t1')];
-    const status = currentWorkStatus(snapshot);
-    expect(status).toMatchObject({ state: 'paused', reason: 'operator_input', taskId: 't1' });
-    expect(workStatusLabel(status, 'zh-CN')).toBe('有个问题在等你回答');
-    snapshot.roles = [role('engineer', true)];
-    expect(currentWorkStatus(snapshot).state).toBe('running');
-  });
-
-  it('waits for the next step while the run goes on with no role at work', () => {
-    const status = currentWorkStatus(fixture(true));
-    expect(status).toMatchObject({ state: 'waiting', reason: 'awaiting_next_step' });
-    expect(workStatusLabel(status, 'zh-CN')).toBe('等待下一步工作');
-  });
-
-  it('with no run, is stopped while the server says Resume has work to take up, and idle when it has none', () => {
-    const snapshot = fixture(false);
-    snapshot.backlog = [task('a', 'done'), task('b', 'in_progress')];
-    snapshot.daemon.resumable = true;
-    expect(currentWorkStatus(snapshot)).toMatchObject({ state: 'paused', reason: 'not_running' });
-    snapshot.daemon.resumable = false;
-    expect(currentWorkStatus(snapshot)).toMatchObject({ state: 'idle', reason: '' });
+    snapshot.work_status = { state: 'paused', reason: 'not_running', role: '', roles: [], taskId: '', title: '',
+      activityAt: 150, foreground: false, label: { 'zh-CN': '已停止：2 个任务暂停', en: 'Stopped: 2 tasks paused' } };
+    const status = currentWorkStatus(snapshot, 200);
+    expect(status).toMatchObject({ state: 'paused', activityAgeSeconds: 50 });
+    expect(workStatusLabel(status, 'zh-CN')).toBe('已停止：2 个任务暂停');
+    expect(workStatusLabel(status, 'en')).toBe('Stopped: 2 tasks paused');
     expect(currentWorkStatus(undefined).state).toBe('unknown');
-  });
-
-  it('dates the last thing that moved, from the record and the roles\' last words', () => {
-    const snapshot = fixture();
-    snapshot.roles = [role('reviewer', false, 150)];
-    expect(currentWorkStatus(snapshot, null, [{ type: 'engineer.progress', agent_layer: 'engineer', ts: 120 }], 200))
-      .toMatchObject({ activityAt: 150, activityAgeSeconds: 50 });
-    // The operator writing is not the work moving.
-    expect(currentWorkStatus(snapshot, null, [{ type: 'ui.operator', agent_layer: 'operator', ts: 190 }], 200).activityAt).toBe(150);
-    expect(currentWorkStatus(fixture(), null, [], 200).activityAt).toBeNull();
   });
 });
 
@@ -114,20 +52,5 @@ describe('call status across concurrent tasks', () => {
       { type: 'agent.io.start', call_id: 'old', ts: 90 },
       { type: 'agent.io.start', call_id: 'reading', run_label: 'map-summary', ts: 110 },
     ], 100)).toBeNull();
-  });
-});
-
-describe('the Manager at work', () => {
-  it('does not call the Manager’s own tidying “your request”', () => {
-    const snapshot = fixture();
-    snapshot.roles = [{ role: 'manager', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'summarizing', status: 'running', age_s: 1 }];
-    const view = emptyMissionView();
-    view.mission.status = 'working';
-    view.active_role = 'manager';
-    const status = currentWorkStatus(snapshot, view);
-    expect(status).toMatchObject({ state: 'running', role: 'manager' });
-    expect(status.foreground).toBeUndefined();
-    expect(workStatusLabel(status, 'zh-CN')).toBe('正在整理任务进展');
-    expect(workStatusLabel(status, 'en')).toBe('Summarizing progress');
   });
 });

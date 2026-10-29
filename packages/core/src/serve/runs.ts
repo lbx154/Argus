@@ -6,7 +6,7 @@
 import { Flow } from '../flow.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
 import type { CallAgent } from '../types.js';
-import { readEvents, webEvents, type Live } from './views.js';
+import { readRecord, conversationRows, type Live } from './views.js';
 
 /** One frame of a message's stream: `phase` while the Manager works, then `delta`, the reply's row in the record, and `done`; or `error`. */
 export type Frame = { type: 'phase' | 'delta' | 'done' | 'error'; [field: string]: unknown };
@@ -83,7 +83,7 @@ export class Runs {
         return failed ? { type: 'error', error: failed.error } : { type: 'done', result: { kind: 'stopped', reply: null } };
       }
       // The reply is its row in the record, as the conversation shows it: whom it is to, the message it answers.
-      const event = webEvents(readEvents(this.store, id)).filter(row => row.type === 'ui.argus').at(-1);
+      const event = conversationRows(readRecord(this.store, id), this.store.load(id), this.live(id)).filter(row => row.type === 'ui.argus').at(-1);
       send({ type: 'delta', event });
       return { type: 'done', result: { kind: handoff.to === 'operator' ? 'chat' : 'task', reply: handoff.letters.join('\n\n') } };
     } catch (error) {

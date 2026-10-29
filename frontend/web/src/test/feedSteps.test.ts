@@ -1,3 +1,4 @@
+import { roleSnapshot } from './serverSnapshot';
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -17,7 +18,6 @@ import {
 } from '../lib/feedSteps';
 import { translate } from '../i18n';
 import { EventStream, partitionRoleRows } from '../components/EventStream';
-import { emptyMissionView } from '../../../core/src/missionView';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -338,7 +338,7 @@ describe('EventStream renders folded rows', () => {
   it("shows a role's own words in their Markdown and folds the command it ran", () => {
     // Trial s-f0e1b2f0: the Engineer's lane read "**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中…".
     const html = renderToStaticMarkup(createElement(EventStream, {
-      events: [shell('ls sizefmt/__init__.py'), said('**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中，`format_kib` 舍弃小数。')],
+      events: [], snapshot: roleSnapshot([shell('ls sizefmt/__init__.py'), said('**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中，`format_kib` 舍弃小数。')]),
       connected: true,
       showReasoning: false,
     }));
@@ -350,32 +350,17 @@ describe('EventStream renders folded rows', () => {
     expect(html).toContain('Show commands');
   });
 
-  it('keeps the lane of a role whose work came before the loaded events', () => {
-    // Trial s-7898efea: after a reload the newest events held none of the
-    // Manager's, and its lane read "经理 0 暂无活动".
-    const missionView = emptyMissionView();
-    const work = { status: 'done', item_id: 'task', title: 'Reporting progress' };
-    missionView.role_work = [
-      { ...work, id: 'm1', role: 'manager', kind: 'decision', title: 'Goal framed', detail: 'Hand it to the team.', ts: 1 },
-      // A stage the runtime closed is bookkeeping the live feed shows no row for either.
-      { ...work, id: 'm2', role: 'manager', kind: 'stage_decision', title: 'Stage → delivery', detail: '', ts: 2 },
-      { ...work, id: 'e1', role: 'engineer', kind: 'agent_message', detail: 'Checking the sources now.', ts: clock + 1 },
-    ];
+  it('shows the server role log even when no dialogue rows are loaded', () => {
     const html = renderToStaticMarkup(createElement(EventStream, {
-      events: [said('Checking the sources now.', { event_id: 'e1' })],
-      missionView,
-      connected: true,
-      showReasoning: false,
+      events: [], snapshot: roleSnapshot([said('Checking the sources now.', { agent_layer: 'manager' })]),
+      connected: true, showReasoning: false,
     }));
-
-    expect(html).toMatch(/data-role="manager"[^]*?data-role-headline[^]*?The request is understood and the project goal is set\. · Hand it to the team\./);
-    // Work the loaded events already tell is not told twice.
-    expect(html.slice(html.indexOf('data-role="engineer"')).split('event-activity-row')).toHaveLength(2);
+    expect(html).toMatch(/data-role="manager"[^]*?Checking the sources now\./);
   });
 
   it("colours a role's dot and name, never what it wrote", () => {
     const html = renderToStaticMarkup(createElement(EventStream, {
-      events: [{ type: 'round.review.completed', agent_layer: 'reviewer', review_source: 'reviewer', status: 'engineer', reason: 'Fix the off-by-one.', item_id: 't1', ts: (clock += 1) }],
+      events: [], snapshot: roleSnapshot([{ type: 'round.review.completed', agent_layer: 'reviewer', review_source: 'reviewer', status: 'engineer', reason: 'Fix the off-by-one.', item_id: 't1', ts: (clock += 1) }]),
       connected: true,
       showReasoning: false,
     }));
@@ -391,11 +376,10 @@ describe('EventStream renders folded rows', () => {
     const reviewer = { role: 'reviewer', backend: 'codex', backend_label: 'Codex', model: '', effort: null, active: true, label: 'Reviewer', status: 'running', age_s: null, tasks: ['t1', 't2'] };
     const snapshot = { session: { id: 's' }, daemon: { alive: true }, roles: [reviewer], backlog: [task('t1', 'Write primes.py'), task('t2', 'Write fib.py')] } as unknown as Snapshot;
     const html = renderToStaticMarkup(createElement(EventStream, {
-      events: [
+      events: [], snapshot: { ...snapshot, role_events: [
         said('Checking primes.py.', { agent_layer: 'reviewer', item_id: 't1' }),
         said('Checking fib.py.', { agent_layer: 'reviewer', item_id: 't2' }),
-      ],
-      snapshot,
+      ] },
       connected: true,
       showReasoning: false,
     }));

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { EventMsg, Snapshot } from '../../../core/src/types';
+import type { Snapshot } from '../../../core/src/types';
 
 vi.mock('../i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../i18n')>();
@@ -11,7 +11,6 @@ vi.mock('../i18n', async (importOriginal) => {
 });
 
 const { progressHealth } = await import('../lib/progressHealth');
-const { foldedContinuationRuns } = await import('../components/EventStream');
 const { searchEntries, visibleEntries } = await import('../research-workbench/workspaceApi');
 const { ProgressHealthBanner } = await import('../components/ProgressHealthBanner');
 
@@ -59,19 +58,6 @@ describe('progress health', () => {
     expect(html).toMatch(/<pre[^>]*>OOM<\/pre>/);
     expect(html).toContain('在对话里调整要求');
     expect(html).toContain('知道了');
-  });
-});
-
-describe('conversation folding', () => {
-  const row = (key: string, continued: boolean) => ({ key, ev: { type: 'ui.argus', mission_result: true, campaign_continues: continued } as EventMsg });
-  it('keeps the newest of three or more continued steps and folds the rest', () => {
-    const folded = foldedContinuationRuns([row('a', true), row('b', true), row('c', true), row('d', false), row('e', true), row('f', true)]);
-    expect([...folded.keys()]).toEqual(['a', 'b']);
-    expect(folded.get('b')).toEqual({ id: 'a', keys: ['a', 'b'] });
-  });
-  it('recognises continued steps from older transcripts by their message id', () => {
-    const old = (key: string) => ({ key, ev: { type: 'ui.argus', mission_result: true, message_id: `mission-result-${key}-continued` } as EventMsg });
-    expect([...foldedContinuationRuns([old('x'), old('y'), old('z')]).keys()]).toEqual(['x', 'y']);
   });
 });
 

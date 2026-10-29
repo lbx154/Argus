@@ -129,7 +129,7 @@ export function selectLiveMissionStatus(
   snapshot?: Snapshot,
   locale: Locale = 'en',
 ): LiveMissionStatus | null {
-  if (snapshot && currentWorkStatus(snapshot, view, events).state !== 'running') return null;
+  if (snapshot && currentWorkStatus(snapshot).state !== 'running') return null;
   if (missionIsComplete(view)) return null;
   const role = String(view?.active_role ?? '');
   if (!role) return null;
@@ -534,7 +534,7 @@ export function ResearchCanvas({
           {onOpenDelivery ? <span className="shrink-0 text-xs font-medium text-ok">{locale === 'zh-CN' ? '打开' : 'Open'}</span> : null}
         </button>
       ) : null}
-      {!filesFirst && snapshot ? <WorkStatusBar snapshot={snapshot} view={missionView} events={activityEvents} connected={connected} compact /> : !filesFirst && liveStatus ? (
+      {!filesFirst && snapshot ? <WorkStatusBar snapshot={snapshot} connected={connected} compact /> : !filesFirst && liveStatus ? (
         <div className="shrink-0 border-b border-line/50 bg-blue-deep/10 px-4 py-3">
           <div className="flex items-center gap-2 text-xs">
             <span data-role-dot={liveStatus.role} className="h-2 w-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none" style={{ background: theme.role[liveStatus.role] ?? theme.inkFaint }} aria-hidden="true" />

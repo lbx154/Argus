@@ -5,7 +5,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { ProjectRow } from '../api';
 import { recommendedSidebarScope, Sidebar } from '../components/Sidebar';
-import type { WorkStatus } from '../lib/workStatus';
 
 let queryClient: QueryClient;
 beforeEach(() => {
@@ -13,6 +12,7 @@ beforeEach(() => {
 });
 afterEach(() => queryClient.clear());
 
+const runningStatus = { state: 'running' as const, role: 'engineer', roles: ['engineer'], taskId: '', title: '', foreground: false, reason: '' as const, activityAt: null, label: { 'zh-CN': '团队正在工作', en: 'The team is working' } };
 const rows: ProjectRow[] = [
   {
     id: 'local', label: 'Local', display_name: 'Local', objective: '',
@@ -42,13 +42,11 @@ describe('recommendedSidebarScope', () => {
 
 function sidebarMarkup(
   projects: ProjectRow[],
-  activeWork?: { sessionId: string; status: WorkStatus; connected: boolean },
 ): string {
   return renderToStaticMarkup(
     createElement(QueryClientProvider, { client: queryClient }, createElement(Sidebar, {
       projects: projects.map((project) => ({ ...project, launch_cwd: '/workspace/test', workdir: '/workspace/test' })),
       activeId: projects[0]?.id ?? null,
-      activeWork,
       localCwd: '/workspace/test',
       onSelect: () => undefined,
       onManage: () => undefined,
@@ -102,7 +100,7 @@ describe('Sidebar session identity and health', () => {
   });
 
   it('shows a live older release as running with an optional update', () => {
-    const markup = sidebarMarkup([{
+    const markup = sidebarMarkup([{ work_status: runningStatus,
       ...rows[0],
       daemon_alive: true,
       daemon_protocol_compatible: false,
@@ -111,13 +109,13 @@ describe('Sidebar session identity and health', () => {
     }]);
 
     expect(markup).toContain('title="The team is working"');
-    expect(markup).toContain('Working · 2m');
+    expect(markup).toContain('>The team is working<');
     expect(markup).toContain('Update available');
     expect(markup).not.toContain('Update required');
   });
 
   it('does not show an old release as running after the executor stops', () => {
-    const markup = sidebarMarkup([{
+    const markup = sidebarMarkup([{ work_status: { ...runningStatus, state: 'paused', label: { 'zh-CN': '已停止', en: 'Stopped' } },
       ...rows[0],
       daemon_alive: false,
       daemon_protocol_compatible: false,
@@ -125,7 +123,7 @@ describe('Sidebar session identity and health', () => {
       uptime_seconds: 120,
     }]);
 
-    expect(markup).toContain('title="Not running"');
+    expect(markup).toContain('title="Stopped"');
     expect(markup).not.toContain('Working · 2m');
     expect(markup).not.toContain('Update available');
   });
@@ -137,22 +135,12 @@ describe('Sidebar session identity and health', () => {
     expect(markup).not.toContain('>/workspace/test</');
   });
 
-  it('shares the selected task state while other rows describe only their background process', () => {
-    const projects = rows.map(row => ({ ...row, daemon_alive: true, uptime_seconds: 120 }));
-    const activeWork = { sessionId: 'local', connected: true, status: {
-      state: 'paused', role: '', roles: [], taskId: 'author-facts', title: 'Author details',
-      activityAt: null, activityAgeSeconds: null, reason: 'operator_input',
-    } satisfies WorkStatus };
-    const markup = sidebarMarkup(projects, activeWork);
-    expect(markup).toContain('A question is waiting for your answer');
+  it('uses the server status for every project, including one that is not selected', () => {
+    const status = { state: 'paused' as const, role: '', roles: [], taskId: '', title: '', activityAt: null,
+      foreground: false, reason: 'operator_input' as const, label: { 'zh-CN': '等你回答 1 个问题', en: 'Waiting for 1 answer' } };
+    const markup = sidebarMarkup(rows.map(row => ({ ...row, work_status: status })));
+    expect(markup.match(/>Waiting for 1 answer</g)).toHaveLength(2);
     expect(markup).toContain('data-session-work-state="paused"');
-    expect(markup).toContain('Working · 2m');
-    expect(markup).not.toContain('running · 2m');
-    const switching = sidebarMarkup(projects, { ...activeWork, sessionId: 'remote' });
-    expect(switching).not.toContain('A question is waiting for your answer');
-    expect(switching).not.toContain('data-session-work-state=');
-    const disconnected = sidebarMarkup(projects, { ...activeWork, connected: false });
-    expect(disconnected).toContain('Live connection lost');
-    expect(disconnected).not.toContain('A question is waiting for your answer');
   });
+
 });

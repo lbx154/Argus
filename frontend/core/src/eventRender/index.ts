@@ -349,7 +349,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return row(event).operator_alert === true && said ? model('planner', 'role.planner', '⚠', said, 'warn', { rule: true }) : hidden();
     }
     case 'life.mission.started':
-      return model('engineer', 'role.engineer', '🚀', clean(stringField(event, 'title') || stringField(event, 'objective') || stringField(event, 'text') || localized(context, 'started work on this task', '开始做这项任务'), context.density === 'full' ? 180 : 160), 'info', { rule: true });
+      return model('engineer', 'role.engineer', '·', clean(stringField(event, 'title') || stringField(event, 'objective') || stringField(event, 'text') || localized(context, 'started work on this task', '开始做这项任务'), context.density === 'full' ? 180 : 160), 'info', { rule: true });
     case 'round.start':
       return model('engineer', 'role.engineer', '──', localized(context, `round ${roundNumber(event)}`, `第 ${roundNumber(event)} 轮`), 'dim', { rule: true });
     case 'life.phase.started': {

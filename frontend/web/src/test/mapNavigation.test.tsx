@@ -115,8 +115,8 @@ it("omits the empty status row and ambient decoration without hiding active work
   expect(renderer.root.findAllByProps({ className: "map-canvas-wrap" })).toHaveLength(1);
 
   act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={empty}
-    composer={{ ...props.composer, pending: true }} /></QueryClientProvider>));
-  expect(renderer.root.findByProps({ className: "map-status-text" }).children.join("")).toBe("working on your message");
+    composer={{ ...props.composer, pending: true }} snapshot={{ ...props.snapshot, work_status: { state: "running", reason: "", role: "manager", roles: ["manager"], taskId: "", title: "", activityAt: null, foreground: true, label: { "zh-CN": "正在处理你的请求", en: "Working on your request" } } }} /></QueryClientProvider>));
+  expect(renderer.root.findByProps({ className: "map-status-text" }).children.join("")).toBe("Working on your request");
 });
 
 it("keeps the explicitly opened task reader when new copy arrives and background focus changes", async () => {
@@ -170,7 +170,7 @@ it("opens a task without a saved explanation on its own record and never asks fo
 });
 
 it("does not count a partial research execution as a completed overall goal", () => {
-  const partial = { ...data, tasks: [data.tasks[0]], events: [{
+  const partial = { ...data, kind: "historical" as const, tasks: [data.tasks[0]], events: [{
     id: "ended", item_id: "parent", type: "life.mission.completed", ts: 5, text: "",
     success: true, overall_complete: false, campaign_continues: true,
   }] };
@@ -284,7 +284,7 @@ it.each(["paused_provider_fence", "paused_external_work", "parked", "blocked"])(
   (status) => {
     act(() => renderer.update(
       <QueryClientProvider client={client}>
-        <MapCanvas {...props} data={{ ...data, tasks: [
+        <MapCanvas {...props} data={{ ...data, kind: "historical", tasks: [
           data.tasks[0], { ...data.tasks[1], status },
         ] }} />
       </QueryClientProvider>,
@@ -298,7 +298,7 @@ it("counts the tasks the overview counts: a replaced task is not one left to fin
   // Trial s-f0e1b2f0: the overview said "任务 1/1 已完成", the map "2 个任务 · 已完成 1 个".
   act(() => renderer.update(
     <QueryClientProvider client={client}>
-      <MapCanvas {...props} data={{ ...data, tasks: [{ ...data.tasks[1], status: "superseded" }, data.tasks[0]] }} />
+      <MapCanvas {...props} data={{ ...data, kind: "historical", tasks: [{ ...data.tasks[1], status: "superseded" }, data.tasks[0]] }} />
     </QueryClientProvider>,
   ));
   expect(renderer.root.findByProps({ className: "map-status-text" }).children.join(""))
@@ -365,7 +365,7 @@ it("keeps normal card navigation when the traced task disappears from the live m
   act(() => button("Trace dependencies").props.onClick());
   act(() => renderer.update(
     <QueryClientProvider client={client}>
-      <MapCanvas {...props} data={{ ...data, tasks: data.tasks.filter((task) => task.id !== "question") }} />
+      <MapCanvas {...props} data={{ ...data, kind: "historical", tasks: data.tasks.filter((task) => task.id !== "question") }} />
     </QueryClientProvider>,
   ));
   expect(button("Trace dependencies").props["aria-pressed"]).toBe(false);

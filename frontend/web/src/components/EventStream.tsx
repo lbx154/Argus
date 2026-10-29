@@ -1,8 +1,8 @@
-import { Fragment, createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
-import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
+import type { DeliveryReceipt } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
 import {
   foldFeedRows,
@@ -16,9 +16,9 @@ import {
   type StepStatus,
 } from '../lib/feedSteps';
 import { theme, toneColor } from '../lib/theme';
-import { clockOf, dateOf } from '../lib/format';
+import { clockOf } from '../lib/format';
 import { durableMessageId } from '../lib/conversationEvents';
-import { EmptyHint, RawDisclosure } from './primitives';
+import { EmptyHint } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 import { deliveryFiles } from './deliveryPresentation';
 
@@ -33,17 +33,13 @@ import { roleLabel } from '../lib/enumLabels';
 import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
-import { plainDetail, plainTaskReport } from '../lib/plainStatus';
+import { plainDetail } from '../lib/plainStatus';
 import { isCallRow, plainRowText, roleHeadline, roleSaid, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, eventTaskId } from '../lib/workStatus';
 import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
-import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
-import { earlierRoleWork } from './agentActivityModel';
-import { liveLines, type LiveLine } from '../lib/liveActivity';
-import { roleActionLabel } from '../lib/taskLanguage';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
-import type { ConversationHistoryStatus } from '../useConversationHistory';
+import type { ConversationHistoryStatus, ConversationPagination } from '../useConversationHistory';
 import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
@@ -55,13 +51,6 @@ import type { ConversationRevision } from './ExperiencePanels';
 import { PencilLine } from 'lucide-react';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
-// A thread that project work interrupted continues without its operator row.
-type ConversationGroup = { key: string; operator?: ActivityRow; rows: ActivityRow[] };
-// One card per task, where its work started.
-type TaskBlock = { key: string; taskId: string; rows: ActivityRow[]; deliveries: DeliveryReceipt[] };
-export type TimelineBlock = ({ kind: 'thread' } & ConversationGroup) | ({ kind: 'task' } & TaskBlock);
-const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
-
 /** The project root the agents work in; a command's path in it reads from there. */
 const WorkspaceContext = createContext('');
 const ConversationActionContext = createContext<((target: ConversationRevision) => void) | undefined>(undefined);
@@ -320,16 +309,12 @@ function ConversationRow({
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
   const operator = String(ev.type) === 'ui.operator';
-  const taskReceipt = !operator && ev.mission_result === true;
-  // Preserve the full recorded message, including research/control-like lines.
-  const reportText = taskReceipt ? (typeof ev.text === 'string' ? ev.text : r.text) : r.text;
-  const report = taskReceipt ? plainTaskReport(reportText, locale) : null;
-  const recordedAt = taskReceipt ? dateOf(ev) : null;
-  const draft = operator ? splitDraft(r.text) : null;
+  const reportText = typeof ev.text === 'string' ? ev.text : r.text;
+  const draft = operator ? splitDraft(reportText) : null;
   const references = draft?.refs ?? [];
-  const text = draft && references.length ? draft.text : r.text;
+  const text = draft && references.length ? draft.text : reportText;
   // A question's numbered options become buttons; typing a free answer still works.
-  const asked = !operator && !taskReceipt ? splitReplyOptions(reportText) : null;
+  const asked = !operator ? splitReplyOptions(reportText) : null;
   const steps = operator ? [] : turnStepsFrom(ev.steps);
   const revisionLabel = locale === 'zh-CN' ? '改写后重发' : 'Rewrite and resend';
   const rowRef = useRef<HTMLElement>(null);
@@ -350,8 +335,7 @@ function ConversationRow({
     );
   });
   return (
-    <article ref={rowRef} data-conversation-ts={ev.ts} data-task-receipt={taskReceipt || undefined}
-      data-task-receipt-id={taskReceipt ? String(ev.message_id || ev.event_id || '') : undefined}
+    <article ref={rowRef} data-conversation-ts={ev.ts}
       className="conversation-row group mx-auto w-full max-w-full px-4 py-4 sm:px-6 lg:max-w-[808px]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
@@ -374,46 +358,17 @@ function ConversationRow({
       ) : (
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
-            {/* Offset the feed's pt-1.5 so scrolled text cannot peek above a pinned receipt header. */}
-            <div
-              data-task-receipt-header={taskReceipt || undefined}
-              className={taskReceipt
-                ? 'sticky -top-1.5 z-10 mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-panel py-1'
-                : 'mb-1 flex items-center gap-2'}
-            >
-              <span className="argus-reply-name">{applicationBrand().name}</span>
-              {taskReceipt ? <span className="text-[11px] text-ink-faint">
-                {locale === 'zh-CN' ? '任务回报 · 当时记录' : 'Task report · Recorded then'}
-              </span> : null}
-              {taskReceipt && <><CopyButton
-                text={reportText}
-                label={report ? (locale === 'zh-CN' ? '复制原始回报' : 'Copy original report') : t('copy.message')}
-                copiedLabel={t('copy.copied')}
-                className="ml-auto opacity-60 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-              />
-              <time
-                className={`font-mono text-[10px] tabular-nums text-ink-faint ${taskReceipt ? 'basis-full sm:basis-auto' : ''}`}
-                dateTime={recordedAt?.toISOString()}
-                title={recordedAt?.toLocaleString(locale, { dateStyle: 'full', timeStyle: 'long' })}
-              >{recordedAt ? recordedAt.toLocaleString(locale, {
-                year: 'numeric', month: '2-digit', day: '2-digit',
-                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-              }) : clockOf(ev)}</time></>}
-            </div>
-            {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
+            <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
+            {reportText ? <div><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
             {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText)}
-              status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
-            {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
-            {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
-              <pre data-task-receipt-original className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs text-ink-dim">{reportText}</pre>
-            </RawDisclosure> : null}
+              status={String(ev.status ?? '')} /> : null}
           </div>
         </div>
       )}
-      {!taskReceipt && ev.live !== true && <div className={`conversation-meta ${operator ? 'justify-end' : ''}`}>
+      {ev.live !== true && <div className={`conversation-meta ${operator ? 'justify-end' : ''}`}>
         <time>{clockOf(ev)}</time>
         <div className="conversation-tools">
-        <CopyButton text={r.text} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
+        <CopyButton text={reportText} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
         {/* A question is rewritten and sent again, its new answer kept beside the first;
             the answers so far are read from the same place. */}
         {revision && onAction && operator && <button type="button" aria-label={revisionLabel} title={revisionLabel} onClick={() => onAction(revision)}><PencilLine size={14} /><span>{revisionLabel}</span></button>}
@@ -429,8 +384,6 @@ function RoleLogGroup({
   open,
   active,
   tasks,
-  round,
-  earlier,
   onToggle,
 }: {
   role: typeof ROLE_ORDER[number];
@@ -439,10 +392,6 @@ function RoleLogGroup({
   active: boolean;
   /** The tasks it is at work on now. */
   tasks: string[];
-  /** When the operator last wrote: what a role at work does now is what it did since. */
-  round: number;
-  /** What the role last said in the whole record, for when its loaded log says nothing. */
-  earlier?: string;
   onToggle: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -462,14 +411,14 @@ function RoleLogGroup({
   const taskTitle = useContext(TaskTitleContext);
   const workspace = useContext(WorkspaceContext);
   const doing = useCallback((on: ActivityRow[]) => {
-    const now = on.filter(row => Number(row.ev.ts) >= round);
+    const now = on;
     const step = now.filter(row => isCallRow(row.ev) && row.ev.kind !== 'tool_result').at(-1);
     return roleSaid(now, locale, taskTitle) || (!step ? '' : step.ev.kind === 'command_execution'
       ? `${zh ? '运行 ' : 'Running '}${plainCommand(step.r.text, workspace)}` : plainToolLabel(step.ev, locale));
-  }, [round, locale, zh, taskTitle, workspace]);
+  }, [locale, zh, taskTitle, workspace]);
   const headline = useMemo(() => active
     ? doing(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows)
-    : roleHeadline(rows, locale, taskTitle) || earlier || '', [active, doing, tasks, rows, locale, taskTitle, earlier]);
+    : roleHeadline(rows, locale, taskTitle) || '', [active, doing, tasks, rows, locale, taskTitle]);
   // At work on several tasks at once, it says what it does now on each.
   const several = active && tasks.length > 1;
   const each = useMemo(() => several ? tasks.map(id => ({
@@ -604,15 +553,12 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active, tasks, round, earlier, followLatest }: {
+function RoleLogCollection({ rows, active, tasks, followLatest }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
   /** The tasks the role is at work on now. */
   tasks: (role: string) => string[];
-  round: number;
-  /** What the role last said in the whole record. */
-  earlier?: (role: string) => string | undefined;
   followLatest: boolean;
 }) {
   const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
@@ -628,7 +574,7 @@ function RoleLogCollection({ rows, active, tasks, round, earlier, followLatest }
   return (
     <div className="bg-bg/25">
       {/* A role that has taken no part has nothing to say here. */}
-      {ROLE_ORDER.filter(role => roleRows[role].length || active(role) || earlier?.(role)).map((role) => (
+      {ROLE_ORDER.filter(role => roleRows[role].length || active(role)).map((role) => (
         <RoleLogGroup
           key={role}
           role={role}
@@ -636,8 +582,6 @@ function RoleLogCollection({ rows, active, tasks, round, earlier, followLatest }
           open={openRoles.has(role)}
           active={active(role)}
           tasks={tasks(role)}
-          round={round}
-          earlier={earlier?.(role)}
           onToggle={() => {
             userToggledRole.current = true;
             setOpenRoles((current) => {
@@ -745,102 +689,7 @@ function DeliveryCard({
   );
 }
 
-/** A run of three or more "step done, campaign continues" receipts keeps only
- * its newest message open; the earlier ones fold behind one control. */
-export function foldedContinuationRuns(rows: Array<{ key: string; ev: EventMsg }>): Map<string, { id: string; keys: string[] }> {
-  const folded = new Map<string, { id: string; keys: string[] }>();
-  let run: string[] = [];
-  const close = () => {
-    if (run.length >= 3) {
-      const keys = run.slice(0, -1);
-      const entry = { id: keys[0], keys };
-      keys.forEach((key) => folded.set(key, entry));
-    }
-    run = [];
-  };
-  for (const row of rows) {
-    // Older transcripts did not keep the flag; their message id still names the kind.
-    const continued = row.ev.campaign_continues === true || /^mission-result-.+-continued$/.test(String(row.ev.message_id ?? ''));
-    if (row.ev.mission_result === true && continued) run.push(row.key);
-    else close();
-  }
-  close();
-  return folded;
-}
-
-/**
- * The conversation view as one stream in time order, newest last: dialogue
- * threads, and one compact card per task placed where its work started, so a
- * message sent while work runs lands at the bottom, not under a work log.
- * Work stays out of the threads (task A's work is no answer to question B).
- * A chat reply stays directly under the message it answers, so a task that
- * started while it was being written follows it; a task report is that work's
- * outcome, so the card comes first and the thread continues after it.
- */
-export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
-  const blocks: TimelineBlock[] = [];
-  const tasks = new Map<string, Extract<TimelineBlock, { kind: 'task' }>>();
-  let held: ActivityRow[] = [];
-  let awaitingReply = false;
-  const addWork = (row: ActivityRow) => {
-    // Work on no task (the Manager's or the Planner's own) is the team's progress, not a task's;
-    // a Manager reply's own steps already show on that reply.
-    const taskId = eventTaskId(row.ev);
-    if (!taskId || taskId.startsWith('turn:')) return;
-    let task = tasks.get(taskId);
-    if (!task) {
-      task = { kind: 'task', key: `task-${row.key}`, taskId, rows: [], deliveries: [] };
-      tasks.set(taskId, task);
-      blocks.push(task);
-    }
-    task.rows.push(row);
-  };
-  const release = () => {
-    held.forEach(addWork);
-    held = [];
-  };
-  rows.forEach((row) => {
-    if (row.ev.type === 'ui.operator') {
-      release();
-      blocks.push({ kind: 'thread', key: row.key, operator: row, rows: [] });
-      awaitingReply = true;
-    } else if (row.ev.type === 'ui.argus') {
-      if (row.ev.mission_result === true || deliveryFromEvent(row.ev)) release();
-      const last = blocks.at(-1);
-      if (last?.kind === 'thread') last.rows.push(row);
-      else blocks.push({ kind: 'thread', key: `thread-${row.key}`, rows: [row] });
-      awaitingReply = false;
-      release();
-    } else if (awaitingReply) {
-      held.push(row);
-    } else {
-      addWork(row);
-    }
-  });
-  release();
-  // A receipt a reply already shows is not repeated under the work.
-  const seen = new Set(rows.filter(row => row.ev.type === 'ui.argus')
-    .map(row => deliveryFromEvent(row.ev)?.delivery_id).filter(Boolean));
-  blocks.forEach((block) => {
-    if (block.kind !== 'task') return;
-    block.deliveries = block.rows.flatMap((row) => {
-      const delivery = deliveryFromEvent(row.ev);
-      if (!delivery || seen.has(delivery.delivery_id)) return [];
-      seen.add(delivery.delivery_id);
-      return [delivery];
-    });
-  });
-  return blocks;
-}
-
-
 type TaskCardState = 'running' | 'done' | 'failed' | 'asking' | 'queued' | 'paused' | 'idle';
-
-/** A task as the server's plan has it: done, waiting for the operator's answer, failed, waiting
- * for the tasks before it, or open, which is under way while the work runs and paused when not. */
-const TASK_STATE: Record<string, Exclude<TaskCardState, 'running' | 'paused' | 'idle'>> = {
-  done: 'done', blocked: 'asking', failed: 'failed', pending: 'queued',
-};
 
 const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [string, string]> = {
   done: ['已完成', 'Done'],
@@ -856,148 +705,45 @@ const TASK_TONE: Partial<Record<TaskCardState, string>> = { running: 'running', 
  * A task in the conversation: one line on where it stands, and its results.
  * What its roles said is the team's progress below, said there once.
  */
-function TaskWorkCard({ block, state, title, role, onOpenDelivery }: {
-  block: Extract<TimelineBlock, { kind: 'task' }>;
-  state: TaskCardState;
-  title: string;
-  /** The role on it now. */
-  role?: string;
-  onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
-}) {
+function TaskWorkCard({ event }: { event: EventMsg }) {
   const { locale } = useI18n();
-  const zh = locale === 'zh-CN';
-  const words = state === 'running' ? roleActionLabel(role, zh, title)
-    : state === 'idle' ? title : `${TASK_STATE_LABEL[state][zh ? 0 : 1]}${zh ? '：' : ': '}${title}`;
-  return (
-    <section data-task-work={block.taskId} data-state={state}
-      className="task-line mx-auto w-full max-w-full px-4 py-1 sm:px-6 lg:max-w-[808px]">
-      <div className="task-line-row flex min-w-0 items-center gap-2.5 text-[13px]">
-        <span className="status-dot" data-tone={TASK_TONE[state]} aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-ink-dim" role={state === 'running' ? 'status' : undefined}>{words}</span>
-      </div>
-      {block.deliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
-    </section>
-  );
+  const state = String(event.state) as TaskCardState;
+  const title = String(event.title ?? '');
+  const label = state === 'running' ? (locale === 'zh-CN' ? '进行中' : 'In progress')
+    : state === 'idle' ? '' : TASK_STATE_LABEL[state][locale === 'zh-CN' ? 0 : 1];
+  return <section data-task-work={String(event.item_id)} data-state={state}
+    className="task-line mx-auto w-full max-w-full px-4 py-1 sm:px-6 lg:max-w-[808px]">
+    <div className="task-line-row flex min-w-0 items-center gap-2.5 text-[13px]">
+      <span className="status-dot" data-tone={TASK_TONE[state]} aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate text-ink-dim">{label}{locale === 'zh-CN' ? '：' : ': '}{title}</span>
+    </div>
+  </section>;
 }
 
-/** Insert the mission view's older role work at its place in time. */
-function withEarlierWork(earlier: EventMsg[], events: EventMsg[]): EventMsg[] {
-  if (!earlier.length) return events;
-  const merged: EventMsg[] = [];
-  let next = 0;
-  events.forEach((event) => {
-    const ts = Number(event.ts);
-    while (next < earlier.length && Number(earlier[next].ts) < ts) merged.push(earlier[next++]);
-    merged.push(event);
-  });
-  return [...merged, ...earlier.slice(next)];
-}
-
-function ConversationThread({
-  group,
-  artifacts,
-  onOpenArtifact,
-  onOpenDelivery,
-}: {
-  group: ConversationGroup;
+/** Render one row in the order supplied by the server. */
+function ConversationItem({ row, artifacts, onOpenArtifact, onOpenDelivery }: {
+  row: ActivityRow;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
-  const isSystemMessage = (row: ActivityRow) =>
-    row.ev.type === 'ui.argus' && /^(info:|operation cancelled|cancelled\b)/i.test(row.r.text.trim());
-  const argusRows = group.rows.filter((row) => row.ev.type === 'ui.argus');
-  // Editions are stored by message id, so only a transcript id can key them.
-  const source = group.operator && durableMessageId(group.operator.ev);
-  const revision: ConversationRevision | undefined = group.operator && source ? {
-    source,
-    prompt: group.operator.r.text,
-    answer: argusRows.filter(row => row.ev.mission_result !== true).map(row => row.r.text).join('\n\n'),
-    baseVersion: 0,
-  } : undefined;
-  const replyParts = argusRows
-    .map((row) => {
-      // Historical reports keep their complete event text for the original view
-      // and copy action, including whitespace and any embedded runtime notice.
-      if (row.ev.mission_result === true) return { key: row.key, reply: row, messages: [] };
-      const messages = row.r.text.match(RUNTIME_INFO_PATTERN) ?? [];
-      const text = row.r.text.replace(RUNTIME_INFO_PATTERN, '').trim();
-      const working = row.ev.live === true || (Array.isArray(row.ev.steps) && row.ev.steps.length > 0);
-      return {
-        key: row.key,
-        reply: (text || working) && !isSystemMessage(row) ? { ...row, r: { ...row.r, text } } : null,
-        messages: isSystemMessage(row) && messages.length === 0 ? [row.r.text] : messages,
-      };
-    });
-  const replies = replyParts.flatMap((part) => part.reply ? [part.reply] : []);
-  const folded = foldedContinuationRuns(replies);
-  const [openRuns, setOpenRuns] = useState<Set<string>>(() => new Set());
   const { locale, t } = useI18n();
-  // Notices and receipts follow the reply that carried them, in time order.
-  const seenDeliveries = new Set<string>();
-  const after = new Map(replyParts.map((part, index) => {
-    const delivery = deliveryFromEvent(argusRows[index].ev);
-    const fresh = delivery && !seenDeliveries.has(delivery.delivery_id) ? delivery : null;
-    if (fresh) seenDeliveries.add(fresh.delivery_id);
-    return [part.key, { messages: part.messages, delivery: fresh }];
-  }));
-  const trailing = (key: string) => {
-    const extra = after.get(key);
-    if (!extra) return null;
-    return <>
-      {extra.messages.map((message, index) => (
-        <div key={`${key}-system-${index}`} className="mx-auto w-full max-w-full px-6 py-1.5 text-center text-xs text-ink-faint lg:max-w-[808px]">
-          {message}
-        </div>
-      ))}
-      {extra.delivery ? <DeliveryCard delivery={extra.delivery} onOpen={onOpenDelivery} /> : null}
-    </>;
-  };
-
-  return (
-    <section className="conversation-thread">
-      {group.operator ? <ConversationRow
-        ev={group.operator.ev}
-        r={group.operator.r}
-        artifacts={artifacts}
-        onOpenArtifact={onOpenArtifact}
-        revision={revision}
-      /> : null}
-      {replyParts.map(({ key, reply: row }) => {
-        if (!row) return <Fragment key={key}>{trailing(key)}</Fragment>;
-        const run = folded.get(row.key);
-        if (run && !openRuns.has(run.id)) {
-          return <Fragment key={key}>
-            {run.keys[0] === row.key ? (
-              <button type="button" data-folded-steps={run.keys.length}
-                onClick={() => setOpenRuns((current) => new Set(current).add(run.id))}
-                className="mx-auto my-1 block w-full max-w-full px-4 py-1.5 text-center text-xs text-ink-faint hover:text-ink-dim lg:max-w-[808px]">
-                {locale === 'zh-CN' ? `较早的 ${run.keys.length} 步进展已折叠 · 展开` : `${run.keys.length} earlier step updates folded · Show`}
-              </button>
-            ) : null}
-            {trailing(key)}
-          </Fragment>;
-        }
-        const reply = <ConversationRow ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact} revision={revision} />;
-        // A brief the Manager hands the team shows as what it hands over, by its title, and opens whole.
-        const to = String(row.ev.to ?? '');
-        return (
-          <Fragment key={key}>
-            {to === 'planner' || to === 'engineer' ? (
-              <details className="conversation-brief mx-auto w-full max-w-full px-6 py-1.5 lg:max-w-[808px]" data-testid="conversation-brief">
-                <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
-                  {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}：` : `Handed to the ${roleLabel(to, t)}: `}
-                  <span className="text-ink">{row.r.text.split('\n')[0]!.replace(/^#+\s*/, '')}</span>
-                </summary>
-                {reply}
-              </details>
-            ) : reply}
-            {trailing(key)}
-          </Fragment>
-        );
-      })}
-    </section>
-  );
+  const source = row.ev.type === 'ui.operator' ? durableMessageId(row.ev) : undefined;
+  const revision: ConversationRevision | undefined = source ? {
+    source, prompt: row.r.text, answer: String(row.ev.answer ?? ''), baseVersion: 0,
+  } : undefined;
+  const reply = <ConversationRow ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact} revision={revision} />;
+  const to = String(row.ev.to ?? '');
+  const delivery = deliveryFromEvent(row.ev);
+  return <section className="conversation-thread">
+    {to === 'planner' || to === 'engineer' ? <details className="conversation-brief mx-auto w-full max-w-full px-6 py-1.5 lg:max-w-[808px]" data-testid="conversation-brief">
+      <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
+        {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}：` : `Handed to the ${roleLabel(to, t)}: `}
+        <span className="text-ink">{row.r.text.split('\n')[0]!.replace(/^#+\s*/, '')}</span>
+      </summary>{reply}
+    </details> : reply}
+    {delivery && <DeliveryCard delivery={delivery} onOpen={onOpenDelivery} />}
+  </section>;
 }
 
 /**
@@ -1016,9 +762,11 @@ export function EventStream({
   onOpenArtifact,
   onOpenDelivery,
   snapshot,
-  missionView,
   historyStatus = 'ready',
   historyRefreshing = false,
+  hasOlder = false,
+  loadingOlder = false,
+  onLoadOlder,
   refreshingKept = false,
   onRetryHistory,
   onCompose,
@@ -1035,7 +783,6 @@ export function EventStream({
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
   snapshot?: Snapshot;
-  missionView?: MissionView | null;
   historyStatus?: ConversationHistoryStatus;
   historyRefreshing?: boolean;
   /** Showing content kept from an earlier visit while it refreshes. */
@@ -1046,7 +793,7 @@ export function EventStream({
   rememberPosition?: boolean;
   onConversationAction?: (target: ConversationRevision) => void;
   requestedMessageTs?: number;
-}) {
+} & Partial<ConversationPagination>) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);
@@ -1077,21 +824,6 @@ export function EventStream({
     const titles = new Map((snapshot?.backlog ?? []).map((item) => [item.id, item.title || '']));
     return (id: string) => titles.get(id) ?? '';
   }, [snapshot?.backlog]);
-  // A finished step keeps its process: the actions between its task's start
-  // and end, computed only when a report asks for them.
-  const stepProcess = useMemo(() => {
-    const cache = new Map<string, LiveLine[]>();
-    const tasks = new Map((snapshot?.backlog ?? []).map((item) => [item.id, item]));
-    return (taskId: string) => {
-      const cached = cache.get(taskId);
-      if (cached) return cached;
-      const task = tasks.get(taskId);
-      const since = Number(task?.started_ts || 0);
-      const lines = since > 0 ? liveLines(deferredEvents, taskId, since, locale, Number(task?.finished_ts || 0) || Infinity, workspace) : [];
-      cache.set(taskId, lines);
-      return lines;
-    };
-  }, [deferredEvents, locale, snapshot?.backlog, workspace]);
   const activeProvider = useMemo(
     () => snapshot || !connected ? null : activeProviderRequest(deferredEvents),
     [connected, deferredEvents, snapshot],
@@ -1106,38 +838,24 @@ export function EventStream({
     ? Math.max(0, Math.floor((activityTick - Number(activeProvider.ts ?? 0) * 1_000) / 1_000))
     : 0;
 
-  // render + whitelist + COALESCE streaming message fragments once per change
-  // (see renderFeedRows). Folding into steps happens per displayed list, in the
-  // role and system groups, where "consecutive" means what the reader sees.
-  const deferredView = useDeferredValue(missionView);
-  const baseRows = useMemo(() => {
-    const displayEvents = withEarlierWork(earlierRoleWork(deferredView, deferredEvents, locale), deferredEvents);
-    return renderFeedRows(displayEvents, { locale, showReasoning, workspace });
-  }, [deferredEvents, deferredView, showReasoning, locale, workspace]);
-
-  const rows = baseRows;
-  const timeline = useMemo(() => {
-    const blocks = conversationTimeline(rows.list);
-    const workRows = rows.list.filter((row) => row.ev.type !== 'ui.operator' && row.ev.type !== 'ui.argus');
-    const round = Math.max(0, ...rows.list.filter(row => row.ev.type === 'ui.operator').map(row => Number(row.ev.ts)));
-    return { blocks, workRows, round };
-  }, [rows.list]);
-  // Who works now, as the server knows it: several roles can at once, and none while the run is down.
+  const rows = useMemo(() => renderFeedRows(deferredEvents.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus'),
+    { locale, showReasoning, workspace }), [deferredEvents, locale, showReasoning, workspace]);
+  const roleRows = useMemo(() => renderFeedRows(snapshot?.role_events ?? [], { locale, showReasoning, workspace }).list,
+    [snapshot?.role_events, locale, showReasoning, workspace]);
   const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
     [connected, snapshot?.daemon.alive, snapshot?.roles]);
-  // Where a task stands is the server's word, never a guess from the record.
-  const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
-    const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
-    const status = item?.status ?? (block.rows.some(row => row.ev.type === 'life.mission.completed') ? 'done' : '');
-    if (status === 'in_progress') return !snapshot?.daemon.alive ? 'paused' : connected ? 'running' : 'idle';
-    return TASK_STATE[status] ?? 'idle';
-  };
-  const blockTitle = (block: Extract<TimelineBlock, { kind: 'task' }>) => {
-    const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
-    const named = item?.title || block.rows.map(row => row.ev.mission_title || row.ev.task_title).find(Boolean);
-    return String(named || (locale === 'zh-CN' ? '这项工作' : 'This work'));
-  };
-
+  const roleRound = snapshot?.role_round ?? 0;
+  const rowById = new Map(rows.list.map(row => [row.ev, row]));
+  const loadEarlier = useRef({ hasOlder, loadingOlder, onLoadOlder });
+  loadEarlier.current = { hasOlder, loadingOlder, onLoadOlder };
+  const prepend = useRef<{ height: number; top: number } | null>(null);
+  useEffect(() => {
+    if (!loadingOlder && prepend.current && scroller.current) {
+      scroller.current.scrollTop = prepend.current.top + scroller.current.scrollHeight - prepend.current.height;
+      lastScrollTop.current = scroller.current.scrollTop;
+      prepend.current = null;
+    }
+  }, [loadingOlder, events]);
   const tailContentLength = useMemo(
     () => rows.list.slice(-20).reduce((total, row) => total + row.r.text.length, 0),
     [rows.list],
@@ -1186,6 +904,13 @@ export function EventStream({
       followingRef.current = atBottom || (followingRef.current && el.scrollTop >= lastScrollTop.current - 1);
       lastScrollTop.current = el.scrollTop;
       setFollowing(followingRef.current);
+      const older = loadEarlier.current;
+      if (el.scrollTop < 80 && older.hasOlder && !older.loadingOlder && older.onLoadOlder) {
+        followingRef.current = false;
+        setFollowing(false);
+        prepend.current = { height: el.scrollHeight, top: el.scrollTop };
+        older.onLoadOlder();
+      }
       if (positionKey && restored) setReadingError(!writeLocalStorage(positionKey, JSON.stringify({ top: el.scrollTop, following: followingRef.current })));
     };
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -1224,7 +949,6 @@ export function EventStream({
 
   return (
     <ConversationActionContext.Provider value={onConversationAction}>
-    <StepProcessContext.Provider value={stepProcess}>
     <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
@@ -1262,7 +986,8 @@ export function EventStream({
       {readingError && <p role="status" className="px-4 py-1 text-xs text-warn">{locale === 'zh-CN' ? '浏览器无法恢复或保存阅读位置。' : 'This browser could not restore or save the reading position.'}</p>}
       <div ref={scroller} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-6 pt-1.5 scroll-thin" aria-busy={historyStatus === 'loading' || refreshingKept}>
         <div ref={content} className="flow-root" data-event-stream-content>
-        {rows.list.length === 0 ? (
+        {hasOlder && <button type="button" disabled={loadingOlder} onClick={onLoadOlder} className="block w-full py-2 text-xs text-ink-faint">{locale === 'zh-CN' ? loadingOlder ? '正在加载…' : '更早的对话' : loadingOlder ? 'Loading…' : 'Earlier conversation'}</button>}
+        {deferredEvents.length === 0 ? (
           historyStatus === 'ready' ? onCompose ? <div className="mx-auto max-w-2xl px-5 pb-8 pt-[12vh]">
             <h2 className="font-serif text-[28px] font-medium leading-tight tracking-[-0.01em] text-ink">{locale === 'zh-CN' ? '从你想完成的事开始' : 'Start with what you want to accomplish'}</h2>
             <p className="mt-2 text-sm leading-6 text-ink-faint">{locale === 'zh-CN' ? '直接说出目标，也可以选择下面的场景，再补充你的材料和要求。' : 'Describe your goal, or choose a starting point and add your material and requirements.'}</p>
@@ -1272,29 +997,28 @@ export function EventStream({
           </div> : <EmptyHint>{t('stream.ready')}</EmptyHint> : null
         ) : (
           <>
-            {timeline.blocks.map((block) => {
-              if (block.kind === 'thread') return <ConversationThread
-                key={block.key}
-                group={block}
-                artifacts={artifacts}
-                onOpenArtifact={onOpenArtifact}
-                onOpenDelivery={onOpenDelivery}
-              />;
-              return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={blockTitle(block)}
-                role={snapshot?.roles.find(role => role.active && role.tasks?.includes(block.taskId))?.role}
-                onOpenDelivery={onOpenDelivery} />;
+            {deferredEvents.map(event => {
+              const key = String(event.row_id ?? event.message_id ?? event.event_id);
+              if (event.type === 'ui.task') return <TaskWorkCard key={key} event={event} />;
+              if (event.type === 'ui.question') return <section key={key} data-conversation-question={String(event.question_id)} className="mx-auto w-full px-6 py-3 lg:max-w-[808px]">
+                <p className="mb-1 text-xs font-semibold text-ink-dim">{locale === 'zh-CN' ? `${roleLabel(String(event.agent_layer), t)}问：` : `${roleLabel(String(event.agent_layer), t)} asks:`}</p>
+                <MarkdownContent>{String(event.text)}</MarkdownContent>
+              </section>;
+              const row = rowById.get(event);
+              return row ? <ConversationItem key={key} row={row}
+                artifacts={artifacts} onOpenArtifact={onOpenArtifact} onOpenDelivery={onOpenDelivery} /> : null;
             })}
-            {/* The team's progress: each role, what it does now or did last, its work a click away. */}
-            {timeline.workRows.length || snapshot?.roles.some(role => role.last) ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
-              className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
-              <div className="overflow-hidden rounded-lg border border-line/70">
-                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} round={timeline.round} followLatest
-                  tasks={role => snapshot?.roles.find(row => row.role === role)?.tasks ?? []}
-                  earlier={role => snapshot?.roles.find(row => row.role === role)?.last?.text} />
-              </div>
-            </section> : null}
+
           </>
         )}
+            {/* The team's progress: each role, what it does now or did last, its work a click away. */}
+            {roleRows.length || working.size ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
+              className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
+              <div className="overflow-hidden rounded-lg border border-line/70">
+                <RoleLogCollection rows={roleRows} active={role => working.has(role)} key={String(roleRound)} followLatest
+                  tasks={role => snapshot?.roles.find(row => row.role === role)?.tasks ?? []} />
+              </div>
+            </section> : null}
         </div>
       </div>
       {!following && (
@@ -1310,7 +1034,6 @@ export function EventStream({
     </section>
     </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>
-    </StepProcessContext.Provider>
     </ConversationActionContext.Provider>
   );
 }

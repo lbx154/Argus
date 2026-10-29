@@ -12,7 +12,7 @@ import {
   API_PROTOCOL, API_SERVICE, RELEASE_ID, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
 } from '@argus/contracts';
 import { rewritePrompt } from '../prompts.js';
-import { PROJECT_ID, type Project, type Store } from '../store.js';
+import { PROJECT_ID, questionId, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachments } from './attachments.js';
 import { artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
@@ -24,7 +24,7 @@ import { resources } from './resources.js';
 import { Runs, type Frame } from './runs.js';
 import { trash } from './trash.js';
 import { versions } from './versions.js';
-import { daemon, follow, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
+import { daemon, follow, progressMap, projectRow, readEvents, snapshot, taskTrace, webEvents, readRecord, conversationRows, conversationPage } from './views.js';
 import { workspace } from './workspace.js';
 
 export interface ServeOptions {
@@ -175,8 +175,30 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // that reconnects names the last line it has (Last-Event-ID) and is sent those after it; a new
     // one, the last `replay`.
     ['GET', /^\/api\/projects\/([^/]+)\/stream$/, ({ params: [id], url, request, response }) => {
-      const read = follow(store, project(id!).id);
+      const work = project(id!);
       const send = sse(response);
+      if (url.searchParams.get('view') === 'rows') {
+        let previous = new Map<string, string>();
+        let cursor = Number(request.headers['last-event-id'] ?? url.searchParams.get('after') ?? -1);
+        let roleCursor = -1;
+        const flush = () => {
+          const reading = readRecord(store, work.id);
+          const rows = conversationRows(reading, project(work.id), runs.live(work.id));
+          const changed = rows.filter(row => previous.size
+            ? previous.get(String(row.row_id)) !== JSON.stringify(row) : Number(row.event_id) > cursor);
+          previous = new Map(rows.map(row => [String(row.row_id), JSON.stringify(row)]));
+          cursor = reading.fold.line - 1;
+          send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round,
+            role_events: reading.roleEvents.filter(event => Number(event.event_id) > roleCursor) });
+          roleCursor = cursor;
+        };
+        flush();
+        const wake = listeners.get(id!) ?? new Set();
+        listeners.set(id!, wake.add(flush));
+        response.on('close', () => wake.delete(flush));
+        return;
+      }
+      const read = follow(store, work.id);
       const had = Number(request.headers['last-event-id'] || NaN);
       const replay = Math.min(200, Number(url.searchParams.get('replay') ?? 40));
       const all = read();
@@ -193,8 +215,14 @@ export async function serve(options: ServeOptions): Promise<Served> {
       watchers.add(send);
       response.on('close', () => watchers.delete(send));
     }],
-    ['GET', /^\/api\/projects\/([^/]+)\/transcript$/, ({ params: [id], url }) =>
-      ({ turns: turns(webEvents(readEvents(store, project(id!).id))).slice(-Number(url.searchParams.get('n') ?? 30)) })],
+    ['GET', /^\/api\/projects\/([^/]+)\/conversation$/, ({ params: [id], url }) => {
+      const work = project(id!);
+      const reading = readRecord(store, work.id);
+      const limit = Number(url.searchParams.get('limit') ?? 30);
+      const before = url.searchParams.has('before') ? Number(url.searchParams.get('before')) : Infinity;
+      if (!Number.isInteger(limit) || limit < 1 || limit > 120 || Number.isNaN(before)) throw new HttpError(400, 'invalid conversation page');
+      return conversationPage(conversationRows(reading, work, runs.live(work.id)), reading.fold.line - 1, limit, before);
+    }],
     ['GET', /^\/api\/projects\/([^/]+)\/map$/, ({ params: [id], url }) =>
       progressMap(store, project(id!), Number(url.searchParams.get('after')) || 0)],
     ['GET', /^\/api\/projects\/([^/]+)\/map-trace$/, ({ params: [id], url }) => taskTrace(store, project(id!), url.searchParams.get('task') ?? '')],

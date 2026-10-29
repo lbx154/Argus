@@ -3,7 +3,7 @@ import test, { type TestContext } from 'node:test';
 import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectApiMeta, RELEASE_ID, REQUIRED_API_CAPABILITIES, requireSnapshotContract, type EventMsg, type Snapshot } from '@argus/contracts';
+import { inspectApiMeta, RELEASE_ID, REQUIRED_API_CAPABILITIES, requireSnapshotContract, type ConversationPage, type EventMsg, type Snapshot } from '@argus/contracts';
 import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { SKILLS } from '../src/prompts.js';
 import { Store } from '../src/store.js';
@@ -142,6 +142,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual((await get<{ projects: { id: string }[] }>('/api/projects')).projects.map(row => row.id), [sid]);
 
   const live = new AbortController();
+  t.after(() => live.abort());
   const stream = frames(await call(`${P}/stream?replay=40&view=ui`, { signal: live.signal }), frame => frame.type === 'life.mission.completed');
 
   const reply = await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
@@ -149,7 +150,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // The operator reads the Manager's letter to the team: the brief is its reply.
   // The reply is its row in the record, as the conversation shows it after a reload: whom it is to, and the message it answers.
   assert.deepEqual(reply[1], { type: 'delta', event: { type: 'ui.argus', ts: (reply[1]!.event as EventMsg).ts, event_id: 3,
-    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus' } });
+    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', row_id: 'm0-argus', order: 3 } });
   assert.deepEqual(reply[2], { type: 'done', result: { kind: 'task', reply: brief } });
 
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot?compact=true&events_limit=1`),
@@ -163,9 +164,8 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.equal(asking.spend_usd, 0.03);
   // With no model chosen, each role shows the one its last call ran on.
   assert.deepEqual([asking.roles.find(role => role.role === 'engineer')?.model, asking.last_call?.role, asking.last_call?.model], ['fake-model', 'reviewer', 'fake-model']);
-  // Each role's last words, its newest message or letter, come from the whole record: the page holds only its newest part.
-  assert.deepEqual(asking.roles.map(role => [role.role, role.last?.text ?? null]),
-    [['manager', 'Summarize the CSV.'], ['planner', null], ['engineer', 'report.md written'], ['reviewer', 'Ship it as is?']]);
+  assert.ok(asking.role_events?.some(row => row.text === 'Ship it as is?'));
+  assert.equal(asking.work_status?.label['zh-CN'], '等你回答 1 个问题');
   const card = (asking.pending_questions![0] as { operator_decision: { id: string; question: string; options: unknown[] } }).operator_decision;
   assert.deepEqual([card.question, card.options], ['Ship it as is?', []]);
 
@@ -178,11 +178,9 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // What the Engineer said as its turn went on is in the feed while it works.
   assert.deepEqual(events.find(event => event.type === 'engineer.progress'), { ...events.find(event => event.type === 'engineer.progress'),
     kind: 'agent_message', agent_layer: 'engineer', text: 'Totalling the columns.', item_id: 't1' });
-  // The transcript is the conversation's rows as the stream sends them.
-  const { turns } = await get<{ turns: EventMsg[] }>(`${P}/transcript?n=120`);
-  assert.deepEqual(turns, events.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus'));
-  assert.deepEqual(turns.map(turn => [turn.type, turn.message_id]), [['ui.operator', 'm0-operator'], ['ui.argus', 'm0-argus']]);
-  assert.deepEqual(turns[1], (reply[1]!.event as EventMsg));
+  const { rows } = await get<{ rows: EventMsg[] }>(`${P}/conversation?limit=120`);
+  assert.deepEqual(rows.map(row => row.type), ['ui.operator', 'ui.argus', 'ui.question', 'ui.task']);
+  assert.deepEqual(rows[1], reply[1]!.event);
 
   assert.equal((await post(`${P}/decisions/q-stale/resolve`, { option_id: 'custom', note: 'yes' })).status, 409);
   assert.equal((await post(`${P}/decisions/${card.id}/resolve`, { option_id: 'custom', note: ' ' })).status, 400);
@@ -191,7 +189,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(done.pending_questions, []);
   assert.match(requests.at(-2)!.prompt, /They answered: Ship it today/);
   // The Manager's report, written after the team's work, is in the conversation too.
-  assert.deepEqual((await get<{ turns: { text: string }[] }>(`${P}/transcript?n=120`)).turns.at(-1)?.text, 'report.md gives the totals.');
+  assert.deepEqual((await get<{ rows: { text: string }[] }>(`${P}/conversation?limit=120`)).rows.at(-1)?.text, 'report.md gives the totals.');
 
   const streamed = await stream;
   live.abort();
@@ -489,8 +487,8 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   const stopped = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   assert.equal(stopped.daemon.resumable, true);
   await post(`${P}/daemon/start`, { command_id: 'c2' });
-  const answered = await eventually(() => get<{ turns: EventMsg[] }>(`${P}/transcript`), ({ turns }) => turns.length === 2);
-  assert.deepEqual(answered.turns.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'], ['ui.argus', '42']]);
+  const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.length === 2);
+  assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'], ['ui.argus', '42']]);
   assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
   assert.equal(requests.length, 2);
 });
@@ -591,7 +589,7 @@ test('a message typed while a reply is under way is answered after it', async t 
   assert.equal((await post(`${P}/message/followup`, { text: ' ' })).status, 400);
   release();
   await first;
-  const { turns } = await eventually(() => get<{ turns: EventMsg[] }>(`${P}/transcript`), ({ turns }) => turns.length === 4);
+  const { rows: turns } = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.length === 4);
   assert.deepEqual(turns.map(turn => [turn.type, turn.text]), [
     ['ui.operator', 'first'], ['ui.argus', 'First answered.'], ['ui.operator', 'second'], ['ui.argus', 'Second answered.'],
   ]);
@@ -778,6 +776,7 @@ test("the page is sent each project's state as it changes: the question a turn a
   ]);
   type State = { type: string; row?: { id: string; daemon_alive: boolean } | null; snapshot?: Snapshot | null };
   const live = new AbortController();
+  t.after(() => live.abort());
   const sent = frames(await call('/api/projects/stream', { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
@@ -842,4 +841,112 @@ test('validation errors identify the reason without making the browser parse Eng
   const empty = await post(`/api/projects/${sid}/prompt/rewrite`, { text: '' });
   assert.equal(empty.status, 400);
   assert.deepEqual(await empty.json(), { code: 'input_required', detail: 'empty prompt' });
+});
+
+test('row stream, refreshed conversation and current-round role log share one projection through a question and answer', async t => {
+  const { get, post, call, store } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: 'Run the experiment.' },
+    { role: 'engineer', to: 'operator', letter: 'Which seed?', says: 'Read the setup.' },
+    { role: 'engineer', to: 'reviewer', letter: 'Seed 42 evaluated.' },
+    { role: 'reviewer', to: 'manager', letter: 'Checked.' },
+    { role: 'manager', to: 'operator', letter: 'Delivered.' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  const live = new AbortController();
+  t.after(() => live.abort());
+  const stream = frames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame =>
+    (frame.rows as EventMsg[]).some(row => row.text === 'Delivered.'));
+  await post(`${P}/message`, { text: 'Evaluate a seed.' });
+  const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => Boolean(state.pending_questions?.length) && !state.daemon.alive);
+  const card = (asking.pending_questions![0] as { operator_decision: { id: string } }).operator_decision;
+  await post(`${P}/decisions/${card.id}/resolve`, { note: '42' });
+  const sent = await stream;
+  live.abort();
+  const rows = new Map<string, EventMsg>();
+  let roles: EventMsg[] = [];
+  for (const frame of sent) {
+    for (const row of frame.rows as EventMsg[]) rows.set(String(row.row_id), row);
+    roles = [...roles.filter(row => Number(row.event_id) >= Number(frame.round)), ...frame.role_events as EventMsg[]];
+  }
+  const refreshed = await get<{ rows: EventMsg[] }>(`${P}/conversation?limit=120`);
+  assert.deepEqual([...rows.values()].sort((a, b) => Number(a.order) - Number(b.order)), refreshed.rows);
+  const question = refreshed.rows.findIndex(row => row.type === 'ui.question');
+  assert.deepEqual(refreshed.rows.slice(question, question + 3).map(row => row.type), ['ui.question', 'ui.operator', 'ui.task']);
+  assert.equal(refreshed.rows[question + 1]!.text, '42');
+  assert.equal(refreshed.rows[question + 2]!.state, 'done');
+  const ended = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
+  assert.deepEqual(roles, ended.role_events);
+  assert.ok(!roles.some(row => row.text === 'Read the setup.'));
+  assert.ok(readEvents(store, sid).some(event => event.type === 'message' && event.to === 'engineer' && event.answer_to === card.id));
+  assert.equal((await call(`${P}/conversation?limit=0`)).status, 400);
+  assert.equal((await call(`${P}/transcript`)).status, 404);
+});
+
+test('answering a question outside the loaded page sends the whole pair and retains it on a cold paginated read', async t => {
+  const { get, post, call } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: 'Run the experiment.' },
+    { role: 'engineer', to: 'operator', letter: 'Which seed?' },
+    ...Array.from({ length: 20 }, (_, i): Step => ({ role: 'manager', to: 'operator', letter: `Later reply ${i}` })),
+    { role: 'engineer', to: 'reviewer', letter: 'Seed evaluated.' },
+    { role: 'reviewer', to: 'manager', letter: 'Checked.' },
+    { role: 'manager', to: 'operator', letter: 'Delivered.' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await post(`${P}/message`, { text: 'Evaluate a seed.' });
+  const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => Boolean(state.pending_questions?.length) && !state.daemon.alive);
+  const card = (asking.pending_questions![0] as { operator_decision: { id: string } }).operator_decision;
+  for (let i = 0; i < 20; i++) await post(`${P}/message`, { text: `Later message ${i}` });
+  const initial = await get<ConversationPage>(`${P}/conversation?limit=30`);
+  assert.equal(initial.rows.length, 30);
+  assert.ok(initial.before !== null);
+  assert.ok(!initial.rows.some(row => row.type === 'ui.question'));
+
+  const live = new AbortController();
+  t.after(() => live.abort());
+  const stream = frames(await call(`${P}/stream?view=rows&after=${initial.cursor}`, { signal: live.signal }), frame =>
+    (frame.rows as EventMsg[]).some(row => row.text === '424242'));
+  await post(`${P}/decisions/${card.id}/resolve`, { note: '424242' });
+  const sent = await stream;
+  live.abort();
+  const delta = sent.find(frame => (frame.rows as EventMsg[]).some(row => row.text === '424242'))!.rows as EventMsg[];
+  const changedQuestion = delta.findIndex(row => row.type === 'ui.question');
+  assert.ok(changedQuestion >= 0, 'the answer delta must also contain the question absent from the loaded page');
+  assert.equal(delta[changedQuestion + 1]?.text, '424242');
+
+  const merged = new Map(initial.rows.map(row => [String(row.row_id), row]));
+  for (const frame of sent) for (const row of frame.rows as EventMsg[]) merged.set(String(row.row_id), row);
+  const shown = [...merged.values()].sort((a, b) => Number(a.order) - Number(b.order));
+  const liveQuestion = shown.findIndex(row => row.type === 'ui.question');
+  assert.equal(shown[liveQuestion + 1]?.text, '424242');
+  assert.ok(liveQuestion > 0, 'the answered pair belongs at the answer time, after later Manager dialogue');
+
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
+  const refreshed = await get<ConversationPage>(`${P}/conversation?limit=30`);
+  const question = refreshed.rows.findIndex(row => row.type === 'ui.question');
+  assert.ok(question >= 0, 'a cold first-page read must retain the newly answered old question');
+  assert.equal(refreshed.rows[question + 1]?.text, '424242');
+  const reconnect = new AbortController();
+  t.after(() => reconnect.abort());
+  const replayed = await frames(await call(`${P}/stream?view=rows`, {
+    signal: reconnect.signal, headers: { 'last-event-id': String(initial.cursor) },
+  }), frame => (frame.rows as EventMsg[]).some(row => row.text === '424242'));
+  reconnect.abort();
+  const replay = replayed.at(-1)!.rows as EventMsg[];
+  const replayQuestion = replay.findIndex(row => row.type === 'ui.question');
+  assert.ok(replayQuestion >= 0, 'reconnection must replay both rows of the newly answered pair');
+  assert.equal(replay[replayQuestion + 1]?.text, '424242');
+  const all: EventMsg[] = [];
+  let page = refreshed;
+  for (;;) {
+    all.unshift(...page.rows);
+    if (page.before === null) break;
+    page = await get<ConversationPage>(`${P}/conversation?limit=30&before=${page.before}`);
+  }
+  assert.equal(all.filter(row => row.type === 'ui.question').length, 1);
+  assert.equal(all.filter(row => row.text === '424242').length, 1);
+  // Even a one-row page must keep the actual question and answer together.
+  const pair = await get<ConversationPage>(`${P}/conversation?limit=1&before=${Number(refreshed.rows[question + 1]!.order) + 0.01}`);
+  assert.deepEqual(pair.rows.map(row => row.text), ['Which seed?', '424242']);
 });
