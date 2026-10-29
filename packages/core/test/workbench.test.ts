@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -110,6 +110,21 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   await writeFile(join(project.workdir, 'big.txt'), 'x'.repeat(1.5 * (1 << 20)));
   git('add', 'big.txt');
   assert.equal((await get<{ truncated: boolean }>(W('git'))).truncated, true);
+});
+
+test('the results listed are the newest files, however many the workdir has', async t => {
+  const { project, get } = await setup(t);
+  // More files than are listed, made in an order other than their times.
+  const start = Date.parse(project.created) / 1000 + 60;
+  for (let index = 0; index < 250; index += 1) {
+    const name = `out/${String((index * 97) % 250).padStart(3, '0')}.txt`;
+    await mkdir(join(project.workdir, 'out'), { recursive: true });
+    await writeFile(join(project.workdir, name), name);
+    await utimes(join(project.workdir, name), start + index, start + index);
+  }
+  const { artifacts } = await get<{ artifacts: { path: string }[] }>(`/api/projects/${project.id}/artifacts`);
+  const newest = Array.from({ length: 200 }, (_, at) => `out/${String(((249 - at) * 97) % 250).padStart(3, '0')}.txt`);
+  assert.deepEqual(artifacts.map(row => row.path), newest);
 });
 
 test('an HTML result is previewed as one page, its local files inlined, that can reach nothing', async t => {
