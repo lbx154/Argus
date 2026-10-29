@@ -391,7 +391,7 @@ test("the Planner writes to a task under way, and its holder reads the letter at
   while (!flow.store.load(id).tasks[0]?.unread?.length) await new Promise(resolve => setImmediate(resolve));
   release();
   const project = await flow.settled(id);
-  assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.unread], ['idle', 1, []]);
+  assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.unread], ['idle', 1, undefined]);
   assert.equal(requests[5]?.prompt, '## From the Engineer\nStill training.\n\n## From the Planner, since the task\'s last turn\nSwitch to the newer model now.');
 });
 
@@ -516,6 +516,97 @@ test('a failed turn holds up only its task: the rest goes on, and the project sh
   const project = await flow.settled(id);
   assert.deepEqual([project.status, project.error, project.failures], ['idle', null, []]);
   assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'engineer', 'planner', 'engineer', 'planner', 'manager']);
+});
+
+const gate = () => { let open = (): void => {}; const shut = new Promise<void>(resolve => { open = resolve; }); return { shut, open }; };
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test("a Planner's letter to a task that closed during its turn goes back to it, and the ids its other letters name hold", async t => {
+  const t1 = gate(), planner = gate();
+  const { flow, id, store, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Train the baseline' },
+    { role: 'engineer', waits: t1.shut, to: 'planner', letter: 'Baseline trained.' },
+    { role: 'manager', to: 'planner', letter: 'Also evaluate and compare.' },
+    { role: 'planner', waits: planner.shut, to: 'engineer', letters: ['Also log the loss.', 'Evaluate it', 'Compare'],
+      tasks: [{ task: 't1', after: [] }, { task: '', after: [] }, { task: '', after: ['t2'] }] },
+  ]);
+  await flow.say(id, 'Train a baseline');
+  while (requests.length < 3) await tick();
+  await flow.say(id, 'Also evaluate and compare');
+  t1.open();
+  while (store.load(id).tasks[0]?.status !== 'closed') await tick();
+  flow.stop(id);
+  planner.open();
+  const project = await flow.settled(id);
+  assert.deepEqual(project.tasks.map(task => [task.id, task.title, task.after ?? []]),
+    [['t1', 'Train the baseline', []], ['t2', 'Evaluate it', []], ['t3', 'Compare', ['t2']]]);
+  assert.equal(project.inbox.at(-1), 'Your letter to task t1, which closed before it was read:\nAlso log the loss.');
+});
+
+test('a letter that reaches a task during the turn that closes it goes back to the Planner', async t => {
+  const t1 = gate();
+  const { flow, id, store, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Train the baseline' },
+    { role: 'engineer', waits: t1.shut, to: 'planner', letter: 'Baseline trained.' },
+    { role: 'manager', to: 'planner', letter: 'Use the newer data.' },
+    { role: 'planner', to: 'engineer', letters: ['Switch to the newer data now.'], tasks: [{ task: 't1', after: [] }] },
+    { role: 'planner', to: 'planner', letter: 'The baseline must be trained again on the newer data.' },
+  ]);
+  await flow.say(id, 'Train a baseline');
+  while (requests.length < 3) await tick();
+  await flow.say(id, 'Use the newer data');
+  while (!store.load(id).tasks[0]?.unread?.length) await tick();
+  t1.open();
+  const project = await flow.settled(id);
+  assert.deepEqual([project.tasks[0]?.status, project.tasks[0]?.unread], ['closed', undefined]);
+  assert.match(requests[5]!.prompt, /Your letter to task t1, which closed before it was read:\nSwitch to the newer data now\./);
+});
+
+test('a stopped project stays stopped through a failed Manager turn, a chat and an answer', async t => {
+  const engineer = gate();
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: brief },
+    { role: 'engineer', waits: engineer.shut, to: 'operator', letter: 'Which column?' },
+    { role: 'manager', throws: 'network down' },
+    // The letter the failed turn left goes to the Manager again with the operator's next.
+    { role: 'manager', to: 'operator', letter: 'The team is stopped.' },
+    { role: 'manager', to: 'operator', letter: 'Resume it when you are ready.' },
+  ]);
+  await flow.say(id, 'Make me a CSV summary tool');
+  while (requests.length < 2) await tick();
+  flow.stop(id);
+  engineer.open();
+  assert.equal((await flow.settled(id)).status, 'stopped');
+  await flow.say(id, 'How is it going?');
+  await flow.say(id, 'OK');
+  const [question] = (await flow.settled(id)).questions;
+  flow.answer(id, question!, 'The second one.');
+  const project = await flow.settled(id);
+  assert.deepEqual([project.status, requests.map(request => request.role)], ['stopped', ['manager', 'engineer', 'manager', 'manager', 'manager']]);
+});
+
+test('letters to the Manager are taken one for one: the same words twice are two letters, handed on twice', async t => {
+  const first = gate(), second = gate();
+  const { flow, id, store, requests } = await setup(t, [
+    { role: 'manager', throws: 'boom' },
+    { role: 'manager', waits: first.shut, to: 'operator', letter: 'a' },
+    { role: 'manager', waits: second.shut, to: 'operator', letter: 'b' },
+    { role: 'manager', to: 'operator', letter: 'c' },
+  ]);
+  await flow.say(id, 'continue');
+  await flow.settled(id);
+  const again = flow.say(id, 'continue');
+  while (requests.length < 2) await tick();
+  first.open();
+  while (requests.length < 3) await tick();
+  const other = flow.say(id, 'other');
+  second.open();
+  await Promise.all([again, other]);
+  await flow.settled(id);
+  assert.deepEqual(requests.map(request => request.prompt.trim().split('\n').at(-1)), ['continue', 'continue', 'continue', 'other']);
+  assert.deepEqual(store.load(id).forManager, []);
 });
 
 test('questions wait side by side, and each answer goes to its own asker', async t => {

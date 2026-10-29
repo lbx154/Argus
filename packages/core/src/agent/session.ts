@@ -86,8 +86,11 @@ export class Cli {
 
   /** Hands each message the CLI writes to `take` until it says the turn has ended (true), or the CLI exits (false). */
   until(take: (message: Message) => boolean): Promise<boolean> {
-    return new Promise(resolve => {
-      this.listener = message => { if (take(message)) { this.listener = null; resolve(true); } };
+    return new Promise((resolve, reject) => {
+      // A `take` that throws (the step cannot be recorded, say) ends the turn with its error.
+      this.listener = message => {
+        try { if (take(message)) { this.listener = null; resolve(true); } } catch (error) { this.listener = null; reject(error); }
+      };
       void this.exited.then(() => resolve(false));
     });
   }

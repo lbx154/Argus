@@ -32,8 +32,8 @@ export interface AgentRequest {
    * one, the CLI ends with the turn. */
   session?: string;
   /** The role's standing instructions: its rules, and where things are. A backend with a place for
-   * them is given them with every turn, so they outlast its compaction of the session; the others
-   * read them at the head of a session's first prompt. */
+   * them is given them with each CLI it starts, so they outlast its compaction of the session; the
+   * others read them at the head of a session's first prompt. */
   instructions?: string;
   /** Who gave the task the turn is on: only the task's giver is offered among those who hear how it ended. */
   giver?: 'manager' | 'planner';

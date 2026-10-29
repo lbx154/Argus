@@ -23,7 +23,8 @@ export const claude: StartBackend = (request, { confined, schema }) => {
     '--json-schema', JSON.stringify(schema),
     ...request.resume ? ['--resume', request.resume] : [],
   ];
-  let threadId = request.resume ?? null;
+  // The session is the one Claude reports: one it cannot resume is none, and the role starts afresh.
+  let threadId: string | null = null;
   let model: string | null = null;
   /** What the CLI has cost so far, which each result reports. */
   let spent = 0;

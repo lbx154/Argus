@@ -228,9 +228,12 @@ for (const backend of ['codex', 'claude'] as const) {
     const second = await call(backend, { output: handoff }, { session, resume: first.threadId! });
     assert.deepEqual([seen(backend).run, second.threadId, second.handoff?.to], [run, first.threadId, 'reviewer']);
     assert.ok(held.every(job => !job.closed), 'a job ended with its turn');
-    // A turn that asks for another model: Codex takes it with the turn, Claude Code on a new CLI, which resumes the session.
+    // A turn that asks for another model, or for the backend's own again, runs on a new CLI, which resumes the session.
     const third = await call(backend, { output: handoff }, { session, resume: first.threadId!, model: 'another' });
-    assert.deepEqual([seen(backend).run === run, seen(backend).model, third.threadId], [backend === 'codex', 'another', first.threadId]);
+    assert.deepEqual([seen(backend).run === run, seen(backend).model, third.threadId], [false, 'another', first.threadId]);
+    const before = seen(backend).run;
+    await call(backend, { output: handoff }, { session, resume: first.threadId! });
+    assert.notEqual(seen(backend).run, before);
     await callAgent.close!('p-test/');
     for (let waited = 0; held.some(job => !job.closed); waited += 50) {
       assert.ok(waited < 10_000, 'a job outlived its session');
@@ -239,6 +242,19 @@ for (const backend of ['codex', 'claude'] as const) {
     assert.deepEqual(jobs(), ['started\n', 'started\n']);
   });
 }
+
+test('codex: a turn Codex refuses fails alone, in a session that goes on; a thread it cannot resume is none', async t => {
+  const session = 'p-test/t3.engineer';
+  t.after(() => callAgent.close!('p-test/'));
+  const first = await call('codex', { output: handoff }, { session });
+  const { run } = seen('codex');
+  const refused = await call('codex', { refuse: 'invalid effort' }, { session, resume: first.threadId! });
+  assert.deepEqual([refused.completed, refused.error, refused.threadId], [false, 'turn/start: invalid effort', first.threadId]);
+  const next = await call('codex', { output: handoff }, { session, resume: first.threadId! });
+  assert.deepEqual([next.handoff?.to, seen('codex').run], ['reviewer', run]);
+  const lost = await call('codex', { output: handoff }, { resume: 'gone' });
+  assert.deepEqual([lost.completed, lost.threadId, lost.error], [false, null, 'thread/resume: no rollout found for thread id gone']);
+});
 
 for (const backend of ['codex', 'claude'] as const) {
   test(`${backend}: a letter reaches the turn under way in a session, and none reaches a session with no turn under way`, async t => {

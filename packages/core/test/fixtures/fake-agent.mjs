@@ -74,6 +74,7 @@ if (cli === 'codex') {
   createInterface({ input: process.stdin }).on('line', line => {
     const { id, method, params } = JSON.parse(line);
     if (method === 'initialize') return reply(id, { userAgent: 'fake' });
+    if (method === 'thread/resume' && params.threadId === 'gone') return emit({ id, error: { code: -32600, message: 'no rollout found for thread id gone' } });
     if (method === 'thread/start' || method === 'thread/resume') {
       thread = method === 'thread/resume' ? params.threadId : uuid7();
       instructions = params.developerInstructions ?? undefined;
@@ -85,8 +86,9 @@ if (cli === 'codex') {
       return steerable(params.input[0].text);
     }
     if (method !== 'turn/start') return;
-    reply(id, { turn: { id: 'turn-1', status: 'inProgress' } });
     const scenario = scenarioOf(params.input[0].text);
+    if (scenario.refuse) return emit({ id, error: { code: -32600, message: scenario.refuse } });
+    reply(id, { turn: { id: 'turn-1', status: 'inProgress' } });
     const seen = { schema: params.outputSchema, instructions, model: params.model ?? undefined };
     note(seen);
     leave(scenario);

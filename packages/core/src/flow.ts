@@ -12,7 +12,7 @@
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Project, Question, Status, Store, Task } from './store.js';
-import { answered, handedTo, instructions, letterPrompt, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep } from './serve/files.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
@@ -57,7 +57,8 @@ export class Flow {
     const [question] = project.questions.splice(at, 1) as [Question];
     this.record(project, { type: 'message', from: 'operator', text, to: question.role });
     this.retry(project);
-    this.status(project, 'working');
+    // A stopped project stays stopped: the asker reads the answer when it resumes.
+    if (project.status !== 'stopped') this.status(project, 'working');
     const note = answered(question.question, text);
     if (question.role === 'planner') project.inbox.push(note);
     else Object.assign(this.task(project, question.task), { holder: question.role, note: { from: 'operator', text: note } });
@@ -83,8 +84,10 @@ export class Flow {
   private retry(project: Project): void {
     if (project.failures?.length) Object.assign(project, { failures: [], error: null });
     if (project.status === 'failed') this.status(project, 'working');
+    const under = [...this.handing.get(project) ?? []];
     for (const letter of project.forManager ?? []) {
-      if (!this.handing.has(letter)) this.handOver(project, letter).catch(error => this.fail(project, 'manager', null, String(error)));
+      if (under.includes(letter)) under.splice(under.indexOf(letter), 1);
+      else this.handOver(project, letter).catch(error => this.fail(project, 'manager', null, String(error)));
     }
   }
 
@@ -124,7 +127,11 @@ export class Flow {
    * Planner reads its letters as they come, all side by side; what is held up waits for the operator. */
   private async carryOn(project: Project, work: { wake: () => void }): Promise<void> {
     const running = new Map<Task | 'planner', Promise<void>>();
-    const start = (who: Task | 'planner', go: () => Promise<void>): void => { running.set(who, go().finally(() => running.delete(who))); };
+    // A turn that throws (the record cannot be written, say) fails its role alone.
+    const start = (who: Task | 'planner', go: () => Promise<void>): void => {
+      const failed = (error: unknown): void => who === 'planner' ? this.fail(project, 'planner', null, String(error)) : this.fail(project, who.holder, who, String(error));
+      running.set(who, go().catch(failed).finally(() => running.delete(who)));
+    };
     for (;;) {
       if (this.going(project)) {
         for (const task of openTasks(project)) if (!running.has(task) && ready(project, task)) start(task, () => this.carry(project, task));
@@ -212,19 +219,23 @@ export class Flow {
     return this.handOver(project, letter, turn);
   }
 
-  private readonly handing = new Set<string>();
+  /** Each project's letters a Manager turn is taking or will take, one entry for each. */
+  private readonly handing = new Map<Project, string[]>();
 
   private async handOver(project: Project, letter: string, turn: ManagerTurn = {}): Promise<HandOff | null> {
-    this.handing.add(letter);
+    const handing = this.handing.get(project) ?? [];
+    this.handing.set(project, [...handing, letter]);
     try {
       const handoff = await this.manager(project, letter, turn);
-      if (handoff || turn.signal?.aborted) {
-        project.forManager?.splice(project.forManager.indexOf(letter), 1);
+      const at = project.forManager?.indexOf(letter) ?? -1;
+      if ((handoff || turn.signal?.aborted) && at >= 0) {
+        project.forManager!.splice(at, 1);
         this.store.save(project);
       }
       return handoff;
     } finally {
-      this.handing.delete(letter);
+      const now = this.handing.get(project)!;
+      now.splice(now.indexOf(letter), 1);
     }
   }
 
@@ -238,13 +249,14 @@ export class Flow {
     project.inbox.splice(0, taken);
     const { to, letters, tasks } = handoff;
     // A letter to itself opens nothing: the Planner reads on when the next letter comes; nor does
-    // one to an open task, which its holder reads as soon as they can.
+    // one naming a task, which its holder reads as soon as they can, or once it has closed, the Planner.
     if (to === 'engineer') {
       const opened = new Map<string, string>();
       for (const [at, letter] of letters.entries()) {
         const { task: id = '', after = [] } = tasks?.[at] ?? {};
         const open = openTasks(project).find(task => task.id === id);
-        if (!open) opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
+        if (!id) opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
+        else if (!open) project.inbox.push(unread(id, letter));
         // In the holder's turn under way, where its backend can take a letter; else at their next.
         else if (!await this.callAgent.steer?.(`${project.id}/${open.id}.${open.holder}`, letterPrompt('planner', letter))) {
           (open.unread ??= []).push({ from: 'planner', text: letter });
@@ -308,10 +320,10 @@ export class Flow {
   }
 
   /** A failed turn holds up its role, on its task if it was on one, and the rest of the work goes
-   * on; the project shows it failed once nothing else does. */
+   * on; the project shows it failed once nothing else does, unless the operator stopped it. */
   private fail(project: Project, role: Role, task: Task | null, error: string): void {
     Object.assign(project, { failures: [...project.failures ?? [], { role, task: task?.id ?? null, error }], error });
-    if (this.works.has(project.id)) this.store.save(project);
+    if (this.works.has(project.id) || project.status === 'stopped') this.store.save(project);
     else this.status(project, 'failed', error);
   }
 
@@ -331,6 +343,9 @@ export class Flow {
   /** A letter out of the task closes it, and stays on it as its last word; its sessions end, and
    * everything they left running. */
   private close(project: Project, task: Task, from: Role, letter: string): void {
+    // Letters its last turn came too late to read go back to their writer, the Planner.
+    for (const { text } of task.unread ?? []) project.inbox.push(unread(task.id, text));
+    delete task.unread;
     Object.assign(task, { status: 'closed', note: { from, text: letter } });
     this.record(project, { type: 'task.closed', task: task.id });
     void this.callAgent.close?.(`${project.id}/${task.id}.`);

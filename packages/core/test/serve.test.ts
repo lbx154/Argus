@@ -421,17 +421,23 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.equal(requests[4]!.resume, undefined);
 });
 
-test("a project whose work comes to rest ends its sessions, unless a question waits in one", async t => {
+test("a project whose work comes to rest ends its sessions, unless a question waits in one, though it was stopped and started on the way", async t => {
+  let release = (): void => {};
+  const gate = new Promise<void>(resolve => { release = resolve; });
   const { get, post, closed } = await setup(t, [
     { role: 'manager', to: 'operator', letter: 'Hello.' },
     { role: 'manager', to: 'engineer', letter: brief },
-    { role: 'engineer', to: 'operator', letter: 'Which column?' },
+    { role: 'engineer', to: 'operator', letter: 'Which column?', until: gate },
   ]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
   await frames(await post(`${P}/message/stream`, { text: 'hi', request_id: 'r1' }));
   await eventually(async () => closed, sessions => sessions.length === 1);
   await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r2' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+  await post(`${P}/daemon/stop`, { after_current: true, command_id: 'c1' });
+  await post(`${P}/daemon/start`, { command_id: 'c2' });
+  release();
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.pending_questions?.length === 1 && !snapshot.daemon.alive);
   assert.deepEqual(closed, [`${sid}/`]);
 });

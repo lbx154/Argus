@@ -39,8 +39,15 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         await cli.request('initialize', { clientInfo: { name: 'argus', title: 'Argus', version: '1' }, capabilities: null });
         cli.send({ method: 'initialized' });
         const settings = { cwd: request.cwd, developerInstructions: request.instructions ?? null };
-        const opened = thread ? await cli.request('thread/resume', { threadId: thread, ...settings, excludeTurns: true })
-          : await cli.request('thread/start', settings);
+        let opened;
+        try {
+          opened = thread ? await cli.request('thread/resume', { threadId: thread, ...settings, excludeTurns: true })
+            : await cli.request('thread/start', settings);
+        } catch (refused) {
+          // A thread Codex cannot resume is none: the role starts afresh at its next turn.
+          if (cli.gone) throw refused;
+          return { threadId: null, completed: false, error: String(refused instanceof Error ? refused.message : refused), output: undefined, model: null, usage: null };
+        }
         thread = isJsonObject(opened.thread) && typeof opened.thread.id === 'string' ? opened.thread.id : null;
         if (!thread) throw new Error('Codex opened no thread.');
         model = typeof opened.model === 'string' ? opened.model : null;
@@ -68,11 +75,17 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         }
         return false;
       });
-      const { turn } = await cli.request('turn/start', {
-        threadId: thread, input: [{ type: 'text', text: prompt, text_elements: [] }], outputSchema: schema,
-        // The model and effort of this turn and those after it: a change needs no new app-server.
-        model: now.model ?? null, effort: now.effort ?? null,
-      });
+      let turn;
+      try {
+        ({ turn } = await cli.request('turn/start', {
+          threadId: thread, input: [{ type: 'text', text: prompt, text_elements: [] }], outputSchema: schema,
+          model: now.model ?? null, effort: now.effort ?? null,
+        }));
+      } catch (refused) {
+        // A turn Codex refuses (settings it does not take, say) fails alone: the session goes on.
+        if (cli.gone) throw refused;
+        return { threadId: thread, completed: false, error: String(refused instanceof Error ? refused.message : refused), output: undefined, model, usage: null };
+      }
       running = turnId = isJsonObject(turn) ? turn.id : null;
       const finished = await ended;
       running = null;

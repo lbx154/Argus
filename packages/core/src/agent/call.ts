@@ -48,10 +48,9 @@ interface Live { cli: Cli; conversation: Conversation; settings: string; thread:
 /** Every CLI running, by its session's key, or for a call with none, by the call's. */
 const live = new Map<string, Live>();
 
-/** What a CLI is started with: a turn that asks for others starts a new one. Codex takes a model and
- * an effort with each turn. */
+/** What a CLI is started with: a turn that asks for others starts a new one. */
 const settings = ({ backend, cwd, access, readDirs, writeDirs, model, effort }: AgentRequest): string =>
-  JSON.stringify([backend, cwd, access, readDirs, writeDirs, ...backend === 'codex' ? [] : [model, effort]]);
+  JSON.stringify([backend, cwd, access, readDirs, writeDirs, model, effort]);
 
 /** The session's CLI as it runs, or a new one, which resumes the session from the backend's record. */
 async function session(key: string, request: AgentRequest, stem: string): Promise<Live> {
@@ -80,7 +79,8 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
   const callId = `${new Date(started).toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(3).toString('hex')}`;
   mkdirSync(request.callsDir, { recursive: true });
   const stem = join(request.callsDir, callId);
-  const raw = createWriteStream(`${stem}.jsonl`);
+  // A raw output that cannot be written costs only itself.
+  const raw = createWriteStream(`${stem}.jsonl`).on('error', () => {});
   const key = request.session ?? `call/${callId}`;
   try {
     const kept = await session(key, request, stem);
