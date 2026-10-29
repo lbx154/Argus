@@ -192,11 +192,16 @@ The only boundary between the flow and the backends:
 callAgent(request: AgentRequest): Promise<AgentResult>
 ```
 
-(`packages/core/src/types.ts`). The agent layer runs the CLI with the prompt on stdin and
-the form's schema for its final answer, reads its JSON event stream, takes only the
-backend's own completion event as success (Codex `turn.completed`, Claude `result` with
-`subtype: success`, Copilot `result` with `exitCode: 0`, Pi `agent_settled` after a last answer
-that did not fail), and judges the hand-off the turn ended with: Codex's last message, Claude's
+(`packages/core/src/types.ts`). Each role's session runs on one CLI: Codex's `app-server` (a
+thread, each turn a `turn/start` with the form's schema as its `outputSchema`) and Claude Code's
+`-p --input-format stream-json` (each turn a user message, the schema given by `--json-schema`)
+stay open from the session's first turn to its end, so what a turn leaves running in the
+background runs on into the next; Copilot and Pi take one prompt on stdin and exit with the turn
+(Copilot's ACP mode, which could stay open, offered the model neither an extension's tool nor an
+MCP server's, so the hand-off had no way in). The agent layer reads the CLI's JSON events, takes
+only the backend's own completion event as success (Codex `turn/completed` with status
+`completed`, Claude `result` with `subtype: success`, Copilot `result` with `exitCode: 0`, Pi
+`agent_settled` after a last answer that did not fail), and judges the hand-off the turn ended with: Codex's last message, Claude's
 `structured_output`, or the `hand_off` call in the last message of Copilot's main agent or of
 Pi. The shape is already the strict one OpenAI's structured outputs take: both fields required,
 no other allowed.
@@ -210,7 +215,8 @@ checks the call against the schema, so the model corrects a malformed form insid
 Copilot does not, and Argus's judgment is the check.
 
 Usage: Codex from the session's rollout file (`token_usage_record`, per request); Claude from
-`result.usage` (input counts include cache reads and writes) with `total_cost_usd` as the cost;
+`result.usage` (input counts include cache reads and writes), its cost what `total_cost_usd`, the
+CLI's cost so far, grew by;
 Copilot from the session's event log (`session-state/<id>/events.jsonl`, a
 `session.usage_record` per request, subagents' included), its AI credits as the cost ($0.01
 each); Pi from each assistant message's `usage`, with `cost.total` as the cost.
@@ -226,15 +232,15 @@ Starting the CLI: no shell is involved. On Windows npm installs a CLI as a `.cmd
 only `cmd.exe` runs; the agent layer runs the file the shim names instead, a script with
 Node.
 
-A turn ends when everything it started has ended, so a job the Engineer leaves running
-(`nohup … &`, `setsid`) is waited for, not killed (`executeProcess` in the runtime). The CLI's
-environment carries `ARGUS_TURN`, a value of the turn's own that whatever it starts inherits
-however it detaches; after the CLI exits the turn waits, looking every 5 seconds, until nothing
-carries it, stays in the CLI's process group or holds its output. Under bubblewrap a shell in
-the sandbox also waits, as a sandbox ends with its first process. Cancelling ends all of it. On
-Windows a process cannot read another's environment and Node has no job object, so a turn there
-waits only for what holds its output, and cancelling reaches the CLI's process tree
-(`taskkill /T`) only while the CLI runs: a job it left detached runs on, unseen.
+A session ends, and everything its CLI started with it, when its task closes, its project
+stops (once nothing is under way), Argus exits, a turn on it is stopped, or the CLI exits on its
+own; the next turn starts a new CLI, which resumes the session from the backend's record. A turn
+that asks for other settings (a model, an effort) does the same. Ending a CLI ends what it
+started however it detached (`nohup … &`, `setsid`): the CLI's environment carries
+`ARGUS_TURN`, a value of its own that whatever it starts inherits, and the runtime ends what
+carries it or stays in the CLI's process group (`executeProcess`); under bubblewrap the sandbox
+ends with the CLI. On Windows a process cannot read another's environment and Node has no job
+object, so ending reaches the CLI's process tree (`taskkill /T`) only while the CLI runs.
 
 ## The package
 

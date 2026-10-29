@@ -17,7 +17,10 @@ export interface ProcessOptions {
   executable: string;
   args: string[];
   cwd: string;
-  input: string;
+  /** Written to stdin, which then closes; an iterable is written as it yields, and stdin closes when it ends. */
+  input: string | AsyncIterable<string>;
+  /** Told when the process itself exits, before what it started has ended. */
+  onExit?: (code: number | null, signal: string | null) => void;
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
   /** Deadlines are the caller's choice; left out, none applies. */
@@ -115,6 +118,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
   let configuration = '';
   if (guardian) {
     if (!isAbsolute(guardian.sourceRoot)) throw new Error('guardian sourceRoot must be absolute');
+    if (typeof options.input !== 'string') throw new Error('a guarded process takes its input whole');
     launchExecutable = guardian.executable;
     launchCwd = realpathSync(guardian.sourceRoot);
     launchArgs = [...(guardian.prefixArgs ?? []), '-m', 'argus.agent_cli.process_guard'];
@@ -302,6 +306,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     exitCode = code;
     exitSignal = signal;
     exited = true;
+    options.onExit?.(code, signal);
     if (guardian) killTree(true);
   });
   child.on('close', (code, signal) => {
@@ -322,8 +327,14 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
       resolveClose();
     })();
   });
+  const input = options.input;
   if (guardian) child.stdin.write(configuration, 'utf8');
-  else child.stdin.end(options.input, 'utf8');
+  else if (typeof input === 'string') child.stdin.end(input, 'utf8');
+  else {
+    void (async () => {
+      try { for await (const chunk of input) if (!child.stdin.destroyed) child.stdin.write(chunk, 'utf8'); } finally { child.stdin.end(); }
+    })();
+  }
   try {
     let line: Line | undefined;
     while ((line = await channel.next()) !== undefined) yield line;

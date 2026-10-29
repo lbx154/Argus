@@ -38,7 +38,7 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
   callsDir: join(root, 'argus', 'calls'), usageFile, ...more,
 });
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
-  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string;
+  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string; run: string;
 };
 const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.', open: [] };
 
@@ -130,7 +130,7 @@ for (const backend of BACKENDS) {
     const line = readFileSync(usageFile, 'utf8').trim().split('\n').map(row => JSON.parse(row)).find(row => row.callId === result.callId);
     const { cost_usd, ...tokens } = result.usage!;
     assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, tokens, cost_usd });
-    assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"type":"(turn\.completed|result|agent_settled)"/);
+    assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"(type|method)":"(turn\/completed|result|agent_settled)"/);
     assert.equal(readFileSync(join(root, 'argus', 'calls', `${result.callId}.prompt.md`), 'utf8'), JSON.stringify({ output: handoff }));
   });
 
@@ -207,11 +207,35 @@ const jobs = (): string[] => ['nohup', 'setsid'].map(how => {
 });
 const unseen = process.platform === 'win32' && 'Windows shows a turn nothing its CLI started once the CLI has exited';
 
-test('a turn ends when everything it started has ended, however it was detached', { skip: unseen, timeout: 30_000 }, async () => {
-  const result = await call('codex', { output: handoff, jobs: { ms: 1_500 } });
-  assert.equal(result.handoff?.to, 'reviewer');
-  assert.deepEqual(jobs(), ['started\nended\n', 'started\nended\n']);
-});
+for (const backend of ['codex', 'claude'] as const) {
+  test(`${backend}: a session's turns go to one CLI, what a turn leaves running runs on into the next, and the session's end ends it`, { skip: unseen, timeout: 30_000 }, async t => {
+    const server = createServer().listen(0, '127.0.0.1').unref();
+    await once(server, 'listening');
+    const held: Socket[] = [];
+    server.on('connection', (job: Socket) => held.push(job.unref().on('error', () => {}).resume()));
+    const session = `p-test/t1.${backend}`;
+    t.after(() => callAgent.close!('p-test/'));
+    const first = await call(backend, { output: handoff, jobs: { ms: 60_000, port: (server.address() as AddressInfo).port } }, { session });
+    for (let waited = 0; held.length < 2; waited += 50) {
+      assert.ok(waited < 10_000, 'the jobs did not start');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    const { run } = seen(backend);
+    const second = await call(backend, { output: handoff }, { session, resume: first.threadId! });
+    assert.deepEqual([seen(backend).run, second.threadId, second.handoff?.to], [run, first.threadId, 'reviewer']);
+    assert.ok(held.every(job => !job.closed), 'a job ended with its turn');
+    // A turn that asks for other settings has a new CLI, which resumes the session.
+    const third = await call(backend, { output: handoff }, { session, resume: first.threadId!, model: 'another' });
+    assert.notEqual(seen(backend).run, run);
+    assert.equal(third.threadId, first.threadId);
+    await callAgent.close!('p-test/');
+    for (let waited = 0; held.some(job => !job.closed); waited += 50) {
+      assert.ok(waited < 10_000, 'a job outlived its session');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.deepEqual(jobs(), ['started\n', 'started\n']);
+  });
+}
 
 test('stopping a turn ends what it started, however it was detached', { skip: unseen, timeout: 30_000 }, async () => {
   const server = createServer().listen(0, '127.0.0.1').unref();
@@ -219,8 +243,9 @@ test('stopping a turn ends what it started, however it was detached', { skip: un
   const held: Socket[] = [];
   server.on('connection', (job: Socket) => held.push(job.unref().on('error', () => {}).resume()));
   const controller = new AbortController();
-  const pending = call('codex', { output: handoff, jobs: { ms: 60_000, port: (server.address() as AddressInfo).port } }, { signal: controller.signal });
-  for (let waited = 0; held.length < 2; waited += 50) {
+  const port = (server.address() as AddressInfo).port;
+  const pending = call('codex', { hang: port, jobs: { ms: 60_000, port } }, { signal: controller.signal });
+  for (let waited = 0; held.length < 3; waited += 50) {
     assert.ok(waited < 10_000, 'the jobs did not start');
     await new Promise(resolve => setTimeout(resolve, 50));
   }

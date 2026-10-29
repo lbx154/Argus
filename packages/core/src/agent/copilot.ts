@@ -1,18 +1,20 @@
-// `copilot --output-format json`: the prompt on stdin, the form a tool whose call ends the turn
-// (an extension tool with isTerminal, loaded from a plugin written for the call; copilot does not
-// check its arguments against the schema), usage from the session's event log.
+// `copilot --output-format json`: one turn per CLI, the prompt on stdin, the form a tool whose call
+// ends the turn (an extension tool with isTerminal, loaded from a plugin written for the call;
+// copilot does not check its arguments against the schema), usage from the session's event log.
+// Its ACP mode, which keeps a CLI between turns, offered the model neither an extension's tool
+// nor an MCP server's when tried (October 2026), so the hand-off has no way in there.
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isJsonObject } from '@argus/contracts';
-import { count, type Usage } from '../types.js';
+import { count, type Step, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
 import { privatePath } from './sandbox.js';
 import { said, used } from './steps.js';
 
-export const copilot: StartBackend = (request, { confined, started, schema, stem }) => {
+export const copilot: StartBackend = (request, { confined, schema, stem }) => {
   const tool = handOffTool(schema);
   const plugin = `${stem}.copilot`;
   mkdirSync(join(plugin, 'extensions', 'argus'), { recursive: true });
@@ -38,6 +40,20 @@ export const copilot: StartBackend = (request, { confined, started, schema, stem
   let completed = false;
   let error: string | null = null;
   let last: Record<string, unknown> | null = null;
+  const consume = (event: Record<string, unknown>): (Step | null)[] => {
+    if (event.agentId !== undefined) return []; // a subagent's
+    const data = isJsonObject(event.data) ? event.data : {};
+    if (event.type === 'assistant.message') {
+      last = data;
+      const calls = Array.isArray(data.toolRequests) ? data.toolRequests.filter(isJsonObject) : [];
+      return [said(data.content), ...calls.map(call => used(call.name, call.arguments))];
+    } else if (event.type === 'session.error' && typeof data.message === 'string') error = data.message;
+    else if (event.type === 'result') {
+      if (typeof event.sessionId === 'string') threadId = event.sessionId;
+      completed = event.exitCode === 0;
+    }
+    return [];
+  };
   return {
     args,
     env: {
@@ -46,21 +62,8 @@ export const copilot: StartBackend = (request, { confined, started, schema, stem
       // A background task waits as long as its turn.
       COPILOT_TASK_WAIT_TIMEOUT_SECONDS: '2147483.647',
     },
-    consume(event) {
-      if (event.agentId !== undefined) return []; // a subagent's
-      const data = isJsonObject(event.data) ? event.data : {};
-      if (event.type === 'assistant.message') {
-        last = data;
-        const calls = Array.isArray(data.toolRequests) ? data.toolRequests.filter(isJsonObject) : [];
-        return [said(data.content), ...calls.map(call => used(call.name, call.arguments))];
-      } else if (event.type === 'session.error' && typeof data.message === 'string') error = data.message;
-      else if (event.type === 'result') {
-        if (typeof event.sessionId === 'string') threadId = event.sessionId;
-        completed = event.exitCode === 0;
-      }
-      return [];
-    },
-    finish() {
+    async turn(cli, prompt, { onStep, started }) {
+      await cli.once(prompt, event => { for (const step of consume(event)) onStep(step); });
       const requests = Array.isArray(last?.toolRequests) ? last.toolRequests.filter(isJsonObject) : [];
       const states = join(process.env.COPILOT_HOME || join(homedir(), '.copilot'), 'session-state');
       return {

@@ -1,20 +1,28 @@
 #!/usr/bin/env node
-// Stands in for `codex exec --json` with no model behind it: each turn ends with a letter to the
+// Stands in for `codex app-server` with no model behind it: each turn ends with a letter to the
 // one who moves the work on. The Manager hands the request to the Engineer, the Engineer to the
 // Reviewer, the Reviewer its judgment to the Manager, who reports to the operator.
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 
-const args = process.argv.slice(2);
-const request = readFileSync(0, 'utf8');
-const { properties } = JSON.parse(readFileSync(args[args.indexOf('--output-schema') + 1], 'utf8'));
-// A letter from the team reaches the Manager in a turn of its own.
-const to = request.startsWith('From the ') ? 'operator' : ['reviewer', 'manager', 'engineer'].find(place => properties.to.enum.includes(place));
-const letter = { engineer: request.trim().split('\n').at(-1), operator: 'The work is done.' }[to] ?? `Ready for the ${to}.`;
-
-const thread = args.includes('resume') ? args.at(-2) : randomUUID();
-for (const event of [
-  { type: 'thread.started', thread_id: thread },
-  { type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify({ to, letter }) } },
-  { type: 'turn.completed' },
-]) process.stdout.write(`${JSON.stringify(event)}\n`);
+const emit = message => process.stdout.write(`${JSON.stringify(message)}\n`);
+let thread = null;
+createInterface({ input: process.stdin }).on('line', line => {
+  const { id, method, params } = JSON.parse(line);
+  if (method === 'initialize') return emit({ id, result: {} });
+  if (method === 'thread/start' || method === 'thread/resume') {
+    thread = params.threadId ?? randomUUID();
+    return emit({ id, result: { thread: { id: thread }, model: 'fake' } });
+  }
+  if (method !== 'turn/start') return;
+  emit({ id, result: { turn: { id: 'turn' } } });
+  const request = params.input[0].text;
+  const { properties } = params.outputSchema;
+  // A letter from the team reaches the Manager in a turn of its own.
+  const to = request.startsWith('From the ') ? 'operator' : ['reviewer', 'manager', 'engineer'].find(place => properties.to.enum.includes(place));
+  const letter = { engineer: request.trim().split('\n').at(-1), operator: 'The work is done.' }[to] ?? `Ready for the ${to}.`;
+  for (const [method, more] of [
+    ['item/completed', { item: { type: 'agentMessage', text: JSON.stringify({ to, letter, open: [] }) } }],
+    ['turn/completed', { turn: { id: 'turn', status: 'completed', error: null } }],
+  ]) emit({ method, params: { threadId: thread, ...more } });
+});

@@ -151,36 +151,6 @@ function gitCommonDir(cwd: string): string[] {
 
 const SYSTEM = ['/usr', '/bin', '/sbin', '/lib', '/lib32', '/lib64', '/libx32', '/etc', '/opt', '/sys'];
 
-// A bubblewrap sandbox ends with its first process, killing everything else in it: a job the
-// CLI started detached would die with the CLI, before the turn could wait for it (a run ends
-// when all it started has: executeProcess). This shell outlives the CLI until nothing else in
-// the sandbox runs, then exits with the CLI's code.
-const WAIT_FOR_EVERYTHING = `
-"$@"
-code=$?
-said=
-while :; do
-  others=
-  for entry in /proc/[0-9]*; do
-    pid=\${entry#/proc/}
-    [ "$pid" = 1 ] || [ "$pid" = $$ ] || others="$others $pid"
-  done
-  [ -n "$others" ] || exit $code
-  if [ -z "$said" ]; then
-    said=1
-    {
-      printf '%s' '[argus-sandbox] the agent CLI exited; its turn runs on with what it started:'
-      for pid in $others; do
-        printf ' [%s] ' "$pid"; head -c 200 "/proc/$pid/cmdline" 2>/dev/null | tr '\\000\\n' '  '; printf ';'
-      done
-      echo
-    } >&2
-    exec </dev/null >/dev/null 2>&1
-  fi
-  sleep 5
-done
-`;
-
 /** `argv` under bubblewrap, seeing only what the call is given. */
 export function confine(argv: string[], request: AgentRequest): string[] {
   const [name, ...args] = argv;
@@ -219,6 +189,7 @@ export function confine(argv: string[], request: AgentRequest): string[] {
     'bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-uts', '--unshare-ipc',
     '--proc', '/proc', '--dev-bind', '/dev', '/dev', '--tmpfs', '/dev/shm', '--tmpfs', '/tmp',
     ...ordered.flatMap(([source, target, writable]) => [writable ? '--bind-try' : '--ro-bind-try', source, target]),
-    '--setenv', 'TMPDIR', '/tmp', '--chdir', cwd, '--', '/bin/sh', '-c', WAIT_FOR_EVERYTHING, 'argus-sandbox', executable, ...args,
+    // The sandbox ends with the CLI, and everything in it: a session's CLI outlives what it started.
+    '--setenv', 'TMPDIR', '/tmp', '--chdir', cwd, '--', executable, ...args,
   ];
 }

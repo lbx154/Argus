@@ -1,6 +1,7 @@
 // The work of each project runs in this process, projects side by side. The operator may write at
 // any time: the Manager answers while the team's work goes on. Stopping a project interrupts every
-// call under way on it, and its work stays where it was, to be resumed.
+// call under way on it, and its work stays where it was, to be resumed; once nothing is under way,
+// its roles' sessions end, and everything they left running.
 
 import { Flow } from '../flow.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
@@ -48,17 +49,21 @@ export class Runs {
    * end, or with `now` are interrupted. Whether any was under way. */
   stop(id: string, now: boolean): boolean {
     const active = this.active.get(id);
-    if (!active) this.edit(id, project => { if (project.status === 'working') project.status = 'stopped'; });
+    if (!active) {
+      this.edit(id, project => { if (project.status === 'working') project.status = 'stopped'; });
+      void this.callAgent.close?.(`${id}/`);
+    }
     active?.flow.stop(id);
     if (now) active?.controller.abort();
     return active !== undefined;
   }
 
-  /** Interrupt every project's calls, and wait until the work has wound down and written its record. */
+  /** Interrupt every project's calls, wait until the work has wound down and written its record, and end every session. */
   async stopAll(): Promise<void> {
     const active = [...this.active.values()];
     for (const { controller } of active) controller.abort();
     await Promise.all(active.map(({ settled }) => settled));
+    await this.callAgent.close?.('');
   }
 
   cancel(id: string, request: string): boolean {
@@ -117,8 +122,9 @@ export class Runs {
     try {
       return act(flow);
     } finally {
-      entry.settled = flow.settled(id).then(() => undefined, (error: unknown) => log(id, error)).then(() => {
+      entry.settled = flow.settled(id).then(project => project.status, (error: unknown) => log(id, error)).then(status => {
         this.active.delete(id);
+        if (status === 'stopped') void this.callAgent.close?.(`${id}/`);
         this.changed(id);
       });
     }

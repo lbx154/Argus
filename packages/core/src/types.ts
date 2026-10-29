@@ -4,6 +4,8 @@
 
 export const BACKENDS = ['codex', 'claude', 'copilot', 'pi'] as const;
 export type Backend = (typeof BACKENDS)[number];
+/** The backends whose CLI stays open between a session's turns (agent/session.ts); the others start one each turn. */
+export const KEPT: readonly Backend[] = ['codex', 'claude'];
 export const ROLES = ['manager', 'planner', 'engineer', 'reviewer'] as const;
 export type Role = (typeof ROLES)[number];
 /** The hand-off form a role's turn ends with (agent/handoff.ts). */
@@ -26,6 +28,9 @@ export interface AgentRequest {
   effort?: string;
   /** Continue this backend session instead of starting a new one. */
   resume?: string;
+  /** The key the session's CLI runs under between turns, till CallAgent.close ends it; without
+   * one, the CLI ends with the turn. */
+  session?: string;
   /** The role's standing instructions: its rules, and where things are. A backend with a place for
    * them is given them with every turn, so they outlast its compaction of the session; the others
    * read them at the head of a session's first prompt. */
@@ -83,4 +88,6 @@ export interface AgentResult {
   ms: number;
 }
 
-export type CallAgent = (request: AgentRequest) => Promise<AgentResult>;
+/** One backend turn. `close` ends the sessions kept under keys that start with its prefix, and all
+ * their CLIs started. */
+export type CallAgent = ((request: AgentRequest) => Promise<AgentResult>) & { close?: (prefix: string) => Promise<void> };

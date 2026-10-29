@@ -258,7 +258,7 @@ export class Flow {
         prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
-        ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
+        ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), onStep: step => this.record(project, { type: 'step', role, ...where, ...step }), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
@@ -309,10 +309,12 @@ export class Flow {
     this.record(project, { type: 'task.added', task });
   }
 
-  /** A letter out of the task closes it, and stays on it as its last word. */
+  /** A letter out of the task closes it, and stays on it as its last word; its sessions end, and
+   * everything they left running. */
   private close(project: Project, task: Task, from: Role, letter: string): void {
     Object.assign(task, { status: 'closed', note: { from, text: letter } });
     this.record(project, { type: 'task.closed', task: task.id });
+    void this.callAgent.close?.(`${project.id}/${task.id}.`);
   }
 
   /** The question's letter is in the record already; its asker waits for the answer. */

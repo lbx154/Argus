@@ -1,7 +1,9 @@
-// `codex exec --json`: the prompt on stdin, the final answer held to the form's schema, usage
-// from the session's rollout files.
+// `codex app-server`: the session a thread on it, each turn a `turn/start` whose final answer is
+// held to the form's schema, followed by the thread's notifications to `turn/completed`; usage
+// from the session's rollout files. What a turn leaves running in a background terminal runs on
+// while the app-server does.
 
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isJsonObject } from '@argus/contracts';
@@ -11,56 +13,65 @@ import type { StartBackend } from './call.js';
 import { privatePath } from './sandbox.js';
 import { said, used } from './steps.js';
 
-export const codex: StartBackend = (request, { confined, started, schema, stem }) => {
-  const schemaFile = `${stem}.schema.json`;
-  writeFileSync(schemaFile, JSON.stringify(schema));
+export const codex: StartBackend = (request, { confined, schema }) => {
   const args = [
-    'exec', ...request.resume ? ['resume'] : [], '--json', '--skip-git-repo-check',
-    // An inherited desktop notify hook would hold every turn; a background terminal waits as long as its turn.
-    '-c', 'notify=[]', '-c', 'background_terminal_max_timeout=9223372036854775807',
-    ...request.model ? ['-m', request.model] : [],
-    ...request.effort ? ['-c', `model_reasoning_effort=${JSON.stringify(request.effort)}`] : [],
-    ...request.instructions ? ['-c', `developer_instructions=${JSON.stringify(request.instructions)}`] : [],
+    'app-server',
+    // An inherited desktop notify hook would hold every turn; a background terminal lives as long as the session.
+    '-c', 'notify=[]', '-c', 'background_terminal_max_timeout=9223372036854775807', '-c', 'approval_policy="never"',
     // Inside bubblewrap the sandbox is bubblewrap's, which mounts a reader's workdir read-only and
     // leaves it /tmp to run a check in; outside it, codex's own. On Windows that is off, and every
     // command refused, until one is chosen: this one needs no administrator.
     '-c', 'windows.sandbox="unelevated"',
-    ...confined ? ['--dangerously-bypass-approvals-and-sandbox']
+    ...confined ? ['-c', 'sandbox_mode="danger-full-access"']
       : request.access !== 'write' ? ['-c', 'sandbox_mode="read-only"']
       : ['-c', 'sandbox_mode="workspace-write"', '-c', 'sandbox_workspace_write.network_access=true',
         '-c', `sandbox_workspace_write.writable_roots=${JSON.stringify(request.writeDirs ?? [])}`],
-    '--output-schema', schemaFile,
-    ...request.resume ? [request.resume] : [], '-',
   ];
-  // A resumed thread is announced again; one that cannot be resumed never is.
-  let threadId: string | null = null;
-  let completed = false;
-  let failed = false;
-  let error: string | null = null;
-  let text = '';
+  let thread = request.resume ?? null;
+  let ready = false;
+  let model: string | null = null;
   return {
     args, instructed: true,
-    consume(event) {
-      const item = isJsonObject(event.item) ? event.item : {};
-      if (event.type === 'thread.started' && typeof event.thread_id === 'string') threadId = event.thread_id;
-      else if (event.type === 'item.started' && item.type === 'command_execution') return [used(item.type, item)];
-      else if (event.type === 'item.completed' && item.type === 'file_change' && Array.isArray(item.changes)) {
-        return item.changes.filter(isJsonObject).map(({ path }) => typeof path === 'string' ? { kind: 'edit', text: path } : null);
-      } else if (event.type === 'item.completed' && item.type === 'agent_message') return [said(text = String(item.text ?? ''))];
-      else if (event.type === 'turn.completed') completed = true;
-      else if (event.type === 'turn.failed') {
-        failed = true;
-        const message = isJsonObject(event.error) ? event.error.message : undefined;
-        error = typeof message === 'string' && message.trim() ? message : error ?? 'Codex reported a failed turn.';
-      } else if (event.type === 'error' && !failed && typeof event.message === 'string') error = event.message;
-      return [];
-    },
-    finish() {
+    async turn(cli, prompt, { onStep, started }) {
+      if (!ready) {
+        await cli.request('initialize', { clientInfo: { name: 'argus', title: 'Argus', version: '1' }, capabilities: null });
+        cli.send({ method: 'initialized' });
+        const settings = { cwd: request.cwd, model: request.model ?? null, developerInstructions: request.instructions ?? null };
+        const opened = thread ? await cli.request('thread/resume', { threadId: thread, ...settings, excludeTurns: true })
+          : await cli.request('thread/start', settings);
+        thread = isJsonObject(opened.thread) && typeof opened.thread.id === 'string' ? opened.thread.id : null;
+        if (!thread) throw new Error('Codex opened no thread.');
+        model = typeof opened.model === 'string' ? opened.model : null;
+        ready = true;
+      }
+      let text = '';
+      let error: string | null = null;
+      let status = '';
+      const ended = cli.until(({ method, params }) => {
+        if (!isJsonObject(params) || params.threadId !== thread) return false;
+        const item = isJsonObject(params.item) ? params.item : {};
+        if (method === 'item/started' && item.type === 'commandExecution') onStep(used(item.type, item));
+        else if (method === 'item/completed' && item.type === 'fileChange' && Array.isArray(item.changes)) {
+          for (const { path } of item.changes.filter(isJsonObject)) onStep(typeof path === 'string' ? { kind: 'edit', text: path } : null);
+        } else if (method === 'item/completed' && item.type === 'agentMessage') onStep(said(text = String(item.text ?? '')));
+        else if (method === 'error' && isJsonObject(params.error) && params.willRetry !== true) error = String(params.error.message ?? error);
+        else if (method === 'turn/completed' && isJsonObject(params.turn)) {
+          status = String(params.turn.status);
+          if (isJsonObject(params.turn.error)) error = String(params.turn.error.message ?? error);
+          return true;
+        }
+        return false;
+      });
+      await cli.request('turn/start', {
+        threadId: thread, input: [{ type: 'text', text: prompt, text_elements: [] }], outputSchema: schema, ...request.effort ? { effort: request.effort } : {},
+      });
+      const finished = await ended;
       const sessions = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions');
-      const { usage, model } = threadId
-        ? codexUsage(confined ? privatePath(sessions, request.cwd) : sessions, threadId, started)
-        : { usage: null, model: null };
-      return { threadId, completed: completed && !failed, error, output: form(text), model: model ?? request.model ?? null, usage };
+      const counted = codexUsage(confined ? privatePath(sessions, request.cwd) : sessions, thread!, started);
+      return {
+        threadId: thread, completed: finished && status === 'completed', output: form(text), model: counted.model ?? model ?? request.model ?? null, usage: counted.usage,
+        error: !finished ? cli.why() : status === 'completed' ? null : error ?? `Codex reported the turn ${status}.`,
+      };
     },
   };
 };
