@@ -25,6 +25,7 @@ import { DEFAULT_LAUNCH_SETTINGS, isFreshProject, launchForMessage, readAskMode,
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { NoOperatorBanner } from './components/NoOperatorBanner';
+import { StoragePauseBanner } from './components/StoragePauseBanner';
 import { hasHumanProjectLabel, rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { ProgressQuestionsProvider } from './research-brief/ProgressQuestions';
@@ -1447,6 +1448,7 @@ export default function App() {
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               <NoOperatorBanner sid={loadedSid} />
+              <StoragePauseBanner pause={snap.storage_pause} />
               {workspaceView !== 'map' && <TopBar
                 events={activityEvents}
                 snap={snap}

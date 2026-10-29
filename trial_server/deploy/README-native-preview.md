@@ -69,12 +69,18 @@ minutes. Native Copilot clients for classification, tools and multiple roles
 can exceed 2 GiB in ordinary use; the 8 GiB allowance accommodates this without
 changing the $50 model budget. Memory/thread stops exit with temporary-failure
 status 75 so systemd restarts the runtime after five seconds (up to four starts
-per minute). Storage stops require operator cleanup. Files and the model ledger
-survive these restarts. The portal displays a retrying page while the runtime
+per minute). Files and the model ledger survive these restarts. The portal displays a retrying page while the runtime
 is unavailable. Root and device directories are
 read-only; temporary/shared-memory files use each tenant's monitored disk
-directories. Files have a 32 MiB size limit. A 2 GiB / 100,000-entry workspace monitor pauses
-an oversized runtime; this monitor is not an operating-system disk quota.
+directories. Files have a 32 MiB size limit. A workspace monitor (2 GiB / 100,000 entries,
+or `limits.storage_gb` / `limits.storage_entries` in preview.json) keeps each runtime within
+its storage; it is not an operating-system disk quota. Projects of one invitation share their
+agents' download caches (Hugging Face, pip, torch, uv, npm) under `state/cache`. Over the limit,
+the monitor first deletes cached files, least recently used first, down to half the limit.
+Still over, it restarts the runtime paused: the project page says the workspace is full and
+that files are kept, no project starts work, and the Manager still answers. Once usage is under
+90% of the limit the runtime restarts again and resumes the interrupted work. A paused
+workspace that grows another 25% stops until an operator cleans it up.
 Invitation sessions use signed, secure, HttpOnly cookies. HTTP mutations and
 browser WebSockets check the browser origin. Runtime upgrades and provider /
 budget settings are operator-managed. Model credentials inside guests authorize

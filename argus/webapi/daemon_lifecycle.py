@@ -241,6 +241,18 @@ def start_project_daemon(
         _clear_daemon_admission(life_dir)
         clear_host_shutdown(life_dir)
         return {"rc": 0, "already_alive": True, "daemon": _daemon_dict(st)}
+    from ..core.storage_pause import read_storage_pause, storage_pause_error
+
+    if (pause := read_storage_pause(root)) is not None:
+        # A new process would only fill the workspace again; the host's
+        # storage monitor lifts this once files are removed.
+        return {
+            "rc": 4,
+            "already_alive": False,
+            "storage_pause": pause,
+            "error": storage_pause_error(pause),
+            "daemon": _daemon_dict(st),
+        }
     try:
         config = _worker_config_from_env(life_dir, root)
     except (OSError, RuntimeError) as exc:

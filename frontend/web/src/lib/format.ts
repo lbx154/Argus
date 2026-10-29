@@ -110,7 +110,9 @@ export function clockOf(ev: Record<string, unknown>): string {
  * HTTP failures read as what happened, not as a request line and status code. */
 export function errorText(error: unknown): string {
   if (error instanceof ApiError) return apiErrorText(error);
-  return error instanceof Error ? error.message : String(error || 'Unknown error');
+  const message = error instanceof Error ? error.message : String(error || 'Unknown error');
+  const full = /workspace storage is full \(([\d.]+) GB of ([\d.]+) GB\)/.exec(message);
+  return full ? translate('storagePause.notice', { used: full[1], limit: full[2] }) : message;
 }
 
 function apiErrorText(error: ApiError): string {

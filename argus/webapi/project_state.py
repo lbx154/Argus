@@ -840,6 +840,9 @@ def build_snapshot(
     if card := intake_card(read_intake(life_dir)):
         snapshot["pending_questions"].insert(0, {"operator_decision": card})
     snapshot["storage"] = _storage_view(session, life_dir)
+    from ..core.storage_pause import read_storage_pause
+
+    snapshot["storage_pause"] = read_storage_pause(root)
     snapshot["goal"] = _goal_text(life_dir, items)
     try:
         from .launch_hold import launch_hold_view

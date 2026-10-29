@@ -144,6 +144,25 @@ def _private_root(working_dir: str | os.PathLike[str] | None) -> Path:
     return Path(os.path.realpath(global_root())) / "sandbox" / name
 
 
+# Download caches every project's agents fill the same way and could fetch
+# again: one per Argus home (one local user, one hosted tenant), shared by
+# all its workdirs, so a model or wheel is stored once rather than once per
+# project (2026-10-29 trial: one project's private home held 16 GB of
+# Hugging Face models and 2.9 GB of pip wheels, another its own copies, and
+# the tenant's storage limit stopped it). The rest of the home stays private.
+SHARED_CACHES = {
+    "huggingface": ".cache/huggingface", "pip": ".cache/pip", "torch": ".cache/torch",
+    "uv": ".cache/uv", "npm": ".npm",
+}
+
+
+def shared_cache_root() -> Path:
+    """Where this Argus home keeps the caches its agents share."""
+    from .paths import global_root
+
+    return Path(os.path.realpath(global_root())) / "cache"
+
+
 def private_path(path: str | os.PathLike[str], working_dir: str | os.PathLike[str] | None) -> Path:
     """Where agents working in ``working_dir`` keep ``path``, a file of their
     home or of the Argus runtime.
@@ -359,8 +378,10 @@ def isolated_workdir_command(
     ``named`` on its command line,
     system software, the CLI itself and the Python that runs Argus's action
     tools. Its home and the Argus runtime are the workdir's private copies,
-    into which only the CLI's login and settings are brought. No other
-    project, tenant, Argus setting or CLI transcript exists in there.
+    into which only the CLI's login and settings are brought, and the
+    download caches the Argus home's projects share (``SHARED_CACHES``). No
+    other project's files, no other tenant, Argus setting or CLI transcript
+    exists in there.
     """
     tool = sandbox_tool()
     if tool is None:
@@ -426,6 +447,10 @@ def isolated_workdir_command(
         copy = _private_root(working_dir) / path.relative_to(path.anchor)
         copy.mkdir(parents=True, exist_ok=True, mode=0o700)
         mounts += [(copy, target, True) for target in named_as(path)]
+    for name, inside in SHARED_CACHES.items():
+        cache = shared_cache_root() / name
+        cache.mkdir(parents=True, exist_ok=True, mode=0o700)
+        mounts += [(cache, target / inside, True) for target in named_as(home)]
     for files_, rw in ((login, True), (settings, False), (referenced, False)):
         mounts += [(real(file), target, rw) for file in files_ for target in named_as(file)]
     for path in given:
