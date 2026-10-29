@@ -2,14 +2,15 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { crc32, inflateRawSync } from 'node:zlib';
 import { Store, type Task } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 
 /** A server over one project made by hand, with these files in its workdir; no call is made. */
-async function setup(t: TestContext, files: Record<string, string> = {}) {
+async function setup(t: TestContext, files: Record<string, string> = {}, token?: string) {
   const home = await mkdtemp(join(tmpdir(), 'argus-workbench-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const store = new Store(home);
@@ -18,15 +19,31 @@ async function setup(t: TestContext, files: Record<string, string> = {}) {
     await mkdir(dirname(join(project.workdir, name)), { recursive: true });
     await writeFile(join(project.workdir, name), body);
   }
-  const served = await serve({ store, callAgent: () => assert.fail('no call is made'), backend: 'codex', model: null, port: 0, web: home });
+  const served = await serve({ store, callAgent: () => assert.fail('no call is made'), backend: 'codex', model: null, port: 0, web: home, ...token ? { token } : {} });
   t.after(() => served.close());
-  const call = (path: string, init?: RequestInit) => fetch(served.url + path, init);
+  const call = (path: string, init: RequestInit = {}) =>
+    fetch(served.url + path, { ...init, headers: { ...token ? { authorization: `Bearer ${token}` } : {}, ...init.headers } });
   const get = async <T = Record<string, unknown>>(path: string): Promise<T> => {
     const response = await call(path);
     assert.equal(response.status, 200, `${path}: ${await response.clone().text()}`);
     return await response.json() as T;
   };
   return { store, project, call, get };
+}
+
+/** A zip's files by name, read from its directory as an unzip does, each checked against its CRC. */
+function unzip(zip: Buffer): Record<string, string> {
+  const files: Record<string, string> = {};
+  const end = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 5, 6]));
+  for (let at = zip.readUInt32LE(end + 16), left = zip.readUInt16LE(end + 10); left--; at += 46 + zip.readUInt16LE(at + 28) + zip.readUInt16LE(at + 30) + zip.readUInt16LE(at + 32)) {
+    const local = zip.readUInt32LE(at + 42);
+    assert.equal(zip.readUInt32LE(local), 0x04034b50);
+    const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
+    const data = inflateRawSync(zip.subarray(start, start + zip.readUInt32LE(at + 20)));
+    assert.equal(crc32(data), zip.readUInt32LE(at + 16));
+    files[zip.toString('utf8', at + 46, at + 46 + zip.readUInt16LE(at + 28))] = data.toString();
+  }
+  return files;
 }
 
 test('the code workspace is the workdir: its tree, a file as text or bytes, and what git says', async t => {
@@ -94,36 +111,81 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
 });
 
 test('an HTML result is previewed as one page, its local files inlined, that can reach nothing', async t => {
-  const { project, call, get } = await setup(t, {
+  const files = {
     'site/index.html': '<!doctype html><html><head><link rel="stylesheet" href="style.css?v=1"><script src="app.js"></script>'
       + '<style>h1 { background: url("img/dot.png") }</style></head><body><img src="img/dot.png"><a href="next.html">next</a>'
       + '<img src="../../secret.png"><img src="https://example.com/x.png"><div style="background:url(\'/img/dot.png\')"></div></body></html>',
     'site/style.css': 'body { background: url(img/dot.png) }',
     'site/app.js': 'document.title = "ok";',
     'site/img/dot.png': 'PNG',
-  });
+    'site/deep/page.html': '<script src="../app.js"></script>',
+  };
+  const { project, call, get } = await setup(t, files);
   const P = `/api/projects/${project.id}`;
   const shown = await get<{ html: string; warnings: string[]; file_count: number; served_page: boolean }>(`${P}/artifact/preview?path=site/index.html`);
   const data = (type: string, text: string) => `data:${type};base64,${Buffer.from(text).toString('base64')}`;
   const dot = data('image/png', 'PNG');
-  assert.equal(shown.html, '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; '
-    + 'script-src \'unsafe-inline\' data: blob:; style-src \'unsafe-inline\' data:; img-src data: blob:; font-src data:; media-src data: blob:; '
-    + 'base-uri \'none\'; form-action \'none\'">'
+  const policy = 'default-src \'none\'; script-src \'unsafe-inline\' data: blob:; style-src \'unsafe-inline\' data:; '
+    + 'img-src data: blob:; font-src data:; media-src data: blob:; base-uri \'none\'; form-action \'none\'';
+  assert.equal(shown.html, `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">`
     + `<html><head><link rel="stylesheet" href="${data('text/css', `body { background: url(${dot}) }`)}">`
     + `<script src="${data('text/javascript', 'document.title = "ok";')}"></script><style>h1 { background: url(${dot}) }</style></head>`
     + `<body><img src="${dot}"><a href="next.html">next</a><img src="data:,"><img src="https://example.com/x.png">`
     + `<div style="background:url(${dot})"></div></body></html>`);
   assert.deepEqual(shown.warnings, ['Could not include local resource: ../../secret.png']);
   assert.equal(shown.file_count, 4);
-  assert.equal(shown.served_page, false);
+  assert.equal(shown.served_page, true);
   assert.equal((await call(`${P}/artifact/preview?path=site/style.css`)).status, 404);
+  // Without a token there is no cookie to grant, and the frame loads the same page by URL, sandboxed by its policy.
+  assert.equal((await call(`${P}/artifact/preview?path=site/index.html`)).headers.get('set-cookie'), null);
+  const served = await call(`${P}/artifact/preview/page?path=site/index.html`);
+  assert.deepEqual(['content-type', 'content-security-policy', 'x-content-type-options', 'cache-control', 'referrer-policy'].map(name => served.headers.get(name)),
+    ['text/html; charset=utf-8', `sandbox allow-scripts allow-downloads; ${policy}`, 'nosniff', 'private, no-store', 'no-referrer']);
+  assert.equal(await served.text(), shown.html);
+  assert.equal((await call(`${P}/artifact/preview/page?path=site/style.css`)).status, 404);
 
-  // Results are downloaded one by one: a zip is refused, and says why.
-  for (const response of [await call(`${P}/artifact/bundle?path=site/index.html`),
-    await call(`${P}/artifacts/bundle`, { method: 'POST', body: JSON.stringify({ paths: ['site/app.js'] }) })]) {
-    assert.equal(response.status, 501);
-    assert.match((await response.json() as { detail: string }).detail, /download each file by itself/);
-  }
+  // The page and the files it names as they are, in a zip rooted at its folder, with what was left out.
+  const site = await call(`${P}/artifact/bundle?path=site/index.html`);
+  assert.deepEqual([site.headers.get('content-type'), site.headers.get('content-disposition')], ['application/zip', 'attachment; filename*=UTF-8\'\'argus-website.zip']);
+  assert.deepEqual(unzip(Buffer.from(await site.arrayBuffer())), {
+    'index.html': files['site/index.html'], 'style.css': files['site/style.css'], 'app.js': files['site/app.js'], 'img/dot.png': 'PNG',
+    'ARGUS-PREVIEW-NOTES.txt': 'Could not include local resource: ../../secret.png',
+  });
+  // A page that names a file above its folder is zipped from the folder holding both.
+  const deep = await call(`${P}/artifact/bundle?path=site/deep/page.html`);
+  assert.deepEqual(unzip(Buffer.from(await deep.arrayBuffer())), { 'deep/page.html': files['site/deep/page.html'], 'app.js': files['site/app.js'] });
+
+  // Results chosen together: each once, under its path; those not there are named in the summary's README.
+  const bundle = (body: Record<string, unknown>) => call(`${P}/artifacts/bundle`, { method: 'POST', body: JSON.stringify(body) });
+  const chosen = await bundle({
+    paths: ['site/app.js', ' site/img/dot.png ', 'site/app.js', 'gone.csv', '../../secret.png'], name: 'Q3: sales / "final".', summary: ' The sales site. ',
+  });
+  assert.equal(chosen.headers.get('content-disposition'), 'attachment; filename*=UTF-8\'\'Q3%20sales%20final.zip');
+  assert.deepEqual(unzip(Buffer.from(await chosen.arrayBuffer())), {
+    'site/app.js': files['site/app.js'], 'site/img/dot.png': 'PNG',
+    'README-Argus.md': 'The sales site.\n\nNot included (no longer available):\n- gone.csv\n- ../../secret.png\n',
+  });
+  assert.equal((await bundle({ paths: ['site/app.js'], name: ' .. ' })).headers.get('content-disposition'), 'attachment; filename*=UTF-8\'\'argus-results.zip');
+  assert.equal((await bundle({ paths: ['gone.csv'] })).status, 404);
+  assert.equal((await bundle({ paths: [] })).status, 400);
+  // Past 2 GiB in all, the results download one by one (the file is sparse, taking no disk).
+  await writeFile(join(project.workdir, 'huge.bin'), '');
+  await truncate(join(project.workdir, 'huge.bin'), 2 ** 31 + 1);
+  assert.equal((await bundle({ paths: ['huge.bin'] })).status, 413);
+});
+
+test('with a token, the preview grants a cookie that its page alone takes, as a frame cannot send the bearer', async t => {
+  const { project, call } = await setup(t, { 'index.html': '<p>hi</p>' }, 'secret');
+  const P = `/api/projects/${project.id}`;
+  const page = (cookie?: string) => call(`${P}/artifact/preview/page?path=index.html`, { headers: { authorization: '', ...cookie ? { cookie } : {} } });
+  assert.equal((await page()).status, 401);
+  assert.equal((await page('argus_preview_access=wrong')).status, 401);
+  const granted = (await call(`${P}/artifact/preview?path=index.html`)).headers.get('set-cookie');
+  assert.equal(granted, 'argus_preview_access=secret; Path=/api/projects; HttpOnly; SameSite=Strict');
+  const shown = await page(`theme=dark; ${granted!.split(';')[0]}`);
+  assert.equal(shown.status, 200);
+  assert.match(await shown.text(), /<p>hi<\/p>$/);
+  assert.equal((await call(`${P}/artifact/preview?path=index.html`, { headers: { authorization: '', cookie: 'argus_preview_access=secret' } })).status, 401);
 });
 
 test('a task in full, a role\'s letters to download, and a search of every project\'s record', async t => {
