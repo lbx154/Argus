@@ -282,7 +282,7 @@ def test_relay_reuses_callback_so_deltas_accumulate() -> None:
     sink = _RecordingSink()
     relay = StreamProgressRelay(min_delta_interval_s=0, min_delta_chars=0)
     for tok in ("I", "'ll ", "verify"):
-        relay(sink, None, "main.stdout", _delta_line(tok))
+        relay(sink, "main.stdout", _delta_line(tok))
 
     texts = [e["text"] for e in sink.events if e["type"] == "engineer.progress"]
     # Accumulating: each fragment CONTAINS the previous, so the front-end's

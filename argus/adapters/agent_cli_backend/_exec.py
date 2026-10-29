@@ -28,7 +28,6 @@ from typing import TYPE_CHECKING
 
 from ...core.hosting import hosting
 from ...core.models import RunnerOptions, RunnerResult, may_act
-from ...core.runner_receipts import is_provider_turn_cap_receipt
 from ...core.secret_guard import redact_secrets_text
 from ._exec_admission import admit
 from ._exec_context import _ExecContext
@@ -90,11 +89,9 @@ def execute(
             and result.stop_kind not in {
                 "budget_exhausted", "cost_unreconciled", "operator_pause", "operator_abort", "daemon_shutdown",
             }
-            and not is_provider_turn_cap_receipt(result.fatal_error)
         ):
-            # A local turn allowance belongs to the checkpoint/continuation
-            # handler, not the account-wide no-replay gate. Actual provider or
-            # ambiguous request failures still pause, but retain their cause.
+            # Actual provider or ambiguous request failures pause, but retain
+            # their cause.
             diagnostic = redact_secrets_text(
                 str(result.fatal_error or ""),
                 known_values=getattr(backend, "_known_secret_values", ()),

@@ -5,8 +5,7 @@ import json
 
 import pytest
 
-from argus.agent_cli import _run_exec
-from argus.agent_cli._env import _CAPTURE_JSON_EVENTS_ENV
+from argus.agent_cli import _env, _run_exec
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import BACKEND_COPILOT
 from argus.core.runner_receipts import is_provider_background_wait_receipt
@@ -55,8 +54,7 @@ def _tool_complete(state="active", **extra):
 
 
 def _run(monkeypatch, events, exit_code=0):
-    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "0")
-    monkeypatch.setenv(_CAPTURE_JSON_EVENTS_ENV, "1")
+    monkeypatch.setattr(_env, "_CAPTURE_JSON_EVENTS", 1)
     process = _Process(events, exit_code)
     monkeypatch.setattr(_run_exec, "spawn_owned_process", lambda *args, **kwargs: process)
     monkeypatch.setattr(

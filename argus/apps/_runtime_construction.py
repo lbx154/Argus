@@ -15,10 +15,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..core.knobs import resolve_runner_bin_setting
+from ..core.knobs import env_int, resolve_runner_bin_setting
 from ..core.ports import EventSink
 from ..core.run_gateway import run_exec as gateway_run_exec
-from ._env import env_int as _env_int
 from ._runtime_backends import _MemoryRunner, _ScriptedPlannerBackend
 
 if TYPE_CHECKING:
@@ -116,15 +115,12 @@ class _RunnerConstructionMixin:
         # ``engineer.progress`` items in whichever sink owns this call.
         self._current_sink: EventSink | None = None
         self._active_mission_id = ""
-        # Per-mission ledger of failed tool/command beats. Reset on every
-        # execute() so warnings don't bleed across missions.
-        self._current_failure_ledger: object | None = None
         # ONE stream-progress callback, reused across stdout lines. It closes over
         # copilot's delta-accumulation buffer, which must persist line-to-line —
         # rebuilding it per line (the old bug here) reset the buffer every token,
         # so copilot's per-token reply deltas were emitted as standalone fragments
         # and the cockpit showed one word per line. The relay rebuilds only when
-        # the sink/ledger changes (a new mission). See ``StreamProgressRelay``.
+        # the sink changes (a new mission). See ``StreamProgressRelay``.
         from ..adapters.stream_progress import StreamProgressRelay
 
         self._stream_progress_relay = StreamProgressRelay()
@@ -134,7 +130,7 @@ class _RunnerConstructionMixin:
             if sink is None:
                 return
             try:
-                self._stream_progress_relay(sink, self._current_failure_ledger, stream, line)
+                self._stream_progress_relay(sink, stream, line)
             except Exception:  # noqa: BLE001 — never let logging crash the runner
                 pass
 
@@ -218,11 +214,11 @@ class _RunnerConstructionMixin:
             runner_bin=runner_bin,
             default_extra_args=extra,
             default_interrupt_reason_provider=_stop_reason if stop_event is not None else None,
-            default_watchdog_soft_idle_seconds=_env_int(
+            default_watchdog_soft_idle_seconds=env_int(
                 "ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS",
                 10 * 60,
             ),
-            default_watchdog_stalled_idle_seconds=_env_int(
+            default_watchdog_stalled_idle_seconds=env_int(
                 "ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS",
                 30 * 60,
             ),

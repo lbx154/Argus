@@ -189,27 +189,6 @@ def test_session_id_capability_is_read_from_the_executable_help(monkeypatch) -> 
 # --------------------------------------------------------------------------- #
 
 
-def test_turn_cap_kill_without_session_start_or_result_keeps_the_bound_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "3")
-    process = _LiveFakeProc()
-    runner = _runner(monkeypatch, process)
-
-    result = runner.run_exec(
-        prompt="long research task", resume_thread_id=None,
-        options=RunnerOptions(provider_session_id=BOUND), run_label="engineer-r1",
-    )
-
-    assert process.terminated is True and result.exit_code == -9
-    assert result.provider_turn_cap_hit is True
-    assert result.thread_id == BOUND, "the watchdog kill must not lose the session"
-    # An identity never implies completion: the work stays failed.
-    assert result.turn_completed is False and result.turn_failed is True
-    assert str(result.fatal_error).startswith("Provider turn cap reached")
-    assert result.session_identity_conflict is None
-
-
 def test_process_failure_without_terminal_result_keeps_the_bound_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -79,7 +79,6 @@ def test_model_output_evidence_from_the_runner() -> None:
     assert model_output_observed(_cli_result([*LIFECYCLE[:2], reasoning, *LIFECYCLE[2:]]))
     assert model_output_observed(_cli_result([*LIFECYCLE[:2], {"type": "item.started"}]))
     assert model_output_observed(_cli_result(LIFECYCLE, model_output_observed=True))
-    assert model_output_observed(_cli_result(LIFECYCLE, provider_turns=1))
     # Events dropped from the retained capture cannot prove absence of output.
     truncated = _cli_result(LIFECYCLE)
     truncated.json_event_count = len(LIFECYCLE) + 1

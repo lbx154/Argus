@@ -39,7 +39,6 @@ from ...core.runner_receipts import (
     ACCOUNTING_PENDING_LOST_SESSION_IDENTITY,
     ACCOUNTING_PENDING_SESSION_IDENTITY_CONFLICT,
     accounting_pending_receipt,
-    is_provider_turn_cap_receipt,
 )
 from ...core.secret_guard import redact_secrets_text
 from ...core.token_usage import extract_token_usage
@@ -398,7 +397,6 @@ def spawn_and_finish(ctx: "_ExecContext", cli_options: Any) -> RunnerResult:
     # process level, so every daemon kept retrying a blocked account.
     if (
         failed
-        and not is_provider_turn_cap_receipt(fatal_error)
         and not is_execution_host_startup_error(fatal_error)
         and looks_like_auth_failure([terminal_diagnostic])
     ):

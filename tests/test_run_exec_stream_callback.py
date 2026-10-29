@@ -13,7 +13,7 @@ import json
 
 import pytest
 
-from argus.agent_cli import _run_exec
+from argus.agent_cli import _env, _run_exec
 from argus.agent_cli.agent_cli_runner import AgentCliRunner, RunnerOptions
 from argus.agent_cli.runner_backend import BACKEND_CLAUDE, BACKEND_COPILOT
 
@@ -230,8 +230,8 @@ def test_runner_retains_bounded_stream_tail_with_exact_counts(monkeypatch) -> No
         ]
     )
 
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_CAPTURE_STDOUT_LINES", "3")
-    monkeypatch.setenv("ARGUS_SKILL_RUNNER_CAPTURE_JSON_EVENTS", "4")
+    monkeypatch.setattr(_env, "_CAPTURE_STDOUT_LINES", 3)
+    monkeypatch.setattr(_env, "_CAPTURE_JSON_EVENTS", 4)
     monkeypatch.setattr(
         _run_exec,
         "spawn_owned_process",

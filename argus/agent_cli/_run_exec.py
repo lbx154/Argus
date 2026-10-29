@@ -29,20 +29,11 @@ from ..core.sandbox import SANDBOX_WAIT_MARKER
 from ..core.turn_jobs import describe as describe_turn_jobs
 from ..core.turn_jobs import tag_turn
 from ..core.windows_job import spawn_owned_process, terminate_owned_process
+from . import _env
 from ._env import (
-    _CAPTURE_JSON_EVENTS_ENV,
-    _CAPTURE_STDERR_LINES_ENV,
-    _CAPTURE_STDOUT_LINES_ENV,
     _CLI_EXITED_WITHOUT_TURN,
-    _DEFAULT_CAPTURE_JSON_EVENTS,
-    _DEFAULT_CAPTURE_STDERR_LINES,
-    _DEFAULT_CAPTURE_STDOUT_LINES,
-    _DEFAULT_STREAM_QUEUE_LINES,
-    _STREAM_QUEUE_LINES_ENV,
     _incomplete_turn_error,
     _is_manager_turn_label,
-    _positive_env_int,
-    _provider_turn_cap,
 )
 from ._event_consumers import _CopilotWriteState, _OpenCodeWriteState
 from ._idle_watchdog import (
@@ -146,8 +137,6 @@ class _StreamState:
     turn_completed: bool = False
     turn_failed: bool = False
     fatal_error: str | None = None
-    provider_turns: int = 0
-    provider_turn_cap_hit: bool = False
     model_progress_observed: bool = False
     # The model produced something (an item of any kind, including reasoning,
     # assistant text, tool use, or a provider-turn receipt), as opposed to
@@ -466,22 +455,13 @@ class RunExecMixin:
         return _StreamState(
             thread_id=thread_id,
             stdout_lines=deque(
-                maxlen=_positive_env_int(
-                    _CAPTURE_STDOUT_LINES_ENV,
-                    _DEFAULT_CAPTURE_STDOUT_LINES,
-                )
+                maxlen=_env._CAPTURE_STDOUT_LINES
             ),
             stderr_lines=deque(
-                maxlen=_positive_env_int(
-                    _CAPTURE_STDERR_LINES_ENV,
-                    _DEFAULT_CAPTURE_STDERR_LINES,
-                )
+                maxlen=_env._CAPTURE_STDERR_LINES
             ),
             events=deque(
-                maxlen=_positive_env_int(
-                    _CAPTURE_JSON_EVENTS_ENV,
-                    _DEFAULT_CAPTURE_JSON_EVENTS,
-                )
+                maxlen=_env._CAPTURE_JSON_EVENTS
             ),
         )
 
@@ -498,10 +478,7 @@ class RunExecMixin:
         if state is None:
             state = self._new_stream_state(thread_id)
         line_queue: queue.Queue[tuple[str, str | None]] = queue.Queue(
-            maxsize=_positive_env_int(
-                _STREAM_QUEUE_LINES_ENV,
-                _DEFAULT_STREAM_QUEUE_LINES,
-            )
+            maxsize=_env._STREAM_QUEUE_LINES
         )
         stop_queueing = threading.Event()
         last_reader_enqueue_at = [time.monotonic()]
@@ -514,7 +491,6 @@ class RunExecMixin:
             terminate_seconds=hard_idle,
         )
         last_activity_at = time.monotonic()
-        provider_turn_cap = _provider_turn_cap(run_label)
         last_soft_check_at = last_activity_at
 
         def turn_running() -> bool:
@@ -811,39 +787,6 @@ class RunExecMixin:
                             or has_tool_activity
                         ):
                             state.model_output_observed = True
-                    if (
-                        provider_turn_cap > 0
-                        and not state.watchdog_terminated
-                        and ends_provider_turn
-                    ):
-                        state.provider_turns += 1
-                        if (
-                            state.provider_turns >= provider_turn_cap
-                            and process.poll() is None
-                        ):
-                            # The allowance is a housekeeping boundary, not an
-                            # error: the caller reads this exact prefix, keeps the
-                            # work, and continues the task in a fresh session with
-                            # the checkpoint and a summary.
-                            state.provider_turn_cap_hit = True
-                            state.watchdog_reason = (
-                                "Provider turn cap reached: this "
-                                f"{run_label or 'agent'} call used "
-                                f"{state.provider_turns} provider turns (allowance "
-                                f"{provider_turn_cap}, ARGUS_SKILL_PROVIDER_TURN_CAP). "
-                                "Each further turn would resend the whole grown "
-                                "transcript; the harness continues this work in a "
-                                "fresh session instead."
-                            )
-                            self._emit(
-                                self._stream_name("stderr", run_label),
-                                f"[watchdog] {state.watchdog_reason}",
-                            )
-                            self._terminate_process(
-                                process,
-                                include_detached_children=self.backend == BACKEND_OPENCODE,
-                            )
-                            state.watchdog_terminated = True
                     if has_tool_activity:
                         state.tool_activity_observed = True
                     state.running_tool = running_tool_after_event(event, state.running_tool)
@@ -1110,8 +1053,6 @@ class RunExecMixin:
             turn_completed=state.turn_completed,
             turn_failed=state.turn_failed,
             fatal_error=state.fatal_error,
-            provider_turns=state.provider_turns,
-            provider_turn_cap_hit=state.provider_turn_cap_hit,
             model_progress_observed=state.model_progress_observed,
             model_output_observed=state.model_output_observed,
             terminal_stderr_lines=(

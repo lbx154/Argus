@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import errno
 import json
 import logging
 import os
@@ -58,28 +57,10 @@ _STOP_REQUEST_FILE = "daemon.stop-request.json"
 _HOST_SHUTDOWN_FILE = "daemon.host-stopped.json"
 DAEMON_UPGRADE_REQUEST_FILE = "daemon.upgrade-request.json"
 _WINDOWS_LOCK_POLL_SECONDS = 0.05
-_CONTINUOUS_RESERVE_NAMES = (
-    ".continuous.reserve",
-    ".continuous.reserve.spare",
-)
-_CONTINUOUS_RESERVE_MIN_BYTES = 64 * 1024
-_CONTINUOUS_RESERVE_MAX_BYTES = 1024 * 1024
-
-
-class ContinuousConfigWriteAfterReplaceError(RuntimeError):
-    """Raised when continuous.json was replaced but durability failed."""
 
 
 class ContinuousConfigCommitError(RuntimeError):
     """Raised when a durable pre-replace callback prevents a false CAS result."""
-
-
-class _AtomicWritePostReplaceError(OSError):
-    """Internal marker for an error observed after the target was replaced."""
-
-
-class _AtomicWriteAfterCallbackError(OSError):
-    """Internal marker for a replace failure after the callback committed."""
 
 
 def _truthy_env(name: str, default: str = "1") -> bool:
@@ -359,10 +340,6 @@ def _continuous_config_lock(life_dir: Path):
                 fcntl.flock(fd, fcntl.LOCK_UN)
 
 
-def _is_quota_error(exc: OSError) -> bool:
-    return getattr(exc, "errno", None) in {errno.ENOSPC, errno.EDQUOT}
-
-
 def _fsync_directory(path: Path) -> None:
     try:
         directory_fd = os.open(str(path), os.O_RDONLY)
@@ -372,135 +349,6 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(directory_fd)
     finally:
         os.close(directory_fd)
-
-
-def _read_existing_bytes(path: Path) -> bytes | None:
-    try:
-        return path.read_bytes()
-    except FileNotFoundError:
-        return b""
-    except OSError:
-        return None
-
-
-def _atomic_write_bytes(
-    path: Path,
-    data: bytes,
-    *,
-    before_replace: Callable[[], None] | None = None,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(f".{os.getpid()}.tmp")
-    try:
-        with tmp.open("wb") as handle:
-            handle.write(data)
-            handle.flush()
-            os.fsync(handle.fileno())
-        before_bytes = _read_existing_bytes(path)
-        callback_committed = False
-        if before_replace is not None:
-            try:
-                before_replace()
-            except OSError as exc:
-                raise ContinuousConfigCommitError(
-                    f"continuous config precommit failed for {path}"
-                ) from exc
-            callback_committed = True
-        try:
-            os.replace(str(tmp), str(path))
-        except OSError as exc:
-            after_replace = _read_existing_bytes(path)
-            if after_replace == data or (
-                before_bytes is not None and after_replace != before_bytes
-            ):
-                raise _AtomicWritePostReplaceError(str(exc)) from exc
-            if callback_committed:
-                raise _AtomicWriteAfterCallbackError(str(exc)) from exc
-            raise
-        try:
-            _fsync_directory(path.parent)
-        except OSError as exc:
-            raise _AtomicWritePostReplaceError(str(exc)) from exc
-    finally:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-
-
-def _atomic_write_text(
-    path: Path,
-    text: str,
-    *,
-    before_replace: Callable[[], None] | None = None,
-) -> None:
-    _atomic_write_bytes(
-        path,
-        text.encode("utf-8"),
-        before_replace=before_replace,
-    )
-
-
-def _continuous_reserve_paths(life_dir: Path) -> tuple[Path, ...]:
-    return tuple(life_dir / name for name in _CONTINUOUS_RESERVE_NAMES)
-
-
-def _continuous_reserve_size(text: str) -> int:
-    needed = len(text.encode("utf-8")) + 4096
-    return max(
-        _CONTINUOUS_RESERVE_MIN_BYTES,
-        min(_CONTINUOUS_RESERVE_MAX_BYTES, needed),
-    )
-
-
-def _continuous_state_reserve_text(state: ContinuousConfigState) -> str:
-    data = {
-        "enabled": state.enabled,
-        "objective": state.objective,
-        "open_ended": state.open_ended,
-        "generation": state.generation,
-    }
-    if state.done_reason:
-        data["done_reason"] = state.done_reason
-        data["done_at"] = state.done_at
-    return json.dumps(data, ensure_ascii=False, indent=2)
-
-
-def _ensure_continuous_reserve_unlocked(life_dir: Path, text: str) -> None:
-    size = _continuous_reserve_size(text)
-    payload = b"\0" * size
-    for reserve in _continuous_reserve_paths(life_dir):
-        try:
-            if reserve.stat().st_size >= size:
-                continue
-        except OSError:
-            pass
-        try:
-            _atomic_write_bytes(reserve, payload)
-        except _AtomicWritePostReplaceError:
-            pass
-        except OSError:
-            log.debug("failed to refresh continuous config reserve %s", reserve)
-
-
-def _release_one_continuous_reserve_unlocked(life_dir: Path) -> bool:
-    reserves = []
-    for reserve in _continuous_reserve_paths(life_dir):
-        try:
-            reserves.append((reserve.stat().st_size, reserve))
-        except OSError:
-            continue
-    for _size, reserve in sorted(reserves, key=lambda item: item[0], reverse=True):
-        try:
-            reserve.unlink()
-        except OSError:
-            continue
-        try:
-            _fsync_directory(life_dir)
-        except OSError:
-            pass
-        return True
-    return False
 
 
 def _read_continuous_state_unlocked(life_dir: Path) -> ContinuousConfigState:
@@ -527,13 +375,7 @@ def _read_continuous_state_unlocked(life_dir: Path) -> ContinuousConfigState:
 
 def read_continuous_state(life_dir: Path) -> ContinuousConfigState:
     with _continuous_config_lock(life_dir):
-        state = _read_continuous_state_unlocked(life_dir)
-        if _continuous_config_path(life_dir).exists():
-            _ensure_continuous_reserve_unlocked(
-                life_dir,
-                _continuous_state_reserve_text(state),
-            )
-        return state
+        return _read_continuous_state_unlocked(life_dir)
 
 
 def read_continuous_config(life_dir: Path) -> tuple[bool, str]:
@@ -590,51 +432,23 @@ def _write_continuous_config_unlocked(
         data["done_reason"] = done_reason
         data["done_at"] = done_at or datetime.now(timezone.utc).isoformat()
     text = json.dumps(data, ensure_ascii=False, indent=2)
-    if path.exists():
-        _ensure_continuous_reserve_unlocked(life_dir, text)
-
-    def _write_once() -> None:
-        if before_replace is None:
-            _atomic_write_text(path, text)
-        else:
-            _atomic_write_text(
-                path,
-                text,
-                before_replace=before_replace,
-            )
-
+    if before_replace is not None:
+        try:
+            before_replace()
+        except OSError as exc:
+            raise ContinuousConfigCommitError(
+                f"continuous config precommit failed for {path}"
+            ) from exc
     try:
-        _write_once()
-    except _AtomicWritePostReplaceError as exc:
-        raise ContinuousConfigWriteAfterReplaceError(
-            f"continuous config was replaced but durability failed for {path}"
-        ) from exc
-    except _AtomicWriteAfterCallbackError as exc:
-        raise ContinuousConfigCommitError(
-            f"continuous config replace failed after precommit for {path}"
-        ) from exc
+        write_atomic(path, text, fsync=True)
     except OSError as exc:
-        if _is_quota_error(exc) and _release_one_continuous_reserve_unlocked(life_dir):
-            try:
-                _write_once()
-            except _AtomicWritePostReplaceError as retry_exc:
-                raise ContinuousConfigWriteAfterReplaceError(
-                    f"continuous config was replaced but durability failed for {path}"
-                ) from retry_exc
-            except _AtomicWriteAfterCallbackError as retry_exc:
-                raise ContinuousConfigCommitError(
-                    f"continuous config replace failed after precommit for {path}"
-                ) from retry_exc
-            except OSError:
-                log.warning("failed to write continuous config to %s", path)
-                return False
-            _ensure_continuous_reserve_unlocked(life_dir, text)
-            return True
+        if before_replace is not None:
+            raise ContinuousConfigCommitError(
+                f"continuous config replace failed after precommit for {path}"
+            ) from exc
         log.warning("failed to write continuous config to %s", path)
         return False
-    else:
-        _ensure_continuous_reserve_unlocked(life_dir, text)
-        return True
+    return True
 
 
 def compare_and_swap_continuous_config(
@@ -1640,7 +1454,7 @@ def stop_daemon(
 
 __all__ = [
     "DAEMON_UPGRADE_REQUEST_FILE",
-    "ContinuousConfigState", "ContinuousConfigWriteAfterReplaceError",
+    "ContinuousConfigState",
     "DaemonStatus", "DaemonStopRequest", "HostShutdown",
     "clear_daemon_control_stop", "clear_host_shutdown",
     "continuous_mode_error", "format_spend_status",

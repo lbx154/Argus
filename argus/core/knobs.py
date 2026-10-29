@@ -135,7 +135,6 @@ KNOBS: tuple[Knob, ...] = (
         "mission",
     ),
     Knob("ARGUS_SKILL_MAX_ROUNDS", "0", "optional engineer-round cap per mission; disabled by default", "mission"),
-    Knob("ARGUS_SKILL_PROVIDER_TURN_CAP", "0", "optional per-call interaction allowance for Engineer/Reviewer; disabled by default (0). If explicitly enabled, save a checkpoint and continue in a fresh session", "mission"),
     Knob("ARGUS_SKILL_RUNNER_SOFT_IDLE_SECONDS", "600", "model stream inactivity before a diagnostic warning (0=off)", "mission"),
     Knob("ARGUS_SKILL_RUNNER_STALLED_IDLE_SECONDS", "1800", "seconds a model turn may make no progress (no model stream event, no CPU time in its commands) before it is reported as likely stalled; an Engineer turn is then reported to the Manager once, which decides whether to keep waiting or restart it (0=off)", "mission"),
     Knob("ARGUS_SKILL_CHECKPOINT_PERSIST", "true", "persist the reviewer checkpoint across missions/restarts", "mission"),
@@ -147,7 +146,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob(
         "ARGUS_SKILL_REDACT_SECRETS", "0",
         "1 = mask credential-shaped text in events, transcripts, model-visible text, "
-        "config views and changed artifacts; off by default because masked text "
+        "and config views; off by default because masked text "
         "cannot be verified (secret detection for training capture is unaffected)",
         "lifecycle",
     ),

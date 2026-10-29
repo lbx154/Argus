@@ -61,8 +61,7 @@ def is_generic_exit_receipt(value: object) -> bool:
 
 def _observed_model_progress(result: Any) -> bool:
     return bool(
-        getattr(result, "provider_turns", 0)
-        or getattr(result, "model_progress_observed", False)
+        getattr(result, "model_progress_observed", False)
         or getattr(result, "tool_activity_observed", False)
         or getattr(result, "agent_messages", None)
         or any(
@@ -202,7 +201,6 @@ def model_output_observed(cli_result: Any) -> bool:
         getattr(cli_result, "model_output_observed", False)
         or getattr(cli_result, "agent_messages", None)
         or getattr(cli_result, "tool_activity_observed", False)
-        or getattr(cli_result, "provider_turns", 0)
     ):
         return True
     events = list(getattr(cli_result, "json_events", None) or [])
@@ -243,8 +241,6 @@ def result_rejected_before_output(
     if "accounting_pending:" in str(error or ""):
         return False
     if getattr(result, "agent_messages", None) or getattr(result, "tool_activity_observed", False):
-        return False
-    if getattr(result, "provider_turns", 0):
         return False
     evidence = [error, getattr(result, "fatal_error", None),
                 *list(getattr(result, "stderr_lines", None) or [])[-5:]]
