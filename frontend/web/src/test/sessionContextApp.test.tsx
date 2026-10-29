@@ -58,7 +58,6 @@ vi.mock('../components/KeybindingHelp', () => ({ KeybindingHelp: () => null }));
 vi.mock('../components/InfoModals', () => ({ DoctorModal: () => null, ConfigModal: () => null, IdentityModal: () => null, TranscriptModal: () => null }));
 vi.mock('../components/Modal', () => ({ Modal: () => null, ModalHeader: () => null }));
 vi.mock('../components/ProjectInspectorModal', () => ({ ProjectInspectorModal: () => null }));
-vi.mock('../components/VerticalStore', () => ({ VerticalStore: () => null }));
 vi.mock('../components/TaskDetailModal', () => ({ TaskDetailModal: () => null }));
 vi.mock('../components/MobileTabBar', () => ({ MobileTabBar: () => null }));
 vi.mock('../components/ConnectionProblemBanner', () => ({ ConnectionProblemBanner: () => null }));

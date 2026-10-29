@@ -41,7 +41,6 @@ import { TaskDetailModal } from './components/TaskDetailModal';
 import { currentWorkStatus } from './lib/workStatus';
 import { SplitHandle } from './components/SplitHandle';
 import { Modal } from './components/Modal';
-import { VerticalStore } from './components/VerticalStore';
 import { Landing } from './components/Landing';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
@@ -69,7 +68,6 @@ import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
-import { hostedTrialBuild } from './lib/verticalStore';
 import { ArtifactEditor, ConversationEditor, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
@@ -95,7 +93,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'learning' | 'verticals';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'learning';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -1254,7 +1252,6 @@ export default function App() {
       { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
-      { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
       { id: 'help', label: t('help.title'), hint: '?', group: t('palette.view'), run: () => setOverlay('help') },
       {
         id: 'reasoning',
@@ -1367,7 +1364,6 @@ export default function App() {
           resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenLearning={openLearningLibrary}
-          onOpenVerticals={() => setOverlay('verticals')}
           onOpenResults={() => {
             const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
             if (selection) { openDelivery(selection.receipt, selection.path); setSidebarOpen(false); }
@@ -1376,7 +1372,7 @@ export default function App() {
           onNew={() => startNewSession()}
           onSearch={() => setSearchOpen(true)}
           // The trial portal owns sign-in; a token kept here is this browser's own.
-          onSignOut={hostedTrialBuild() || !holdsToken() ? undefined : signOut}
+          onSignOut={import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' || !holdsToken() ? undefined : signOut}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
@@ -1681,7 +1677,6 @@ export default function App() {
           projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
       </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
-      <VerticalStore open={overlay === 'verticals'} onClose={() => setOverlay('none')} />
       <KeybindingHelp open={overlay === 'help'} onClose={() => setOverlay('none')} />
       {activeSid && <DoctorModal sid={activeSid} open={overlay === 'doctor'} onClose={() => setOverlay('none')} />}
       {activeSid && (

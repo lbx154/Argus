@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type ProjectRow } from '../api';
 import { LearningLibraryEntry, type LearningScope } from './LearningLibrary';
 import { PluginLauncher } from './PluginLauncher';
-import { VerticalStoreEntry } from './VerticalStore';
 import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
@@ -71,7 +70,6 @@ export function Sidebar({
   resumingId,
   onOpenPanel,
   onOpenLearning,
-  onOpenVerticals,
   onOpenResults,
   resultsCount = 0,
   onNew,
@@ -98,7 +96,6 @@ export function Sidebar({
   resumingId?: string | null;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onOpenLearning?: (scope: LearningScope) => void;
-  onOpenVerticals?: () => void;
   /** Opens the current project's delivered results. */
   onOpenResults?: () => void;
   resultsCount?: number;
@@ -250,7 +247,6 @@ export function Sidebar({
         <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" /> : null}
       </button> : null}
       {slim && openKnowledge ? <LearningLibraryEntry onOpen={openKnowledge} compact /> : null}
-      {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
       {!slim ? (
         <>
           <nav aria-label={locale === 'zh-CN' ? '成果与工具' : 'Results and tools'} data-sidebar-resources
@@ -262,14 +258,13 @@ export function Sidebar({
               {resultsCount ? <span className="ml-auto text-xs tabular-nums text-ink-faint">{resultsCount}</span> : null}
             </button> : null}
             <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
-              title={zh ? '知识库、领域商店、插件' : 'Knowledge, domain store and plugins'}
+              title={zh ? '知识库、插件' : 'Knowledge and plugins'}
               className="mx-2 my-1 flex h-8 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
               <ChevronRight size={13} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
               <span>{zh ? '高级工具' : 'Advanced tools'}</span>
             </button>
             {advancedOpen ? <>
               {openKnowledge && <LearningLibraryEntry onOpen={openKnowledge} />}
-              {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
               <PluginLauncher />
             </> : null}
           </nav>

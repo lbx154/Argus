@@ -65,7 +65,8 @@ export function PluginEntries({ plugins, compact = false, pending, onLaunch, onM
 }
 
 // One plugin inside the plugin center. A plugin the service provides keeps its
-// environment tools but offers no install, update, disable or uninstall control.
+// environment tools but offers no install or update control; none is disabled or
+// uninstalled from here.
 export function PluginCard({ plugin, running, locale, act, children }: { plugin: Plugin; running: boolean; locale: string; act: Act; children?: ReactNode }) {
   const tr = usePluginText();
   const managed = Boolean(plugin.managed_by_host);
@@ -97,11 +98,9 @@ export function PluginCard({ plugin, running, locale, act, children }: { plugin:
       {tr(!plugin.installed && !managed && <button className={control} disabled={disabled} onClick={() => void act('install')}><Download size={14}/>{tr("安装")}</button>)}
       {tr(plugin.installed && !plugin.enabled && !managed && <button className={control} disabled={disabled} onClick={() => void act('enable')}>{tr("启用")}</button>)}
       {tr(plugin.update_available && !managed && <button className={control} disabled={disabled} onClick={() => void act('update')}><RefreshCw size={14}/>{plugin.environment_update ? tr("更新科学环境校验") : <>{tr("更新至 ")}{tr(plugin.version)}</>}</button>)}
-      {tr(plugin.installed && plugin.enabled && !managed && <button className={control} disabled={running} onClick={() => void act('disable')}>{tr("停用")}</button>)}
-      {tr(plugin.installed && !managed && <button className={control} disabled={running} onClick={() => void act('uninstall')}>{tr("卸载")}</button>)}
     </div>
     {children}
-    {tr(plugin.installed && <p className="mt-4 text-xs leading-relaxed text-ink-faint">{tr(managed ? tr(`原生会话输入 ${plugin.command || ''} 可启用后台工具。`) : tr(`原生会话输入 ${plugin.command || ''} 可启用后台工具。卸载保留会话、研究数据和科学软件。`))}</p>)}
+    {tr(plugin.installed && plugin.command && <p className="mt-4 text-xs leading-relaxed text-ink-faint">{tr(`原生会话输入 ${plugin.command} 可启用后台工具。`)}</p>)}
     {tr(!plugin.installed && !managed && <p className="mt-4 text-xs leading-relaxed text-ink-faint">{tr("首次安装自动配置独立 Python、DIALS、Systre / Java 和 PLATON 学术免费组件。SHELX 稍后输入授权信息即可安装。")}</p>)}
     {tr(plugin.installed && plugin.setup && <PluginEnvironment health={plugin.health} setup={plugin.setup} running={running} platform={plugin.platform} machine={plugin.machine} act={act}/>)}
     </details>

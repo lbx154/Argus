@@ -71,7 +71,7 @@ describe('workbench entries outside the plugin center', () => {
 });
 
 describe('plugin center cards', () => {
-  it('hides disable, uninstall and update for a plugin the service provides', () => {
+  it('hides update for a plugin the service provides', () => {
     const html = card({ ...ready, managed_by_host: true, update_available: true });
     expect(html).toContain('Open workbench');
     expect(html).toContain('Check environment');
@@ -79,10 +79,9 @@ describe('plugin center cards', () => {
     expect(html).not.toContain('Uninstalling preserves');
   });
 
-  it('keeps every manual control for a self-hosted copy', () => {
+  it('offers a self-hosted copy its update and install, and never a disable or uninstall the server has no route for', () => {
     const html = card({ ...ready, update_available: true });
-    expect(html).toMatch(/>Disable</);
-    expect(html).toMatch(/>Uninstall</);
+    expect(html).not.toMatch(/>Disable<|>Uninstall</);
     expect(html).toMatch(/>Update to /);
     expect(card(catalog)).toMatch(/>Install</);
   });
