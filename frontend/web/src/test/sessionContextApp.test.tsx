@@ -141,7 +141,7 @@ describe('App session composer ownership', () => {
     });
     const target = { source: 'original-question', prompt: 'Original question', answer: 'Original answer', mode: 'edit', baseVersion: 0 };
     await act(async () => { renderer.root.findByType(EventStream).props.onConversationAction(target); });
-    act(() => renderer.root.findByType(ConversationEditor).props.onCompose('/task revised question', target));
+    act(() => renderer.root.findByType(ConversationEditor).props.onCompose('/task revised question', target, false));
     act(() => props().onRouteOverrideChange!('task'));
     await act(async () => { expect(await props().onSend('/task revised question')).toBe(true); });
     expect(stream).toHaveBeenCalledWith('s-A', '/task revised question', expect.any(Object),
@@ -149,6 +149,19 @@ describe('App session composer ownership', () => {
     expect(save).toHaveBeenCalledWith('s-A', 'conversation', expect.objectContaining({
       source: 'original-question', original: 'Original answer', content: 'Revised answer', note: '/task revised question',
     }));
+  });
+  it('sends a revision straight from its dialog without a second Send', async () => {
+    vi.spyOn(api, 'editions').mockResolvedValue({ original: '', versions: [] });
+    vi.spyOn(api, 'saveEdition').mockResolvedValue({ version: 1, content: 'Another answer' });
+    const stream = vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
+      handlers.onDone?.({ kind: 'message', reply: 'Another answer' });
+    });
+    const target = { source: 'original-question', prompt: 'Original question', answer: 'Original answer', mode: 'regenerate', baseVersion: 0 };
+    await act(async () => { renderer.root.findByType(EventStream).props.onConversationAction(target); });
+    await act(async () => { renderer.root.findByType(ConversationEditor).props.onCompose('Original question', target, true); });
+    expect(stream).toHaveBeenCalledWith('s-A', 'Original question', expect.any(Object),
+      expect.objectContaining({ routeOverride: 'chat' }));
+    expect(renderer.root.findAllByType(ConversationEditor)).toHaveLength(0);
   });
   it('gives the chat composer the same runtime line as the map composer', () => {
     const footer = props().footer as { type?: unknown; props?: { sid?: string } };

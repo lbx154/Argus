@@ -249,6 +249,9 @@ export default function App() {
   const [devicesOpen, setDevicesOpen] = useState(false);
   const [conversationEditor, setConversationEditor] = useState<ConversationRevision | null>(null);
   const [revisionContext, setRevisionContext] = useState<ConversationRevision | null>(null);
+  // A revision sent from its dialog goes once the composer holds it and the
+  // revision context is set, through the same path as pressing Send.
+  const [revisionToSend, setRevisionToSend] = useState<string | null>(null);
   const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
   const [highlightedTs, setHighlightedTs] = useState<number | undefined>();
   const homeRequest = useRef<{ text: string; files: File[] } | null>(null);
@@ -1249,6 +1252,11 @@ export default function App() {
   const composerSendRef = useRef(sendComposerMessage);
   composerSendRef.current = sendComposerMessage;
   useEffect(() => {
+    if (revisionToSend === null || !revisionContext || composerDraft !== revisionToSend) return;
+    setRevisionToSend(null);
+    void composerSendRef.current(revisionToSend);
+  }, [revisionToSend, revisionContext, composerDraft]);
+  useEffect(() => {
     if (!initialSend) return;
     if (activeSid && activeSid !== initialSend.sid) { setInitialSend(null); return; }
     if (loadedSid !== initialSend.sid) return;
@@ -1701,10 +1709,11 @@ export default function App() {
         onRequest={text => { if (composeContext(text)) setEditor(null); }} />}
       {activeSid && conversationEditor && <ConversationEditor key={`${activeSid}:${conversationEditor.source}`} sid={activeSid}
         target={conversationEditor} onClose={() => setConversationEditor(null)}
-        onCompose={(text, target) => {
-          if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
+        onCompose={(text, target, sendNow) => {
+          if (composerDraft.trim() && composerDraft !== text && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
           setComposerDraft(text); setRevisionContext(target); setRouteOverride('chat');
           setConversationEditor(null); setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1);
+          if (sendNow) setRevisionToSend(text);
         }} />}
       <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills'} width="max-w-6xl">
         {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}

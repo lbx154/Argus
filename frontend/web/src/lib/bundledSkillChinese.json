@@ -648,7 +648,7 @@
     "summary": "在 METHOD.md 中写清方法、组件、已知先例、协议（含这个实验能否回答问题）和证伪条件；以钉版参考实现为底把方法写成 diff；先写 tests/spec 再跑承载论断的实验；在卡中写明每个组件的入口 path:Symbol，让不在场的审阅者找到机制。",
     "originalName": "Method card (METHOD.md) and executable spec",
     "source": "argus/verticals/research/skills/engineer/method-card.md",
-    "sourceBytes": 17202
+    "sourceBytes": 17480
   },
   "vertical/research/engineer/novelty-check.md": {
     "title": "检验研究想法的新意",
@@ -739,7 +739,7 @@
     "summary": "忠实实现已选想法，先跑通一个小而完整、记录了耗时与算力的闭环，再通过适应性实验形成足以支撑论文的证据；经独立审核的阶段成果可以先作为阶段包交付。",
     "originalName": "Developing an idea through experiments",
     "source": "argus/verticals/research/skills/research-experiment-playbook.md",
-    "sourceBytes": 32783
+    "sourceBytes": 33166
   },
   "vertical/research/research-idea-playbook.md": {
     "title": "寻找并选择研究想法",
