@@ -74,10 +74,10 @@ describe('web API protocol handshake', () => {
     close();
   });
 
-  it('delivers each event frame and reconnects after the connection ends', async () => {
+  it('delivers each event frame and reconnects after the connection ends, from the last event it had', async () => {
     vi.useFakeTimers();
-    const body = 'data: {"type":"ui.argus","text":"hi"}\n\n: comment\n\ndata: {"type":"life.planner.task_added","item_id":"t1"}\n\n';
-    const fetchMock = vi.fn(async () => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+    const body = 'id: 7\ndata: {"type":"ui.argus","text":"hi","event_id":7}\n\n: comment\n\nid: 8\ndata: {"type":"life.planner.task_added","item_id":"t1","event_id":8}\n\n';
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
     vi.stubGlobal('fetch', fetchMock);
     const { openStream } = await import('../api');
     const events: unknown[] = [];
@@ -86,11 +86,11 @@ describe('web API protocol handshake', () => {
     const close = openStream('s-live', (event) => events.push(event), { onOpen, onClose });
 
     await vi.advanceTimersByTimeAsync(0);
-    expect(events).toEqual([{ type: 'ui.argus', text: 'hi' }, { type: 'life.planner.task_added', item_id: 't1' }]);
+    expect(events).toEqual([{ type: 'ui.argus', text: 'hi', event_id: 7 }, { type: 'life.planner.task_added', item_id: 't1', event_id: 8 }]);
     expect(onOpen).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ code: 0, retryable: true }));
     await vi.advanceTimersByTimeAsync(1_001);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([, init]) => init?.headers)).toEqual([{}, { 'Last-Event-ID': '8' }]);
     close();
   });
 

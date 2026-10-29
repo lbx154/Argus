@@ -1,7 +1,7 @@
 // What the web cockpit reads of a project, computed on each request from project.json,
 // events.jsonl and usage.jsonl: nothing here is stored and nothing here writes.
 
-import { readFileSync, statSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type Daemon, type EventMsg, type OperatorDecisionCard, type ProjectRow,
@@ -31,24 +31,38 @@ const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', com
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
-function jsonLines(path: string): Record<string, unknown>[] {
-  let text: string;
-  try { text = readFileSync(path, 'utf8'); } catch { return []; }
-  // A line cut short (a full disk, a killed process) is left out rather than failing every read.
-  return text.split('\n').flatMap(line => { try { return line ? [JSON.parse(line) as Record<string, unknown>] : []; } catch { return []; } });
+/** The JSON lines of a file from byte `from` on, and the byte after the last of them, where the
+ * next read starts: a line not yet ended waits for it. A line cut short (a full disk, a killed
+ * process) is left out rather than failing every read. */
+function jsonLines(path: string, from = 0): { rows: Record<string, unknown>[]; end: number } {
+  let bytes: Buffer;
+  try {
+    const file = openSync(path, 'r');
+    try {
+      bytes = Buffer.alloc(Math.max(0, fstatSync(file).size - from));
+      bytes = bytes.subarray(0, readSync(file, bytes, 0, bytes.length, from));
+    } finally { closeSync(file); }
+  } catch { return { rows: [], end: from }; }
+  const ended = bytes.lastIndexOf('\n') + 1;
+  const rows = bytes.toString('utf8', 0, ended).split('\n')
+    .flatMap(line => { try { return line ? [JSON.parse(line) as Record<string, unknown>] : []; } catch { return []; } });
+  return { rows, end: from + ended };
 }
 
 export const readEvents = (store: Store, id: string): Recorded[] =>
-  jsonLines(join(store.dir(id), 'events.jsonl')) as unknown as Recorded[];
+  jsonLines(join(store.dir(id), 'events.jsonl')).rows as unknown as Recorded[];
 
-/** The record in the cockpit's event vocabulary. `event_id` is the line, so a replay and the
- * live stream agree; a reply's message id names the operator message it answers. */
-export function webEvents(events: Recorded[]): EventMsg[] {
+/** Where a fold of the record has got to: the next line, the operator message a Manager letter
+ * answers, and the call under way of each role on each task, which tasks run side by side. */
+export interface Fold { line: number; asked: number | null; calls: Map<string, string> }
+
+/** The record in the cockpit's event vocabulary, folded on from `fold`. `event_id` is the line,
+ * so a replay and the live stream agree; a reply's message id names the operator message it answers. */
+export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: null, calls: new Map() }): EventMsg[] {
   const rows: EventMsg[] = [];
-  let asked: number | null = null;
-  /** The call under way of each role on each task, which tasks run side by side. */
-  const calls = new Map<string, string>();
-  events.forEach((event, line) => {
+  const { calls } = fold;
+  for (const event of events) {
+    const line = fold.line++;
     const row = (type: string, fields: Record<string, unknown>): void => {
       rows.push({ type, ts: seconds(event.ts), event_id: line, ...fields });
     };
@@ -57,7 +71,7 @@ export function webEvents(events: Recorded[]): EventMsg[] {
     switch (event.type) {
       case 'message':
         // A message to the Manager waits for its reply; an answer to another role's question does not.
-        if (!event.to) asked = line;
+        if (!event.to) fold.asked = line;
         row('ui.operator', { agent_layer: 'operator', text: event.text, message_id: `m${line}-operator` });
         break;
       case 'call.start':
@@ -66,7 +80,7 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         break;
       case 'call.end':
         // A Manager turn that ended without a letter replies to nothing; the next letter answers no message.
-        if (event.role === 'manager' && !event.completed) asked = null;
+        if (event.role === 'manager' && !event.completed) fold.asked = null;
         row('provider.request.completed', {
           call_id: calls.get(caller) ?? '', run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
         });
@@ -74,8 +88,8 @@ export function webEvents(events: Recorded[]): EventMsg[] {
       case 'handoff':
         // Every letter of the Manager's is in the conversation: its reply, and what it hands the team.
         if (event.role === 'manager') {
-          row('ui.argus', { agent_layer: 'manager', text: event.letter, message_id: `m${asked ?? line}-argus` });
-          asked = null;
+          row('ui.argus', { agent_layer: 'manager', text: event.letter, message_id: `m${fold.asked ?? line}-argus` });
+          fold.asked = null;
         } else if (event.role === 'planner') {
           row('life.planner.verdict', { status: event.to, enqueued_tasks: event.to === 'engineer' ? 1 : 0 });
         } else if (event.role === 'engineer' && event.to === 'reviewer') {
@@ -101,8 +115,21 @@ export function webEvents(events: Recorded[]): EventMsg[] {
         if (event.status === 'failed') row('life.status', { operator_alert: true, text: event.error ?? 'The work stopped.' });
         break;
     }
-  });
+  }
   return rows;
+}
+
+/** A reading of the project's record that goes on where it stopped: each call returns the
+ * cockpit events of the lines appended since the last, the first call those of all. */
+export function follow(store: Store, id: string): () => EventMsg[] {
+  const path = join(store.dir(id), 'events.jsonl');
+  const fold: Fold = { line: 0, asked: null, calls: new Map() };
+  let offset = 0;
+  return () => {
+    const { rows, end } = jsonLines(path, offset);
+    offset = end;
+    return webEvents(rows as unknown as Recorded[], fold);
+  };
 }
 
 /** The conversation, as the transcript endpoint returns it. */
@@ -166,7 +193,7 @@ const lastActive = (store: Store, id: string): number => statSync(join(store.dir
 
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   const { id, workdir, backend } = project;
-  const calls = jsonLines(join(store.dir(id), 'usage.jsonl'));
+  const calls = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
   const summary = usage(calls);
   // The model each role's last call ran on: with none chosen, the backend's own default.
   const ran = (role?: Role) => calls.filter(call => !role || call.role === role).at(-1);
@@ -202,7 +229,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
 }
 
 export function projectRow(store: Store, project: Project, live: Live): ProjectRow {
-  const summary = usage(jsonLines(join(store.dir(project.id), 'usage.jsonl')));
+  const summary = usage(jsonLines(join(store.dir(project.id), 'usage.jsonl')).rows);
   const { since } = live;
   return {
     // The page names an unnamed project by its objective; a label other than the id is the name the operator gave it.

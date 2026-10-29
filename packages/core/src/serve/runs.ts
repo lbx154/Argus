@@ -3,7 +3,7 @@
 // call under way on it, and its work stays where it was, to be resumed.
 
 import { Flow } from '../flow.js';
-import type { Project, Question, Store } from '../store.js';
+import type { FlowEvent, Project, Question, Store } from '../store.js';
 import type { CallAgent, Role } from '../types.js';
 import { readEvents, webEvents, type Live } from './views.js';
 
@@ -13,13 +13,14 @@ export type Frame = { type: 'phase' | 'delta' | 'done' | 'error'; [field: string
 /** A project's flow while anything is under way on it, and the calls under way. */
 interface Active { flow: Flow; controller: AbortController; since: number; roles: Role[]; settled: Promise<void> }
 
-/** `changed` is told of each event a project records. */
+/** `changed` is told of each event a project records, and of each change to what this process
+ * knows of it with none: its record edited, a message request begun or ended, its run over. */
 export class Runs {
   private readonly active = new Map<string, Active>();
   /** Message requests whose Manager turn has not ended, by project; the value cancels one. */
   private readonly requests = new Map<string, Map<string, () => void>>();
 
-  constructor(private readonly store: Store, private readonly callAgent: CallAgent, private readonly changed: (id: string) => void) {}
+  constructor(private readonly store: Store, private readonly callAgent: CallAgent, readonly changed: (id: string, event?: FlowEvent) => void) {}
 
   live(id: string): Live {
     const active = this.active.get(id);
@@ -34,10 +35,13 @@ export class Runs {
   /** Change the project's record where it is held: by its flow while anything is under way, or on disk. */
   edit(id: string, change: (project: Project) => void): void {
     const active = this.active.get(id);
-    if (active) return active.flow.edit(id, change);
-    const project = this.store.load(id);
-    change(project);
-    this.store.save(project);
+    if (active) active.flow.edit(id, change);
+    else {
+      const project = this.store.load(id);
+      change(project);
+      this.store.save(project);
+    }
+    this.changed(id);
   }
 
   /** Stop the work, recorded so that nothing but the operator starts it again: the calls under way
@@ -71,6 +75,7 @@ export class Runs {
     if (requests.has(request)) return { type: 'error', error: 'This request is already under way.' };
     const controller = new AbortController();
     requests.set(request, () => controller.abort());
+    this.changed(id);
     send({ type: 'phase', role: 'manager', label: 'Manager' });
     try {
       const handoff = await this.start(id, flow => flow.say(id, text, controller.signal));
@@ -85,6 +90,7 @@ export class Runs {
       return { type: 'error', error: error instanceof Error ? error.message : String(error) };
     } finally {
       requests.delete(request);
+      this.changed(id);
     }
   }
 
@@ -103,7 +109,7 @@ export class Runs {
       onEvent: event => {
         if (event.type === 'call.start') roles.push(event.role);
         else if (event.type === 'call.end') roles.splice(roles.indexOf(event.role), 1);
-        this.changed(id);
+        this.changed(id, event);
       },
     });
     const entry: Active = { flow, controller, since: Date.now() / 1000, roles, settled: Promise.resolve() };

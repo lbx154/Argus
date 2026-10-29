@@ -4,8 +4,10 @@ import { Info, LoaderCircle, Sparkles } from 'lucide-react';
 import { api, type LearningChannel } from '../api';
 import { useI18n } from '../i18n';
 import { stopClause } from '../../../core/src/missionOutcome';
+import { POLL_CAPABILITY, useCapability } from '../lib/capabilities';
 
-/** Poll independently of foreground work: reflection runs after a mission ends. */
+/** Poll independently of foreground work: reflection runs after a mission ends. A server that
+ * pushes project state has it read again with each change instead (useProjects). */
 export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: {
   sid: string | null;
   channel?: LearningChannel;
@@ -16,8 +18,9 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
   const zh = locale === 'zh-CN';
   const client = useQueryClient();
   const key = ['learning-status', sid];
+  const polled = useCapability(POLL_CAPABILITY);
   const query = useQuery({ queryKey: key, queryFn: ({ signal }) => api.learningStatus(sid!, signal),
-    enabled: Boolean(sid), refetchInterval: 2_000, staleTime: 1_000 });
+    enabled: Boolean(sid), refetchInterval: polled && 2_000, staleTime: 1_000 });
   const revision = useRef('');
   useEffect(() => {
     const current = `${sid}:${query.data?.revision ?? 0}`;

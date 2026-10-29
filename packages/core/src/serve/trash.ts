@@ -32,6 +32,7 @@ export function trash(store: Store, runs: Runs, project: (id: string) => Project
       const to = join('trash', `${sid}-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`);
       mkdirSync(bin, { recursive: true });
       renameSync(store.dir(sid), join(store.home, to));
+      runs.changed(sid);
       return { ok: true, sid, trash_path: to, workdir, workdir_preserved: statSync(workdir, { throwIfNoEntry: false })?.isDirectory() ?? false };
     }],
     ['GET', /^\/api\/trash$/, ({ url }) => {
@@ -45,6 +46,7 @@ export function trash(store: Store, runs: Runs, project: (id: string) => Project
       if (!entry || !PROJECT_ID.test(entry.sid)) throw new HttpError(404, 'unknown trash entry');
       if (statSync(store.dir(entry.sid), { throwIfNoEntry: false })) throw new HttpError(409, 'a project with this id already exists');
       renameSync(join(bin, name!), store.dir(entry.sid));
+      runs.changed(entry.sid);
       return { ok: true, sid: entry.sid };
     }],
   ];

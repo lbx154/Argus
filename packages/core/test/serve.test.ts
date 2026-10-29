@@ -8,7 +8,7 @@ import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { SKILLS } from '../src/prompts.js';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
-import { webEvents, type Recorded } from '../src/serve/views.js';
+import { follow, readEvents, webEvents, type Recorded } from '../src/serve/views.js';
 
 /** One scripted turn: the role expected, its letter (no `to`: none), and what it does first. */
 interface Step {
@@ -75,7 +75,8 @@ async function setup(t: TestContext, steps: Step[], token?: string) {
   return { home, store, requests, call, get, post };
 }
 
-/** Every `data:` frame of a server-sent event stream; `until` stops reading an endless one. */
+/** Every `data:` frame of a server-sent event stream, a record's naming its line as its id;
+ * `until` stops reading an endless one. */
 async function frames(response: Response, until?: (frame: EventMsg) => boolean): Promise<EventMsg[]> {
   const read: EventMsg[] = [];
   const decoder = new TextDecoder();
@@ -84,7 +85,9 @@ async function frames(response: Response, until?: (frame: EventMsg) => boolean):
     buffer += decoder.decode(chunk, { stream: true });
     let end: number;
     while ((end = buffer.indexOf('\n\n')) >= 0) {
-      const frame = JSON.parse(buffer.slice(0, end).replace(/^data: /, '')) as EventMsg;
+      const [, id, data] = /^(?:id: (.*)\n)?data: (.*)$/s.exec(buffer.slice(0, end))!;
+      const frame = JSON.parse(data!) as EventMsg;
+      assert.equal(id, frame.event_id === undefined ? undefined : String(frame.event_id));
       buffer = buffer.slice(end + 2);
       read.push(frame);
       if (until?.(frame)) return read;
@@ -628,6 +631,85 @@ test('attached files land in the workdir, and the message that carries them says
   const files = [csv!, weights].map(({ attachment_id }) => ({ attachment_id }));
   assert.equal((await post(`${P}/message`, { text: 'Use these', attachments: files })).status, 200);
   assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
+});
+
+test('a stream connected again is sent every line after the last it had, however many came meanwhile', async t => {
+  const { store, call, post } = await setup(t, [{ role: 'manager', to: 'operator', letter: 'Hello.', says: 'Reading the steps.' }]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const S = `/api/projects/${sid}/stream?replay=40`;
+  const step = (n: number) => store.append(sid, { type: 'step', role: 'engineer', task: 't1', kind: 'command', text: `step ${n}` });
+  for (let n = 0; n < 50; n++) step(n);
+  const first = new AbortController();
+  const replayed = await frames(await call(S, { signal: first.signal }), frame => frame.event_id === 49);
+  first.abort();
+  assert.deepEqual(replayed.map(frame => frame.event_id), Array.from({ length: 40 }, (_, n) => n + 10));
+  // More lines than a replay holds are recorded while the page is away, and more once it is back.
+  for (let n = 50; n < 150; n++) step(n);
+  const again = new AbortController();
+  const resumed = await call(S, { signal: again.signal, headers: { 'last-event-id': '49' } });
+  await post(`/api/projects/${sid}/message`, { text: 'Hi' });
+  const sent = await frames(resumed, frame => frame.type === 'ui.argus');
+  again.abort();
+  assert.deepEqual(sent, webEvents(readEvents(store, sid)).slice(50));
+  assert.deepEqual(sent.slice(-3).map(event => [event.event_id, event.type]), [[152, 'engineer.progress'], [153, 'provider.request.completed'], [154, 'ui.argus']]);
+});
+
+test('a reading that goes on where it stopped folds the record as one whole read does', async t => {
+  const { store, get, post } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: 'Total data.csv' },
+    { role: 'engineer', to: 'operator', letter: 'Which delimiter?', says: 'Reading data.csv: 总计 ✓' },
+    { role: 'manager', to: 'engineer', letter: 'Total data2.csv' },
+    { role: 'engineer', to: 'reviewer', letter: 'data2.csv totalled', says: 'awk -F, …' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    { role: 'manager', to: 'operator', letter: 'data2.csv is totalled; data.csv waits for your answer.' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Total data.csv', request_id: 'r1' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.pending_questions?.length === 1 && !snapshot.daemon.alive);
+  await frames(await post(`${P}/message/stream`, { text: 'Total data2.csv too', request_id: 'r2' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[1]?.status === 'done' && !snapshot.daemon.alive);
+  // The record, appended to another project's a few bytes at a time, with a line a killed process cut short.
+  const record = await readFile(join(store.dir(sid), 'events.jsonl'));
+  const cut = record.indexOf('\n', record.length / 2) + 1;
+  const bytes = Buffer.concat([record.subarray(0, cut), Buffer.from('{"ts":"2026-10-28T00:00:00.000Z","type":"st'), record.subarray(cut)]);
+  const { id } = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  const read = follow(store, id);
+  const folded: EventMsg[] = [];
+  for (let at = 0; at < bytes.length; at += 7) {
+    await appendFile(join(store.dir(id), 'events.jsonl'), bytes.subarray(at, at + 7));
+    folded.push(...read());
+  }
+  assert.deepEqual(folded, webEvents(readEvents(store, id)));
+  assert.deepEqual(folded.filter(event => event.type === 'ui.argus').map(event => event.message_id), ['m0-argus', 'm11-argus', 'm26-argus']);
+});
+
+test("the page is sent each project's state as it changes: the question a turn asks with the letter that asks it", { timeout: 20_000 }, async t => {
+  const { call, get, post } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: 'Total data.csv' },
+    { role: 'engineer', hang: true },
+    { role: 'manager', to: 'engineer', letter: 'Total data2.csv' },
+    { role: 'engineer', to: 'operator', letter: 'Which encoding?', says: 'Looking.' },
+  ]);
+  type State = { type: string; row?: { id: string; daemon_alive: boolean } | null; snapshot?: Snapshot | null };
+  const live = new AbortController();
+  const sent = frames(await call('/api/projects/stream', { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Total data.csv', request_id: 'r1' }));
+  await frames(await post(`${P}/message/stream`, { text: 'Total data2.csv too', request_id: 'r2' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length));
+  await post(`${P}/daemon/stop`, {});
+  await eventually(() => call(P, { method: 'DELETE' }), response => response.status === 200);
+  const states = await sent;
+  live.abort();
+  assert.deepEqual(states[0], { type: 'projects', projects: [], local_cwd: process.cwd() });
+  assert.equal(states[1]?.row?.id, sid);
+  // Nothing is recorded after the letter while the other task works on: the question comes with it.
+  const asked = states.find(state => state.snapshot?.pending_questions?.length);
+  assert.deepEqual([asked?.row?.daemon_alive, asked?.snapshot?.daemon.draining], [true, false]);
+  assert.ok(states.some(state => state.row && !state.row.daemon_alive && state.snapshot?.daemon.alive === false));
+  assert.deepEqual(states.at(-1), { type: 'project', id: sid, row: null, snapshot: null });
 });
 
 test("each call's end is paired with its own start, when tasks run side by side", () => {
