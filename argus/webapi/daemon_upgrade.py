@@ -9,7 +9,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core import paths as core_paths
 from ..core import runtime_identity as runtime_identity_module
 from ..core.atomic_replace import write_atomic
 from ..daemon import commands as daemon_commands
@@ -336,11 +335,8 @@ def reconcile_pending_daemon_upgrades(
     """Resume durable upgrade requests whenever the WebAPI starts."""
     scheduled: list[str] = []
     for root in roots:
-        projects = core_paths.session_states_root(root)
         try:
-            life_dirs = [path for path in projects.iterdir() if path.is_dir()]
-        except FileNotFoundError:
-            continue
+            life_dirs = project_state.project_life_dirs(root)
         except OSError:
             log.exception("cannot scan pending daemon upgrades root=%s", root)
             continue

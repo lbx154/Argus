@@ -22,6 +22,7 @@ from ._life_worker_boot import _RunForeverState
 from ._life_worker_identity import _effective_runner_backend, _worker_vault_preflight_routes
 from .state import (
     GRACEFUL_STOP_REASON,
+    HOST_SHUTDOWN_STOP_REASON,
     clear_daemon_control_stop,
     clear_daemon_drain_request,
     compare_and_swap_continuous_config,
@@ -802,7 +803,9 @@ class LifeWorkerRunMixin:
         # continuous mode so the campaign does NOT silently resurrect on the next
         # daemon launch. A crash (SIGKILL / power loss) never reaches here, so
         # continuous stays enabled and the campaign auto-resumes — the intended
-        # crash-recovery.
+        # crash-recovery. A SIGTERM no operator asked for (host shutdown) also
+        # quiesces, under its own resumable reason, so only the next server
+        # start resumes it and a bare relaunch does not.
         if self._operator_stop_requested:
             self._quiesce_continuous_on_operator_stop(
                 rf_state.runtime_root,
@@ -846,7 +849,11 @@ class LifeWorkerRunMixin:
                 expected=current,
                 enabled=False,
                 objective=current.objective,
-                done_reason=GRACEFUL_STOP_REASON,
+                done_reason=(
+                    HOST_SHUTDOWN_STOP_REASON
+                    if getattr(self, "_host_shutdown", False)
+                    else GRACEFUL_STOP_REASON
+                ),
             ):
                 return
             log.info("daemon: quiesced continuous mode on operator stop (clock out)")

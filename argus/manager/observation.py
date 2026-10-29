@@ -12,7 +12,12 @@ from ..core.json_codec import loads_finite_json
 from ..core.scoped_file import open_regular_file
 from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..core.workspace_facts import fact_text
-from ..daemon.state import ContinuousConfigState, read_continuous_state, read_daemon_status
+from ..daemon.state import (
+    ContinuousConfigState,
+    read_continuous_state,
+    read_daemon_status,
+    read_host_shutdown,
+)
 from .observation_projection import MAX_ITEMS, MAX_OBSERVATION_BYTES, bounded_facts, render_facts
 
 MAX_SOURCE_BYTES = 128 * 1024
@@ -83,6 +88,25 @@ class ManagerObservation:
 
     def render(self) -> str:
         return render_facts(self.facts)
+
+
+def _daemon_fact(root: Path, daemon: Any) -> dict[str, Any]:
+    """Whether anyone executes this project's tasks, said outright when nobody does.
+
+    A task stays ``running`` in the backlog after its daemon dies; read beside
+    it, a bare ``alive: false`` let the Manager tell the operator the team was
+    working on a project nobody ran (2026-10-29, after a runtime restart).
+    """
+    fact: dict[str, Any] = {"alive": daemon.alive, "health": daemon.health_state}
+    if daemon.alive:
+        return fact
+    fact["working"] = (
+        "no: no daemon is running for this project, so no task is being executed; "
+        "a task listed as running is stopped until a daemon starts"
+    )
+    if read_host_shutdown(root) is not None:
+        fact["stopped_by"] = "host shutdown (server or runtime restart); resumable"
+    return fact
 
 
 def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) -> ManagerObservation:
@@ -170,7 +194,7 @@ def observe_project(root: Path | str, *, event: dict[str, Any] | None = None) ->
         # its later word wherever the two disagree.
         "operator_answers": operator_answers(backlog, continuous.objective),
         "continuous_enabled": continuous.enabled,
-        "daemon": {"alive": daemon.alive, "health": daemon.health_state},
+        "daemon": _daemon_fact(root, daemon),
         "tasks": items,
         "roles": {name: asdict(state) for name, state in role_activity(root).items()},
         "stage": view.get("stage", {}),

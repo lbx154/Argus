@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from argus.core.operator_context import build_operator_context_block
 from argus.daemon.state import read_continuous_state, write_continuous_config
 from argus.life.memory import BacklogItem, LifeMemory
@@ -27,6 +29,12 @@ DIRECTION = (
     "自主选择方案 A「可调五杆平台」继续深入研究：确定机构参数，做可复现的计算对照实验，"
     "给出样机验证方案，写成完整的中文研究报告。不再停下来等用户挑方向。"
 )
+
+
+@pytest.fixture(autouse=True)
+def _daemon_runs_the_project(monkeypatch):
+    # The team is working: a daemon runs this project.
+    monkeypatch.setattr(front_door, "_daemon_running", lambda _life_dir: True)
 
 
 def _team_working(root: Path, sid: str) -> tuple[Path, LifeMemory, BacklogItem]:

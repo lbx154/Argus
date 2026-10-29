@@ -31,6 +31,29 @@ of further work; `--resume-continuous` restores an already armed, persisted
 campaign. A background worker does not require a connected human, but still
 honors explicit pauses and operator decisions.
 
+## Restart after a host shutdown
+
+A deploy, reboot or service-manager restart sends SIGTERM to every process,
+including a daemon in the middle of a campaign or task. Every Argus stop and
+pause (the cockpit's Stop/Pause, `--daemon-stop`, parking for another project)
+first writes a stop request bound to that daemon's PID and boot, then signals.
+A SIGTERM without one therefore came from the host: the daemon records
+`daemon.host-stopped.json` ("stopped by host shutdown, resumable") and
+quiesces its campaign under that reason instead of the operator's.
+
+When the web server starts again (`argus --web`, or the hosted runtime, which
+builds the same app), it starts a daemon for each project in that state, one at
+a time within `ARGUS_SKILL_MAX_ACTIVE_DAEMONS`. It leaves alone a campaign the
+operator or Planner disabled since, a first task held for Start, a project
+parked for another or behind an open runtime-failure circuit, and it does not
+resume parked tasks. A project that did not fit under the limit keeps its record
+for the operator's Start or the next server start. A plain `kill` from a shell
+sends no stop request, so it counts as a host shutdown; stop a project from
+Argus to keep it stopped.
+
+While no daemon runs, the Manager is told so: tasks still recorded as running
+are stopped, and it offers Resume instead of describing the team at work.
+
 A long job runs inside the Engineer's own turn: the Engineer starts it, waits
 for it with blocking commands, reads the result, and only then hands off. The
 Reviewer judges the finished result, never a launch.

@@ -212,6 +212,17 @@ def _cached_global_daily_usage_summary(
     return value
 
 
+def project_life_dirs(root: Path) -> list[Path]:
+    """Every project directory under ``root``; none when it has no projects yet.
+
+    Raises ``OSError`` when the collection exists but cannot be listed.
+    """
+    try:
+        return [path for path in core_paths.session_states_root(root).iterdir() if path.is_dir()]
+    except FileNotFoundError:
+        return []
+
+
 def project_life_dir(
     sid: str,
     *,

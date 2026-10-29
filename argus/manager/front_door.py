@@ -103,6 +103,16 @@ def _life_dir_for(mem: Any) -> Path:
     return Path(project_root)
 
 
+def _daemon_running(life_dir: Path) -> bool:
+    """Whether a daemon executes this project's tasks now."""
+    from ..daemon.state import read_daemon_status
+
+    try:
+        return bool(read_daemon_status(life_dir).alive)
+    except OSError:  # unknown is told as working, as before
+        return True
+
+
 def mission_is_running(mem: Any) -> bool:
     try:
         return any(
@@ -1131,10 +1141,16 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     from ..core.mission_view import say, uses_cjk
     from ..core.operator_messages import humanize_runtime_reason
     from ..core.team_reports import mark_team_messages_read, unread_team_messages
-    from ..daemon.state import read_continuous_state
+    from ..daemon.state import read_continuous_state, read_host_shutdown
     from ..provider_integrations.authorization_retry import BackendLoginRequired
     from ._session_ops import reset_manager_session
-    from .form import FILE_WHILE_TEAM_WORKS, manager_actions, team_at_work, waiting_questions
+    from .form import (
+        FILE_WHILE_TEAM_WORKS,
+        manager_actions,
+        team_at_work,
+        team_stopped,
+        waiting_questions,
+    )
 
     chat_state.pop("_self_delivery", None)
     chat_state.pop("_self_failure", None)
@@ -1224,8 +1240,17 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
     running = [] if setup else [item for item in active if str(item.status or "") == "running"]
     working_text = ""
     if running:
-        campaign = read_continuous_state(_life_dir_for(mem))
-        working_text = team_at_work(running, ongoing=campaign.enabled and campaign.open_ended)
+        life_dir = _life_dir_for(mem)
+        if _daemon_running(life_dir):
+            campaign = read_continuous_state(life_dir)
+            working_text = team_at_work(running, ongoing=campaign.enabled and campaign.open_ended)
+        else:
+            # Nobody executes these rows, so the Manager is told the work is
+            # stopped, and is not made to file hand_off as if the team worked.
+            working_text = team_stopped(
+                running, host_shutdown=read_host_shutdown(life_dir) is not None,
+            )
+            running = []
     told, told_through = unread_team_messages(mem.project_root)
     actions = manager_actions(
         body, active_mission=mission_is_running(mem), team_allowed=team_allowed and not setup,

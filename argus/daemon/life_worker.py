@@ -112,6 +112,7 @@ from .state import (
     read_continuous_state,
     read_daemon_control_stop,
     read_daemon_status,
+    record_host_shutdown,
     stop_daemon,
     write_continuous_config,
 )
@@ -168,6 +169,8 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
         self._stop = threading.Event()
         self._mission_stop = threading.Event()
         self._operator_stop_requested = False
+        # A SIGTERM that no operator stop requested (see _record_host_shutdown).
+        self._host_shutdown = False
         self._adopted_continuous_generation: int | None = None
         self._started_at: float | None = None
         self._missions_completed = 0
@@ -185,12 +188,13 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
     def _install_signal_handlers(self) -> None:
         def _handler(signum: int, _frame: Any) -> None:  # noqa: ANN401
             log.info("daemon: received signal %s, requesting stop", signum)
-            self.request_process_stop(
-                drain=daemon_drain_requested(
-                    self.config.life_dir,
-                    pid=os.getpid(),
-                )
+            drain = daemon_drain_requested(
+                self.config.life_dir,
+                pid=os.getpid(),
             )
+            if not drain and signum == signal.SIGTERM:
+                self._record_host_shutdown(signum)
+            self.request_process_stop(drain=drain)
 
         signal.signal(signal.SIGTERM, _handler)
         signal.signal(signal.SIGINT, _handler)
@@ -207,6 +211,44 @@ class LifeWorker(LifeWorkerBootMixin, LifeWorkerRunMixin):
             # missing. Ignoring is a no-op on Windows anyway.
             pass
         self._start_control_watcher()
+
+    def _record_host_shutdown(self, signum: int) -> None:
+        """Mark a SIGTERM no operator asked for as a resumable host shutdown.
+
+        Every Argus stop and pause (``stop_daemon``, ``request_daemon_stop``)
+        writes this boot's PID-bound stop request before it signals, so a
+        SIGTERM without one came from the host: a service manager restarting
+        the runtime, a deploy, a reboot. The work it interrupted is resumed
+        when the web server starts again (``webapi.host_resume``). A boot with
+        no published identity cannot tell the two apart and records nothing,
+        as before.
+        """
+        try:
+            started_at_iso = self._control_started_at_iso
+            if not started_at_iso:
+                status = read_daemon_status(self.config.life_dir)
+                if not status.alive or status.pid != os.getpid():
+                    return
+                started_at_iso = str(status.started_at_iso or "")
+            if not started_at_iso:
+                return
+            if read_daemon_control_stop(
+                self.config.life_dir,
+                pid=os.getpid(),
+                started_at_iso=started_at_iso,
+            ) is not None:
+                return
+            record_host_shutdown(
+                self.config.life_dir,
+                pid=os.getpid(),
+                started_at_iso=started_at_iso,
+                signum=signum,
+                campaign_generation=self._adopted_continuous_generation,
+            )
+            self._host_shutdown = True
+            log.info("daemon: stopped by host shutdown, resumable")
+        except (OSError, TypeError, ValueError):  # never block the stop itself
+            log.exception("daemon: failed to record host shutdown")
 
     def request_process_stop(self, *, drain: bool = False) -> None:
         """Set the worker's cooperative stop events.
