@@ -474,9 +474,6 @@ def create_app(
     from .routes.research_timeline import register_research_timeline_routes
 
     register_research_timeline_routes(app, ctx)
-    from .routes.research_method import register_research_method_routes
-
-    register_research_method_routes(app, ctx)
     from .routes.skill_library import register_skill_library_routes
 
     register_skill_library_routes(app, ctx)
