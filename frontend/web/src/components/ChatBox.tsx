@@ -296,7 +296,7 @@ export function ChatBox({
     {completion ? <span className="sr-only" role="status">{whole && t('completion.ghostHint', { text: whole })}</span> : null}
     <div className="composer-meta">
     {(settings || onRouteOverrideChange || footer) && <details className="composer-options">
-      <summary>{zh ? '任务设置与模型' : 'Task settings and model'}{routeOverride === 'chat' ? zh ? ' · 仅对话' : ' · Chat only' : routeOverride === 'task' ? zh ? ' · 研究任务' : ' · Research task' : ''}</summary>
+      <summary>{settings || onRouteOverrideChange ? zh ? '任务设置与模型' : 'Task settings and model' : zh ? '模型' : 'Model'}{routeOverride === 'chat' ? zh ? ' · 仅对话' : ' · Chat only' : routeOverride === 'task' ? zh ? ' · 研究任务' : ' · Research task' : ''}</summary>
       {settings}
       {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
       {footer}

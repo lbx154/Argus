@@ -34,6 +34,8 @@
     "project.config.v1",
     "system.resources.v1",
     "composer.commands.v1",
-    "map.annotations.v1"
+    "map.annotations.v1",
+    "project.launch.v1",
+    "composer.route.v1"
   ]
 }

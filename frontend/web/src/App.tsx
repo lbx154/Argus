@@ -53,7 +53,7 @@ import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
 import { COMMANDS, parseCommand } from '../../core/src/commands';
-import { COMMANDS_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
+import { COMMANDS_CAPABILITY, LAUNCH_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
@@ -240,7 +240,10 @@ export default function App() {
   // The project whose composer caret is in an @ word, so its workspace listing is wanted.
   const [treeSid, setTreeSid] = useState<string | null>(null);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
+  // Without the choice a message goes as Auto: the server decides whether to answer or hand it on.
+  const setRoute = useCapability(ROUTE_CAPABILITY) ? setRouteOverride : undefined;
   const [launchSettings, setLaunchSettings] = useState<LaunchSettings>(DEFAULT_LAUNCH_SETTINGS);
+  const launches = useCapability(LAUNCH_CAPABILITY);
   const [chatPending, setChatPending] = useState(false);
   const [waitingForUploads, setWaitingForUploads] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
@@ -1140,7 +1143,7 @@ export default function App() {
             attachments: attachmentRefs,
             routeOverride: revision ? 'chat' : routeOverride,
             requestId: serverRequestId,
-            launch: !revision && routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
+            launch: launches && !revision && routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
           });
         } catch (error) {
           if (isCurrent()) streamErr = error as Error;
@@ -1460,7 +1463,7 @@ export default function App() {
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
                 onPauseTeam={requestPauseDaemon} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
-                routeOverride={routeOverride} onRouteOverrideChange={setRouteOverride}
+                routeOverride={routeOverride} onRouteOverrideChange={setRoute}
                 conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
@@ -1553,9 +1556,9 @@ export default function App() {
                       slashSelection={slashSelection}
                       onSlashSelectionChange={setSlashSelection}
                       routeOverride={routeOverride}
-                      onRouteOverrideChange={setRouteOverride}
+                      onRouteOverrideChange={setRoute}
                       completion={promptSources}
-                      settings={loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
+                      settings={launches && loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
                         started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={openSettings} /> : undefined}
