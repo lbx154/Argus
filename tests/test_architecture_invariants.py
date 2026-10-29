@@ -1912,7 +1912,7 @@ def test_memory_root_reads_do_not_grow() -> None:
 # ``argus/``; "<root>" is the modules directly under it. Counted 2026-10-27.
 BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "<root>": 3,
-    "adapters": 16,
+    "adapters": 15,
     "advisor": 4,
     "agent_cli": 12,
     "apps": 37,

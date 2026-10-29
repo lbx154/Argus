@@ -146,7 +146,7 @@ KNOBS: tuple[Knob, ...] = (
     Knob(
         "ARGUS_SKILL_REDACT_SECRETS", "0",
         "1 = mask credential-shaped text in events, transcripts, model-visible text, "
-        "config views and changed artifacts; off by default because masked text "
+        "and config views; off by default because masked text "
         "cannot be verified (secret detection for training capture is unaffected)",
         "lifecycle",
     ),
