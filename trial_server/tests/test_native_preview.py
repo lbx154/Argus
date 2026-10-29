@@ -450,3 +450,22 @@ def test_meter_forwards_a_subagent_request_with_hosted_tools_to_a_priced_upstrea
     assert r.status_code == 200
     assert [tool['type'] for tool in sent[0]['tools']] == ['function']
     assert all(item.get('type') != 'item_reference' for item in sent[0]['input'])
+
+
+def test_a_portal_restart_keeps_signed_in_sessions(config, ledger):
+    first = TestClient(portal_app(config, ledger), base_url='https://preview.example')
+    first.post('/login', data={'invite': 'invite-a'}, headers={'Origin': 'https://preview.example'}, follow_redirects=False)
+    cookie = first.cookies.get(COOKIE)
+    assert cookie
+    restarted = TestClient(portal_app(config, ledger), base_url='https://preview.example')
+    restarted.cookies.set(COOKIE, cookie)
+    assert restarted.get('/trial/budget').status_code == 200
+    stored = (ledger.path.with_name('sessions.sqlite3')).read_bytes()
+    assert cookie.encode() not in stored  # only a hash is kept
+
+
+def test_a_signed_out_page_returns_to_the_login(config, ledger):
+    client = TestClient(portal_app(config, ledger), base_url='https://preview.example')
+    script = client.get('/trial-quota.js').text
+    assert "r.status===401" in script and "location.assign('/login')" in script
+    assert client.get('/', follow_redirects=False).headers['location'].endswith('/login')
