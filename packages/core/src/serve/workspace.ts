@@ -7,7 +7,7 @@ import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Project } from '../store.js';
-import { rawHeaders, SAFE_GIT, sendFile, textOf, under } from './files.js';
+import { GIT_ENV, rawHeaders, SAFE_GIT, sendFile, textOf, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
 
 const run = promisify(execFile);
@@ -87,7 +87,7 @@ function tree(root: string) {
 async function git(root: string) {
   const read = async (...args: string[]): Promise<string> => {
     try {
-      return (await run('git', [...SAFE_GIT, ...args], { cwd: root, maxBuffer: GIT_BYTES, timeout: 10_000 })).stdout;
+      return (await run('git', [...SAFE_GIT, ...args], { cwd: root, env: GIT_ENV, maxBuffer: GIT_BYTES, timeout: 10_000 })).stdout;
     } catch (error) {
       // Output past the limit is shown up to it; a command that failed says nothing.
       const { code, stdout } = error as { code?: unknown; stdout?: string };

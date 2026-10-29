@@ -136,29 +136,28 @@ export function artifactInfo(project: Project, found: { file: string; path: stri
  * none of the programs the repository's own config or attributes name (an fsmonitor, a filter, a
  * diff driver, a signature check), nor goes into a submodule, whose config is the roles' too. */
 export const SAFE_GIT = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
+/** Git's environment: the repository is the one the directory is in, never one the server's own environment names. */
+export const GIT_ENV = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR)$/.test(name)));
 
-/** The files under `root` changed since `since` (epoch ms), newest first: the LISTED newest, six
- * folders deep, and none hidden, in node_modules or __pycache__, or ignored by the git repository
- * `root` is in, as what a build or a cache writes is. */
+/** What a build or a cache writes, and what is hidden. */
+const unlisted = (name: string): boolean => name.startsWith('.') || name === 'node_modules' || name === '__pycache__';
+
+/** The files under `root` changed since `since` (epoch ms), newest first: the LISTED newest. In a
+ * git repository, those git lists, tracked or not ignored; elsewhere, those six folders deep. None
+ * hidden, in node_modules or __pycache__. */
 export function changed(root: string, since = 0): { file: string; path: string; stat: Stats }[] {
-  const found: { file: string; path: string; stat: Stats }[] = [];
-  const walk = (dir: string, depth: number): void => {
-    for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
-      const path = dir ? `${dir}/${entry.name}` : entry.name;
-      if (entry.isDirectory() && depth < 6) walk(path, depth + 1);
-      else if (entry.isFile()) {
-        const file = join(root, path);
-        const stat = statSync(file);
-        if (stat.mtimeMs >= since) found.push({ file, path, stat });
-      }
-    }
-  };
-  walk('', 0);
-  const ignored = new Set(spawnSync('git', [...SAFE_GIT, 'check-ignore', '--stdin', '-z'], {
-    cwd: root, input: found.map(({ path }) => path).join('\0'), encoding: 'utf8',
-  }).stdout?.split('\0'));
-  return found.filter(({ path }) => !ignored.has(path)).sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs).slice(0, LISTED);
+  const git = spawnSync('git', [...SAFE_GIT, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    { cwd: root, env: GIT_ENV, encoding: 'utf8', maxBuffer: 1 << 28, timeout: 10_000 });
+  const walk = (dir: string, depth: number): string[] => readdirSync(join(root, dir), { withFileTypes: true }).flatMap(entry => {
+    const path = dir ? `${dir}/${entry.name}` : entry.name;
+    return unlisted(entry.name) ? [] : entry.isDirectory() ? depth < 6 ? walk(path, depth + 1) : [] : entry.isFile() ? [path] : [];
+  });
+  const paths = git.status === 0 ? git.stdout.split('\0').filter(path => path && !path.split('/').some(unlisted)) : walk('', 0);
+  return paths.flatMap(path => {
+    const file = join(root, path);
+    const stat = statSync(file, { throwIfNoEntry: false });
+    return stat?.isFile() && stat.mtimeMs >= since ? [{ file, path, stat }] : [];
+  }).sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs).slice(0, LISTED);
 }
 
 /** What the project delivered, then the workdir's other files it created or changed since it

@@ -166,6 +166,9 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   const task = { id: 't1', title: 'Column totals of data.csv', from: 'manager' as const, objective: '', status: 'closed' as const, holder: 'engineer' as const, note: null };
   store.save({ ...store.load(sid), tasks: [task] });
   assert.equal((await row())?.display_name, 'Column totals of data.csv');
+  // A task the Manager opens later, after the Planner's, names nothing.
+  store.save({ ...store.load(sid), tasks: [{ ...task, from: 'planner' }, task] });
+  assert.equal((await row())?.display_name, 'Total the columns of data.csv');
   const stop = await busy(sid);
   assert.equal((await send('PATCH', `/api/projects/${sid}`, { name: 'Later' })).status, 200);
   assert.equal((await row())?.label, 'Later');

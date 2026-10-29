@@ -11,7 +11,7 @@
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
-import type { FlowEvent, Project, Question, Status, Store, Task } from './store.js';
+import type { FlowEvent, Note, Project, Question, Status, Store, Task } from './store.js';
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf } from './serve/files.js';
 
@@ -55,9 +55,11 @@ export class Flow {
     if (at < 0) throw new Error(`${id} has no such open question`);
     const [question] = project.questions.splice(at, 1) as [Question];
     this.record(project, { type: 'message', from: 'operator', text, to: question.role });
-    this.retry(project);
     // A stopped project stays stopped: the asker reads the answer when it resumes.
-    if (project.status !== 'stopped') this.status(project, 'working');
+    if (project.status !== 'stopped') {
+      this.retry(project);
+      this.status(project, 'working');
+    }
     const note = answered(question.question, text);
     if (question.role === 'planner') project.inbox.push(note);
     else Object.assign(this.task(project, question.task), { holder: question.role, note: { from: 'operator', text: note } });
@@ -166,7 +168,6 @@ export class Flow {
   }
 
   private async managerTurn(project: Project, message: string, { operator }: ManagerTurn): Promise<HandOff | null> {
-    if (this.options.signal?.aborted) return null;
     // The operator's message is recorded when the Manager takes it up, so the letter that follows is its reply.
     if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
     const handoff = (await this.call(project, 'manager', null,
@@ -187,11 +188,13 @@ export class Flow {
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
-    // Letters that reach the task during the turn wait for the next.
-    const taken = task.unread?.length ?? 0;
+    // The letters the turn reads: those on the task as it begins, and those put into it as it goes.
+    const taken = new Set(task.unread);
     const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, task, resumed)))?.handoff;
     if (!handoff) return;
-    task.unread?.splice(0, taken);
+    const unread = task.unread?.filter(note => !taken.has(note) && !this.steered.has(note)) ?? [];
+    if (unread.length) task.unread = unread;
+    else delete task.unread;
     const { to } = handoff;
     const letter = read(handoff);
     switch (to) {
@@ -217,6 +220,9 @@ export class Flow {
     this.store.save(project);
     return this.handOver(project, letter, turn);
   }
+
+  /** The letters put into a turn under way, which its hand-off shows it has read. */
+  private readonly steered = new WeakSet<Note>();
 
   /** Each project's letters a Manager turn is taking or will take, one entry for each. */
   private readonly handing = new Map<Project, string[]>();
@@ -256,9 +262,12 @@ export class Flow {
         const open = openTasks(project).find(task => task.id === id);
         if (!id) opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
         else if (!open) project.inbox.push(unread(id, letter));
-        // In the holder's turn under way, where its backend can take a letter; else at their next.
-        else if (!await this.callAgent.steer?.(`${project.id}/${open.id}.${open.holder}`, letterPrompt('planner', letter))) {
-          (open.unread ??= []).push({ from: 'planner', text: letter });
+        else {
+          // The letter is on the task till a turn that read it ends; one its backend takes reads it as it goes.
+          const note: Note = { from: 'planner', text: letter };
+          (open.unread ??= []).push(note);
+          this.store.save(project);
+          if (await this.callAgent.steer?.(`${project.id}/${open.id}.${open.holder}`, letterPrompt('planner', letter))) this.steered.add(note);
         }
       }
       this.store.save(project);

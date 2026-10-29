@@ -135,6 +135,8 @@ test('the results listed are what the project delivered and changed, not what it
   // docs/old.md predates the project; out/report.md does too, and git ignores it, but it was delivered.
   const before = Date.parse(project.created) / 1000 - 60;
   for (const path of ['docs/old.md', 'out/report.md']) await utimes(join(project.workdir, path), before, before);
+  // A file written as the project was made may carry a time a little before it, by the clock files are stamped with.
+  for (const path of ['dist/index.js', 'src/index.js']) await utimes(join(project.workdir, path), before + 120, before + 120);
   store.save({ ...project, delivered: { 'out/report.md': [] } });
   const { artifacts } = await get<{ artifacts: { path: string }[] }>(`/api/projects/${project.id}/artifacts`);
   assert.deepEqual(artifacts.map(row => row.path), ['out/report.md', 'src/index.js']);

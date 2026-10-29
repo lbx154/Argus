@@ -32,11 +32,10 @@ const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', com
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
-/** The project's name: the operator's, else the title the Manager gave the first task it opened,
- * else the first line of its request. */
-/** A project's name: the operator's, else the title the Manager gave its first task, else its request's first line. */
-export const named = (project: Project): string =>
-  project.name || project.tasks.find(task => task.from === 'manager')?.title || project.request.split('\n')[0]!.slice(0, 80);
+/** A project's name: the operator's, else the title the Manager gave the project's first task,
+ * else its request's first line. */
+export const named = ({ name, tasks: [first], request }: Project): string =>
+  name || (first?.from === 'manager' ? first.title : '') || request.split('\n')[0]!.slice(0, 80);
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it, named as
  * it was when delivered (a record from before then, by the letter's first line). */
@@ -296,7 +295,7 @@ type MapCard = BacklogItem & { role: string };
  * was added and closed, the latest thing said on it (a message or a letter, not a command), the
  * files its latest letter handed over (once it has closed, its result), the letters written about
  * tasks, by line, and the results the Manager handed the operator, with when its turn began and
- * the tasks closed since the operator last wrote. */
+ * the tasks closed since the last delivery. */
 interface MapReading {
   end: number;
   line: number;
@@ -327,24 +326,24 @@ export function progressMap(store: Store, project: Project, after: number) {
   for (const event of rows as unknown as Recorded[]) {
     const line = reading.line++;
     const ts = seconds(event.ts);
-    if (event.type === 'message' && !event.to) since.length = 0;
-    else if (event.type === 'call.start' && event.role === 'manager') reading.began = ts;
+    if (event.type === 'call.start' && event.role === 'manager') reading.began = ts;
     else if (event.type === 'task.added') added.set(event.task.id, ts);
     else if (event.type === 'task.closed') {
       closed.set(event.task, ts);
       since.push(event.task);
     }
     else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts });
-    else if (event.type === 'handoff' && (event.task || event.role === 'manager' && event.open)) {
+    else if (event.type === 'handoff' && (event.task || event.role === 'manager' && event.to === 'operator' && event.open)) {
       const id = event.task ?? `d${line}`;
       if (event.task) opened.set(event.task, event.open ?? []);
       else {
-        // It follows the tasks closed since the operator last wrote that no other of them waited for.
+        // It follows the tasks closed since the last delivery that no other of them waited for.
         const deps = since.filter(task => !since.some(other => project.tasks.find(({ id }) => id === other)?.after?.includes(task)));
         delivered.push({
           id, title: event.title ?? firstLine(event.letter), objective: event.letter, priority: 0, deps, status: 'done', role: 'manager',
           ts: reading.began, started_ts: reading.began, finished_ts: ts, result_paths: event.open!,
         });
+        since.length = 0;
       }
       actions.set(id, { role: event.role, text: event.letter, ts });
       letters.push({ line, letter: { id: `e${line}`, item_id: id, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });

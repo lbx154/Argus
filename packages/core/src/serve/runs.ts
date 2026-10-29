@@ -77,10 +77,10 @@ export class Runs {
     send({ type: 'phase', role: 'manager', label: 'Manager' });
     try {
       const handoff = await this.start(id, flow => flow.say(id, text));
-      // A turn that failed says why; one the work's stop cut off ends, its message waiting for Resume.
+      // A Manager turn that failed says why; one a stop cut off ends, its message waiting for Resume.
       if (!handoff) {
-        const { error } = this.store.load(id);
-        return error ? { type: 'error', error } : { type: 'done', result: { kind: 'stopped', reply: null } };
+        const failed = this.store.load(id).failures?.filter(failure => failure.role === 'manager').at(-1);
+        return failed ? { type: 'error', error: failed.error } : { type: 'done', result: { kind: 'stopped', reply: null } };
       }
       // The reply is its row in the record, as the conversation shows it: whom it is to, the message it answers.
       const event = webEvents(readEvents(this.store, id)).filter(row => row.type === 'ui.argus').at(-1);

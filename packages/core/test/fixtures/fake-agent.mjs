@@ -116,7 +116,9 @@ if (cli === 'codex') {
     notify('item/started', { item: { id: 'item_1', type: 'commandExecution', command: 'npm test', status: 'inProgress' } });
     notify('item/completed', { item: { id: 'item_1', type: 'commandExecution', command: 'npm test', exitCode: 0, status: 'completed' } });
     notify('item/completed', { item: { id: 'item_2', type: 'fileChange', changes: [{ path: 'parser.js', kind: 'update' }], status: 'completed' } });
-    // A subagent, on a thread of its own.
+    // A subagent, on a thread of its own, and a thread of Codex's own that is none of the turn's.
+    notify('thread/started', { thread: { id: 'subagent', parentThreadId: thread } });
+    notify('item/started', { threadId: 'memories', item: { id: 'item_0', type: 'commandExecution', command: 'consolidate memories', status: 'inProgress' } });
     notify('item/completed', { threadId: 'subagent', item: { id: 'item_0', type: 'agentMessage', text: 'Subagent at work.' } });
     notify('item/started', { threadId: 'subagent', item: { id: 'item_1', type: 'commandExecution', command: 'npm run lint', status: 'inProgress' } });
     notify('item/completed', { item: { id: 'item_3', type: 'agentMessage', text: answerOf(scenario.output) } });
@@ -126,30 +128,19 @@ if (cli === 'codex') {
   // A user message a line, each answered by a turn ending in a result, whose cost is the session's so far.
   const session = (args.includes('--resume') && option('--resume')) || randomUUID();
   let spent = 0;
-  /** For a turn that waits for a letter: how it goes on once one comes, which joins the turn. */
-  let steerable = null;
   createInterface({ input: process.stdin }).on('line', line => {
     const { message, uuid } = JSON.parse(line);
-    if (steerable) {
-      emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
-      return steerable(message.content);
-    }
     // A turn of its own first, as claude takes one when a background job ends, and then the message played back.
     if (args.includes('--replay-user-messages')) {
       emit({ type: 'result', subtype: 'success', session_id: session, is_error: false, result: 'The job ended.', structured_output: { to: 'operator', letter: 'stray', open: [] } });
       emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
     }
     const scenario = scenarioOf(message.content);
-    const seen = { schema: JSON.parse(option('--json-schema')), instructions: args.includes('--append-system-prompt') ? option('--append-system-prompt') : undefined,
-      model: args.includes('--model') ? option('--model') : undefined };
-    note(seen);
+    note({ schema: JSON.parse(option('--json-schema')), instructions: args.includes('--append-system-prompt') ? option('--append-system-prompt') : undefined,
+      model: args.includes('--model') ? option('--model') : undefined });
     leave(scenario);
     emit({ type: 'system', subtype: 'init', session_id: session, model: 'claude-test' });
     if (scenario.hang) return;
-    if (scenario.steer) steerable = steered => { steerable = null; note({ ...seen, steered }); end(scenario); };
-    else end(scenario);
-  });
-  const end = scenario => {
     const usage = { input_tokens: 10, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 40,
       output_tokens_details: { thinking_tokens: 5 } };
     const result = { type: 'result', subtype: 'success', session_id: session, usage, total_cost_usd: spent = Math.round((spent + 0.0123) * 1e4) / 1e4 };
@@ -160,7 +151,7 @@ if (cli === 'codex') {
     const output = scenario.output;
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answerOf(output), ...typeof output === 'object' ? { structured_output: output } : {} });
-  };
+  });
 } else {
   const input = readFileSync(0, 'utf8');
   const scenario = scenarioOf(input);

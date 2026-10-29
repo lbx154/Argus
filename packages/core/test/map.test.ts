@@ -92,3 +92,23 @@ test("a result the Manager hands over after the team's tasks follows the last of
   assert.deepEqual(map.tasks.map(card => [card.id, card.status, card.deps]), [['t1', 'done', []], ['t2', 'done', []], ['t3', 'done', ['t1', 't2']], ['d102', 'done', ['t3']]]);
   assert.deepEqual(map.tasks.at(-1)!.result_paths, ['result.md']);
 });
+
+test('a delivery follows the tasks closed since the last delivery, a question meanwhile notwithstanding; a letter to the team is no delivery', t => {
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-map-deliveries-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  project.tasks = [{ ...task, status: 'closed' }, { ...task, id: 't2', status: 'closed', after: ['t1'] }];
+  const ts = '2026-10-29T11:00:00.000Z';
+  fs.writeFileSync(join(store.dir(project.id), 'events.jsonl'), [
+    { type: 'task.closed', task: 't1' },
+    { type: 'message', from: 'operator', text: 'How is it going?' },
+    { type: 'handoff', role: 'manager', to: 'operator', letter: 'Half way.' },
+    { type: 'task.closed', task: 't2' },
+    { type: 'handoff', role: 'manager', to: 'operator', letter: 'Done.', open: ['report.md'] },
+    { type: 'handoff', role: 'manager', to: 'engineer', letter: 'Polish it.', open: ['report.md'] },
+    { type: 'handoff', role: 'manager', to: 'operator', letter: 'Polished.', open: ['report.md'] },
+  ].map(row => `${JSON.stringify({ ts, ...row })}\n`).join(''));
+  const map = progressMap(store, project, 0);
+  assert.deepEqual(map.tasks.map(card => [card.id, card.deps]), [['t1', []], ['t2', ['t1']], ['d4', ['t2']], ['d6', []]]);
+});

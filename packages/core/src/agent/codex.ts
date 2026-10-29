@@ -32,6 +32,8 @@ export const codex: StartBackend = (request, { confined, schema }) => {
   let model: string | null = null;
   /** The turn under way, which a letter can still reach. */
   let running: unknown = null;
+  /** The subagents the session's turns started, by thread. */
+  const subagents = new Set<unknown>();
   return {
     args, instructed: true,
     async turn(cli, prompt, { request: now, onStep, started }) {
@@ -56,13 +58,15 @@ export const codex: StartBackend = (request, { confined, schema }) => {
       let text = '';
       let error: string | null = null;
       let status = '';
-      // This turn's events only: once it is named, none of another turn of the thread's. The CLI
-      // runs this session alone, so another thread on it is a subagent the turn started: what it
-      // runs and edits are the role's steps, though its words and its end are its own.
+      // This turn's events only: once it is named, none of another turn of the thread's. What a
+      // subagent it started runs and edits are the role's steps, though its words and end are its own.
       let turnId: unknown = null;
       const ended = cli.until(({ method, params }) => {
         if (!isJsonObject(params)) return false;
+        const started = method === 'thread/started' && isJsonObject(params.thread) ? params.thread : {};
+        if (started.parentThreadId === thread || subagents.has(started.parentThreadId)) subagents.add(started.id);
         const own = params.threadId === thread;
+        if (!own && !subagents.has(params.threadId)) return false;
         const of = isJsonObject(params.turn) ? params.turn.id : params.turnId;
         if (own && turnId !== null && of !== undefined && of !== turnId) return false;
         const item = isJsonObject(params.item) ? params.item : {};

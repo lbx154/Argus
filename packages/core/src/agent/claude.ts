@@ -28,8 +28,6 @@ export const claude: StartBackend = (request, { confined, schema }) => {
   let model: string | null = null;
   /** What the CLI has cost so far, which each result reports. */
   let spent = 0;
-  /** Whether a turn is under way, which takes a message sent meanwhile after its next tool call. */
-  let running = false;
   return {
     args, instructed: true,
     async turn(cli, prompt, { onStep }) {
@@ -56,9 +54,7 @@ export const claude: StartBackend = (request, { confined, schema }) => {
         return true;
       });
       cli.send({ type: 'user', uuid, message: { role: 'user', content: prompt } });
-      running = true;
       const finished = await ended;
-      running = false;
       const ending: Record<string, unknown> = result ?? {};
       const completed = finished && ending.subtype === 'success' && !ending.is_error;
       const words = typeof ending.result === 'string' ? ending.result.trim() : '';
@@ -77,10 +73,6 @@ export const claude: StartBackend = (request, { confined, schema }) => {
         threadId, completed, model: model ?? request.model ?? null, usage, output: ending.structured_output ?? undefined,
         error: completed ? null : !finished ? cli.why() : words || `Claude reported ${String(ending.subtype ?? 'an error')}.`,
       };
-    },
-    async steer(cli, text) {
-      if (running) cli.send({ type: 'user', uuid: randomUUID(), message: { role: 'user', content: text } });
-      return running;
     },
   };
 };

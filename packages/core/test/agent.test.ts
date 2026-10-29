@@ -257,7 +257,7 @@ test('codex: a turn Codex refuses fails alone, in a session that goes on; a thre
   assert.deepEqual([lost.completed, lost.threadId, lost.error], [false, null, 'thread/resume: no rollout found for thread id gone']);
 });
 
-for (const backend of ['codex', 'claude'] as const) {
+for (const backend of ['codex'] as const) {
   test(`${backend}: a letter reaches the turn under way in a session, and none reaches a session with no turn under way`, async t => {
     const session = `p-test/t2.${backend}`;
     t.after(() => callAgent.close!('p-test/'));
