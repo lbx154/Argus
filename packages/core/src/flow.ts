@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Project, Question, Status, Store, Task } from './store.js';
 import { answered, handedTo, instructions, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { keep } from './serve/files.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'write' },
@@ -273,7 +274,9 @@ export class Flow {
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
     if (handoff) {
       const { to, letters, open } = handoff;
-      for (const letter of letters) this.record(project, { type: 'handoff', role, ...where, to, letter, ...open ? { open } : {} });
+      // A result's files are kept as delivered, so that what the next delivery changes can be shown.
+      const delivered = open ? { open, snapshots: keep(project, dir, open) } : {};
+      for (const letter of letters) this.record(project, { type: 'handoff', role, ...where, to, letter, ...delivered });
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });

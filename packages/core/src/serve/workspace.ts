@@ -3,11 +3,11 @@
 // file inside the workdir that is not hidden (`under`), as a result's path does.
 
 import { execFile } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Project } from '../store.js';
-import { rawHeaders, sendFile, under } from './files.js';
+import { rawHeaders, sendFile, textOf, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
 
 const run = promisify(execFile);
@@ -40,9 +40,8 @@ export function workspace(project: (id: string) => Project): [string, RegExp, Ha
     ['GET', /^\/api\/v2\/workspace\/file$/, ({ url }) => {
       const { work, found } = file(url);
       if (found.stat.size > TEXT_BYTES) throw new HttpError(413, `file exceeds the ${TEXT_BYTES} byte preview limit`);
-      let content = '\0';
-      try { content = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(found.file)); } catch { /* not text */ }
-      if (content.includes('\0')) throw new HttpError(415, 'binary file preview is blocked');
+      const content = textOf(found.file);
+      if (content === null) throw new HttpError(415, 'binary file preview is blocked');
       return {
         root: work.workdir, workspace_id: `project:${work.id}`, path: found.path, content,
         size: found.stat.size, mtime: found.stat.mtimeMs / 1000, extension: extname(found.path).toLowerCase(),

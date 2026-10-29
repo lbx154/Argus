@@ -125,6 +125,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
   assert.deepEqual(compatibility.meta?.capabilities, [
     ...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', 'project.workdir.v1', 'project.config.v1', 'project.cost-feed.v1',
+    'project.editions.v1',
   ]);
   assert.equal((await get('/api/application-brand')).id, 'argus');
 
@@ -711,10 +712,13 @@ test("each call's end is paired with its own start, when tasks run side by side"
   ]);
 });
 
-test('a result the Manager hands the operator shows as its result card, its files as the Manager named them', () => {
+test('a result the Manager hands the operator shows as its result card, its files as the Manager named them and as they were', () => {
   const ts = '2026-10-28T00:00:00.000Z';
+  const snapshots = [
+    { path: 'report/index.html', version: 'a'.repeat(32), size: 120, stored: true }, { path: 'figures/totals.png', version: '2048:1.5', size: 2048, stored: false },
+  ];
   const [reply, plain] = webEvents([
-    { ts, type: 'handoff', role: 'manager', to: 'operator', letter: '# The [totals report](/work/report/index.html) **done**\nIt checks against data.csv.', open: ['report/index.html', 'figures/totals.png'] },
+    { ts, type: 'handoff', role: 'manager', to: 'operator', letter: '# The [totals report](/work/report/index.html) **done**\nIt checks against data.csv.', open: ['report/index.html', 'figures/totals.png'], snapshots },
     { ts, type: 'handoff', role: 'manager', to: 'operator', letter: 'Nothing to open.' },
   ] satisfies Recorded[]);
   assert.deepEqual(reply!.delivery, {
@@ -725,6 +729,7 @@ test('a result the Manager hands the operator shows as its result card, its file
       { path: 'report/index.html', label: 'index.html', source: 'manager', why: '' },
       { path: 'figures/totals.png', label: 'totals.png', source: 'manager', why: '' },
     ],
+    snapshots,
   });
   assert.equal(plain!.delivery, undefined);
 });

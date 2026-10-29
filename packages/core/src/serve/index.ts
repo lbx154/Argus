@@ -21,6 +21,7 @@ import { records } from './records.js';
 import { resources } from './resources.js';
 import { Runs, type Frame } from './runs.js';
 import { trash } from './trash.js';
+import { versions } from './versions.js';
 import { daemon, follow, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
 import { workspace } from './workspace.js';
 
@@ -145,7 +146,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ({ rc: 0, command_id: body.command_id ?? '', command_status: 'applied', daemon: daemon(project(id), runs.live(id)) });
 
   const routes: [string, RegExp, Handler][] = [
-    ...trash(store, runs, project), ...attachments(project),
+    ...trash(store, runs, project), ...attachments(project), ...versions(store, project),
     ['GET', /^\/api\/application-brand$/, () => BRAND],
     // The brand is Argus's own, so its manifest is the one the page was built with.
     ['GET', /^\/api\/application-brand\/manifest\.webmanifest$/, ({ request, response }) => {
