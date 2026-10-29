@@ -24,7 +24,7 @@ import { DEFAULT_LAUNCH_SETTINGS, isFreshProject, launchForMessage, readAskMode,
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { NoOperatorBanner } from './components/NoOperatorBanner';
-import { hasHumanProjectLabel, rankProjects } from '../../core/src/projects';
+import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { ProgressQuestionsProvider } from './research-brief/ProgressQuestions';
 import {
@@ -472,10 +472,7 @@ export default function App() {
 
 
   const activeProjectRow = projects.find((project) => project.id === activeSid);
-  const activeProjectName = activeProjectRow
-    ? hasHumanProjectLabel(activeProjectRow) ? (activeProjectRow.label || activeProjectRow.display_name || '').trim()
-      : activeProjectRow.objective.trim() || t('sidebar.unnamedSession')
-    : '';
+  const activeProjectName = activeProjectRow ? activeProjectRow.display_name?.trim() || t('sidebar.unnamedSession') : '';
   const snapQ = useSnapshot(activeSid);
   const manageSnapQ = useSnapshot(manageTargetSid);
   const snap = snapQ.data;
@@ -1312,7 +1309,7 @@ export default function App() {
         ];
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
-      label: hasHumanProjectLabel(p) ? (p.label || p.display_name || '').trim() : p.objective.trim() || t('sidebar.unnamedSession'),
+      label: p.display_name?.trim() || t('sidebar.unnamedSession'),
       hint: p.daemon_alive ? `● ${t('common.live')}` : '○',
       keywords: `${p.id} ${p.display_name ?? ''} ${p.objective} ${p.daemon_alive ? 'live running' : 'stopped idle'}`,
       group: t('palette.project'),

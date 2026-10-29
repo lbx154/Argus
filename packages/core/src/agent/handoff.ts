@@ -46,7 +46,7 @@ const LETTERS = 'Your letters, each passed on as written: to the Engineer, one f
 const AFTER = 'The tasks this one waits for, by id: an open or closed one, or one of these letters\' tasks above it, which take the next free ids in order. It starts once they have all closed. Empty when it can start now, and in a letter to anyone else.';
 const TASK = 'The open task this letter is for, by id: whoever holds it reads the letter at their next turn, and no task is opened. Empty for a letter that opens a task, and in a letter to anyone else.';
 // The result the operator opens: shown beside the letter as written, without a check.
-const OPEN = 'What the operator opens to see the result your letter hands over, if it hands one over: the paths of its files, relative to the workspace, the one to open first first. Empty when it hands over none.';
+const OPEN = 'What the operator opens to see the result your letter hands over, if it hands one over: the paths of its files, relative to the workspace, the one to open first first; the letter\'s first line names the result, a short title. Empty when it hands over none.';
 
 export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSchema {
   // The Planner hears only of the tasks it gave: it never had the Manager's.

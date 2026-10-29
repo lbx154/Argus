@@ -9,7 +9,7 @@ import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
 import { errorText, formatRelativeTime, uptime } from '../lib/format';
 import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
-import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
+import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
 import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, Monitor } from 'lucide-react';
@@ -367,10 +367,7 @@ export function Sidebar({
                   const active = project.id === activeId;
                   const work = active && activeWork?.sessionId === project.id ? activeWork : undefined;
                   const workLabel = work ? workStatusLabel(work.status, locale, work.connected) : undefined;
-                  const hasHumanLabel = hasHumanProjectLabel(project);
-                  const name = hasHumanLabel
-                    ? (project.label || project.display_name || '').trim()
-                    : project.objective.trim() || t('sidebar.unnamedSession');
+                  const name = project.display_name?.trim() || t('sidebar.unnamedSession');
                   const incompatible = project.daemon_alive && project.daemon_protocol_compatible === false;
                   // A release difference does not stop an existing executor.
                   // Keep actual protocol/capability failures visibly distinct.
@@ -397,7 +394,7 @@ export function Sidebar({
                           if (!active) onPrefetch?.(project.id);
                         }}
                         aria-current={active ? 'page' : undefined}
-                        title={`${name}${!hasHumanLabel && name !== project.id ? ` · ${project.id}` : ''}${project.objective && project.objective !== name ? ` — ${project.objective}` : ''}`}
+                        title={project.display_name?.trim() ? name : `${name} · ${project.id}`}
                         className={`flex h-14 w-full min-w-0 flex-col justify-center px-2.5 text-left ${resumable ? 'pr-[4.75rem]' : 'pr-10'}`}
                       >
                         <div className="flex min-w-0 items-center gap-2">

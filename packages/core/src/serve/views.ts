@@ -31,11 +31,15 @@ const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', com
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
+/** The project's name: the operator's, or with none the first line of its request. */
+const named = (project: Project): string => project.name || project.request.split('\n')[0]!.slice(0, 80);
+
 /** A letter's first line as a heading reads it: a link as its words, without markup. */
 const firstLine = (text: string): string => text.split('\n')
   .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
 
-/** The result a Manager's letter hands the operator, as the page's result card shows it. */
+/** The result a Manager's letter hands the operator, as the page's result card shows it, named by
+ * the letter's first line. */
 function delivered({ letter, open = [], snapshots, ts }: Extract<Recorded, { type: 'handoff' }>, line: number): DeliveryReceipt {
   const targets = open.map(path => ({ path, label: basename(path), source: 'manager', why: '' }));
   return {
@@ -100,10 +104,10 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
         });
         break;
       case 'handoff':
-        // Every letter of the Manager's is in the conversation: its reply, and what it hands the team.
+        // Every letter of the Manager's is in the conversation: its reply, and what it hands the team, with whom to.
         if (event.role === 'manager') {
           row('ui.argus', {
-            agent_layer: 'manager', text: event.letter, message_id: `m${fold.asked ?? line}-argus`,
+            agent_layer: 'manager', to: event.to, text: event.letter, message_id: `m${fold.asked ?? line}-argus`,
             ...event.open ? { delivery: delivered(event, line) } : {},
           });
           fold.asked = null;
@@ -239,7 +243,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     session: {
-      id, display_name: project.name || project.request.split('\n')[0]!.slice(0, 80), objective: project.request, created: seconds(project.created),
+      id, display_name: named(project), objective: project.request, created: seconds(project.created),
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
@@ -270,8 +274,8 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
   const summary = usage(jsonLines(join(store.dir(project.id), 'usage.jsonl')).rows);
   const { since } = live;
   return {
-    // The page names an unnamed project by its objective; a label other than the id is the name the operator gave it.
-    id: project.id, label: project.name || project.id, display_name: project.name ?? '', objective: project.request,
+    // A label other than the id is the name the operator gave it.
+    id: project.id, label: project.name || project.id, display_name: named(project), objective: project.request,
     cwd: project.workdir, workdir: project.workdir, launch_cwd: project.workdir, last_active: lastActive(store, project.id),
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     active_role: live.roles.at(-1) ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
