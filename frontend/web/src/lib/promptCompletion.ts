@@ -1,17 +1,15 @@
-import { applyCompletion, slashCompletions } from '../../../core/src/commands';
 import type { BacklogItem, EventMsg } from '../api';
-import { SLASH_COMPLETION_VISIBLE_ROWS as ROWS, type CompletionItem } from '../components/SlashCompletionMenu';
+import { PROMPT_COMPLETION_VISIBLE_ROWS as ROWS, type CompletionItem } from '../components/PromptCompletionMenu';
 import type { Locale } from '../i18n';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
 import { isInternalEntry, type WorkspaceEntry } from '../research-workbench/workspaceApi';
-import { commandDescription } from './commandI18n';
 import { statusLabel } from './enumLabels';
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
 
 export const HISTORY_MIN_CHARS = 3;
 
-/** What the main composer completes from; absent (landing page, tests) leaves only slash commands. */
+/** What the main composer completes from; absent on the landing page. */
 export interface PromptSources {
   sid: string;
   tasks: readonly BacklogItem[];
@@ -23,7 +21,7 @@ export interface PromptSources {
   wantFiles: (want: boolean) => void;
 }
 export interface MentionToken { trigger: '@' | '#'; query: string; start: number; end: number }
-export interface CompletionMenu { kind: 'command' | '@' | '#'; items: CompletionItem[] }
+export interface CompletionMenu { kind: '@' | '#'; items: CompletionItem[] }
 
 /** The `@path` or `#task` word the caret is in. Glued to a word (a@example.com, C#, issue#12)
  *  or followed by a space (`# heading`), it stays text. Past the caret it takes only ASCII
@@ -36,17 +34,10 @@ export function completionToken(text: string, at: number): MentionToken | null {
     end: at + /^[\w./~+-]*/.exec(text.slice(at))![0].length };
 }
 
-/** The rows offered for this draft: slash commands while one is typed, else the caret's `@`/`#` word. */
+/** The rows offered for the caret's `@`/`#` word. */
 export function completionMenu(
   value: string, token: MentionToken | null, sources: PromptSources | undefined, t: Translate, locale: Locale,
 ): CompletionMenu | null {
-  const commands = slashCompletions(value).slice(0, ROWS);
-  if (commands.length) {
-    return { kind: 'command', items: commands.map((command) => ({
-      id: command.id, name: command.name, arg: command.arg, detail: commandDescription(command, locale),
-      value: applyCompletion(command), close: command.argument === 'none',
-    })) };
-  }
   if (!sources || !token) return null;
   const items = token.trigger === '@' ? fileRows(value, token, sources.files ?? []) : taskRows(value, token, sources, t, locale);
   return items.length ? { kind: token.trigger, items } : null;

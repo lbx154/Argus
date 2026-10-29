@@ -4,7 +4,7 @@ import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
-import { isDraftReply, type EventViewFilter } from '../../../core/src/events';
+import { isDraftReply } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
@@ -1015,9 +1015,6 @@ export function EventStream({
   showReasoning,
   embedded = false,
   showHeader = true,
-  filter = 'all',
-  query = '',
-  skipFirst = 0,
   artifacts,
   onOpenArtifact,
   onOpenDelivery,
@@ -1038,9 +1035,6 @@ export function EventStream({
   showReasoning: boolean;
   embedded?: boolean;
   showHeader?: boolean;
-  filter?: EventViewFilter;
-  query?: string;
-  skipFirst?: number;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
@@ -1123,11 +1117,9 @@ export function EventStream({
   // role and system groups, where "consecutive" means what the reader sees.
   const deferredView = useDeferredValue(missionView);
   const baseRows = useMemo(() => {
-    const displayEvents = skipFirst > 0
-      ? deferredEvents.slice(skipFirst)
-      : withEarlierWork(earlierRoleWork(deferredView, deferredEvents, locale), deferredEvents);
-    return renderFeedRows(displayEvents, { locale, showReasoning, filter, query, workspace });
-  }, [deferredEvents, deferredView, showReasoning, filter, query, skipFirst, locale, workspace]);
+    const displayEvents = withEarlierWork(earlierRoleWork(deferredView, deferredEvents, locale), deferredEvents);
+    return renderFeedRows(displayEvents, { locale, showReasoning, workspace });
+  }, [deferredEvents, deferredView, showReasoning, locale, workspace]);
 
   const rows = baseRows;
   const timeline = useMemo(() => {

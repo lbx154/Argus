@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DeliveryReceipt, LaunchHold, MissionView, Snapshot } from '../../../core/src/types';
+import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
 import { ApiError } from '../../../core/src/http';
 import { emptyMissionView } from '../../../core/src/missionView';
 
@@ -14,11 +14,9 @@ vi.mock('../i18n', async (importOriginal) => {
 });
 
 const { deliveryHeadingKey, isStagePackage } = await import('../lib/deliveryKind');
-const { DEFAULT_LAUNCH_SETTINGS, describeRequirement, isFreshProject, launchSettingsSummary, stripLaunchNote } = await import('../lib/launch');
 const { spendEstimateLabel } = await import('../lib/projectOverview');
 const { projectAttention } = await import('../lib/attention');
 const { errorText } = await import('../lib/format');
-const { LaunchHoldCard, LaunchSettingsBar } = await import('../components/LaunchPanel');
 const { TopBar } = await import('../components/TopBar');
 
 afterEach(() => vi.unstubAllGlobals());
@@ -41,78 +39,12 @@ function delivery(kind: string): DeliveryReceipt {
   } as unknown as DeliveryReceipt;
 }
 
-const hold: LaunchHold = {
-  created_at: 100, item_id: 'a', title: '调研视频去噪', request: '帮我研究视频去噪', continuous: false,
-  settings: { first_result_hours: 4, target_level: 'exploratory', deliverable: 'report', hold: true },
-  understood: {
-    objective: '帮我研究视频去噪\n\n【开工设置（我在界面上选的）】\n- 研究定位：探索性。',
-    requirements: [{ text: 'research target level: publishable', authority: 'manager' }],
-    assumptions: ['公开评测集 (rather than 自采数据)'],
-  },
-};
-
 describe('stage packages read as interim results everywhere', () => {
   it('labels a stage package as such, never as a finished task', () => {
     expect(deliveryHeadingKey(delivery('stage_package'))).toBe('mission.stagePackage');
     expect(deliveryHeadingKey(delivery('submission_certified'))).toBe('mission.deliveryCertified');
     expect(deliveryHeadingKey(delivery('task_completed'))).toBe('mission.taskCompleted');
     expect(isStagePackage(delivery('stage_package'))).toBe(true);
-  });
-});
-
-describe('launch settings and the confirm-before-start card', () => {
-  it('offers settings only for a project that has not queued or run anything', () => {
-    expect(isFreshProject(snapshot())).toBe(true);
-    expect(isFreshProject(snapshot({ backlog: [{ id: 'a', title: 't', objective: 't', status: 'done', priority: 1 }] }))).toBe(false);
-    expect(isFreshProject(snapshot({ launch_hold: hold }))).toBe(false);
-    expect(isFreshProject(snapshot({ backlog: [{ id: 'a', title: 't', objective: 't', status: 'skipped', priority: 1 }] }))).toBe(true);
-    expect(DEFAULT_LAUNCH_SETTINGS.hold).toBe(false); // product decision: ask only beyond authority by default
-  });
-
-  it('shows the request without the appended settings and marks Argus-judged requirements', () => {
-    expect(stripLaunchNote(hold.understood!.objective!)).toBe('帮我研究视频去噪');
-    expect(describeRequirement({ text: 'research target level: publishable', authority: 'manager' }, true))
-      .toBe('目标级别：可发表（原创研究，通常耗时较长）（Argus 的判断，可调整）');
-    expect(describeRequirement({ text: 'target venue: ICLR', authority: 'operator' }, true)).toBe('目标会议/期刊：ICLR');
-    expect(launchSettingsSummary(hold.settings, true)).toBe('首个结果 4 小时内 · 探索性 · 报告');
-  });
-
-  it('renders what Argus understood, the queued plan and both actions', () => {
-    const html = renderToStaticMarkup(<LaunchHoldCard hold={hold} onStart={async () => undefined} onRewrite={async () => undefined}
-      backlog={[{ id: 'a', title: '收集近三年的视频去噪方法', objective: 'x', status: 'pending', priority: 1 }]} />);
-    expect(html).toContain('计划已排好 · 等你确认后开始');
-    expect(html).toContain('帮我研究视频去噪');
-    expect(html).not.toContain('开工设置（我在界面上选的）');
-    expect(html).toContain('公开评测集 (rather than 自采数据)');
-    expect(html).toContain('收集近三年的视频去噪方法');
-    expect(html).toContain('开始执行');
-    expect(html).toContain('撤回并修改要求');
-    const readOnly = renderToStaticMarkup(<LaunchHoldCard hold={hold} backlog={[]} readOnly onStart={async () => undefined} onRewrite={async () => undefined} />);
-    expect(readOnly).not.toContain('开始执行');
-  });
-
-  it('shows the plan the Manager handed over and the whole goal, not four lines of it', () => {
-    // Trial s-99ca9ad6: "the plan" was one queued title and the goal was cut to four lines.
-    const planned = { ...hold, plan: { path: 'RL_RESEARCH_PLAN.md', summary: '1. 选 0.5B 模型\n2. 先复现 GRPO 基线' } };
-    const html = renderToStaticMarkup(<LaunchHoldCard hold={planned} onStart={async () => undefined} onRewrite={async () => undefined}
-      onOpenArtifact={() => undefined}
-      backlog={[{ id: 'a', title: '收集近三年的视频去噪方法', objective: 'x', status: 'pending', priority: 1 }]} />);
-    expect(html).toContain('1. 选 0.5B 模型\n2. 先复现 GRPO 基线');
-    expect(html).toContain('查看完整计划');
-    expect(html).not.toContain('收集近三年的视频去噪方法');
-    expect(html).toContain('group-open:line-clamp-none');
-    expect(html).toContain('展开全部');
-  });
-
-  it('renders the settings bar with one ask choice, defaulting to asking only beyond authority', () => {
-    const html = renderToStaticMarkup(<LaunchSettingsBar value={DEFAULT_LAUNCH_SETTINGS} onChange={() => undefined}
-      ask="beyond_authority" onAskChange={() => undefined} research />);
-    expect(html).toContain('开工设置');
-    expect(html).toContain('多久先看到结果');
-    expect(html).toContain('什么时候问我');
-    expect(html).toContain('冲刺可发表（耗时长）');
-    expect(html).not.toContain('type="checkbox"');
-    expect(DEFAULT_LAUNCH_SETTINGS.hold).toBe(false);
   });
 });
 
@@ -124,8 +56,7 @@ describe('spend estimate', () => {
 });
 
 describe('attention signals', () => {
-  it('puts a held launch and an open question before results', () => {
-    expect(projectAttention({ snapshot: snapshot({ launch_hold: hold }), complete: true, zh: true })?.kind).toBe('reply');
+  it('puts an open question before results', () => {
     const asking = snapshot({ backlog: [{ id: 'q', title: '选数据集', objective: 'x', status: 'paused_operator', priority: 1, pending_question: '用哪个数据集？' }],
       pending_questions: [{ id: 'q', title: '选数据集', pending_question: '用哪个数据集？' }] });
     const reply = projectAttention({ snapshot: asking, complete: false, zh: true });

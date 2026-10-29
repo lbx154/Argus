@@ -1,15 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { ModelPicker } from './ModelPicker';
-import { useDoctor, useConfig, useIdentity, useTranscript } from '../hooks';
+import { useConfig, useTranscript } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
-import { Spinner, EmptyHint, RawDisclosure } from './primitives';
-import { lastMeaningfulLine } from '../lib/rawSummary';
+import { Spinner, EmptyHint } from './primitives';
 import { ago } from '../lib/format';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { requestFailureText } from '../lib/requestFailure';
 import { AppearanceControls } from './AppearanceControls';
@@ -31,60 +27,6 @@ function LoadFailure({ message, retrying, onRetry, t }: {
         {retrying ? t('common.loading') : t('common.retry')}
       </button>
     </div>
-  );
-}
-
-/** Doctor: health checks with the single recommended fix pinned + gold, plus the
- *  daemon.log tail. Read-only diagnostics. */
-export function DoctorModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
-  const { t } = useI18n();
-  const { data, isLoading, isError, isFetching, refetch } = useDoctor(sid, open);
-  const hasData = Boolean(data && (data.recommended || data.checks.length || data.log_tail.trim()));
-  return (
-    <Modal open={open} onClose={onClose} label={t('doctor.title')} width="max-w-3xl">
-      <ModalHeader title={t('doctor.title')} sub={t('doctor.subtitle')} />
-      <div className="p-4">
-        {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
-        {!isLoading && isError && <LoadFailure message={t('doctor.loadError')} retrying={isFetching} onRetry={() => void refetch()} t={t} />}
-        {!isLoading && !isError && !hasData && <EmptyHint>{t('doctor.empty')}</EmptyHint>}
-        {!isLoading && !isError && data?.recommended && (
-          <div className="mb-4 rounded-lg border border-gold/40 bg-gold/5 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-gold">{t('doctor.recommended')}</div>
-            <div className="mt-1 text-sm text-ink">{data.recommended.name}</div>
-            <div className="mt-0.5 text-xs text-ink-dim">{data.recommended.detail}</div>
-            {data.recommended.fix && (
-              <pre className="mt-2 whitespace-pre-wrap break-words rounded bg-bg p-2 font-mono text-xs text-blue-sky">{data.recommended.fix}</pre>
-            )}
-          </div>
-        )}
-        {!isLoading && !isError && <div className="space-y-1.5">
-          {(data?.checks ?? []).map((c, i) => (
-            <div key={i} className="flex items-start gap-2 rounded-md border border-line/60 px-3 py-2">
-              <span className={c.ok ? 'text-ok' : 'text-err'}>{c.ok ? '✓' : '✗'}</span>
-              <div className="min-w-0">
-                <div className="text-xs font-medium text-ink">{c.name}</div>
-                {c.detail && <div className="mt-0.5 text-[11px] text-ink-dim">{c.detail}</div>}
-                {!c.ok && c.fix && (
-                  <pre className="mt-1 whitespace-pre-wrap break-words rounded bg-bg p-1.5 font-mono text-xs text-ink-dim">{c.fix}</pre>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>}
-        {!isLoading && !isError && data?.log_tail?.trim() && (
-          <div className="mt-4">
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t('doctor.daemonLog')}</div>
-            <p className="text-xs leading-5 text-ink-dim">
-              <span className="text-ink-faint">{t('doctor.lastEntry')} · </span>
-              {lastMeaningfulLine(data.log_tail)}
-            </p>
-            <RawDisclosure>
-              <pre className="mt-1 max-h-48 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-bg p-3 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">{data.log_tail}</pre>
-            </RawDisclosure>
-          </div>
-        )}
-      </div>
-    </Modal>
   );
 }
 
@@ -153,7 +95,7 @@ export function ConfigModal({
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}
         {!isLoading && !isError && hasData && data && (
           <div className="settings-sections">
-            {!data.trial_mode && <section className="settings-section">
+            <section className="settings-section">
               <h3 className="mb-3 text-sm font-semibold text-ink">{t('settings.quickConfig')}</h3>
               <details className="mb-4">
                 <summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '服务连接设置 · 由维护者配置' : 'Service connection · Maintainer settings'}</summary>
@@ -197,72 +139,20 @@ export function ConfigModal({
                   {quickConfigMsg}
                 </div>
               )}
-            </section>}
+            </section>
 
-            {data.trial_mode && <section className="settings-section" aria-label={t('settings.trialAccount')}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-ink">{t('settings.trialAccount')}</h3>
-                  <p className="mt-1 text-xs text-ink-dim">GPT-5.5 · high</p>
-                  <p className="mt-1 text-xs text-ink-faint">{t('settings.trialKeyHint')}</p>
-                </div>
-                {canOpenDesktopSettings() && <button type="button" className="compact-control px-3 py-2" onClick={() => { onClose(); openDesktopTrialSettings(); }}>{t('settings.changeTrialKey')}</button>}
-              </div>
-            </section>}
+
           </div>
         )}
       </div>
     </Modal>
-    {!data?.trial_mode && <ModelPicker sid={sid} open={open && pickerOpen} onClose={() => setPickerOpen(false)} />}
+    <ModelPicker sid={sid} open={open && pickerOpen} onClose={() => setPickerOpen(false)} />
     </>
   );
 }
 
-/** Identity: the operator identity text on a wordmarked panel. */
-export function IdentityModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
-  const { t } = useI18n();
-  const { data, isLoading, refetch } = useIdentity(sid, open);
-  const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState('');
-  useEffect(() => {
-    if (open && data != null) setDraft(data);
-  }, [data, open]);
-  const save = async () => {
-    if (busy) return;
-    setBusy(true);
-    setResult('');
-    try {
-      await api.setIdentity(sid, draft);
-      await refetch();
-      setResult(t('identity.saved'));
-    } catch (error) {
-      setResult(requestFailureText(error, t).text);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal open={open} onClose={onClose} label={t('identity.title')} width="max-w-2xl">
-      <ModalHeader title={t('identity.title')} sub={t('identity.subtitle')} />
-      <div className="max-h-[64vh] overflow-y-auto scroll-thin p-5">
-        {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
-        {!isLoading ? (
-          <>
-            <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={12} className="w-full resize-y rounded-lg border border-line bg-bg p-3 font-sans text-sm leading-relaxed text-ink outline-none focus:border-blue" placeholder={t('identity.placeholder')} />
-            <div className="mt-3 flex items-center justify-between">
-              <span className="text-xs text-ink-faint">{result}</span>
-              <button type="button" onClick={() => void save()} disabled={busy || draft === (data ?? '')} title={t('identity.save')} aria-label={t('identity.save')} className="flex h-9 w-9 items-center justify-center rounded border border-blue/35 bg-blue/8 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent disabled:opacity-40">{busy ? '…' : <FontAwesomeIcon icon={faFloppyDisk} />}</button>
-            </div>
-          </>
-        ) : null}
-      </div>
-    </Modal>
-  );
-}
-
 /** Transcript: recent operator↔argus turns for replay/resume. Reply via the
- *  composer (nudge/note) — this pane is read-only history. */
+ *  composer — this pane is read-only history. */
 export function TranscriptModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
   const { t } = useI18n();
   const { data, isLoading } = useTranscript(sid, open);

@@ -117,3 +117,11 @@ export function workStatusLabel(status: WorkStatus, locale: Locale, connected = 
   };
   return labels[status.state][zh ? 0 : 1];
 }
+
+/** Whether this project has no queued or completed work. */
+export function isFreshProject(snapshot: Pick<Snapshot, 'backlog' | 'daemon' | 'continuous'> | null | undefined): boolean {
+  if (!snapshot) return false;
+  return snapshot.backlog.every((item) => ['skipped', 'cancelled'].includes(item.status))
+    && !snapshot.daemon.alive
+    && !snapshot.continuous?.enabled;
+}

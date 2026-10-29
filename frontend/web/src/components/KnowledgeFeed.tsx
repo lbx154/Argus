@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { api, type KnowledgeEvent, type KnowledgeEventKind, type WikiLibraryItem, type WikiScope } from '../api';
+import { api, type KnowledgeEvent, type KnowledgeEventKind, type SkillLibraryItem, type SkillScope } from '../api';
 import { useI18n } from '../i18n';
 import { formatRelativeTime } from '../lib/format';
 import { roleLabel } from '../lib/enumLabels';
@@ -14,9 +14,6 @@ import { libraryVertical } from '../lib/libraryPresentation';
 export const KNOWLEDGE_FEED_LIMIT = 50;
 /** Consecutive "recalled" lines from one role this close together fold into one row. */
 export const RECALL_GROUP_WINDOW_S = 60;
-/** A learned or promoted page younger than this shows as "just learned" in the sidebar. */
-export const JUST_LEARNED_WINDOW_S = 24 * 3600;
-
 export const knowledgeFeedQueryKey = (limit: number) => ['knowledge-feed', limit] as const;
 
 export function useKnowledgeFeed(enabled = true, limit = KNOWLEDGE_FEED_LIMIT) {
@@ -33,9 +30,9 @@ export const knowledgeKindLabels: Record<'en' | 'zh', Record<KnowledgeEventKind,
   en: { learned: 'Learned', recalled: 'Recalled', promoted: 'Promoted', corrected: 'Corrected', retired: 'Retired' },
   zh: { learned: '学到了', recalled: '读取了', promoted: '提升了', corrected: '纠正了', retired: '退役了' },
 };
-const scopeLabels: Record<'en' | 'zh', Record<WikiScope, string>> = {
-  en: { private: 'About you', global: 'Global', vertical: 'Vertical', project: 'Project' },
-  zh: { private: '关于你', global: '全局', vertical: '垂直领域', project: '项目' },
+const scopeLabels: Record<'en' | 'zh', Record<SkillScope, string>> = {
+  en: { global: 'Global', vertical: 'Vertical', project: 'Project' },
+  zh: { global: '全局', vertical: '垂直领域', project: '项目' },
 };
 
 /** One feed row: a single journal line, or several recalls by one role folded together. */
@@ -58,23 +55,6 @@ export function groupKnowledgeEvents(events: KnowledgeEvent[], window = RECALL_G
   return rows;
 }
 
-/** The catalog page a journal line points at, when the browser can open it. */
-export function resolveKnowledgeItem(event: Pick<KnowledgeEvent, 'scope' | 'vertical' | 'path' | 'source_project'>, items: WikiLibraryItem[], sid: string | null = null): WikiLibraryItem | null {
-  if (!event.path) return null;
-  if (event.scope === 'project') {
-    // Project pages are only in the catalog for the project being viewed.
-    if (sid && event.source_project && event.source_project !== sid) return null;
-    return items.find(item => item.scope === 'project' && item.path === event.path) ?? null;
-  }
-  return items.find(item => item.scope === event.scope && item.vertical === event.vertical && item.path === event.path) ?? null;
-}
-
-/** The newest page learned, promoted or corrected within the window, for the sidebar's "just learned" row. */
-export function latestLearned(events: KnowledgeEvent[], now = Date.now() / 1000, window = JUST_LEARNED_WINDOW_S): KnowledgeEvent | null {
-  return [...events].sort((a, b) => b.ts - a.ts)
-    .find(event => (event.kind === 'learned' || event.kind === 'promoted' || event.kind === 'corrected') && now - event.ts <= window && event.title) ?? null;
-}
-
 const badgeTone: Record<KnowledgeEventKind, string> = {
   learned: 'bg-blue/10 text-blue',
   recalled: 'bg-line/60 text-ink-dim',
@@ -83,15 +63,14 @@ const badgeTone: Record<KnowledgeEventKind, string> = {
   retired: 'bg-err/10 text-err',
 };
 
-export function KnowledgeFeedList({ events, items, sid, projectNames = {}, query = '', onSelect, selected }: {
+export function KnowledgeFeedList({ events, items, projectNames = {}, query = '', onSelect, selected }: {
   events: KnowledgeEvent[];
-  items: WikiLibraryItem[];
-  sid: string | null;
+  items: SkillLibraryItem[];
   /** Session id → display name; only the "from" label uses it, matching still runs on the raw id. */
   projectNames?: Record<string, string>;
   query?: string;
-  onSelect: (item: WikiLibraryItem) => void;
-  selected?: WikiLibraryItem | null;
+  onSelect: (item: SkillLibraryItem) => void;
+  selected?: SkillLibraryItem | null;
 }) {
   const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
@@ -109,9 +88,9 @@ export function KnowledgeFeedList({ events, items, sid, projectNames = {}, query
     event.source_project ? `${zh ? '来自 ' : 'from '}${projectNames[event.source_project] || event.source_project}` : '',
     zh && event.role ? roleLabel(event.role, t) : event.role,
   ].filter(Boolean).join(' · ');
-  const isSelected = (item: WikiLibraryItem | null) => Boolean(item && selected && item.scope === selected.scope && item.vertical === selected.vertical && item.path === selected.path);
+  const isSelected = (item: SkillLibraryItem | null) => Boolean(item && selected && item.library === selected.library && item.path === selected.path);
   const titleButton = (event: KnowledgeEvent, className: string) => {
-    const item = resolveKnowledgeItem(event, items, sid);
+    const item = items.find(item => !item.is_default && item.path === event.path) ?? null;
     const label = event.title || event.path;
     return item
       ? <button type="button" onClick={() => onSelect(item)} aria-pressed={isSelected(item)} data-feed-title

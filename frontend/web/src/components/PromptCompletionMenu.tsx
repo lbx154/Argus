@@ -1,20 +1,20 @@
-export const SLASH_COMPLETION_VISIBLE_ROWS = 8;
-export const SLASH_COMPLETION_LISTBOX_ID = 'slash-completion-listbox';
+export const PROMPT_COMPLETION_VISIBLE_ROWS = 8;
+export const PROMPT_COMPLETION_LISTBOX_ID = 'prompt-completion-listbox';
 
 /** One row of the composer's completion menu and the draft choosing it leaves (caret: where the caret lands in the visible text). */
 export interface CompletionItem { id: string; name: string; arg?: string; detail?: string; value: string; caret?: number; close?: boolean }
 
-export function clampSlashCompletionSelection(selected: number, visibleCount: number): number {
+export function clampPromptCompletionSelection(selected: number, visibleCount: number): number {
   if (visibleCount <= 0) return 0;
   return Math.max(0, Math.min(selected, visibleCount - 1));
 }
 
-export function slashCompletionOptionId(id: string): string {
-  return `slash-completion-option-${id}`;
+export function promptCompletionOptionId(id: string): string {
+  return `prompt-completion-option-${id}`;
 }
 
-/** Inline completion menu for /commands, @paths and #tasks; the caller decides the rows and what choosing one leaves. */
-export function SlashCompletionMenu({
+/** Inline completion menu for @paths and #tasks; the caller decides the rows and what choosing one leaves. */
+export function PromptCompletionMenu({
   items,
   label,
   selected,
@@ -28,15 +28,15 @@ export function SlashCompletionMenu({
 }) {
   return (
     <div
-      id={SLASH_COMPLETION_LISTBOX_ID}
+      id={PROMPT_COMPLETION_LISTBOX_ID}
       role="listbox"
       aria-label={label}
-      className="slash-completion-menu scroll-thin border-b border-line/40"
+      className="prompt-completion-menu scroll-thin border-b border-line/40"
     >
       {items.map((item, index) => (
         <button
           key={item.id}
-          id={slashCompletionOptionId(item.id)}
+          id={promptCompletionOptionId(item.id)}
           type="button"
           role="option"
           // The textarea keeps focus and answers the keys (aria-activedescendant).

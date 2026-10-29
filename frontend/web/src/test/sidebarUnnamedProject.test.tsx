@@ -8,7 +8,7 @@ function markup(project: Record<string, unknown>) {
     projects: [{ id: 's-0f0f0f0f', label: 's-0f0f0f0f', display_name: '', objective: '', last_active: 1,
       daemon_alive: false, daemon_pid: null, uptime_seconds: null, launch_cwd: '/synthetic', workdir: '/synthetic', ...project }],
     activeId: 's-0f0f0f0f', localCwd: '/synthetic', onSelect: vi.fn(), onManage: vi.fn(), onOpenPanel: vi.fn(),
-    onOpenSkills: vi.fn(), onOpenWiki: vi.fn(), onOpenVerticals: vi.fn(), onNew: vi.fn(), loading: false,
+    onOpenSkills: vi.fn(), onOpenVerticals: vi.fn(), onNew: vi.fn(), loading: false,
     onToggleCollapse: vi.fn(), themeMode: 'light' as const, onCycleTheme: vi.fn(), collapsed: false,
   };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });

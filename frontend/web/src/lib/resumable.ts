@@ -11,7 +11,7 @@ const UNDER_WAY = new Set(['running', 'in_progress', 'claimed']);
  * argus/core/stop_kinds.py), or cut off mid-run when the team stopped.
  */
 export function resumableTaskIds(snapshot: Snapshot | null | undefined): Set<string> {
-  if (!snapshot || snapshot.daemon.alive || snapshot.launch_hold) return new Set();
+  if (!snapshot || snapshot.daemon.alive) return new Set();
   return new Set(snapshot.backlog.filter((item) => {
     const reason = parkReason(item.status, item.outcome?.park?.reason);
     if (reason !== null) return item.outcome?.resumable !== false && !NOT_ENDED_BY_RUN.has(reason);

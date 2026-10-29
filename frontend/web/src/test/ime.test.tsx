@@ -86,8 +86,8 @@ describe('ChatBox still renders', () => {
         disabled={false}
         pending={false}
         focusSignal={0}
-        slashSelection={0}
-        onSlashSelectionChange={() => {}}
+        completionSelection={0}
+        onCompletionSelectionChange={() => {}}
       />,
     );
 

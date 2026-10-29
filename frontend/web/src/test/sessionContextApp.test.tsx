@@ -55,7 +55,7 @@ vi.mock('../components/PendingReplyDialog', () => ({ PendingReplyDialog: () => n
 vi.mock('../components/GuardianBanner', () => ({ GuardianBanner: () => null }));
 vi.mock('../components/CommandPalette', async importOriginal => ({ ...await importOriginal<object>(), CommandPalette: () => null }));
 vi.mock('../components/KeybindingHelp', () => ({ KeybindingHelp: () => null }));
-vi.mock('../components/InfoModals', () => ({ DoctorModal: () => null, ConfigModal: () => null, IdentityModal: () => null, TranscriptModal: () => null }));
+vi.mock('../components/InfoModals', () => ({ ConfigModal: () => null, TranscriptModal: () => null }));
 vi.mock('../components/Modal', () => ({ Modal: () => null, ModalHeader: () => null }));
 vi.mock('../components/ProjectInspectorModal', () => ({ ProjectInspectorModal: () => null }));
 vi.mock('../components/TaskDetailModal', () => ({ TaskDetailModal: () => null }));
@@ -141,7 +141,7 @@ describe('App session composer ownership', () => {
     act(() => renderer.root.findByType(ConversationEditor).props.onCompose('/task revised question', target));
     await act(async () => { expect(await props().onSend('/task revised question')).toBe(true); });
     expect(stream).toHaveBeenCalledWith('s-A', '/task revised question', expect.any(Object),
-      expect.objectContaining({ routeOverride: 'auto', launch: undefined }));
+      expect.objectContaining({ routeOverride: 'auto' }));
     expect(save).toHaveBeenCalledWith('s-A', 'conversation', expect.objectContaining({
       source: 'original-question', original: 'Original answer', content: 'Revised answer', note: '/task revised question',
     }));
@@ -170,16 +170,6 @@ describe('App session composer ownership', () => {
     fixture.idle.refetch.mockClear();
     await act(async () => { expect(await props().onSend('Total the columns of data.csv')).toBe(true); });
     expect(fixture.idle.refetch).toHaveBeenCalled();
-  });
-  it('keeps the ask choice reachable after the project has started', () => {
-    const started = snapshot('s-A');
-    started.daemon.alive = true;
-    fixture.snapshots.set('s-A', { ...fixture.idle, data: started });
-    refresh();
-    const bar = props().settings as { props: { started: boolean; onAskChange: (mode: string) => void } };
-    expect(bar.props.started).toBe(true);
-    act(() => bar.props.onAskChange('beyond_authority'));
-    expect((props().settings as { props: { ask: string } }).props.ask).toBe('beyond_authority');
   });
   it('shows the project continuous state beside the composer and toggles it through the shared action', () => {
     const setContinuous = fixture.actions.setContinuous.mutate;
@@ -326,29 +316,16 @@ describe('App session composer ownership', () => {
     select('s-A'); expect(props().value).toBe('map edit');
   });
 
-  it('preserves slash rewrite results and clears ordinary handled commands in their original session', async () => {
-    const rewrite = deferred<Awaited<ReturnType<typeof api.rewritePrompt>>>();
-    vi.spyOn(api, 'rewritePrompt').mockReturnValue(rewrite.promise);
-    type('/rewrite explain this');
-    await act(async () => { expect(await props().onSend('/rewrite explain this')).toBe(true); });
-    await act(async () => rewrite.resolve({ original: 'explain this', rewritten: 'a better explanation', changes: [], questions: [], error: '' }));
-    expect(props().value).toBe('a better explanation');
-    type('/help');
-    await act(async () => { expect(await props().onSend('/help')).toBe(true); });
-    expect(props().value).toBe('');
-  });
-
-  it('offers settings, the model chooser, slash commands, launch settings, the route choice and editions only where the server declares them', async () => {
+  it('offers settings, the model chooser, the route choice and editions only where the server declares them', async () => {
     const send = vi.spyOn(api, 'messageStream').mockResolvedValue();
     // A server that declares only what every server has, as the TypeScript core does.
     await act(async () => { renderer.update(<Capabilities.Provider value={['manager.sse.v1']}>{mountedApp()}</Capabilities.Provider>); });
     expect(renderer.root.findByType(ComposerRuntime).props.onOpenSettings).toBeUndefined();
-    expect(props().settings).toBeUndefined();
     expect(props().onRouteOverrideChange).toBeUndefined();
     expect(renderer.root.findByType(EventStream).props.onConversationAction).toBeUndefined();
     type('/help');
     await act(async () => { expect(await props().onSend('/help')).toBe(true); });
-    expect(send).toHaveBeenCalledWith('s-A', '/help', expect.any(Object), expect.objectContaining({ routeOverride: 'auto', launch: undefined }));
+    expect(send).toHaveBeenCalledWith('s-A', '/help', expect.any(Object), expect.objectContaining({ routeOverride: 'auto' }));
   });
 
   it('retains drafts through transient index errors but drops them only after explicit successful deletion', async () => {
@@ -365,17 +342,6 @@ describe('App session composer ownership', () => {
     fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, workdir_preserved: true, workdir: '/synthetic/s-A' });
     await act(async () => { expect(await renderer.root.findByType(DaemonManageModal).props.onDelete()).toBe(true); });
     select('s-A'); expect(props().value).toBe('');
-  });
-
-  it('does not start a message after a project switch during the command-dispatch microtask', async () => {
-    const send = vi.spyOn(api, 'messageStream').mockResolvedValue();
-    type('A');
-    let sent!: Promise<boolean>;
-    act(() => { sent = Promise.resolve(props().onSend('A')); });
-    select('s-B');
-    await act(async () => { expect(await sent).toBe(false); });
-    expect(send).not.toHaveBeenCalled();
-    expect(api.cancelMessage).not.toHaveBeenCalled();
   });
 
   it('does not restore a broken-stream draft over new input or automatically resend after acceptance', async () => {

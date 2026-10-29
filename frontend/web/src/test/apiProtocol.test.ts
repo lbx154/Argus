@@ -433,30 +433,22 @@ describe('web API protocol handshake', () => {
   it('wires the complete Web administration surface', async () => {
     const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
       if (path.startsWith('/api/trash?')) return Response.json({ entries: [], total: 0 });
-      if (path.endsWith('/plan')) return Response.json({ steps: [], notes: [], error: '' });
-      if (path.endsWith('/skills')) return Response.json({ text: 'skills' });
       return Response.json({ ok: true, rc: 0, sid: 's-restored' });
     });
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
     await api.trash();
-    await api.previewPlan('s-test', 'inspect');
     await api.setConfig('s-test', 'manager_model', 'gpt-5.6-sol');
-    await api.setIdentity('s-test', 'operator');
     await api.resetManager('s-test');
-    await api.skills('s-test', 'ls');
     await api.setLaunchCwd('s-test', '/workspace');
     await api.setWorkdir('s-test', '/workspace');
     await api.restoreTrash('0:projects_trash/20260712/s-old');
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/trash?query=&limit=100&offset=0',
-      '/api/projects/s-test/plan',
       '/api/projects/s-test/config/set',
-      '/api/projects/s-test/identity',
       '/api/projects/s-test/reset',
-      '/api/projects/s-test/skills',
       '/api/projects/s-test/launch-cwd',
       '/api/projects/s-test/workdir',
       '/api/trash/0%3Aprojects_trash%2F20260712%2Fs-old/restore',

@@ -2,7 +2,7 @@ import { useState, type ComponentProps } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatBox } from '../components/ChatBox';
-import { slashCompletionOptionId } from '../components/SlashCompletionMenu';
+import { promptCompletionOptionId } from '../components/PromptCompletionMenu';
 import type { PromptSources } from '../lib/promptCompletion';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
 import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
@@ -30,7 +30,7 @@ function Harness(props: Partial<ComponentProps<typeof ChatBox>> & { initial?: st
   const [selection, setSelection] = useState(0);
   return <ChatBox value={value} onChange={(next) => { changes.push(next); setValue(next); }} onSend={send} onCancel={cancel}
     disabled={false} pending={false} attachments={[]} onAttachmentsChange={() => undefined}
-    slashSelection={selection} onSlashSelectionChange={setSelection} completion={sources} {...props} />;
+    completionSelection={selection} onCompletionSelectionChange={setSelection} completion={sources} {...props} />;
 }
 
 const mount = (props: Partial<ComponentProps<typeof ChatBox>> & { initial?: string } = {}) => {
@@ -126,7 +126,7 @@ describe('@ and # in the main composer', () => {
     expect(draft.refs).toEqual([ref, { source: 'live:s1', task_id: 't2', task_title: '基线对比', event_ids: [], lang: 'en' }]);
   });
 
-  it('sends on Enter until the arrows pick a row; slash commands keep taking Enter', () => {
+  it('sends on Enter until the arrows pick a row', () => {
     mount();
     type('@tr');
     // Nothing looks chosen for Enter; the first row shows that Tab takes it.
@@ -137,13 +137,9 @@ describe('@ and # in the main composer', () => {
     press('ArrowDown');
     expect(options().map((option) => option.props['aria-selected'])).toEqual([false, true, false]);
     expect(options()[0].findAllByType('kbd')).toHaveLength(0);
-    expect(textarea().props['aria-activedescendant']).toBe(slashCompletionOptionId('file-1'));
+    expect(textarea().props['aria-activedescendant']).toBe(promptCompletionOptionId('file-1'));
     press('Enter');
     expect(changes.at(-1)).toBe('@src/tools/trace.py ');
-    expect(send).toHaveBeenCalledTimes(1);
-    type('/sta');
-    press('Enter');
-    expect(changes.at(-1)).toBe('/status');
     expect(send).toHaveBeenCalledTimes(1);
   });
 
@@ -172,10 +168,10 @@ describe('@ and # in the main composer', () => {
 
   it('leaves Shift+Tab to move focus while a menu is open', () => {
     mount();
-    type('/sta');
+    type('@tr');
     const event = press('Tab', { shiftKey: true });
     expect(event.preventDefault).not.toHaveBeenCalled();
-    expect(changes.at(-1)).toBe('/sta');
+    expect(changes.at(-1)).toBe('@tr');
     expect(listbox()).toBeDefined();
   });
 

@@ -10,7 +10,7 @@ import { useI18n } from '../i18n';
 import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
 import { workSummary } from '../lib/workSummary';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { isFreshProject } from '../lib/launch';
+import { isFreshProject } from '../lib/workStatus';
 import { resumableTaskIds } from '../lib/resumable';
 import { shortcut } from '../lib/format';
 

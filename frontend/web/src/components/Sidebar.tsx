@@ -90,7 +90,7 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onPrefetch?: (id: string) => void;
   onManage: (id: string) => void;
-  onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
+  onOpenPanel: (p: 'config') => void;
   onOpenLearning?: (scope: LearningScope) => void;
   /** Opens the current project's delivered results. */
   onOpenResults?: () => void;
@@ -254,7 +254,7 @@ export function Sidebar({
               {resultsCount ? <span className="ml-auto text-xs tabular-nums text-ink-faint">{resultsCount}</span> : null}
             </button> : null}
             <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
-              title={zh ? '知识库、插件' : 'Knowledge and plugins'}
+              title={zh ? '技能库、插件' : 'Skills and plugins'}
               className="mx-2 my-1 flex h-8 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
               <ChevronRight size={13} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
               <span>{zh ? '高级工具' : 'Advanced tools'}</span>

@@ -4,14 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ConfigSnapshot, Role } from '../api';
 import { ComposerRuntime } from '../components/ComposerRuntime';
 
-let config: Pick<ConfigSnapshot, 'trial_mode'> & Partial<Pick<ConfigSnapshot, 'roles' | 'backends'>> = {};
+let config: Partial<Pick<ConfigSnapshot, 'roles' | 'backends'>> = {};
 const backends = { copilot: 'Copilot CLI', claude: 'Claude Code' };
 vi.mock('../hooks', () => ({ useConfig: () => ({ data: config }) }));
 vi.mock('../components/ModelPicker', () => ({
   ModelPicker: ({ open, onOpenSettings }: { open: boolean; onOpenSettings?: () => void }) =>
     open ? <button type="button" data-picker-open onClick={onOpenSettings} /> : null,
 }));
-vi.mock('../lib/desktopBridge', () => ({ canOpenDesktopSettings: () => true, openDesktopTrialSettings: vi.fn() }));
 const roles: Role[] = [
   { role: 'manager', model: 'manager-model', backend: 'copilot', effort: 'high', active: false },
   { role: 'engineer', model: 'engineer-model', backend: 'claude', effort: null, active: true },
@@ -19,7 +18,7 @@ const roles: Role[] = [
 
 describe('composer runtime information', () => {
   it('shows the active role backend/model and returns to the manager when stopped', () => {
-    config = { trial_mode: false, backends };
+    config = { backends };
     const active = renderToStaticMarkup(<ComposerRuntime sid="s-test" roles={roles} running />);
     expect(active).toContain('engineer-model');
     expect(active).toContain('Claude Code');
@@ -29,14 +28,7 @@ describe('composer runtime information', () => {
     expect(stopped).not.toContain('engineer-model');
   });
 
-  it('shows the hosted trial model and Key replacement independently of old role settings', () => {
-    config = { trial_mode: true };
-    const html = renderToStaticMarkup(<ComposerRuntime sid="s-test" roles={roles} running />);
-    expect(html).toContain('GPT-5.5');
-    expect(html).toContain('high');
-    expect(html).toContain('Change Key');
-    expect(html).not.toContain('engineer-model');
-  });
+
 });
 
 describe('composer runtime follows the real calls', () => {
@@ -48,7 +40,7 @@ describe('composer runtime follows the real calls', () => {
   ] as unknown as ConfigSnapshot['roles'];
 
   it('shows the backend, model and effort the latest call actually used', () => {
-    config = { trial_mode: false, roles: configRoles('called-model') } as typeof config;
+    config = { roles: configRoles('called-model') } as typeof config;
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} />);
     expect(html).toContain('called-model');
     expect(html).toContain('medium');
@@ -57,7 +49,7 @@ describe('composer runtime follows the real calls', () => {
   });
 
   it('says what the next call will use right after settings change', () => {
-    config = { trial_mode: false, roles: configRoles('applied-model', 'claude'), backends } as typeof config;
+    config = { roles: configRoles('applied-model', 'claude'), backends } as typeof config;
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} />);
     expect(html).toContain('called-model');
     expect(html).toMatch(/next call: Claude Code · applied-model/);
@@ -66,7 +58,7 @@ describe('composer runtime follows the real calls', () => {
   it('matches the call to the role that made it, not to the manager by default', () => {
     // A work label such as "self-implement" names no role; the backend says
     // which role made the call, and only that role's settings are compared.
-    config = { trial_mode: false, roles: [
+    config = { roles: [
       { role: 'engineer', backend: 'copilot', model: 'called-model', reasoning_effort: null },
       { role: 'manager', backend: 'copilot', model: 'other-model', reasoning_effort: null },
     ] as unknown as ConfigSnapshot['roles'] } as typeof config;
@@ -77,7 +69,7 @@ describe('composer runtime follows the real calls', () => {
   });
 
   it('does not present a call from days ago as what the project runs on now', () => {
-    config = { trial_mode: false, roles: configRoles('applied-model', 'claude') } as typeof config;
+    config = { roles: configRoles('applied-model', 'claude') } as typeof config;
     const old = { ...lastCall, backend: 'pi', model: 'old-model', ts: now() - 12 * 86400 };
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} lastCall={old} />);
     expect(html).not.toContain('old-model');
@@ -86,7 +78,7 @@ describe('composer runtime follows the real calls', () => {
   });
 
   it('opens the model chooser when clicked, which leads on to the settings', () => {
-    config = { trial_mode: false, roles: configRoles('called-model') } as typeof config;
+    config = { roles: configRoles('called-model') } as typeof config;
     const open = vi.fn();
     let tree: ReactTestRenderer | undefined;
     act(() => { tree = create(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} onOpenSettings={open} />); });

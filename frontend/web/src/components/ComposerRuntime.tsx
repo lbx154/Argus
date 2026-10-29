@@ -4,7 +4,6 @@ import { useConfig } from '../hooks';
 import { useI18n } from '../i18n';
 import { backendLabel } from '../lib/backend';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
-import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 import { ModelPicker } from './ModelPicker';
 
 type LastCall = NonNullable<Snapshot['last_call']>;
@@ -34,12 +33,11 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
   const zh = locale === 'zh-CN';
   const role = (running ? roles.find((item) => item.active) : undefined)
     ?? roles.find((item) => item.role === 'manager');
-  const trial = data?.trial_mode === true;
   const recent = !!lastCall && (running || Date.now() / 1000 - (lastCall.ts || 0) < LAST_CALL_CURRENT_S);
-  const actual = !trial && recent && lastCall?.backend ? lastCall : null;
+  const actual = recent && lastCall?.backend ? lastCall : null;
   const backend = actual ? actual.backend : role?.backend;
-  const model = trial ? 'GPT-5.5' : actual ? (actual.model || 'auto') : role?.model;
-  const effort = trial ? 'high' : actual ? actual.effort : role?.effort;
+  const model = actual ? (actual.model || 'auto') : role?.model;
+  const effort = actual ? actual.effort : role?.effort;
   // The configured role that made the last call, read from settings so an
   // Apply shows up here immediately rather than after the next call.
   // The backend names the role whose settings govern the call; without it
@@ -53,11 +51,11 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
     ? [backendLabel(nextBackend || configured!.backend, data), nextModel || configured!.model || 'auto'].join(' · ')
     : '';
   const effortName = effort ? ({ low: zh ? '低' : 'low', medium: zh ? '中' : 'medium', high: zh ? '高' : 'high' } as Record<string, string>)[effort] ?? effort : '';
-  const shown = trial ? 'GPT-5.5' : model && !unset(model) ? model : (zh ? '自动' : 'Automatic');
+  const shown = model && !unset(model) ? model : (zh ? '自动' : 'Automatic');
   // Everything else about the run is a hover away: the backend, and the role at work.
   const detail = [
-    trial ? (zh ? '试用' : 'Trial') : backend ? backendLabel(backend, data) : '',
-    !trial && !actual && running && role?.active ? (isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role) : '',
+    backend ? backendLabel(backend, data) : '',
+    !actual && running && role?.active ? (isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role) : '',
   ].filter(Boolean).join(' · ');
   const title = [detail, actual
     ? (zh ? '最近一次调用实际用的模型；点击选择模型' : 'The model the latest call actually used; click to choose a model')
@@ -69,12 +67,9 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
     {next ? <span className="composer-model-next" data-runtime-next>{zh ? `下次：${next}` : `next call: ${next}`}</span> : null}
   </>;
   return <div className="composer-runtime" aria-label={zh ? '当前后端与模型' : 'Current backend and model'}>
-    {onOpenSettings && !trial
+    {onOpenSettings
       ? <button type="button" className="composer-model" onClick={() => setPickerOpen(true)} title={title} data-runtime-open-models>{chip}</button>
       : <span className="composer-model" title={title}>{chip}</span>}
-    {trial && canOpenDesktopSettings() ? <button type="button" className="composer-model" onClick={openDesktopTrialSettings}>
-      {zh ? '更换 Key' : 'Change Key'}
-    </button> : null}
-    {onOpenSettings && !trial && <ModelPicker sid={sid} open={pickerOpen} onClose={() => setPickerOpen(false)} onOpenSettings={onOpenSettings} />}
+    {onOpenSettings && <ModelPicker sid={sid} open={pickerOpen} onClose={() => setPickerOpen(false)} onOpenSettings={onOpenSettings} />}
   </div>;
 }

@@ -1,110 +1,28 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { act, create } from 'react-test-renderer';
+import { expect, it, vi } from 'vitest';
 import { PluginCard, PluginEntries, type Plugin } from '../components/PluginLauncher';
-import { pluginEntryState } from '../lib/pluginLaunch';
 
-const host = vi.hoisted(() => ({ locale: 'en' }));
-vi.mock('../i18n', () => ({ useI18n: () => ({ locale: host.locale, t: (key: string) => key }) }));
+const ready: Plugin = { id: 'bench', name: 'Bench', description: 'Solve a structure', version: '1.2', url: 'http://127.0.0.1:9100/', reason: '' };
 
-const catalog: Plugin = {
-  id: 'crystalpilot', name: 'Argus CrystalPilot', description: '衍射数据处理、结构求解、精修与三维晶体研究工作台',
-  version: '0.4.0', url: '/plugins/crystalpilot/', command: '/crystalpilot', installed: false, enabled: false,
-  supported: true, reason: '', update_available: false, backends: { default: 'pi', engineer: 'pi' },
-  setup: { actions: ['health', 'repair', 'shelx', 'configure'] },
-};
-const ready: Plugin = { ...catalog, installed: true, enabled: true, installed_version: '0.4.0' };
-const preparing: Plugin = { ...catalog, managed_by_host: true, operation: { status: 'running', progress: '安装独立运行环境（首次可能需要几分钟）' } };
-const failed: Plugin = { ...catalog, managed_by_host: true, operation: { status: 'failed', error: '插件包校验失败，未安装。' } };
-
-const entries = (plugins: Plugin[]) => renderToStaticMarkup(
-  <PluginEntries plugins={plugins} pending={null} onLaunch={() => undefined} onManage={() => undefined} />,
-);
-const card = (plugin: Plugin) => renderToStaticMarkup(
-  <PluginCard plugin={plugin} running={plugin.operation?.status === 'running'} locale={host.locale} act={async () => true} />,
-);
-
-describe('workbench entries outside the plugin center', () => {
-  it('opens an installed workbench directly and offers no install control', () => {
-    const html = entries([ready]);
-    expect(html).toContain('aria-label="Argus CrystalPilot"');
-    expect(html).toContain('aria-label="Manage Argus CrystalPilot"');
-    expect(html).not.toMatch(/>Install</);
-    expect(html).not.toContain('aria-label="Plugins"');
-    expect(html).not.toContain('role="status"');
-  });
-
-  it('shows one plain preparing sentence with the current step while the service installs', () => {
-    const html = entries([preparing]);
-    expect(html).toContain('role="status"');
-    expect(html).toContain('Preparing the Argus CrystalPilot workbench; the first time takes a few minutes');
-    expect(html).toContain('Install standalone environment (may take several minutes the first time)');
-    expect(html).not.toMatch(/>Install</);
-    expect(html).not.toContain('aria-label="Plugins"');
-    expect(html).not.toContain('aria-label="Argus CrystalPilot"');
-  });
-
-  it('says plainly when a provided workbench could not be prepared', () => {
-    const html = entries([failed]);
-    expect(html).toContain('Argus CrystalPilot is unavailable for now');
-    expect(html).not.toMatch(/>Install</);
-  });
-
-  it('keeps the plugin center as the manual path for a self-hosted copy', () => {
-    expect(entries([catalog])).toContain('aria-label="Plugins"');
-    expect(entries([catalog])).not.toContain('role="status"');
-    expect(entries([])).toContain('aria-label="Plugins"');
-    expect(entries([ready, { ...catalog, id: 'other', name: 'Other' }])).toContain('aria-label="Plugins"');
-  });
-
-  it('renders only the icon in the slim sidebar and speaks the host language', () => {
-    host.locale = 'zh-CN';
-    try {
-      const slim = renderToStaticMarkup(<PluginEntries plugins={[preparing]} compact pending={null} onLaunch={() => undefined} onManage={() => undefined} />);
-      expect(slim).toContain('title="安装独立运行环境（首次可能需要几分钟）"');
-      expect(slim).not.toContain('正在准备 Argus CrystalPilot 工作台');
-      expect(entries([preparing])).toContain('正在准备 Argus CrystalPilot 工作台，首次需要几分钟');
-      expect(entries([ready])).toContain('aria-label="管理 Argus CrystalPilot"');
-    } finally {
-      host.locale = 'en';
-    }
-  });
+it('opens a deployed plugin and shows the reason for an invalid URL', () => {
+  const launch = vi.fn();
+  let view!: ReturnType<typeof create>;
+  act(() => { view = create(<PluginCard plugin={ready} running={false} onLaunch={launch} />); });
+  act(() => view.root.findByType('button').props.onClick());
+  expect(launch).toHaveBeenCalledOnce();
+  const invalid = renderToStaticMarkup(<PluginCard plugin={{ ...ready, url: '', reason: 'No http(s) URL to open.' }} running={false} onLaunch={launch} />);
+  expect(invalid).toContain('No http(s) URL to open.');
+  expect(invalid).not.toContain('<button');
+  act(() => view.unmount());
 });
 
-describe('plugin center cards', () => {
-  it('hides update for a plugin the service provides', () => {
-    const html = card({ ...ready, managed_by_host: true, update_available: true });
-    expect(html).toContain('Open workbench');
-    expect(html).toContain('Check environment');
-    expect(html).not.toMatch(/>Disable<|>Uninstall<|>Update to /);
-    expect(html).not.toContain('Uninstalling preserves');
-  });
-
-  it('offers a self-hosted copy its update and install, and never a disable or uninstall the server has no route for', () => {
-    const html = card({ ...ready, update_available: true });
-    expect(html).not.toMatch(/>Disable<|>Uninstall</);
-    expect(html).toMatch(/>Update to /);
-    expect(card(catalog)).toMatch(/>Install</);
-  });
-
-  it('replaces the install button with the preparing sentence for a provided plugin', () => {
-    const html = card(preparing);
-    expect(html).toContain('Preparing the Argus CrystalPilot workbench');
-    expect(html).toContain('Install standalone environment');
-    expect(html).not.toMatch(/>Install</);
-    expect(html).not.toContain('First installation automatically configures');
-  });
-});
-
-describe('entry state', () => {
-  it('derives one state per plugin', () => {
-    expect(pluginEntryState(ready)).toBe('ready');
-    expect(pluginEntryState({ ...ready, managed_by_host: true })).toBe('ready');
-    expect(pluginEntryState(catalog)).toBe('manual');
-    expect(pluginEntryState({ ...ready, enabled: false })).toBe('manual');
-    expect(pluginEntryState({ ...catalog, managed_by_host: true })).toBe('preparing');
-    expect(pluginEntryState(preparing)).toBe('preparing');
-    expect(pluginEntryState({ ...ready, enabled: false, managed_by_host: true })).toBe('preparing');
-    expect(pluginEntryState(failed)).toBe('unavailable');
-    expect(pluginEntryState({ ...ready, managed_by_host: true, supported: false })).toBe('unavailable');
-  });
+it('keeps plugin entries and their list available without installation controls', () => {
+  const html = renderToStaticMarkup(<PluginEntries plugins={[ready]} pending={null} onLaunch={vi.fn()} onManage={vi.fn()} />);
+  expect(html).toContain('aria-label="Bench"');
+  expect(html).toContain('aria-label="View Bench"');
+  expect(renderToStaticMarkup(<PluginEntries plugins={[]} pending={null} onLaunch={vi.fn()} onManage={vi.fn()} />)).toContain('aria-label="Plugins"');
+  const card = renderToStaticMarkup(<PluginCard plugin={ready} running={false} onLaunch={vi.fn()} />);
+  expect(card).toContain('Open workbench');
+  expect(card).not.toMatch(/Install|Repair|Update|Enable|license|environment/i);
 });

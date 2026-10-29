@@ -36,7 +36,7 @@ export function Landing({
   const { t, locale } = useI18n();
   const { draft, setText, setAttachments, drop } = useSessionComposer('home');
   const [focus, setFocus] = useState(0);
-  const [slashSelection, setSlashSelection] = useState(0);
+  const [completionSelection, setCompletionSelection] = useState(0);
   const [workdir, setWorkdir] = useState('');
   return (
     <div className="landing-page">
@@ -65,7 +65,7 @@ export function Landing({
             if (accepted) drop('home');
             return accepted;
           }} onCancel={() => undefined} disabled={creating} pending={false} focusSignal={focus}
-          slashSelection={slashSelection} onSlashSelectionChange={setSlashSelection} />
+          completionSelection={completionSelection} onCompletionSelectionChange={setCompletionSelection} />
         <p className="landing-caption">{locale === 'zh-CN'
           ? '发送后自动建立项目；团队干活时也可以随时说话。'
           : 'Sending creates a project. You can write at any time while the team works.'}</p>

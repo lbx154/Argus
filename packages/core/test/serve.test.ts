@@ -251,7 +251,7 @@ interface MapTask { id: string; title: string; status: string; role: string; ts:
   latest_action?: import('@argus/contracts').BacklogItem['latest_action']; result_paths: string[] }
 interface MapLetter { id: string; item_id: string; type: string; role: string; to: string; text: string }
 interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string }
-interface Trace { task_id: string; groups: { call_id: string; role: string; output: string; entries: { kind: string; text: string }[] }[] }
+interface Trace { task_id: string; groups: { call_id: string; role: string; entries: { kind: string; text: string }[] }[] }
 
 test('map updates carry each task’s holder, latest action and only its closing handoff’s files', async t => {
   let releaseEngineer = (): void => {};
@@ -304,8 +304,8 @@ test('a closing handoff without files clears earlier open files and does not inf
   assert.deepEqual((await get<ProgressMap>(`/api/projects/${project.id}/map`)).tasks[0]!.result_paths, []);
 });
 
-test('the map shows each task and the letters written about it, and a task its calls and their raw output', async t => {
-  const { home, get, post } = await setup(t, [
+test('the map shows each task and the letters written about it, and a task its calls and their letters', async t => {
+  const { get, post } = await setup(t, [
     { role: 'manager', to: 'planner', letter: 'Total the columns, in steps.' },
     { role: 'planner', to: 'engineer', letter: brief },
     { role: 'engineer' },
@@ -351,7 +351,7 @@ test('the map shows each task and the letters written about it, and a task its c
     ['planner', [brief]], ['engineer', []], ['engineer', ['report.md written']], ['reviewer', ['Ship it as is?']],
     ['reviewer', ['Add the units.']], ['engineer', ['Units added.']], ['reviewer', ['Accepted.']],
   ]);
-  assert.deepEqual(trace.groups.map(group => group.output), trace.groups.map(group => join(home, 'projects', sid, 'calls', `${group.call_id}.jsonl`)));
+  assert.ok(trace.groups.every(group => !Object.hasOwn(group, 'output')));
   assert.deepEqual((await get<Trace>(`${P}/map-trace?task=t9`)).groups, []);
 });
 
@@ -572,7 +572,7 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
     assert.equal((await document(library!, path!)).status, 404, `${library} ${path}`);
   }
 
-  assert.deepEqual(await get('/api/wiki'), { scopes: [], libraries: [], items: [], verticals: [], active_vertical: '', errors: [] });
+  assert.equal((await call('/api/wiki')).status, 404);
   assert.equal((await call('/api/wiki/page?scope=global&vertical=&path=x.md')).status, 404);
   assert.ok(await revision() > before);
   const { events } = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=2');
@@ -591,8 +591,8 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   // A url that is not a web address is no url: the page would run it in itself.
   await write('sketch/plugin.json', JSON.stringify({ name: 'Sketch', url: 'javascript:alert(1)' }), 5);
   const { plugins } = await get<{ plugins: Record<string, unknown>[] }>('/api/plugins');
-  assert.deepEqual(plugins.map(plugin => [plugin.id, plugin.name, plugin.installed, plugin.enabled, plugin.supported, plugin.backends]),
-    [['bench', 'Bench', true, true, true, {}], ['sketch', 'Sketch', true, true, false, {}]]);
+  assert.deepEqual(plugins.map(plugin => [plugin.id, plugin.name, plugin.url]),
+    [['bench', 'Bench', 'http://127.0.0.1:9100/'], ['sketch', 'Sketch', '']]);
   assert.deepEqual(await (await post('/api/plugins/bench/launch', {})).json(), { url: 'http://127.0.0.1:9100/' });
   const unready = await post('/api/plugins/sketch/launch', {});
   assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no http(s) url to open.` }]);

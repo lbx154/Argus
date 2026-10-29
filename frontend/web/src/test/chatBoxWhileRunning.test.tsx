@@ -14,7 +14,7 @@ it("sends a follow-up from the chat view while a reply is running instead of swa
     renderer = create(createElement(ChatBox, {
       value: "Also cover the empty input", onChange: () => {}, onSend, onCancel: () => {},
       disabled: false, pending: true, attachments: [], onAttachmentsChange: () => {},
-      slashSelection: 0, onSlashSelectionChange: () => {},
+      completionSelection: 0, onCompletionSelectionChange: () => {},
     }));
   });
   await act(async () => {
@@ -33,7 +33,7 @@ it("keeps Stop and offers a send button for a follow-up typed while a reply is r
     renderer = create(createElement(ChatBox, {
       value: "Also cover the empty input", onChange: () => {}, onSend, onCancel,
       disabled: false, pending: true, attachments: [], onAttachmentsChange: () => {},
-      slashSelection: 0, onSlashSelectionChange: () => {},
+      completionSelection: 0, onCompletionSelectionChange: () => {},
     }));
   });
   const send = renderer.root.findByProps({ type: "submit", className: "map-send" });
@@ -50,7 +50,7 @@ it("shows the runtime line under the chat input, as the map composer does", () =
     renderer = create(createElement(ChatBox, {
       value: "", onChange: () => {}, onSend: async () => true, onCancel: () => {},
       disabled: false, pending: false, attachments: [], onAttachmentsChange: () => {},
-      slashSelection: 0, onSlashSelectionChange: () => {},
+      completionSelection: 0, onCompletionSelectionChange: () => {},
       footer: createElement("div", { "data-runtime-line": true }, "Copilot · model-a · high"),
     }));
   });

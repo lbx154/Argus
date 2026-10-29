@@ -18,13 +18,13 @@ function markup(collapsed = false) {
   finally { client.clear(); }
 }
 describe('top resource navigation', () => {
-  it('puts Results first and folds plugins and knowledge under Advanced', () => {
+  it('puts Results first and folds plugins and skills under Advanced', () => {
     const html = markup();
     expect(html.indexOf('data-sidebar-resources')).toBeGreaterThan(0);
     expect(html).toContain('data-sidebar-results');
     expect(html.indexOf('data-sidebar-results')).toBeLessThan(html.indexOf('id="daemon-search"'));
     expect(html).toContain('aria-expanded="false"');
-    for (const label of ['aria-label="Plugins"', 'aria-label="Knowledge &amp; skills"']) {
+    for (const label of ['aria-label="Plugins"', 'aria-label="Skill library"']) {
       expect(html).not.toContain(label);
     }
     expect(html.indexOf('aria-label="Open settings"')).toBeGreaterThan(html.indexOf('Synthetic session A'));
@@ -33,7 +33,7 @@ describe('top resource navigation', () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
     try {
       const html = markup();
-      const labels = ['aria-label="Knowledge &amp; skills"', 'aria-label="Plugins"'];
+      const labels = ['aria-label="Skill library"', 'aria-label="Plugins"'];
       for (const label of labels) {
         expect(html).toContain(label);
         expect(html.indexOf(label)).toBeLessThan(html.indexOf('id="daemon-search"'));
@@ -43,10 +43,10 @@ describe('top resource navigation', () => {
       expect(html).not.toContain('aria-label="Learning feed"');
     } finally { vi.unstubAllGlobals(); }
   });
-  it('keeps a compact entry rail with Results and knowledge', () => {
+  it('keeps a compact entry rail with Results and skills', () => {
     const html = markup(true);
     expect(html).toContain('aria-label="Expand projects"');
-    const labels = ['aria-label="Results"', 'aria-label="Knowledge &amp; skills"'];
+    const labels = ['aria-label="Results"', 'aria-label="Skill library"'];
     for (const label of labels) expect(html).toContain(label);
     expect(labels.map(label => html.indexOf(label))).toEqual(labels.map(label => html.indexOf(label)).sort((a, b) => a - b));
     expect(html).not.toContain('id="daemon-search"');

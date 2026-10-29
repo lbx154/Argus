@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './Modal';
-import { commandNeedsArgument, type SlashCommand } from '../../../core/src/commands';
 import { isImeComposing } from '../lib/ime';
-import { useI18n, type Locale } from '../i18n';
-import { commandDescription, commandGroup } from '../lib/commandI18n';
+import { useI18n } from '../i18n';
 
 export interface PaletteItem {
   id: string;
@@ -12,27 +10,6 @@ export interface PaletteItem {
   group: string;
   keywords?: string;
   run: () => void;
-}
-
-/** Generate one `PaletteItem` per shared slash command.
- * Commands that require an argument prefill/focus the composer; all others are
- * executed directly (dispatched through the web command pipeline). */
-export function commandPaletteRows(
-  commands: readonly SlashCommand[],
-  execute: (name: string) => void,
-  prefill: (text: string) => void,
-  locale: Locale = 'en',
-): PaletteItem[] {
-  return commands.map((command) => ({
-    id: `command-${command.id}`,
-    label: commandDescription(command, locale),
-    hint: `${command.name}${command.arg ? ` ${command.arg}` : ''}`,
-    group: commandGroup(command, locale),
-    keywords: [command.name, ...(command.aliases ?? [])].join(' '),
-    run: () => commandNeedsArgument(command)
-      ? prefill(`${command.name} `)
-      : execute(command.name),
-  }));
 }
 
 export function filterPaletteItems(items: PaletteItem[], query: string): PaletteItem[] {
@@ -44,8 +21,7 @@ export function filterPaletteItems(items: PaletteItem[], query: string): Palette
   });
 }
 
-/** ⌘K command palette — fuzzy-filtered, keyboard-driven, mirrors the CLI slash
- *  registry (navigation + every mutation + project switch). */
+/** ⌘K palette for navigation, project actions and project switching. */
 export function CommandPalette({
   open,
   onClose,

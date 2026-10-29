@@ -3,19 +3,11 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { KeybindingHelp } from '../components/KeybindingHelp';
 
-describe('keybinding help panel — command reference', () => {
-  it('renders all shared command groups with labels and descriptions', () => {
+describe('keybinding help panel', () => {
+  it('shows browser keyboard shortcuts', () => {
     const html = renderToStaticMarkup(
       createElement(KeybindingHelp, { open: true, onClose: () => undefined }),
     );
-    // Everyday group
-    expect(html).toContain('/status');
-    // Task management — arg uses angle brackets, HTML-encoded by React
-    expect(html).toContain('/task &lt;text&gt;');
-    // Configuration — optional arg with pipe-separated values
-    expect(html).toContain('/skills [ls|promote');
-    // Other group
-    expect(html).toContain('/quit');
     // Ctrl/⌘+R is the browser's reload, never a rewrite.
     expect(html).not.toContain('Ctrl+R');
     // Off Apple devices the keys say Ctrl, never ⌘.

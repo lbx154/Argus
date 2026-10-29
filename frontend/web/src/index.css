@@ -813,7 +813,7 @@ button {
   border-radius: 9999px;
 }
 
-.slash-completion-menu {
+.prompt-completion-menu {
   max-height: min(22rem, 42dvh);
   overflow-y: auto;
   overscroll-behavior: contain;

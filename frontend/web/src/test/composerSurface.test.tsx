@@ -9,7 +9,7 @@ import { referenceText } from '../map/presentation';
 
 const mainProps = {
   value: 'Research question', onChange: vi.fn(), onSend: vi.fn(async () => false), onCancel: vi.fn(),
-  disabled: false, pending: false, slashSelection: 0, onSlashSelectionChange: vi.fn(),
+  disabled: false, pending: false, completionSelection: 0, onCompletionSelectionChange: vi.fn(),
   attachments: [] as File[], onAttachmentsChange: vi.fn(),
 };
 

@@ -5,9 +5,8 @@ import { isImeComposing } from '../lib/ime';
 import { spinnerFrame } from '../lib/soul';
 import { completionMenu, completionToken, ghostFor, type PromptSources } from '../lib/promptCompletion';
 import { referenceText, splitDraft } from '../map/presentation';
-import { clampSlashCompletionSelection, slashCompletionOptionId, SlashCompletionMenu, SLASH_COMPLETION_LISTBOX_ID } from './SlashCompletionMenu';
+import { clampPromptCompletionSelection, promptCompletionOptionId, PromptCompletionMenu, PROMPT_COMPLETION_LISTBOX_ID } from './PromptCompletionMenu';
 import { useI18n } from '../i18n';
-import { COMMANDS_CAPABILITY, useCapability } from '../lib/capabilities';
 import { addComposerFiles, dataTransferHasFiles, extractFilesFromDataTransfer, MESSAGE_ATTACHMENT_MAX_BYTES, MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES } from '../lib/attachments';
 import { formatBytes } from '../lib/format';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
@@ -23,8 +22,8 @@ interface Caret { text: string; at: number; fits: boolean; typed: boolean }
 export function ChatBox({
   value, onChange, onSend, onCancel, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, onUndoRewrite, rewriting = false,
-  slashSelection, onSlashSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote,
-  settings, completion,
+  completionSelection, onCompletionSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote,
+  completion,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -40,18 +39,16 @@ export function ChatBox({
   /** Puts the text before the last rewrite back; given while the draft is still that rewrite. */
   onUndoRewrite?: () => void;
   rewriting?: boolean;
-  slashSelection: number;
-  onSlashSelectionChange: (n: number) => void;
+  completionSelection: number;
+  onCompletionSelectionChange: (n: number) => void;
   routeOverride?: MessageRouteOverride;
   onRouteOverrideChange?: (value: MessageRouteOverride) => void;
   /** Shown under the input, like the map composer's runtime line. */
   footer?: ReactNode;
-  /** Always-visible model control beside the folded task settings. */
   /** Always-visible continuous-work switch for the current project. */
   continuousControl?: ReactNode;
   /** Replaces the reply hint while the send waits on something else, such as uploads. */
   pendingNote?: string;
-  settings?: ReactNode;
   /** What `@`, `#` and the gray text complete from; only the project conversation has it. */
   completion?: PromptSources;
 }) {
@@ -86,14 +83,12 @@ export function ChatBox({
   const at = cursor?.text === text ? cursor.at : null;
   const token = completion && at != null && cursor?.typed ? completionToken(text, at) : null;
   useEffect(() => completion?.wantFiles(token?.trigger === '@'), [token?.trigger, completion]);
-  const listed = completionMenu(value, token, completion, t, locale);
-  // Without the server's slash commands a line starting with / is a message like any other.
-  const menu = useCapability(COMMANDS_CAPABILITY) || listed?.kind !== 'command' ? listed : null;
+  const menu = completionMenu(value, token, completion, t, locale);
   const visibleCompletions = menu?.items ?? [];
   const completionOpen = visibleCompletions.length > 0 && !menuDismissed;
-  const bounded = completionOpen ? clampSlashCompletionSelection(slashSelection, visibleCompletions.length) : 0;
+  const bounded = completionOpen ? clampPromptCompletionSelection(completionSelection, visibleCompletions.length) : 0;
   // An @/# row is only "current" once the arrows picked it; until then Enter sends.
-  const activeCompletion = completionOpen && (menu?.kind === 'command' || navigated) ? visibleCompletions[bounded] : undefined;
+  const activeCompletion = completionOpen && navigated ? visibleCompletions[bounded] : undefined;
   const offered = completion && !disabled && !pending && !rewriting && !composing && !completionOpen
     && at === text.length && cursor?.fits ? ghostFor(text, completion.history) : '';
   // Esc turns down the suggestion itself, not just the text it was shown after.
@@ -112,7 +107,7 @@ export function ChatBox({
   };
   const typed = (next: string) => {
     onChange(next);
-    onSlashSelectionChange(0);
+    onCompletionSelectionChange(0);
     setMenuDismissed(false);
     setNavigated(false);
     const nextText = splitDraft(next).text;
@@ -133,7 +128,7 @@ export function ChatBox({
     caretAfter.current = item.caret ?? null;
     if (item.close) setMenuDismissed(true);
     setNavigated(false);
-    onSlashSelectionChange(0);
+    onCompletionSelectionChange(0);
     taRef.current?.focus();
   };
   const acceptGhost = () => {
@@ -153,7 +148,7 @@ export function ChatBox({
         ? await onSend(value.trim(), [], undefined, { whileRunning: true })
         : await onSend(value.trim(), attachments);
       if (accepted) {
-        onSlashSelectionChange(0);
+        onCompletionSelectionChange(0);
         setMenuDismissed(false);
         setNavigated(false);
         setAttachmentNotice('');
@@ -185,7 +180,7 @@ export function ChatBox({
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
         setNavigated(true);
-        onSlashSelectionChange(clampSlashCompletionSelection(bounded + (event.key === 'ArrowDown' ? 1 : -1), visibleCompletions.length));
+        onCompletionSelectionChange(clampPromptCompletionSelection(bounded + (event.key === 'ArrowDown' ? 1 : -1), visibleCompletions.length));
         return;
       }
       if (plainTab || (event.key === 'Enter' && !event.shiftKey && activeCompletion)) {
@@ -211,8 +206,8 @@ export function ChatBox({
       event.preventDefault(); setDragDepth(0); addFiles(extractFilesFromDataTransfer(event.dataTransfer));
     }}>
     {pending ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{pendingNote || (queuedNotice ? t('chat.queuedWhileRunning') : t('chat.stopWaitingHint'))}</div> : null}
-    {completionOpen ? <SlashCompletionMenu items={visibleCompletions} selected={activeCompletion ? bounded : -1} onSelect={applySelected}
-      label={t(menu?.kind === '@' ? 'completion.files' : menu?.kind === '#' ? 'completion.tasks' : 'slash.suggestions')} /> : null}
+    {completionOpen ? <PromptCompletionMenu items={visibleCompletions} selected={activeCompletion ? bounded : -1} onSelect={applySelected}
+      label={t(menu?.kind === '@' ? 'completion.files' : 'completion.tasks')} /> : null}
     {(attachments.length || ready.length || attachmentNotice || dragDepth > 0) ? <div className="px-3 py-2">
       {dragDepth > 0 ? <div className="mb-2 text-xs text-manager">{t('chat.attachDrop')}</div> : null}
       <div className="map-attachment-tray">{ready.map((attachment) => <ComposerAttachmentChip key={attachment.attachment_id}
@@ -239,17 +234,16 @@ export function ChatBox({
         onCompositionStart: () => setComposing(true),
         onCompositionEnd: (event) => { setComposing(false); readCursor(event.currentTarget.value, true); },
         'aria-autocomplete': completion ? 'both' : 'list',
-        'aria-controls': completionOpen ? SLASH_COMPLETION_LISTBOX_ID : undefined, 'aria-expanded': completionOpen,
-        'aria-activedescendant': activeCompletion ? slashCompletionOptionId(activeCompletion.id) : undefined,
+        'aria-controls': completionOpen ? PROMPT_COMPLETION_LISTBOX_ID : undefined, 'aria-expanded': completionOpen,
+        'aria-activedescendant': activeCompletion ? promptCompletionOptionId(activeCompletion.id) : undefined,
         placeholder: disabled ? t('chat.selectSession') : t('chat.placeholder'),
       }} />
     {completion ? <span className="sr-only" role="status">{whole && t('completion.ghostHint', { text: whole })}</span> : null}
     <div className="composer-meta">
     {footer}
     {continuousControl}
-    {(settings || onRouteOverrideChange) && <details className="composer-options">
+    {onRouteOverrideChange && <details className="composer-options">
       <summary>{zh ? '任务设置' : 'Task settings'}{routeOverride === 'chat' ? zh ? ' · 仅对话' : ' · Chat only' : routeOverride === 'task' ? zh ? ' · 研究任务' : ' · Research task' : ''}</summary>
-      {settings}
       {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}
     </details>}
     {onUndoRewrite ? <button type="button" className="composer-rewrite" onClick={onUndoRewrite} disabled={disabled || pending}>

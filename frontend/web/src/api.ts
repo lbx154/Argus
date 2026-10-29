@@ -9,7 +9,6 @@ import type {
   BacklogItem,
   Daemon,
   EventMsg,
-  LaunchSettings,
   ProjectRow,
   ProjectCostRow,
   ProgressSourceRef,
@@ -77,31 +76,6 @@ export interface SkillDocument {
   role: string;
 }
 
-/** One page of the project's shared Wiki, listed newest-first by the host. */
-export interface WikiPageSummary {
-  path: string;
-  title: string;
-  description: string;
-  updated_at: number;
-}
-/** The project Wiki as the host sees it: absent, or INDEX.md plus its pages. */
-export type WikiOverview =
-  | { exists: false }
-  | { exists: true; root: string; index_markdown: string; pages: WikiPageSummary[] };
-/** One Wiki page body; the host caps the Markdown and flags the cut. */
-export interface WikiPageDocument {
-  path: string;
-  title: string;
-  description?: string;
-  /** Page body without the front matter, when the host provides it. */
-  content?: string;
-  markdown: string;
-  truncated: boolean;
-  updated_at: number;
-}
-
-/** Where a knowledge page lives: shared by everyone, by one vertical, or kept by one project. */
-export type WikiScope = 'private' | 'global' | 'vertical' | 'project';
 export type LearningChannel = 'knowledge' | 'skills' | 'preferences';
 export interface LearningJob {
   id: string;
@@ -120,66 +94,12 @@ export interface LearningJob {
   };
 }
 export interface LearningState { jobs: LearningJob[]; pending: number; revision: number }
-/** What a knowledge page is: a fact, a lesson from reflection, a survey distilled after an answer, a set of principles, or a plain page. */
-export type WikiPageKind = 'fact' | 'lesson' | 'survey' | 'principles' | 'note' | 'profile' | 'page';
-/** One knowledge page flattened across libraries, newest first; the host adds scope, vertical and root. */
-export interface WikiLibraryItem {
-  scope: WikiScope;
-  vertical: string;
-  root: string;
-  path: string;
-  title: string;
-  description: string;
-  updated_at: number;
-  /** Front-matter kind; the host falls back to "page" when a page names none. */
-  kind: WikiPageKind | string;
-  /** Where the page came from, e.g. "<project>/<mission>" or "chat/<session>"; empty when unknown. */
-  source: string;
-  /** ISO date the page was written; empty when unknown. */
-  created: string;
-  /** How many times the host handed this page to a role as recalled knowledge. */
-  reuse_count: number;
-}
-/** One knowledge library (global, one vertical, or the project): INDEX.md plus its pages. */
-export interface WikiLibrary {
-  scope: WikiScope;
-  vertical: string;
-  root: string;
-  index_markdown: string;
-  pages: WikiPageSummary[];
-  /** The library's principles.md, compiled from repeated lessons; null until there is one. */
-  principles?: string | null;
-  /** The operator's living profile (private scope only); null until Argus has written one. */
-  profile?: string | null;
-}
-/** Every knowledge library the host can see for the given project, plus the flattened page list. */
-export interface WikiCatalog {
-  scopes: WikiScope[];
-  libraries: WikiLibrary[];
-  items: WikiLibraryItem[];
-  verticals: string[];
-  active_vertical: string;
-  errors: string[];
-}
-/** One knowledge page: body without the front matter, raw text capped by the host. */
-export interface WikiDocument {
-  scope: WikiScope;
-  vertical: string;
-  path: string;
-  title: string;
-  description: string;
-  content: string;
-  markdown: string;
-  truncated: boolean;
-  updated_at: number;
-}
-
 /** One line of the host's knowledge journal: something learned, recalled into a prompt, promoted to a shared level, corrected or retired. */
 export type KnowledgeEventKind = 'learned' | 'recalled' | 'promoted' | 'corrected' | 'retired';
 export interface KnowledgeEvent {
   ts: number;
   kind: KnowledgeEventKind;
-  scope: WikiScope;
+  scope: SkillScope;
   vertical: string;
   /** Page path relative to its library root, e.g. "pages/lessons/20260917-torch-search.md" or "principles.md". */
   path: string;
@@ -255,17 +175,6 @@ export type ResearchMethod =
     change_log: ResearchMethodChange[];
   };
 
-export interface DoctorCheck {
-  name: string;
-  ok: boolean;
-  detail: string;
-  fix: string;
-}
-export interface DoctorReport {
-  checks: DoctorCheck[];
-  recommended: DoctorCheck | null;
-  log_tail: string;
-}
 export interface ConfigRole {
   role: string;
   backend: string;
@@ -289,7 +198,6 @@ export interface ConfigKnob {
 }
 export interface ConfigSnapshot {
   schema_version: number;
-  trial_mode?: boolean;
   generated_at_utc: string;
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
@@ -338,11 +246,6 @@ export type ProjectState =
 export interface ProjectCostIndex {
   projects: ProjectCostRow[];
   generated_at: number;
-}
-export interface PlanPreview {
-  steps: Array<{ title: string; detail?: string }>;
-  notes: string[];
-  error: string;
 }
 /** A Manager-authored restatement of an operator draft (see the rewrite button). */
 export interface PromptRewrite {
@@ -784,13 +687,11 @@ function messageBody(
   attachments?: MessageAttachmentRef[],
   routeOverride?: MessageRouteOverride,
   requestId?: string,
-  launch?: LaunchSettings,
 ): Record<string, unknown> {
   const body: Record<string, unknown> = { text };
   if (attachments?.length) body.attachments = attachments;
   if (routeOverride && routeOverride !== 'auto') body.route_override = routeOverride;
   if (requestId) body.request_id = requestId;
-  if (launch) body.launch = launch;
   return body;
 }
 
@@ -1066,16 +967,12 @@ export const api = {
     );
     return requireSnapshotContract(value);
   },
-  doctor: (sid: string, signal?: AbortSignal) =>
-    getJson<DoctorReport>(P(sid, '/doctor'), signal),
   config: (sid: string, signal?: AbortSignal) =>
     getJson<ConfigSnapshot>(P(sid, '/config'), signal),
   modelChoices: (sid: string, signal?: AbortSignal) =>
     getJson<ModelChoices>(P(sid, '/model-choices'), signal),
   probeModel: (sid: string, model: string) =>
     postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model }),
-  identity: (sid: string, signal?: AbortSignal) =>
-    getJson<{ identity: string }>(P(sid, '/identity'), signal).then((r) => r.identity),
   transcript: (sid: string, n = 30, signal?: AbortSignal) =>
     getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`), signal)
       .then((r) => r.turns),
@@ -1404,15 +1301,13 @@ export const api = {
       attachments?: MessageAttachmentRef[];
       routeOverride?: MessageRouteOverride;
       requestId?: string;
-      launch?: LaunchSettings;
     },
   ): Promise<void> => {
     const signal = isAbortSignal(signalOrOptions) ? signalOrOptions : signalOrOptions?.signal;
     const attachments = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.attachments;
     const routeOverride = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.routeOverride;
     const requestId = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.requestId;
-    const launch = isAbortSignal(signalOrOptions) ? undefined : signalOrOptions?.launch;
-    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride, requestId, launch), signal);
+    const res = await postResponse(P(sid, '/message/stream'), messageBody(text, attachments, routeOverride, requestId), signal);
     const dispatch = (f: SSEFrame) => {
       if (signal?.aborted) return;
       if (f.type === 'phase') {
@@ -1450,19 +1345,9 @@ export const api = {
     };
     await readSSE(res, 'Manager stream', dispatch, signal);
   },
-  /** Start a first task that was planned and held for confirmation. */
-  confirmLaunch: (sid: string) =>
-    postJson<{ ok: boolean; daemon?: { rc?: number; error?: string; admission_required?: boolean } }>(P(sid, '/launch/confirm'), {}),
-  /** Drop held, never-started work; returns the original request for editing. */
-  discardLaunch: (sid: string) =>
-    postJson<{ ok: boolean; skipped: string[]; request: string }>(P(sid, '/launch/discard'), {}),
-  nudge: (sid: string, text: string) => postJson(P(sid, '/nudge'), { text }),
   /** A message typed while a Manager reply runs: shown now, answered as the next turn. */
   queueFollowup: (sid: string, text: string, routeOverride: MessageRouteOverride = 'auto') =>
     postJson<{ ok: boolean; queued: boolean; message_id: string }>(P(sid, '/message/followup'), { text, route_override: routeOverride }),
-  note: (sid: string, text: string) => postJson(P(sid, '/note'), { text }),
-  previewPlan: (sid: string, text: string) =>
-    postJson<PlanPreview>(P(sid, '/plan'), { text }),
   /**
    * Ask the Manager to restate a short draft as an executable brief. Preview
    * only — nothing is queued; the operator edits/sends the result themselves.
@@ -1471,24 +1356,13 @@ export const api = {
     postJson<PromptRewrite>(P(sid, '/prompt/rewrite'), { text }),
   setConfig: (sid: string, name: string, value: string) =>
     postJson<Record<string, unknown>>(P(sid, '/config/set'), { name, value }),
-  setIdentity: (sid: string, text: string) =>
-    postJson<{ ok: boolean }>(P(sid, '/identity'), { text }),
   resetManager: (sid: string) =>
     postJson<{ ok: boolean }>(P(sid, '/reset')),
-  skills: (sid: string, args = 'ls') =>
-    postJson<{ text: string }>(P(sid, '/skills'), { args }).then((result) => result.text),
   skillLibrary: (sid: string | null, signal?: AbortSignal) =>
     getJson<SkillCatalog>(`/api/skill-library${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
   skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
   researchMethod: (sid: string, signal?: AbortSignal) => getJson<ResearchMethod>(P(sid, '/research/method'), signal),
-  wiki: (sid: string, signal?: AbortSignal) => getJson<WikiOverview>(P(sid, '/wiki'), signal),
-  wikiPage: (sid: string, path: string, signal?: AbortSignal) =>
-    getJson<WikiPageDocument>(P(sid, `/wiki/page?${new URLSearchParams({ path })}`), signal),
-  wikiLibrary: (sid: string | null, signal?: AbortSignal) =>
-    getJson<WikiCatalog>(`/api/wiki${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
-  wikiDocument: (sid: string | null, scope: WikiScope, vertical: string, path: string, signal?: AbortSignal) =>
-    getJson<WikiDocument>(`/api/wiki/page?${new URLSearchParams({ scope, vertical, path, ...(sid ? { sid } : {}) })}`, signal),
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>
     getJson<KnowledgeFeed>(`/api/knowledge/feed?${new URLSearchParams({ limit: String(limit) })}`, signal),
   learningStatus: (sid: string, signal?: AbortSignal) => getJson<LearningState>(P(sid, '/learning'), signal),

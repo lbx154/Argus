@@ -23,10 +23,9 @@ import {
   responseError,
   visibleBacklogItems,
 } from '../../../core/src';
-import { COMMANDS } from '../../../core/src/commands';
 import { formatBytes, shortcut, uptime } from '../lib/format';
 import { finishManagerMessage, managerMessageError } from '../lib/messageResult';
-import { filterPaletteItems, commandPaletteRows, type PaletteItem } from '../components/CommandPalette';
+import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
 import type { AgentIoCompleteEvent } from '../../../core/src/eventPayloads.generated';
 import {
   selectPreferredLiveArtifact,
@@ -893,12 +892,5 @@ describe('shared frontend core', () => {
     expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done', 'replaced']);
   });
 
-  it('builds one palette row for every shared slash command', () => {
-    const rows = commandPaletteRows(COMMANDS, vi.fn(), vi.fn());
-    // One row per command — asserting the relationship rather than a literal
-    // count, so adding a command does not fail a test about mapping.
-    expect(rows).toHaveLength(COMMANDS.length);
-    expect(rows.map((row) => row.hint)).toContain('/status');
-    expect(rows.map((row) => row.hint)).toContain('/quit');
-  });
+
 });

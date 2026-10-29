@@ -8,10 +8,9 @@ import { POLL_CAPABILITY, useCapability } from '../lib/capabilities';
 
 /** Poll independently of foreground work: reflection runs after a mission ends. A server that
  * pushes project state has it read again with each change instead (useProjects). */
-export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: {
+export function LearningStatus({ sid, channel, onOpenSkills }: {
   sid: string | null;
   channel?: LearningChannel;
-  onOpenKnowledge?: () => void;
   onOpenSkills?: () => void;
 }) {
   const { locale } = useI18n();
@@ -27,7 +26,7 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
     if (!query.data?.revision || current === revision.current) return;
     revision.current = current;
     // Refresh the actual pages as soon as the learning receipt changes.
-    for (const name of ['skill-library', 'wiki-library', 'knowledge-feed']) {
+    for (const name of ['skill-library', 'knowledge-feed']) {
       void client.invalidateQueries({ queryKey: [name] });
     }
   }, [sid, query.data?.revision, client]);
@@ -69,8 +68,8 @@ export function LearningStatus({ sid, channel, onOpenKnowledge, onOpenSkills }: 
     {items.length > 0 && !channel && <details className="mt-0.5">
       <summary className="cursor-pointer text-blue">{zh ? '查看这次任务学到了什么' : 'What this mission taught Argus'}</summary>
       <ul className="pl-4 list-disc">{items.map((item, index) => <li key={index}>
-        {(item.channel === 'skills' ? onOpenSkills : onOpenKnowledge)
-          ? <button type="button" className="text-left underline" onClick={item.channel === 'skills' ? onOpenSkills : onOpenKnowledge}>{item.title}</button>
+        {(item.channel === 'skills' && onOpenSkills)
+          ? <button type="button" className="text-left underline" onClick={onOpenSkills}>{item.title}</button>
           : item.title}
       </li>)}</ul>
     </details>}

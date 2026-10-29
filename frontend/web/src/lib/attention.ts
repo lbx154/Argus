@@ -25,10 +25,6 @@ export function projectAttention({
   zh: boolean;
 }): Attention | null {
   if (!snapshot) return null;
-  const hold = snapshot.launch_hold;
-  if (hold) {
-    return { kind: 'reply', key: `launch:${hold.created_at}`, title: zh ? '需要你确认开始' : 'Waiting for your go-ahead', body: hold.title };
-  }
   const cards = operatorDecisionCards(
     snapshot.pending_questions ?? [],
     snapshot.backlog as unknown as Array<Record<string, unknown>>,

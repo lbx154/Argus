@@ -269,7 +269,6 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     daemon_commands: null, observability: null, mission_view: null,
     pending_questions: questions(project),
     manager_requests: live.requests.map(request_id => ({ request_id, status: 'running' as const })),
-    launch_hold: null,
     goal: project.request,
     partial: false,
     diagnostics: [],
@@ -343,12 +342,12 @@ export function progressMap(store: Store, project: Project, after: number) {
 
 type CallEnd = Extract<Recorded, { type: 'call.end' }>;
 
-/** One task's calls in order: the role, the letter it ended with, and where its raw output is.
+/** One task's calls in order: the role and the letter it ended with.
  * The call whose letter opened the task comes first. */
 export function taskTrace(store: Store, project: Project, task: string) {
   const group = (call: CallEnd, ...letters: string[]) => ({
     call_id: call.callId, role: call.role, started_ts: seconds(call.ts) - call.ms / 1000, ended_ts: seconds(call.ts),
-    output: join(store.dir(project.id), 'calls', `${call.callId}.jsonl`), entries: letters.map(text => ({ kind: 'message', text })),
+    entries: letters.map(text => ({ kind: 'message', text })),
   });
   const groups: ReturnType<typeof group>[] = [];
   let last: CallEnd | undefined;

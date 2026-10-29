@@ -2,7 +2,7 @@
 // turns, by writing skills; what the page shows of it is what they changed, the newest files under
 // the state root's skills/. A plugin is a skill whose folder holds plugin.json ({ name, description,
 // version, url }), installed and started by whoever wants it: Argus lists it and the page opens its
-// url. There is no wiki: the page finds it empty.
+// url.
 
 import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -34,7 +34,6 @@ export function library(store: Store): [string, RegExp, Handler][] {
       if (!found) throw new HttpError(404, 'no such skill file');
       return { content: readFileSync(found.file, 'utf8') };
     }],
-    ['GET', /^\/api\/wiki$/, () => ({ scopes: [], libraries: [], items: [], verticals: [], active_vertical: '', errors: [] })],
     // The page reads the library again when the revision changes: when a role has changed a skill.
     ['GET', /^\/api\/projects\/[^/]+\/learning$/, () => {
       const home = skillsHome(store.home);
@@ -71,8 +70,6 @@ function plugin(id: string, file: string) {
   const url = /^https?:\/\//i.test(text('url')) ? text('url') : '';
   const reason = !isJsonObject(spec) ? `${file} is not a JSON object.` : url ? '' : `${file} names no http(s) url to open.`;
   return {
-    id, name: text('name') || id, description: text('description'), version: text('version'), installed_version: text('version'), url,
-    installed: true, enabled: true, supported: !reason, managed_by_host: false, reason, operation: {}, update_available: false,
-    environment_update: false, command: '', rights_notice: '', setup: null, health: null, backends: {},
+    id, name: text('name') || id, description: text('description'), version: text('version'), url, reason,
   };
 }

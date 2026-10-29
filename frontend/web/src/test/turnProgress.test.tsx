@@ -70,7 +70,7 @@ describe('one compact work-progress area', () => {
   it('does not repeat steps above the input and retains the stop control', () => {
     const html = renderToStaticMarkup(<ChatBox value="" onChange={() => undefined} onSend={() => true}
       onCancel={() => undefined} pending disabled={false} attachments={[]} onAttachmentsChange={() => undefined}
-      slashSelection={0} onSlashSelectionChange={() => undefined} />);
+      completionSelection={0} onCompletionSelectionChange={() => undefined} />);
     expect(html).not.toContain('turn-steps');
     expect(html).not.toContain('<ol');
     expect(html).toContain('aria-label="Stop this reply"');

@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
-import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -15,15 +15,12 @@ import { ChatBox } from './components/ChatBox';
 import { ContinuousSwitch } from './components/ContinuousSwitch';
 import { promptHistory, type PromptSources } from './lib/promptCompletion';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
-import { CommandPalette, commandPaletteRows, type PaletteItem } from './components/CommandPalette';
+import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
-import { DoctorModal, ConfigModal, IdentityModal, TranscriptModal } from './components/InfoModals';
+import { ConfigModal, TranscriptModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
-import { LaunchHoldCard, LaunchSettingsBar } from './components/LaunchPanel';
-import { DEFAULT_LAUNCH_SETTINGS, isFreshProject, launchForMessage, readAskMode, writeAskMode, type AskMode } from './lib/launch';
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
-import { NoOperatorBanner } from './components/NoOperatorBanner';
 import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { ProgressQuestionsProvider } from './research-brief/ProgressQuestions';
@@ -47,13 +44,8 @@ import { useVisualViewport } from './useVisualViewport';
 import { activeGuardianAlert } from './lib/guardian';
 import { projectMissionView } from '../../core/src/missionView';
 import { useQueryClient } from '@tanstack/react-query';
-import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
-import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
-import { COMMANDS, parseCommand } from '../../core/src/commands';
-import { COMMANDS_CAPABILITY, EDITIONS_CAPABILITY, LAUNCH_CAPABILITY, POLL_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
-import { type EventViewFilter } from '../../core/src/events';
-import { eventViewReducer, initialEventViewState } from './lib/eventView';
+import { EDITIONS_CAPABILITY, POLL_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
   mergeOptimisticManagerDelta,
   mergeOptimisticManagerSteps,
@@ -85,7 +77,7 @@ import { progressHealth } from './lib/progressHealth';
 import { ProgressHealthBanner } from './components/ProgressHealthBanner';
 import { useAttentionSignals } from './useAttentionSignals';
 import { DraftUploadContext, DraftUploads, type DraftUploadView } from './lib/draftUploads';
-import type { ArtifactInfo, DeliveryReceipt, LaunchSettings, MissionView } from '../../core/src/types';
+import type { ArtifactInfo, DeliveryReceipt, MissionView } from '../../core/src/types';
 import {
   completionNotificationPayload,
   installDesktopExternalLinkBridge,
@@ -93,7 +85,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'learning';
+type Overlay = 'none' | 'palette' | 'help' | 'config' | 'transcript' | 'inspector' | 'learning';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -169,7 +161,6 @@ export default function App() {
     .find((error) => isConnectionError(error));
 
   const [overlay, setOverlay] = useState<Overlay>('none');
-  const commands = useCapability(COMMANDS_CAPABILITY);
   const openSettings = useCapability(SETTINGS_CAPABILITY) ? () => setOverlay('config') : undefined;
   const [learningSelection, setLearningSelection] = useState<LearningSelection | null>(null);
   const [learningScope, setLearningScope] = useState<LearningScope>('feed');
@@ -179,13 +170,8 @@ export default function App() {
     setOverlay('learning');
   }, []);
   const openSkillLibrary = useCallback((item?: SkillLibraryItem, scope: SkillScope | 'recent' = 'recent') => {
-    setLearningSelection(item ? { kind: 'skill', item } : null);
+    setLearningSelection(item ?? null);
     setLearningScope(item || scope !== 'recent' ? 'global' : 'feed');
-    setOverlay('learning');
-  }, []);
-  const openWiki = useCallback((page?: WikiLibraryItem) => {
-    setLearningSelection(page ? { kind: 'knowledge', item: page } : null);
-    setLearningScope(page ? 'global' : 'feed');
     setOverlay('learning');
   }, []);
   const {
@@ -231,14 +217,12 @@ export default function App() {
   // Share the visible-height decision with the reading card and composer.
   const compactViewport = useVisualViewport();
   const [composerFocus, setComposerFocus] = useState(0);
-  const [slashSelection, setSlashSelection] = useState(0);
+  const [completionSelection, setCompletionSelection] = useState(0);
   // The project whose composer caret is in an @ word, so its workspace listing is wanted.
   const [treeSid, setTreeSid] = useState<string | null>(null);
   const [routeOverride, setRouteOverride] = useState<MessageRouteOverride>('auto');
   // Without the choice a message goes as Auto: the server decides whether to answer or hand it on.
   const setRoute = useCapability(ROUTE_CAPABILITY) ? setRouteOverride : undefined;
-  const [launchSettings, setLaunchSettings] = useState<LaunchSettings>(DEFAULT_LAUNCH_SETTINGS);
-  const launches = useCapability(LAUNCH_CAPABILITY);
   const editions = useCapability(EDITIONS_CAPABILITY);
   const [chatPending, setChatPending] = useState(false);
   const [waitingForUploads, setWaitingForUploads] = useState(false);
@@ -258,7 +242,6 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
   const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
-  const messageSubmitLockRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
   const messageEpochRef = useRef(0);
   const observedCompletionRef = useRef<{ sid: string; id: string | null }>();
@@ -270,9 +253,6 @@ export default function App() {
   });
   const cancelDeliveryNavigationRef = useRef<() => void>(() => undefined);
   const [notice, setNotice] = useState<UiNotice | null>(null);
-  const [eventView, dispatchEventView] = useReducer(eventViewReducer, initialEventViewState);
-  const [eventFilter, setEventFilter] = useState<EventViewFilter>('all');
-  const [eventQuery, setEventQuery] = useState('');
   const dismissNotice = useCallback(() => setNotice(null), []);
   const notify = useCallback((tone: NoticeTone, message: string) => {
     setNotice({ id: ++noticeSequence, tone, message });
@@ -460,42 +440,12 @@ export default function App() {
   const manageSnapQ = useSnapshot(manageTargetSid);
   const snap = snapQ.data;
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
-  // Launch settings apply to a project's first task only, and never carry over.
-  const freshProject = Boolean(loadedSid) && isFreshProject(snap);
-  const [askMode, setAskModeState] = useState<AskMode>(() => readAskMode(activeSid));
-  useEffect(() => { setLaunchSettings(DEFAULT_LAUNCH_SETTINGS); setAskModeState(readAskMode(activeSid)); }, [activeSid]);
-  const setAskMode = useCallback((mode: AskMode) => { setAskModeState(mode); writeAskMode(activeSid, mode); }, [activeSid]);
   useEffect(() => {
     setEditor(null); setConversationEditor(null); setRevisionContext(null); setHighlightedTs(undefined);
   }, [activeSid]);
-  const startHeldLaunch = useCallback(async () => {
-    if (!loadedSid) return;
-    try {
-      const result = await api.confirmLaunch(loadedSid);
-      const daemon = result.daemon;
-      if (daemon?.admission_required) notify('error', locale === 'zh-CN' ? '已确认。现在同时在做的事已满，空出来就开始。' : 'Confirmed. Everything that can run at once is busy; this starts as soon as a slot frees up.');
-      else if (daemon && Number(daemon.rc ?? 0) !== 0) notify('error', locale === 'zh-CN' ? '已确认，但没能开始工作；可以在“启动详情”里看原因，或稍后再试。' : "Confirmed, but the work couldn't start; see the startup details for why, or try again later.");
-    } catch (error) {
-      notify('error', errorText(error));
-    } finally {
-      void snapQ.refetch();
-    }
-  }, [loadedSid, locale, notify, snapQ]);
-  const rewriteHeldLaunch = useCallback(async () => {
-    if (!loadedSid) return;
-    try {
-      const result = await api.discardLaunch(loadedSid);
-      if (result.request) setComposerDraft(result.request);
-      setComposerFocus((value) => value + 1);
-    } catch (error) {
-      notify('error', errorText(error));
-    } finally {
-      void snapQ.refetch();
-    }
-  }, [loadedSid, notify, snapQ, setComposerDraft]);
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
-  const { events, connected, restored: eventsRestored, seeded: eventsSeeded } = useEventStream(loadedSid, eventView.reconnectKey);
+  const { events, connected, restored: eventsRestored, seeded: eventsSeeded } = useEventStream(loadedSid);
   const artifactRefreshKey = useMemo(() => artifactRefreshEventKey(events), [events]);
   // A server that pushes state sends the snapshot with each change itself.
   const polled = useCapability(POLL_CAPABILITY);
@@ -762,7 +712,7 @@ export default function App() {
     receipts: transcriptQ.isPending ? [] : deliveryHistory,
     completionId,
     // Notification navigation uses the same selection path but is not a new
-    // manual intent. Ordinary sidebar/palette/command selections cancel it.
+    // manual intent. Ordinary sidebar/palette selections cancel it.
     selectProject: (id) => { selectProjectBase(id); setSidebarOpen(false); },
     openDelivery,
     focusPath: (path) => {
@@ -775,16 +725,9 @@ export default function App() {
     noPath: () => { setMobileView('activity'); setWorkspaceView('map'); },
     notify,
   });
-  // Keep a ref so the /clear handler can read the current length without being
-  // listed as a reactive dependency of commandHandlers.
-  const activityEventsRef = useRef(activityEvents);
-  activityEventsRef.current = activityEvents;
-  // Reset event view state (filter, query, clear mark) when the active project changes.
+  // Reset the local conversation when the active project changes.
   useEffect(() => {
-    setEventFilter('all');
-    setEventQuery('');
     setLocalConversationEvents([]);
-    dispatchEventView({ kind: 'reset' });
   }, [loadedSid]);
   const actions = useProjectActions(activeSid, snap?.daemon_commands?.revision);
   const manageActions = useProjectActions(
@@ -816,50 +759,6 @@ export default function App() {
     setDaemonManageOpen,
     t,
   });
-  const renameCurrentProject = useCallback(async (name: string) => {
-    if (!activeSid) return;
-    const result = await actions.updateProject.mutateAsync({ sid: activeSid, name });
-    notify('success', t('project.renamedTo', { name: result.name }));
-  }, [actions.updateProject, activeSid, notify]);
-  const commandHandlers = useMemo<WebCommandHandlers>(() => buildWebCommandHandlers({
-    activeSid,
-    activityEventsRef,
-    notify,
-    onClearEvents: (offset) => dispatchEventView({ kind: 'clear', offset }),
-    onOpenConfig: () => setOverlay('config'),
-    onOpenDoctor: () => setOverlay('doctor'),
-    onOpenHelp: () => setOverlay('help'),
-    onOpenIdentity: () => setOverlay('identity'),
-    onOpenInspector: () => setOverlay('inspector'),
-    onOpenNewDaemon: startNewSession,
-    onOpenOperations: openRuntimeControls,
-    onOpenSidebar: () => setSidebarOpen(true),
-    onOpenSkills: () => openSkillLibrary(undefined, 'global'),
-    onReconnectEvents: () => dispatchEventView({ kind: 'reconnect' }),
-    onRenameProject: renameCurrentProject,
-    onRewriteDraft: rewriteDraft,
-    onSelectProject: selectProject,
-    onSetArtifactPath: setArtifactPath,
-    onSetEventFilter: setEventFilter,
-    onSetEventQuery: setEventQuery,
-    onSetTaskItemId: setTaskItemId,
-    onSetWorkspaceView: setWorkspaceView,
-    onShowArtifacts: openPreview,
-    onStopWaiting: stopWaiting,
-    refetchSnapshot: snapQ.refetch,
-  }), [
-    activeSid,
-    notify,
-    openPreview,
-    openSkillLibrary,
-    openRuntimeControls,
-    renameCurrentProject,
-    rewriteDraft,
-    selectProject,
-    snapQ.refetch,
-    stopWaiting,
-    setWorkspaceView,
-  ]);
   useGlobalKeyboardShortcuts({
     focusComposer: () => setComposerFocus((value) => value + 1),
     openHelp: () => setOverlay('help'),
@@ -871,34 +770,13 @@ export default function App() {
 
   const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
     const requestSid = activeSid;
-    if (!requestSid || requestSid !== sidRef.current || messageSubmitLockRef.current || messageRequestRef.current) return false;
-    const requestEpoch = messageEpochRef.current;
+    if (!requestSid || requestSid !== sidRef.current || messageRequestRef.current) return false;
     const revision = revisionContext;
 
-    messageSubmitLockRef.current = true;
-    let requestId: number;
-    let serverRequestId: string;
-    let controller: AbortController;
-    try {
-      if (commands && !revision && !attachments.length && !uploadOptions?.ready?.length) {
-        const command = await dispatchWebCommand(text, commandHandlers);
-        if (command.kind === 'handled') { observe?.({ type: 'settled', outcome: 'message' }); return true; }
-        if (command.kind === 'error') {
-          notify('error', command.message);
-          return false;
-        }
-      }
-
-      // Command dispatch yields even for ordinary text. A switch during that
-      // yield must not create a new request after the old wait was cancelled.
-      if (sidRef.current !== requestSid || messageEpochRef.current !== requestEpoch) return false;
-      requestId = ++messageEpochRef.current;
-      serverRequestId = newRequestId();
-      controller = new AbortController();
-      messageRequestRef.current = { id: requestId, serverRequestId, sid: requestSid, controller };
-    } finally {
-      messageSubmitLockRef.current = false;
-    }
+    const requestId = ++messageEpochRef.current;
+    const serverRequestId = newRequestId();
+    const controller = new AbortController();
+    messageRequestRef.current = { id: requestId, serverRequestId, sid: requestSid, controller };
 
     const isCurrent = () => {
       const request = messageRequestRef.current;
@@ -1099,7 +977,6 @@ export default function App() {
             attachments: attachmentRefs,
             routeOverride,
             requestId: serverRequestId,
-            launch: launches && !revision && routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
           });
         } catch (error) {
           if (isCurrent()) streamErr = error as Error;
@@ -1128,8 +1005,6 @@ export default function App() {
     return true; // draft clears immediately on dispatch, not when stream finishes
   };
 
-  // Stable ref so commandPaletteRows closures always call the latest sendMessage
-  // without re-creating all 34 command items on every render.
   const sendMessageRef = useRef(sendMessage);
   sendMessageRef.current = sendMessage;
 
@@ -1151,15 +1026,8 @@ export default function App() {
         notify('error', t('chat.attachWhileRunning'));
         return false;
       }
-      // The running reply keeps its own request. Commands still run as
-      // commands; a plain message is shown now and answered as the next turn
-      // (Argus decides whether it steers a live mission or is answered in chat).
+      // The running reply keeps its own request; this message is answered as the next turn.
       try {
-        if (commands && !files.length) {
-          const command = await dispatchWebCommand(text, commandHandlers);
-          if (command.kind === 'error') { notify('error', command.message); return false; }
-          if (command.kind === 'handled') { consumeDraft(draft, files); return true; }
-        }
         await api.queueFollowup(draft.sid, text, routeOverride);
       } catch (error) {
         notify('error', errorText(error));
@@ -1170,8 +1038,6 @@ export default function App() {
     }
     let cleared: DraftSnapshot | null = null;
     let failedBeforeAcceptance = false;
-    // /rewrite owns its pending revision until its preview lands, not a send.
-    const rewriteCommand = commands && !revisionContext && !files.length && !draft.uploaded?.length && parseCommand(text.trim())?.cmd?.id === 'rewrite';
     const accepted = await sendMessage(text, files, (result) => {
       if (result.type === 'settled' && result.outcome === 'error') {
         failedBeforeAcceptance = true;
@@ -1183,7 +1049,7 @@ export default function App() {
       completed: new Map(draft.uploaded?.flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])),
       onUploaded: (file, attachment) => rememberUploaded(draft, file, attachment),
     });
-    if (accepted && !failedBeforeAcceptance && !rewriteCommand) {
+    if (accepted && !failedBeforeAcceptance) {
       cleared = consumeDraft(draft, files);
       draftUploads.forget(files);
     }
@@ -1215,15 +1081,9 @@ export default function App() {
   }, [searchTarget, loadedSid, focusDeliveryPath]);
 
   const paletteItems: PaletteItem[] = useMemo(() => {
-    const commandRows = commandPaletteRows(
-      commands ? COMMANDS : [],
-      (name) => { void sendMessageRef.current(name); },
-      (text) => { setComposerDraft(text); setComposerFocus((x) => x + 1); },
-      locale,
-    );
     const nav: PaletteItem[] = [
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
-      { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
+      { id: 'transcript', label: t('palette.openTranscript'), group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
@@ -1276,9 +1136,9 @@ export default function App() {
       group: t('palette.project'),
       run: () => selectProject(p.id),
     }));
-    return [...nav, ...acts, ...commandRows, ...proj];
+    return [...nav, ...acts, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t, commands]);
+  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
 
   const freshFiles = deliveryCenter.fresh ? deliveryFiles(deliveryCenter.fresh) : [];
   return (
@@ -1378,7 +1238,6 @@ export default function App() {
         {snap ? (
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
-              <NoOperatorBanner sid={loadedSid} />
               {workspaceView !== 'map' && <TopBar
                 events={activityEvents}
                 snap={snap}
@@ -1412,7 +1271,7 @@ export default function App() {
                   {locale === 'zh-CN' ? '成果与文件' : 'Results & files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
                 </button>
               </nav>
-              {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenKnowledge={() => openWiki()} onOpenSkills={() => openSkillLibrary()} />}
+              {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
                 onPauseTeam={requestPauseDaemon} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
@@ -1423,7 +1282,7 @@ export default function App() {
                   if (selection) openDelivery(selection.receipt, selection.path);
                 }}
                 onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath} onAnswer={() => setPendingReplyOpen(true)}
-                deliveries={deliveryHistory} onStartLaunch={snap.launch_hold ? startHeldLaunch : undefined}
+                deliveries={deliveryHistory}
               /></Suspense>}
               {workspaceView === 'map' && !kiosk && (missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
                 <span className="text-warn">{draftStorageError
@@ -1436,15 +1295,6 @@ export default function App() {
                 <ProgressHealthBanner key={loadedSid || 'none'} sid={snap.session.id} health={health}
                   onPause={kiosk || !snap.daemon.alive ? undefined : requestPauseDaemon}
                   onAdjust={kiosk ? undefined : () => setComposerFocus((value) => value + 1)} />
-                {snap.launch_hold ? <LaunchHoldCard
-                  key={snap.launch_hold.created_at}
-                  hold={snap.launch_hold}
-                  backlog={snap.backlog}
-                  readOnly={kiosk}
-                  onStart={startHeldLaunch}
-                  onRewrite={rewriteHeldLaunch}
-                  onOpenArtifact={setArtifactPath}
-                /> : null}
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <ReplyChoiceContext.Provider value={kiosk ? null : replyChoice}>
@@ -1461,9 +1311,6 @@ export default function App() {
                     onResumeWork={kiosk || daemonBusy ? undefined : requestStartDaemon}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
-                    filter={eventFilter}
-                    query={eventQuery}
-                    skipFirst={eventView.skipFirst}
                     artifacts={artifactsQ.data}
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
@@ -1502,13 +1349,11 @@ export default function App() {
                       onRewrite={rewriteDraft}
                       onUndoRewrite={undoRewrite}
                       rewriting={rewriting}
-                      slashSelection={slashSelection}
-                      onSlashSelectionChange={setSlashSelection}
+                      completionSelection={completionSelection}
+                      onCompletionSelectionChange={setCompletionSelection}
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRoute}
                       completion={promptSources}
-                      settings={launches && loadedSid && routeOverride !== 'chat' ? <LaunchSettingsBar value={launchSettings} onChange={setLaunchSettings} ask={askMode} onAskChange={setAskMode}
-                        started={!freshProject} research={missionView?.routing?.vertical ? missionView.routing.vertical === 'research' : null} disabled={messagePending} /> : undefined}
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={openSettings} /> : undefined}
                       continuousControl={activeSid && continuous ? <ContinuousSwitch enabled={keepsGoing(continuous)} pending={actions.setContinuous.isPending} onToggle={toggleContinuous} /> : undefined}
@@ -1646,14 +1491,13 @@ export default function App() {
           setComposerDraft(text); setRevisionContext(target);
           setConversationEditor(null); setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1);
         }} />}
-      <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills'} width="max-w-6xl">
+      <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
         {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}
           onUse={kiosk ? undefined : useMaterial}
           projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
       </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
       <KeybindingHelp open={overlay === 'help'} onClose={() => setOverlay('none')} />
-      {activeSid && <DoctorModal sid={activeSid} open={overlay === 'doctor'} onClose={() => setOverlay('none')} />}
       {activeSid && (
         <ConfigModal
           sid={activeSid}
@@ -1663,7 +1507,6 @@ export default function App() {
           onClose={() => setOverlay('none')}
         />
       )}
-      {activeSid && <IdentityModal sid={activeSid} open={overlay === 'identity'} onClose={() => setOverlay('none')} />}
       {activeSid && <TranscriptModal sid={activeSid} open={overlay === 'transcript'} onClose={() => setOverlay('none')} />}
       {activeSid && snap ? (
         <ProjectInspectorModal

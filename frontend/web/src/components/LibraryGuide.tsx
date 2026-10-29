@@ -1,6 +1,6 @@
-import type { SkillLibraryItem, WikiLibraryItem } from '../api';
+import type { SkillLibraryItem } from '../api';
 import { useI18n } from '../i18n';
-import { knowledgePurpose, knowledgeScopePurpose, type SkillGuide } from '../lib/libraryPresentation';
+import { type SkillGuide } from '../lib/libraryPresentation';
 import { roleLabel } from '../lib/enumLabels';
 
 export function SkillReadingGuide({ guide, item }: { guide: SkillGuide; item: SkillLibraryItem }) {
@@ -13,15 +13,5 @@ export function SkillReadingGuide({ guide, item }: { guide: SkillGuide; item: Sk
       <div><dt className="font-medium">适用角色</dt><dd>{roleLabel(item.role, t)}</dd></div>
       <div><dt className="font-medium">需要注意</dt><dd>前置条件和软件许可以原文为准。</dd></div>
     </dl>
-  </section>;
-}
-
-export function KnowledgeReadingGuide({ item }: { item: WikiLibraryItem }) {
-  const { locale } = useI18n();
-  const zh = locale === 'zh-CN';
-  return <section data-knowledge-reading-guide className="mt-4 rounded-lg border border-line/60 bg-bg/60 p-3 text-xs leading-relaxed text-ink-dim">
-    <h4 className="font-semibold text-ink">{zh ? '这类知识怎样帮助工作' : 'How this kind of knowledge helps'}</h4>
-    <p className="mt-2">{knowledgePurpose(item.kind, locale)}</p>
-    <p className="mt-2">{knowledgeScopePurpose(item.scope, locale)}</p>
   </section>;
 }

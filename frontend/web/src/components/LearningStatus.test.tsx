@@ -39,7 +39,6 @@ it('shows real background work after delivery, then refreshes libraries and show
   // A library this mission did not change is not mentioned at all.
   expect(content(renderer.root)).not.toContain('用户偏好');
   expect(content(renderer.root)).toContain('CRISPR 机制与来源');
-  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['wiki-library'] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['skill-library'] });
 });
 

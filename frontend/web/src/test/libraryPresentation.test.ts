@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import type { SkillLibraryItem } from '../api';
 import guides from '../lib/bundledSkillChinese.json';
-import { bundledSkillGuide, knowledgePurpose, knowledgeScopePurpose, libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
+import { bundledSkillGuide, libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
 
 const root = resolve(import.meta.dirname, '../../../..');
 function row(key: string): SkillLibraryItem {
@@ -43,10 +43,8 @@ describe('source-bound Chinese display guides (not runtime instructions)', () =>
     }
     expect(bundledSkillGuide({ ...item, source: 'shared', library: 'global:shared' })?.title).toBe('可编辑演示文稿');
   });
-  it('does not turn unknown domain identifiers or knowledge kinds into invented facts', () => {
+  it('does not turn unknown domain identifiers into invented facts', () => {
     expect(libraryVertical('research', 'zh-CN')).toBe('科研');
     expect(libraryVertical('new-domain', 'zh-CN')).toBe('new-domain');
-    expect(knowledgePurpose('unknown', 'zh-CN')).toContain('一般参考资料');
-    expect(knowledgeScopePurpose('unknown' as never, 'zh-CN')).toBe('范围未注明。');
   });
 });

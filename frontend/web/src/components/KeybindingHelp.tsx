@@ -1,8 +1,5 @@
 import { Modal, ModalHeader } from './Modal';
-import { COMMANDS } from '../../../core/src/commands';
 import { useI18n } from '../i18n';
-import { localizedHelpGroups } from '../lib/commandI18n';
-import { COMMANDS_CAPABILITY, useCapability } from '../lib/capabilities';
 import { shortcut } from '../lib/format';
 
 const BINDINGS: { keys: string; desc: string }[] = [
@@ -19,11 +16,9 @@ const BINDINGS: { keys: string; desc: string }[] = [
   { keys: 'Esc', desc: 'help.escape' },
 ];
 
-/** ? keybinding help overlay — keyboard shortcuts at top, the command reference below where the server has the commands. */
+/** ? keybinding help overlay — keyboard shortcuts. */
 export function KeybindingHelp({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { locale, t } = useI18n();
-  const commands = useCapability(COMMANDS_CAPABILITY);
-  const groups = localizedHelpGroups(COMMANDS, locale);
+  const { t } = useI18n();
   return (
     <Modal open={open} onClose={onClose} label={t('help.title')} width="max-w-2xl">
       <ModalHeader title={t('help.title')} />
@@ -38,20 +33,7 @@ export function KeybindingHelp({ open, onClose }: { open: boolean; onClose: () =
             </div>
           ))}
         </div>
-        {commands && <div className="border-t border-line px-4 pb-4 pt-3">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-faint">{t('help.commands')}</p>
-          {groups.map((group) => (
-            <div key={group.group} className="mb-4">
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{group.group}</p>
-              {group.rows.map((row) => (
-                <div key={row.label} className="flex items-start justify-between gap-4 py-1">
-                  <code className="shrink-0 font-mono text-xs text-ink">{row.label}</code>
-                  <span className="text-right text-xs text-ink-dim">{row.desc}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>}
+
       </div>
     </Modal>
   );

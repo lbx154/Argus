@@ -1,6 +1,4 @@
 import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
-import { MapLaunchContext } from "./launchContext";
-import { LaunchStartButton } from "../components/LaunchPanel";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
   Check,
@@ -199,7 +197,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
   const { artifacts, onOpenArtifact } = useContext(MapArtifactContext);
   const cardNotes = useContext(MapNotesContext).notes[task.id] ?? [];
-  const launch = useContext(MapLaunchContext);
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
@@ -557,14 +554,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 {index === 0 ? (zh ? '打开结果' : 'Open results') : path.split('/').pop()}
               </button>
             ))}
-          </div>
-        )}
-        {/* A plan waiting for the person starts from its own card, with the
-            chat confirm card's action. */}
-        {isLastPart && launch.start && launch.itemId === task.id && !data.readOnly && (
-          <div className="map-card-launch nodrag nopan">
-            <span>{zh ? "计划已排好，等你确认" : "Plan ready, waiting for you"}</span>
-            <LaunchStartButton onStart={launch.start} zh={zh} />
           </div>
         )}
         {!!data.historyCount && data.toggleHistory && (

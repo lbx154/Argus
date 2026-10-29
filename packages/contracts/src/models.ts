@@ -357,33 +357,6 @@ export interface MissionView {
   updated_at: number;
 }
 
-/** Settings chosen before a project's first task (sent with that message). */
-export interface LaunchSettings {
-  first_result_hours: number | null;
-  target_level: 'auto' | 'exploratory' | 'publishable';
-  deliverable: 'any' | 'report' | 'code' | 'paper' | 'data';
-  /** Queue and plan the task, but start it only after the operator confirms. */
-  hold: boolean;
-}
-
-/** A first task that is planned and queued but waits for the operator's go-ahead. */
-export interface LaunchHold {
-  created_at: number;
-  item_id: string;
-  title: string;
-  request: string;
-  continuous: boolean;
-  settings: Partial<LaunchSettings>;
-  understood?: {
-    objective?: string;
-    requirements?: Array<{ text: string; authority: string }>;
-    exclusions?: string[];
-    assumptions?: string[];
-  };
-  /** The plan file the Manager handed over with the ticket: where it is, and its summary. */
-  plan?: { path: string; summary: string };
-}
-
 export interface Snapshot {
   schema_version?: number;
   session: {
@@ -418,8 +391,6 @@ export interface Snapshot {
   pending_questions?: Array<Record<string, unknown>>;
   /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
   manager_requests?: Array<{ request_id: string; status: 'running' }>;
-  /** A planned first task waiting for the operator to start it. */
-  launch_hold?: LaunchHold | null;
   /** The committed operator objective, for overview headings. */
   goal?: string;
   /** Free space on the disk holding the project's outputs. */

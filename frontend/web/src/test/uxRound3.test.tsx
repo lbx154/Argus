@@ -25,7 +25,7 @@ describe('attachments a researcher actually has', () => {
   });
 });
 
-describe('sidebar knowledge entry', () => {
+describe('sidebar skill entry', () => {
   it('opens everything the library holds instead of the raw learning feed', async () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
     vi.stubGlobal('window', new EventTarget());
@@ -39,7 +39,7 @@ describe('sidebar knowledge entry', () => {
           onOpenPanel={vi.fn()} onOpenLearning={onOpenLearning} onNew={vi.fn()} loading={false} onToggleCollapse={vi.fn()}
           themeMode="light" onCycleTheme={vi.fn()} /></QueryClientProvider>);
       });
-      const entry = view!.root.findAll((node) => node.type === 'button' && node.props['aria-label'] === 'Knowledge & skills')[0];
+      const entry = view!.root.findAll((node) => node.type === 'button' && node.props['aria-label'] === 'Skill library')[0];
       act(() => entry.props.onClick());
       expect(onOpenLearning).toHaveBeenCalledWith('global');
     } finally {

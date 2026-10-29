@@ -13,7 +13,6 @@ import type { MapSend, DispatchObserver } from './submission';
 import { attentionSummary, splitDraft } from './presentation';
 import { projectOverview } from './overview';
 import { MapOverview } from './MapOverview';
-import { MapLaunchContext } from './launchContext';
 import { operatorDecisionCards } from '../../../core/src/decisions';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
@@ -102,8 +101,6 @@ interface MapWorkspaceActions {
   onAnswer: () => void;
   /** Delivery receipts, newest first: the figures of the tasks they came from. */
   deliveries?: DeliveryReceipt[];
-  /** The chat confirm card's "开始执行", for a plan waiting on the person. */
-  onStartLaunch?: () => Promise<void>;
   /** The team status line with 暂停团队 / 继续, the same one the chat shows. */
   teamStatus?: ReactNode;
 }
@@ -1220,11 +1217,9 @@ export function MapCanvas({
     currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId));
   const decisionCards = useMemo(() => operatorDecisionCards(snapshot.pending_questions ?? [],
     snapshot.backlog.map((item) => ({ ...item })), currentTaskId), [snapshot.pending_questions, snapshot.backlog, currentTaskId]);
-  const launchScope = useMemo(() => ({ itemId: data.kind === "live" ? snapshot.launch_hold?.item_id : undefined,
-    start: actions.onStartLaunch }), [data.kind, snapshot.launch_hold?.item_id, actions.onStartLaunch]);
   const overview = useMemo(() => projectOverview({
-    tasks: data.tasks, decisions: decisionCards, launchHold: snapshot.launch_hold, zh,
-  }), [data.tasks, decisionCards, snapshot.launch_hold, zh]);
+    tasks: data.tasks, decisions: decisionCards,
+  }), [data.tasks, decisionCards]);
   const statusSentence = mapStatusSentence({
     total: counted.length,
     qa: counted.filter(task => task.turn_kind === 'qa').length,
@@ -1379,10 +1374,9 @@ export function MapCanvas({
     <ZoomStepContext.Provider value={camera.zoomSteps}>
     <MapNotesContext.Provider value={notesScope}>
     <MapArtifactContext.Provider value={artifactScope}>
-    <MapLaunchContext.Provider value={launchScope}>
       {data.kind === "live" && !replaying && (actions.teamStatus || canvasRecord.route?.total || overview.decisions.length > 0) && (
-        <MapOverview overview={overview} zh={zh} team={actions.teamStatus} readOnly={readOnly} route={canvasRecord.route}
-          onAnswer={actions.onAnswer} onStartLaunch={actions.onStartLaunch}
+        <MapOverview overview={overview} zh={zh} team={actions.teamStatus} route={canvasRecord.route}
+          onAnswer={actions.onAnswer}
           onFocusTask={(taskId) => {
             const card = scene.cards.filter((item) => item.task.id === taskId).at(-1);
             if (card) focus(card.id);
@@ -2042,7 +2036,6 @@ export function MapCanvas({
           </div>
         </> : null}
       </Modal>
-    </MapLaunchContext.Provider>
     </MapArtifactContext.Provider>
     </MapNotesContext.Provider>
     </ZoomStepContext.Provider>
@@ -2079,7 +2072,6 @@ export const MapPanel = memo(function MapPanel({
   onOpenArtifact,
   onAnswer,
   deliveries,
-  onStartLaunch,
   onPauseTeam,
   onResumeTeam,
   teamBusy,
@@ -2263,9 +2255,9 @@ export const MapPanel = memo(function MapPanel({
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, connected, artifacts, deliveryCount,
              onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,
-             onStartLaunch: readOnly ? undefined : onStartLaunch, teamStatus }),
+             teamStatus }),
     [conversationEvents, connected, artifacts, deliveryCount,
-     onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries, onStartLaunch, readOnly, teamStatus],
+     onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries, teamStatus],
   );
   const composer = useMemo<MapComposerProps>(
     () => ({

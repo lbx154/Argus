@@ -1,200 +1,107 @@
-import { usePluginText } from '../lib/pluginText';
 import { useI18n } from '../i18n';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Boxes, Diamond, ArrowUpRight, X, Download, Loader2, RefreshCw, Ellipsis } from 'lucide-react';
+import { Boxes, Diamond, ArrowUpRight, X, Ellipsis } from 'lucide-react';
 import { authHeaders } from '../api';
-import { PluginEnvironment, type PluginHealth, type PluginSetup } from './PluginEnvironment';
-import { pluginEntryState, preparingSentence, unavailableSentence, type PluginEntry } from '../lib/pluginLaunch';
 
-export type Plugin = PluginEntry & {
-  description: string; version: string; url: string; command?: string; reason: string; installed_version?: string;
-  rights_notice?: string; rights_notice_zh?: string;
-  update_available: boolean; environment_update?: boolean; backends: Record<string, string>;
-  operation?: { status?: string; progress?: string; error?: string };
-  health?: PluginHealth; setup?: PluginSetup;
-  platform?: string; machine?: string;
-};
+export interface Plugin {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  url: string;
+  reason: string;
+}
 
-type Act = (action: string, payload?: Record<string, unknown>) => Promise<boolean>;
 const control = 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-line px-3 py-1.5 text-sm transition-colors hover:bg-bg disabled:cursor-not-allowed disabled:opacity-45';
 const entry = (compact: boolean) => `flex h-9 min-w-0 flex-1 items-center rounded-md text-sm text-ink-dim transition-colors hover:bg-bg hover:text-ink ${compact ? 'justify-center' : 'gap-2 px-3'}`;
 
-// The sidebar and landing entries. An installed workbench opens with one click;
-// a workbench the service is still preparing shows a single sentence and the
-// current step; the plugin center itself stays the manual path for self-hosted copies.
+/** Plugins are deployed by their owner; the cockpit lists them and opens their URL. */
 export function PluginEntries({ plugins, compact = false, pending, onLaunch, onManage }: {
   plugins: Plugin[]; compact?: boolean; pending: string | null;
   onLaunch: (plugin: Plugin) => void; onManage: () => void;
 }) {
-  const tr = usePluginText();
-  const entries = plugins.filter(plugin => pluginEntryState(plugin) !== 'manual');
-  const manual = !plugins.length || plugins.some(plugin => pluginEntryState(plugin) === 'manual');
+  const { locale } = useI18n();
+  const zh = locale === 'zh-CN';
   return <>
-    {entries.map(plugin => {
-      const state = pluginEntryState(plugin);
-      const manage = !compact && <button type="button" onClick={onManage} aria-label={tr(`管理 ${plugin.name}`)} title={tr(`管理 ${plugin.name}`)}
-        className="icon-control mr-1 shrink-0 p-1.5 text-ink-faint hover:text-ink"><Ellipsis size={15}/></button>;
-      if (state === 'ready') {
-        return <div key={plugin.id} className="mx-2 my-1 flex shrink-0 items-center" data-testid={`plugin-entry-${plugin.id}`}>
-          <button type="button" disabled={pending === plugin.id} onClick={() => onLaunch(plugin)} title={plugin.name} aria-label={plugin.name}
-            className={`${entry(compact)} disabled:opacity-60`}>
-            <Diamond size={17} strokeWidth={1.5} className="shrink-0 text-blue"/>
-            {!compact && <span className="truncate">{plugin.name}</span>}
-            {!compact && <ArrowUpRight size={13} className="shrink-0 text-ink-faint"/>}
-          </button>
-          {manage}
-        </div>;
-      }
-      const sentence = state === 'preparing' ? preparingSentence(plugin.name) : unavailableSentence(plugin.name);
-      const detail = state === 'preparing' ? plugin.operation?.progress : plugin.operation?.error || plugin.reason;
-      return <div key={plugin.id} className="mx-2 my-1 flex shrink-0 items-center" data-testid={`plugin-entry-${plugin.id}`}>
-        <div role="status" title={tr(detail || sentence)} className={`flex min-w-0 flex-1 items-center text-sm text-ink-faint ${compact ? 'h-9 justify-center' : 'gap-2 px-3 py-1.5'}`}>
-          {state === 'preparing' ? <Loader2 size={17} strokeWidth={1.5} className="shrink-0 animate-spin"/> : <Diamond size={17} strokeWidth={1.5} className="shrink-0"/>}
-          {!compact && <div className="min-w-0 leading-snug"><p>{tr(sentence)}</p>{detail && <p className="mt-0.5 truncate text-xs">{tr(detail)}</p>}</div>}
-        </div>
-        {manage}
-      </div>;
-    })}
-    {manual && <div className="mx-2 my-1 flex shrink-0 items-center">
-      <button type="button" onClick={onManage} title={tr("插件")} aria-label={tr("插件")} className={entry(compact)}>
-        <Boxes size={16} strokeWidth={1.5} className="shrink-0" />{!compact && <span>{tr("插件")}</span>}
+    {plugins.filter(plugin => plugin.url && !plugin.reason).map(plugin => <div key={plugin.id} className="mx-2 my-1 flex shrink-0 items-center" data-testid={`plugin-entry-${plugin.id}`}>
+      <button type="button" disabled={pending === plugin.id} onClick={() => onLaunch(plugin)} title={plugin.name} aria-label={plugin.name}
+        className={`${entry(compact)} disabled:opacity-60`}>
+        <Diamond size={17} strokeWidth={1.5} className="shrink-0 text-blue"/>
+        {!compact && <span className="truncate">{plugin.name}</span>}
+        {!compact && <ArrowUpRight size={13} className="shrink-0 text-ink-faint"/>}
+      </button>
+      {!compact && <button type="button" onClick={onManage} aria-label={zh ? `查看 ${plugin.name}` : `View ${plugin.name}`} title={plugin.name}
+        className="icon-control mr-1 shrink-0 p-1.5 text-ink-faint hover:text-ink"><Ellipsis size={15}/></button>}
+    </div>)}
+    {(!plugins.length || plugins.some(plugin => plugin.reason || !plugin.url)) && <div className="mx-2 my-1 flex shrink-0 items-center">
+      <button type="button" onClick={onManage} title={zh ? '插件' : 'Plugins'} aria-label={zh ? '插件' : 'Plugins'} className={entry(compact)}>
+        <Boxes size={16} strokeWidth={1.5} className="shrink-0" />{!compact && <span>{zh ? '插件' : 'Plugins'}</span>}
       </button>
     </div>}
   </>;
 }
 
-// One plugin inside the plugin center. A plugin the service provides keeps its
-// environment tools but offers no install or update control; none is disabled or
-// uninstalled from here.
-export function PluginCard({ plugin, running, locale, act, children }: { plugin: Plugin; running: boolean; locale: string; act: Act; children?: ReactNode }) {
-  const tr = usePluginText();
-  const managed = Boolean(plugin.managed_by_host);
-  const state = pluginEntryState(plugin);
-  const disabled = running || !plugin.supported;
+export function PluginCard({ plugin, running, onLaunch }: { plugin: Plugin; running: boolean; onLaunch: () => void }) {
+  const { locale } = useI18n();
   const zh = locale === 'zh-CN';
   return <article className="rounded-xl border border-line/70 p-4" data-testid={`plugin-${plugin.id}`}>
     <div className="flex items-start gap-3"><Diamond size={24} strokeWidth={1.25} className="mt-0.5 shrink-0 text-blue"/>
-      <div className="min-w-0 flex-1"><div className="flex items-baseline gap-2"><h3 className="font-medium">{tr(plugin.name)}</h3><span className="text-xs text-ink-faint">{tr(plugin.installed_version || plugin.version)}</span></div>
-        <p className="mt-1 text-sm leading-relaxed text-ink-faint">{tr(plugin.description)}</p></div>
+      <div className="min-w-0 flex-1"><div className="flex items-baseline gap-2"><h3 className="font-medium">{plugin.name}</h3><span className="text-xs text-ink-faint">{plugin.version}</span></div>
+        <p className="mt-1 text-sm leading-relaxed text-ink-faint">{plugin.description}</p></div>
     </div>
-    {plugin.id === 'crystalpilot' && <dl className="mt-3 space-y-2 rounded-lg bg-bg/60 p-3 text-xs leading-5">
-      <div><dt className="inline text-ink-faint">{zh ? '准备：' : 'Bring: '}</dt><dd className="inline text-ink-dim">{zh ? '衍射数据或已有结构文件，以及要解决的问题。' : 'Diffraction data or existing structure files, and your research question.'}</dd></div>
-      <div><dt className="inline text-ink-faint">{zh ? '产出：' : 'Results: '}</dt><dd className="inline text-ink-dim">{zh ? '数据处理、结构求解或精修结果。' : 'Data processing, structure solution or refinement results.'}</dd></div>
-    </dl>}
-    <p className="mt-3 text-xs leading-5 text-ink-dim">{!plugin.supported ? tr(plugin.reason)
-      : state === 'ready' ? zh ? '工作台已就绪。' : 'The workbench is ready.'
-        : managed ? tr(state === 'preparing' ? preparingSentence(plugin.name) : unavailableSentence(plugin.name))
-          : zh ? '需要先准备运行环境。请由维护此服务的人完成部署与软件授权。' : 'The execution environment needs preparation. Ask the service maintainer to configure deployment and software licenses.'}</p>
-    {plugin.installed && plugin.enabled && <button className={`${control} mt-3`} disabled={disabled} onClick={() => void act('launch')}>{tr("打开工作台")}<ArrowUpRight size={14}/></button>}
-    <details className="mt-4 rounded-lg border border-line/50 p-3">
-      <summary className="cursor-pointer text-xs text-ink-faint">{zh ? '部署与环境设置' : 'Deployment and environment settings'}</summary>
-    <div className="mt-4 text-xs text-ink-faint">{tr(plugin.installed ? plugin.enabled ? tr("已启用") : tr("已停用") : tr("未安装"))}{tr(" · 当前后端 ")}{tr(Array.from(new Set(Object.values(plugin.backends))).join(' / '))}</div>
-    {tr(!plugin.supported && <p className="mt-3 text-sm text-ink-dim">{tr(plugin.reason)}</p>)}
-    {tr(managed && state === 'preparing' && <p className="mt-3 text-sm text-ink-dim">{tr(preparingSentence(plugin.name))}</p>)}
-    {tr(plugin.operation?.status === 'running' && <p role="status" className="mt-3 flex items-center gap-2 text-sm text-ink-dim"><Loader2 size={14} className="animate-spin"/>{tr(plugin.operation.progress)}</p>)}
-    {tr(plugin.operation?.status === 'failed' && <p role="status" className="mt-3 break-words text-sm text-ink-dim">{tr(plugin.operation.error)}</p>)}
-    <div className="mt-4 flex flex-wrap items-center gap-2">
-      {tr(!plugin.installed && !managed && <button className={control} disabled={disabled} onClick={() => void act('install')}><Download size={14}/>{tr("安装")}</button>)}
-      {tr(plugin.installed && !plugin.enabled && !managed && <button className={control} disabled={disabled} onClick={() => void act('enable')}>{tr("启用")}</button>)}
-      {tr(plugin.update_available && !managed && <button className={control} disabled={disabled} onClick={() => void act('update')}><RefreshCw size={14}/>{plugin.environment_update ? tr("更新科学环境校验") : <>{tr("更新至 ")}{tr(plugin.version)}</>}</button>)}
-    </div>
-    {children}
-    {tr(plugin.installed && plugin.command && <p className="mt-4 text-xs leading-relaxed text-ink-faint">{tr(`原生会话输入 ${plugin.command} 可启用后台工具。`)}</p>)}
-    {tr(!plugin.installed && !managed && <p className="mt-4 text-xs leading-relaxed text-ink-faint">{tr("首次安装自动配置独立 Python、DIALS、Systre / Java 和 PLATON 学术免费组件。SHELX 稍后输入授权信息即可安装。")}</p>)}
-    {tr(plugin.installed && plugin.setup && <PluginEnvironment health={plugin.health} setup={plugin.setup} running={running} platform={plugin.platform} machine={plugin.machine} act={act}/>)}
-    </details>
-    {tr(plugin.rights_notice && <p className="mt-3 text-[10px] leading-relaxed text-ink-faint" data-testid="plugin-rights-notice">{tr(locale === 'zh-CN' ? plugin.rights_notice_zh || plugin.rights_notice : plugin.rights_notice)}</p>)}
+    {plugin.reason ? <p className="mt-3 text-xs leading-5 text-ink-dim">{plugin.reason}</p>
+      : <button className={`${control} mt-3`} disabled={running || !plugin.url} onClick={onLaunch}>{zh ? '打开工作台' : 'Open workbench'}<ArrowUpRight size={14}/></button>}
   </article>;
 }
 
 export function PluginLauncher({ compact = false }: { compact?: boolean }) {
-  const tr = usePluginText();
   const { locale } = useI18n();
+  const zh = locale === 'zh-CN';
   const [open, setOpen] = useState(false);
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
-  const [consent, setConsent] = useState<{ pluginId: string; action: string } | null>(null);
-  const [licenseAccepted, setLicenseAccepted] = useState(false);
   const close = useRef<HTMLButtonElement>(null);
-  const preparing = plugins.some(plugin => pluginEntryState(plugin) === 'preparing');
-  const provided = plugins.length > 0 && plugins.every(plugin => plugin.managed_by_host);
   async function refresh(signal?: AbortSignal) {
     const response = await fetch('/api/plugins', { headers: authHeaders(), signal });
-    if (!response.ok) throw new Error(tr("无法读取插件列表"));
+    if (!response.ok) throw new Error(zh ? '无法读取插件列表' : 'Could not load plugins');
     const value = await response.json();
     if (!signal?.aborted) setPlugins(value.plugins);
   }
   useEffect(() => {
-    if (!open) {
-      setConsent(null);
-      setLicenseAccepted(false);
-    }
-  }, [open]);
-  useEffect(() => {
-    // Discover installed/hosted entries on arrival even while the center is closed.
     const controller = new AbortController();
-    const load = () => refresh(controller.signal).catch(e => { if (!controller.signal.aborted && open) setError(e.message); });
-    if (open) { close.current?.focus(); setError(''); setLoading(true); }
-    void load().finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    // The list is read once on arrival, then followed while the plugin center is
-    // open and, more slowly, while the service is still preparing a workbench.
-    const timer = open || preparing ? window.setInterval(load, open ? 1500 : 4000) : 0;
+    if (open) { close.current?.focus(); setLoading(true); }
+    void refresh(controller.signal).catch(e => { if (!controller.signal.aborted) setError(e.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
     if (open) window.addEventListener('keydown', key);
-    return () => { controller.abort(); if (timer) window.clearInterval(timer); window.removeEventListener('keydown', key); };
-  }, [open, preparing]);
-  async function act(plugin: Plugin, action: string, payload?: Record<string, unknown>): Promise<boolean> {
-    const runtime = plugin.setup?.windows_runtime;
-    if (runtime && !runtime.accepted && ['install', 'update', 'repair', runtime.action].includes(action)
-      && payload?.accept_software_license !== true) {
-      setConsent({ pluginId: plugin.id, action });
-      setLicenseAccepted(false);
-      setError('');
-      return false;
-    }
+    return () => { controller.abort(); window.removeEventListener('keydown', key); };
+  }, [open]);
+  async function launch(plugin: Plugin) {
     setPending(plugin.id); setError('');
     try {
-      const response = await fetch(`/api/plugins/${plugin.id}/${action === 'launch' ? 'launch' : `manage/${action}`}`, { method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: payload ? JSON.stringify(payload) : undefined });
+      const response = await fetch(`/api/plugins/${encodeURIComponent(plugin.id)}/launch`, { method: 'POST', headers: authHeaders() });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || tr("插件操作未完成"));
-      if (action === 'launch') window.location.assign(result.url);
-      else await refresh();
-      return true;
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); return false; }
+      if (!response.ok) throw new Error(result.detail || (zh ? '插件操作未完成' : 'Could not open plugin'));
+      window.location.assign(result.url);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setOpen(true); }
     finally { setPending(null); }
   }
   return <>
-    <PluginEntries plugins={plugins} compact={compact} pending={pending} onLaunch={plugin => void act(plugin, 'launch')} onManage={() => setOpen(true)} />
+    <PluginEntries plugins={plugins} compact={compact} pending={pending} onLaunch={plugin => void launch(plugin)} onManage={() => setOpen(true)} />
     {open && createPortal(<div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/20 p-5 backdrop-blur-sm" onClick={() => setOpen(false)}>
       <section role="dialog" aria-modal="true" aria-labelledby="plugin-title" onClick={e => e.stopPropagation()}
         className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-line bg-panel p-6 text-ink shadow-xl">
-        <div className="flex items-center justify-between"><h2 id="plugin-title" className="text-lg font-semibold">{tr("插件")}</h2>
-          <button ref={close} type="button" aria-label={tr("关闭插件列表")} className="icon-control p-1.5" onClick={() => setOpen(false)}><X size={18}/></button></div>
-        <p className="mb-6 mt-2 text-sm text-ink-faint">{tr(provided ? tr("研究工具由服务方提供，沿用 Argus 的模型与执行后端。") : tr("按需安装研究工具，沿用 Argus 的模型与执行后端。"))}</p>
-        {tr(error && <p role="alert" className="mb-4 text-sm text-ink-dim">{tr(error)}</p>)}
-        {tr(loading && <p className="text-sm text-ink-faint">{tr("正在读取插件…")}</p>)}
-        {tr(!loading && !error && !plugins.length && <p className="text-sm text-ink-faint">{tr("暂无可用插件")}</p>)}
-        {error && <button type="button" className={`${control} mb-3`} onClick={() => { setLoading(true); void refresh().then(() => setError('')).catch(e => setError(e instanceof Error ? e.message : String(e))).finally(() => setLoading(false)); }}>{locale === 'zh-CN' ? '重新读取' : 'Retry loading'}</button>}
-        {tr(plugins.map(plugin => {
-          const running = plugin.operation?.status === 'running' || pending === plugin.id;
-          return <PluginCard key={plugin.id} plugin={plugin} running={running} locale={locale} act={(action, payload) => act(plugin, action, payload)}>
-            {consent?.pluginId === plugin.id && plugin.setup?.windows_runtime && <form className="mt-4 rounded-lg bg-bg/70 p-3" onSubmit={async event => {
-              event.preventDefault();
-              if (!licenseAccepted || running) return;
-              if (await act(plugin, consent.action, { accept_software_license: true })) {
-                setConsent(null); setLicenseAccepted(false);
-              }
-            }}>
-              <p className="text-xs leading-relaxed text-ink-dim">{tr("继续安装或修复前，请确认 PLATON 官方许可。确认后会在同一流程准备完整运行环境，无需另点其他修复按钮。")}</p>
-              <p className="mt-2 text-xs leading-relaxed text-ink-faint">{tr(plugin.setup.windows_runtime.notice)} <a href={plugin.setup.windows_runtime.url} target="_blank" rel="noreferrer" className="text-blue">{tr("官方安装说明 ↗")}</a></p>
-              <label className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-ink-dim"><input type="checkbox" checked={licenseAccepted} onChange={event => setLicenseAccepted(event.target.checked)} className="mt-0.5"/>{tr("我确认用途符合 PLATON 官方许可；如用于商业用途，已另行取得授权。")}</label>
-              <div className="mt-3 flex gap-3"><button type="submit" className={control} disabled={running || !licenseAccepted}>{tr("同意并继续")}</button><button type="button" className="text-xs text-ink-faint" disabled={running} onClick={() => { setConsent(null); setLicenseAccepted(false); }}>{tr("取消")}</button></div>
-            </form>}
-          </PluginCard>;
-        }))}
+        <div className="flex items-center justify-between"><h2 id="plugin-title" className="text-lg font-semibold">{zh ? '插件' : 'Plugins'}</h2>
+          <button ref={close} type="button" aria-label={zh ? '关闭插件列表' : 'Close plugins'} className="icon-control p-1.5" onClick={() => setOpen(false)}><X size={18}/></button></div>
+        <p className="mb-6 mt-2 text-sm text-ink-faint">{zh ? '打开已部署的研究工具。' : 'Open deployed research tools.'}</p>
+        {error && <p role="alert" className="mb-4 text-sm text-ink-dim">{error}</p>}
+        {loading && <p className="text-sm text-ink-faint">{zh ? '正在读取插件…' : 'Loading plugins…'}</p>}
+        {!loading && !error && !plugins.length && <p className="text-sm text-ink-faint">{zh ? '暂无可用插件' : 'No plugins available'}</p>}
+        {error && <button type="button" className={`${control} mb-3`} onClick={() => { setLoading(true); void refresh().then(() => setError('')).catch(e => setError(e instanceof Error ? e.message : String(e))).finally(() => setLoading(false)); }}>{zh ? '重新读取' : 'Retry loading'}</button>}
+        {plugins.map(plugin => <PluginCard key={plugin.id} plugin={plugin} running={pending === plugin.id} onLaunch={() => void launch(plugin)} />)}
       </section>
     </div>, document.body)}
   </>;

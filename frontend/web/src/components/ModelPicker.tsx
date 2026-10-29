@@ -7,7 +7,7 @@ import { backendLabel } from '../lib/backend';
 import { EFFORTS, choiceWrites, formatLatency, formatRate, type Effort } from '../lib/modelChoice';
 import { requestFailureText } from '../lib/requestFailure';
 import { Modal, ModalHeader } from './Modal';
-import { EmptyHint, Spinner } from './primitives';
+import { Spinner } from './primitives';
 import './modelPicker.css';
 
 type Probe = 'running' | ModelProbeResult | { ok: false; error: string };
@@ -120,7 +120,6 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
 
   const effortName = (value: Effort) => t(`models.effort.${value}`);
   const summary = [model || t('models.none'), effort ? effortName(effort) : ''].filter(Boolean).join(' · ');
-  const trial = config.data?.trial_mode === true;
   const loading = config.isLoading || choicesQuery.isLoading;
   const failed = config.isError || choicesQuery.isError;
   const fallback = options.find(choice => choice.default)?.model;
@@ -131,8 +130,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
       <div className="model-picker">
         {loading && <div className="flex justify-center py-10"><Spinner /></div>}
         {!loading && failed && <p role="alert" className="px-1 py-8 text-center text-sm text-err">{t('models.loadError')}</p>}
-        {!loading && !failed && trial && <EmptyHint>{t('models.trial')}</EmptyHint>}
-        {!loading && !failed && !trial && choices && <>
+        {!loading && !failed && choices && <>
           <div className="model-picker-effort">
             <span>{t('models.effort')}</span>
             <div className="route-seg" role="radiogroup" aria-label={t('models.effort')}>

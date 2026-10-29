@@ -90,17 +90,11 @@ export function useSnapshot(sid: string | null) {
   });
 }
 
-export const useDoctor = (sid: string | null, enabled: boolean) =>
-  useQuery({ queryKey: ['doctor', sid], queryFn: ({ signal }) => api.doctor(sid!, signal), enabled: !!sid && enabled });
-
 export const useConfig = (sid: string | null, enabled: boolean) =>
   useQuery({ queryKey: ['config', sid], queryFn: ({ signal }) => api.config(sid!, signal), enabled: !!sid && enabled });
 
 export const useModelChoices = (sid: string | null, enabled: boolean) =>
   useQuery({ queryKey: ['model-choices', sid], queryFn: ({ signal }) => api.modelChoices(sid!, signal), enabled: !!sid && enabled });
-
-export const useIdentity = (sid: string | null, enabled: boolean) =>
-  useQuery({ queryKey: ['identity', sid], queryFn: ({ signal }) => api.identity(sid!, signal), enabled: !!sid && enabled });
 
 export const useTranscript = (sid: string | null, enabled: boolean, n = 30) =>
   useQuery({ queryKey: ['transcript', sid, n], queryFn: ({ signal }) => api.transcript(sid!, n, signal), enabled: !!sid && enabled });
@@ -157,8 +151,6 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
   const invalidate = () => invalidateProject(sid);
   return {
     addTask: useMutation({ mutationFn: (text: string) => api.addTask(sid!, text), onSuccess: invalidate }),
-    nudge: useMutation({ mutationFn: (text: string) => api.nudge(sid!, text) }),
-    note: useMutation({ mutationFn: (text: string) => api.note(sid!, text) }),
     startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!, commandRevision), onSuccess: invalidate }),
     stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain, commandRevision), onSuccess: invalidate }),
     forceStopDaemon: useMutation({ mutationFn: () => api.stopDaemon(sid!, false, commandRevision, true), onSuccess: invalidate }),

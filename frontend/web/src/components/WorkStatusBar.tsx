@@ -4,7 +4,7 @@ import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { PHASE_TONE, TeamPauseButton, teamPhase, teamPhaseLabel } from './TeamControls';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { isFreshProject } from '../lib/launch';
+import { isFreshProject } from '../lib/workStatus';
 
 /** Shared, factual status for the conversation and its progress panel. */
 export function WorkStatusBar({ snapshot, view, events = [], connected, compact = false, onPauseTeam, onResumeTeam, teamBusy }: {

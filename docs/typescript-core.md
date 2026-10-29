@@ -110,8 +110,7 @@ agent can run or recheck, proven on a real case.
 The web cockpit shows the library: its skills, and as its learning feed the files of
 `$ARGUS_HOME/skills/`, newest first, so a skill a role writes appears while the work goes on. A
 plugin is a skill whose folder holds `plugin.json` (`{ name, description, version, url }`):
-whoever installs it starts it, and the cockpit lists it among its plugins and opens its url. The
-wiki the page also asks for is empty.
+whoever installs it starts it, and the cockpit lists it among its plugins and opens its url.
 
 ## The web cockpit
 
@@ -175,8 +174,7 @@ unified diff of its lines, what changed since.
 
 The page offers only what the server declares in `/api/meta`. The core declares the required
 capabilities, `project.attachments.v1`, `system.resources.v1`, `project.workdir.v1`,
-`project.config.v1`, `project.cost-feed.v1` and `project.editions.v1`; the page hides the slash commands, the doctor among
-them (`composer.commands.v1`), and in the settings the advisor (`advisor.config.v1`) and the light
+`project.config.v1`, `project.cost-feed.v1` and `project.editions.v1`; the settings omit the advisor (`advisor.config.v1`) and the light
 model, which the core's settings do not list. The Python server declares every capability.
 
 The progress map reads the same files: a card per task, its brief the letter that opened it, and

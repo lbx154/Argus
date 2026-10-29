@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { applyCompletion, slashCompletions } from '../../../core/src/commands';
 import type { BacklogItem, EventMsg } from '../api';
 import { completionMenu, completionToken, ghostFor, promptHistory, type PromptSources } from '../lib/promptCompletion';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
@@ -53,18 +52,6 @@ describe('completionToken', () => {
 });
 
 describe('completionMenu', () => {
-  it('offers only slash commands without sources, choosing exactly what applyCompletion would', () => {
-    const menu = completionMenu('/sta', null, undefined, t, 'en');
-    expect(menu?.kind).toBe('command');
-    expect(menu?.items.map((item) => item.value)).toEqual(slashCompletions('/sta').map(applyCompletion));
-    expect(menu?.items.find((item) => item.id === 'status')?.close).toBe(true);
-    expect(completionMenu('@tr', completionToken('@tr', 3), undefined, t, 'en')).toBeNull();
-  });
-
-  it('keeps slash commands closed behind a reference, as before', () => {
-    expect(menuAt(referenceText(ref) + '/sta')).toBeNull();
-  });
-
   it('lists the top level of the workspace for a bare @, without internal, skipped or control-character paths', () => {
     expect(menuAt('@')?.items.map((item) => item.name)).toEqual(['src/', 'docs/', 'README.md', 'pretrain.py']);
   });
