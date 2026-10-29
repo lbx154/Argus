@@ -79,12 +79,20 @@ if (scenario.hang) {
       process.exit(1);
     }
     emit({ type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'Working on it.' } });
-    emit({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: answer } });
+    emit({ type: 'item.started', item: { id: 'item_1', type: 'command_execution', command: 'npm test', status: 'in_progress' } });
+    emit({ type: 'item.completed', item: { id: 'item_1', type: 'command_execution', command: 'npm test', exit_code: 0, status: 'completed' } });
+    emit({ type: 'item.completed', item: { id: 'item_2', type: 'file_change', changes: [{ path: 'parser.js', kind: 'update' }], status: 'completed' } });
+    emit({ type: 'item.completed', item: { id: 'item_3', type: 'agent_message', text: answer } });
     emit({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } });
   } else if (cli === 'claude') {
     const usage = { input_tokens: 10, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 40,
       output_tokens_details: { thinking_tokens: 5 } };
     const result = { type: 'result', subtype: 'success', session_id: thread, usage, total_cost_usd: 0.0123 };
+    const said = (content, more = {}) => emit({ type: 'assistant', session_id: thread, message: { role: 'assistant', content }, ...more });
+    said([{ type: 'text', text: 'Working on it.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
+      { type: 'tool_use', name: 'Read', input: { file_path: 'README.md' } }, { type: 'tool_use', name: 'Edit', input: { file_path: 'parser.js' } }]);
+    // A subagent's message is its own.
+    said([{ type: 'text', text: 'Subagent at work.' }], { parent_tool_use_id: 'toolu_1' });
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answer, ...typeof output === 'object' ? { structured_output: output } : {} });
     process.exit(scenario.fail ? 1 : 0);
@@ -102,7 +110,8 @@ if (scenario.hang) {
       process.exit(1);
     }
     const message = (content, toolRequests = []) => ({ type: 'assistant.message', data: { model: 'copilot-test', content, toolRequests } });
-    emit(message('Working on it.'));
+    emit(message('Working on it.', [{ name: 'bash', arguments: { command: 'npm test' } }, { name: 'view', arguments: { path: 'README.md' } },
+      { name: 'edit', arguments: { path: 'parser.js' } }]));
     emit(called ? message('', [{ toolCallId: 'call_1', name: 'hand_off', arguments: called, type: 'function' }]) : message(answer));
     // A background subagent reports after the turn's last message.
     emit({ ...message('Background check done.'), agentId: 'sub-1' });
@@ -111,7 +120,8 @@ if (scenario.hang) {
     const usage = { input: 20, output: 40, cacheRead: 300, cacheWrite: 50, reasoning: 5, cost: { total: 0.0042 } };
     const message = (content, more = {}) => ({ type: 'message_end',
       message: { role: 'assistant', provider: 'anthropic', model: 'claude-test', stopReason: 'stop', content, usage, ...more } });
-    emit(message([{ type: 'text', text: 'Working on it.' }]));
+    emit(message([{ type: 'text', text: 'Working on it.' }, { type: 'toolCall', name: 'bash', arguments: { command: 'npm test' } },
+      { type: 'toolCall', name: 'read', arguments: { path: 'README.md' } }, { type: 'toolCall', name: 'edit', arguments: { path: 'parser.js' } }]));
     // Pi settles and exits 0 after a failed request too.
     emit(scenario.fail ? message([], { stopReason: 'error', errorMessage: scenario.fail })
       : message(called ? [{ type: 'toolCall', id: 'call_1', name: 'hand_off', arguments: called }] : [{ type: 'text', text: answer }],

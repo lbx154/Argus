@@ -7,7 +7,7 @@ import { appendFileSync, createWriteStream, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { isJsonObject, type PayloadSchema } from '@argus/contracts';
 import { executeProcess, type ProcessExit } from '@argus/runtime';
-import type { AgentRequest, AgentResult, Backend, Usage } from '../types.js';
+import type { AgentRequest, AgentResult, Backend, Step, Usage } from '../types.js';
 import { claude } from './claude.js';
 import { codex } from './codex.js';
 import { copilot } from './copilot.js';
@@ -20,7 +20,8 @@ export interface BackendRun {
   args: string[];
   /** Settings the CLI takes only from its environment. */
   env?: Record<string, string>;
-  consume(event: Record<string, unknown>): void;
+  /** Reads one event of the stream: the steps it shows, if any. */
+  consume(event: Record<string, unknown>): (Step | null)[];
   /** What the turn came to, once the CLI has exited; `output` is its final answer, the form as filled in. */
   finish(): Pick<AgentResult, 'threadId' | 'completed' | 'error' | 'model' | 'usage'> & { output: unknown };
 }
@@ -54,7 +55,7 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
       if (item.stream === 'stderr') { if (stderr.push(item.line) > 20) stderr.shift(); continue; }
       let event: unknown;
       try { event = JSON.parse(item.line); } catch { continue; }
-      if (isJsonObject(event)) run.consume(event);
+      if (isJsonObject(event)) for (const step of run.consume(event)) if (step) request.onStep?.(step);
     }
     const { output, ...turn } = run.finish();
     const verdict = turn.completed ? judge(request.form, schema, output) : null;

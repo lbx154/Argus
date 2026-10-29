@@ -11,7 +11,7 @@ import { summarizeUsage } from '@argus/runtime';
 import { openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
-import { ROLES, type Backend, type Role } from '../types.js';
+import { ROLES, type Backend, type Role, type Step } from '../types.js';
 
 /** What this process knows of a project's run right now. */
 export interface Live {
@@ -28,6 +28,8 @@ export interface Live {
 export type Recorded = FlowEvent & { ts: string };
 
 const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
+/** A step of a turn, as the page's feed knows it. */
+const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change' };
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
@@ -94,6 +96,9 @@ export function webEvents(events: Recorded[]): EventMsg[] {
       case 'task.closed':
         row('life.mission.completed', { item_id: event.task, status: 'done', success: true });
         break;
+      case 'step':
+        row('engineer.progress', { kind: STEP_KINDS[event.kind], agent_layer: event.role, text: event.text, ...where });
+        break;
       case 'status':
         if (event.status === 'failed') row('life.status', { operator_alert: true, text: event.error ?? 'The work stopped.' });
         break;
@@ -113,8 +118,8 @@ export function questionId({ role, task, question }: Question): string {
   return `q-${hash.toString(16)}`;
 }
 
-function usage(store: Store, id: string): UsageSummary {
-  return summarizeUsage(jsonLines(join(store.dir(id), 'usage.jsonl')).map(row => {
+function usage(rows: Record<string, unknown>[]): UsageSummary {
+  return summarizeUsage(rows.map(row => {
     const tokens = (row.tokens ?? {}) as Record<string, number | undefined>;
     const cost = typeof row.cost_usd === 'number' ? row.cost_usd : null;
     return {
@@ -161,8 +166,12 @@ const asked = (project: Project, task: string): Question | undefined => project.
 const lastActive = (store: Store, id: string): number => statSync(join(store.dir(id), 'project.json')).mtimeMs / 1000;
 
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
-  const summary = usage(store, project.id);
   const { id, workdir, backend } = project;
+  const calls = jsonLines(join(store.dir(id), 'usage.jsonl'));
+  const summary = usage(calls);
+  // The model each role's last call ran on: with none chosen, the backend's own default.
+  const ran = (role?: Role) => calls.filter(call => !role || call.role === role).at(-1);
+  const last = ran();
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     session: {
@@ -171,10 +180,12 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     },
     daemon: daemon(project, live),
     roles: ROLES.map(role => ({
-      role, backend, backend_label: BACKENDS[backend], model: project.model ?? '', effort: project.effort ?? null, active: live.roles.includes(role),
+      role, backend, backend_label: BACKENDS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: live.roles.includes(role),
       label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null,
     })),
-    last_call: null,
+    last_call: last ? {
+      backend: String(last.backend), model: String(last.model ?? ''), effort: project.effort ?? '', run_label: String(last.role), role: String(last.role), ts: Number(last.ts),
+    } : null,
     // Letters left for the Manager when the work stopped are work Resume takes up, as a task cut off is.
     backlog: [...backlog(project), ...live.since === null ? (project.forManager ?? []).map((letter, index) => ({
       id: `manager-${index + 1}`, title: letter.split('\n')[0]!.slice(0, 100), objective: letter, priority: 0, deps: [], status: 'in_progress' as const,
@@ -192,7 +203,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
 }
 
 export function projectRow(store: Store, project: Project, live: Live): ProjectRow {
-  const summary = usage(store, project.id);
+  const summary = usage(jsonLines(join(store.dir(project.id), 'usage.jsonl')));
   const { since } = live;
   return {
     // The page names an unnamed project by its objective; a label other than the id is the name the operator gave it.

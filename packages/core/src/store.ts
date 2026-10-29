@@ -6,7 +6,7 @@ import { appendFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSyn
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { Backend, Role, Usage } from './types.js';
+import type { Backend, Role, Step, Usage } from './types.js';
 
 /** `idle`: no letter is waiting for anyone but the operator; `asking`: nothing goes on but what
  * waits for the operator's answers. */
@@ -72,6 +72,7 @@ export type FlowEvent =
   | { type: 'handoff'; role: Role; task?: string; to: string; letter: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
+  | ({ type: 'step'; role: Role; task?: string } & Step)
   | { type: 'status'; status: Status; error?: string };
 
 /** A project's id, and the name of its directory: `p-` and hex. */

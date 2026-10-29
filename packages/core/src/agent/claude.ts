@@ -4,6 +4,7 @@
 import { isJsonObject } from '@argus/contracts';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
+import { said, used } from './steps.js';
 
 export const claude: StartBackend = (request, { confined, schema }) => {
   const args = [
@@ -27,6 +28,10 @@ export const claude: StartBackend = (request, { confined, schema }) => {
       if (typeof event.session_id === 'string' && event.session_id) threadId = event.session_id;
       if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string') model = event.model;
       if (event.type === 'result') result = event;
+      // A subagent's messages are its own; the role's steps are in its own.
+      const content = event.type === 'assistant' && !event.parent_tool_use_id && isJsonObject(event.message) && Array.isArray(event.message.content)
+        ? event.message.content.filter(isJsonObject) : [];
+      return content.map(part => part.type === 'text' ? said(part.text) : part.type === 'tool_use' ? used(part.name, part.input) : null);
     },
     finish() {
       const completed = result?.subtype === 'success' && !result.is_error;

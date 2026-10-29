@@ -247,7 +247,7 @@ export class Flow {
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
-        ...(task ? { giver: task.from } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+        ...(task ? { giver: task.from } : {}), onStep: step => this.record(project, { type: 'step', role, ...where, ...step }), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
       // The call never ran to an end of its own: it is recorded as ended, failed.

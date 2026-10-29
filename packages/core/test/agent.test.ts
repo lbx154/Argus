@@ -10,7 +10,7 @@ import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema } from '../src/agent/handoff.js';
 import { confine } from '../src/agent/sandbox.js';
-import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend } from '../src/index.js';
+import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend, type Step } from '../src/index.js';
 
 // The fake CLIs stand in for every backend on PATH, installed as npm installs a node CLI: a
 // link on POSIX, on Windows the .cmd shim npm writes beside it. HOME and ARGUS_HOME are the test's own.
@@ -120,6 +120,15 @@ for (const backend of BACKENDS) {
     const { cost_usd, ...tokens } = result.usage!;
     assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, tokens, cost_usd });
     assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"type":"(turn\.completed|result|agent_settled)"/);
+  });
+
+  test(`${backend}: the role's steps are told as its turn goes on: what it says, runs and changes`, async () => {
+    const steps: Step[] = [];
+    await call(backend, { output: handoff }, { onStep: step => steps.push(step) });
+    // Not what only reads, a subagent's work, or the form the turn ends with.
+    assert.deepEqual(steps, [
+      { kind: 'message', text: 'Working on it.' }, { kind: 'command', text: 'npm test' }, { kind: 'edit', text: 'parser.js' },
+    ]);
   });
 
   test(`${backend}: a refused form completes the turn with no hand-off and says why`, async () => {

@@ -28,11 +28,17 @@ export interface AgentRequest {
   resume?: string;
   /** Who gave the task the turn is on: only the task's giver is offered among those who hear how it ended. */
   giver?: 'manager' | 'planner';
+  /** Told of each step the role takes as its turn goes on. */
+  onStep?: (step: Step) => void;
   /** Where the call's raw output and usage go. */
   callsDir: string;
   usageFile: string;
   signal?: AbortSignal;
 }
+
+/** What a role does as its turn goes on, as the operator follows it: what it says, a command it
+ * runs, a file it changes. */
+export interface Step { kind: 'message' | 'command' | 'edit'; text: string }
 
 export interface HandOff {
   form: Form;

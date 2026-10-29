@@ -10,6 +10,7 @@ import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
 import { privatePath } from './sandbox.js';
+import { said, used } from './steps.js';
 
 export const copilot: StartBackend = (request, { confined, started, schema, stem }) => {
   const tool = handOffTool(schema);
@@ -46,14 +47,18 @@ export const copilot: StartBackend = (request, { confined, started, schema, stem
       COPILOT_TASK_WAIT_TIMEOUT_SECONDS: '2147483.647',
     },
     consume(event) {
-      if (event.agentId !== undefined) return; // a subagent's
+      if (event.agentId !== undefined) return []; // a subagent's
       const data = isJsonObject(event.data) ? event.data : {};
-      if (event.type === 'assistant.message') last = data;
-      else if (event.type === 'session.error' && typeof data.message === 'string') error = data.message;
+      if (event.type === 'assistant.message') {
+        last = data;
+        const calls = Array.isArray(data.toolRequests) ? data.toolRequests.filter(isJsonObject) : [];
+        return [said(data.content), ...calls.map(call => used(call.name, call.arguments))];
+      } else if (event.type === 'session.error' && typeof data.message === 'string') error = data.message;
       else if (event.type === 'result') {
         if (typeof event.sessionId === 'string') threadId = event.sessionId;
         completed = event.exitCode === 0;
       }
+      return [];
     },
     finish() {
       const requests = Array.isArray(last?.toolRequests) ? last.toolRequests.filter(isJsonObject) : [];

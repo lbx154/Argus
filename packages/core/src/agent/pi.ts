@@ -7,6 +7,7 @@ import { isJsonObject } from '@argus/contracts';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
+import { said, used } from './steps.js';
 
 export const pi: StartBackend = (request, { schema, stem }) => {
   const tool = handOffTool(schema);
@@ -45,7 +46,10 @@ export const pi: StartBackend = (request, { schema, stem }) => {
         usage.output_tokens += count(row.output);
         usage.reasoning_output_tokens += count(row.reasoning);
         usage.cost_usd = typeof cost !== 'number' || usage.cost_usd === null ? null : usage.cost_usd + cost;
+        const content = Array.isArray(message.content) ? message.content.filter(isJsonObject) : [];
+        return content.map(part => part.type === 'text' ? said(part.text) : part.type === 'toolCall' ? used(part.name, part.arguments) : null);
       }
+      return [];
     },
     finish() {
       // Pi settles after a failed request too, and exits 0: the last answer says how it ended.

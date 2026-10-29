@@ -21,6 +21,8 @@ interface Step {
   hang?: boolean;
   /** The turn ends once this settles, or it is interrupted. */
   until?: Promise<unknown>;
+  /** What the role says as its turn goes on. */
+  says?: string;
 }
 
 function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] } {
@@ -31,6 +33,7 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] 
     assert.ok(step, `no turn scripted for the ${request.role}`);
     assert.equal(request.role, step.role);
     for (const [name, body] of Object.entries(step.files ?? {})) await writeFile(join(request.cwd, name), body);
+    if (step.says) request.onStep?.({ kind: 'message', text: step.says });
     const interrupted = new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
     await Promise.race([step.until, interrupted]);
     if (step.hang) {
@@ -40,7 +43,7 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] 
     const handoff: HandOff | null = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: [step.letter ?? `${step.role} to ${step.to}`] };
     const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
-    await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, role: request.role, tokens, cost_usd: 0.01 })}\n`);
+    await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, role: request.role, backend: request.backend, model: 'fake-model', tokens, cost_usd: 0.01 })}\n`);
     return {
       callId: `call-${requests.length}`, threadId: `${request.role}-${requests.length}`, completed: true,
       error: handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
@@ -104,7 +107,7 @@ const brief = 'Summarize the CSV.\nreport.md gives the column totals.';
 test('the cockpit runs a project: handshake, message, progress, question, answer, results', async t => {
   const { home, get, post, call, requests } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: brief },
-    { role: 'engineer', to: 'reviewer', letter: 'report.md written',
+    { role: 'engineer', to: 'reviewer', letter: 'report.md written', says: 'Totalling the columns.',
       files: { 'report.md': '# Totals\n\n| a | b |\n', 'page.html': '<script>alert(1)</script>', 'data.bin': '0123456789', '.hidden': 'secret' } },
     { role: 'reviewer', to: 'operator', letter: 'Ship it as is?' },
     { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
@@ -146,15 +149,20 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(asking.backlog.map(item => [item.id, item.status]), [['t1', 'blocked']]);
   assert.equal(asking.usage_summary?.call_count, 3);
   assert.equal(asking.spend_usd, 0.03);
+  // With no model chosen, each role shows the one its last call ran on.
+  assert.deepEqual([asking.roles.find(role => role.role === 'engineer')?.model, asking.last_call?.role, asking.last_call?.model], ['fake-model', 'reviewer', 'fake-model']);
   const card = (asking.pending_questions![0] as { operator_decision: { id: string; question: string; options: unknown[] } }).operator_decision;
   assert.deepEqual([card.question, card.options], ['Ship it as is?', []]);
 
   const { events } = await get<{ events: EventMsg[] }>(`${P}/events?limit=120&view=ui`);
   assert.deepEqual(events.map(event => event.type), [
     'ui.operator', 'provider.request.started', 'provider.request.completed', 'ui.argus', 'life.mission.started',
-    'provider.request.started', 'provider.request.completed', 'engineer.progress',
+    'provider.request.started', 'engineer.progress', 'provider.request.completed', 'engineer.progress',
     'provider.request.started', 'provider.request.completed', 'round.review.completed',
   ]);
+  // What the Engineer said as its turn went on is in the feed while it works.
+  assert.deepEqual(events.find(event => event.type === 'engineer.progress'), { ...events.find(event => event.type === 'engineer.progress'),
+    kind: 'agent_message', agent_layer: 'engineer', text: 'Totalling the columns.', item_id: 't1' });
   const { turns } = await get<{ turns: { role: string; text: string; message_id: string }[] }>(`${P}/transcript?n=120`);
   assert.deepEqual(turns.map(turn => [turn.role, turn.message_id]), [['operator', 'm0-operator'], ['argus', 'm0-argus']]);
 

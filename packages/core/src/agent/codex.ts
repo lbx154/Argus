@@ -9,6 +9,7 @@ import { quoteTokenUsage } from '@argus/runtime';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { privatePath } from './sandbox.js';
+import { said, used } from './steps.js';
 
 export const codex: StartBackend = (request, { confined, started, schema, stem }) => {
   const schemaFile = `${stem}.schema.json`;
@@ -38,14 +39,19 @@ export const codex: StartBackend = (request, { confined, started, schema, stem }
   return {
     args,
     consume(event) {
+      const item = isJsonObject(event.item) ? event.item : {};
       if (event.type === 'thread.started' && typeof event.thread_id === 'string') threadId = event.thread_id;
-      else if (event.type === 'item.completed' && isJsonObject(event.item) && event.item.type === 'agent_message') text = String(event.item.text ?? '');
+      else if (event.type === 'item.started' && item.type === 'command_execution') return [used(item.type, item)];
+      else if (event.type === 'item.completed' && item.type === 'file_change' && Array.isArray(item.changes)) {
+        return item.changes.filter(isJsonObject).map(({ path }) => typeof path === 'string' ? { kind: 'edit', text: path } : null);
+      } else if (event.type === 'item.completed' && item.type === 'agent_message') return [said(text = String(item.text ?? ''))];
       else if (event.type === 'turn.completed') completed = true;
       else if (event.type === 'turn.failed') {
         failed = true;
         const message = isJsonObject(event.error) ? event.error.message : undefined;
         error = typeof message === 'string' && message.trim() ? message : error ?? 'Codex reported a failed turn.';
       } else if (event.type === 'error' && !failed && typeof event.message === 'string') error = event.message;
+      return [];
     },
     finish() {
       const sessions = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions');

@@ -32,7 +32,7 @@ A project is a directory `$ARGUS_HOME/projects/<id>/` with:
 | File | Holds | Written |
 |---|---|---|
 | `project.json` | the current state: workdir, request, the operator's name for it, backend, model and effort, tasks, letters waiting for the Planner and for the Manager, role sessions, the open questions, status | replaced atomically (write temp, rename) |
-| `events.jsonl` | what happened, in order: messages, hand-offs, calls, task changes | appended |
+| `events.jsonl` | what happened, in order: messages, hand-offs, calls and their steps (what a role says, the commands it runs, the files it changes, as its turn goes on), task changes | appended |
 | `usage.jsonl` | one record per backend call: tokens, cost | appended |
 | `calls/<call>.jsonl` | the backend's raw output, for debugging | written by the call |
 | `draft.json` | the web composer's unsent draft and its revision | replaced on each save |

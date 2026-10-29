@@ -206,7 +206,7 @@ signing and the update channel.
 | `~/.argus/` | the state directory (`ARGUS_HOME` overrides it) |
 | `~/.argus/owner.json` | the pid of the `argus` process that owns the directory |
 | `~/.argus/projects/<id>/project.json` | a project's current state: directory, request, name, backend and model, tasks, role sessions, the open questions |
-| `~/.argus/projects/<id>/events.jsonl` | what happened, in order: messages, letters, calls, task changes |
+| `~/.argus/projects/<id>/events.jsonl` | what happened, in order: messages, letters, calls and the steps each took (what a role said, ran and changed as it worked), task changes |
 | `~/.argus/projects/<id>/usage.jsonl` | one record per backend call: tokens and cost |
 | `~/.argus/projects/<id>/calls/` | each call's raw output from the backend |
 | `~/.argus/skills/` | the roles' and your skills and plugins |
