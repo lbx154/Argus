@@ -104,13 +104,15 @@ export function ArtifactModal({
     };
   }, [sid, path, info?.kind]);
 
-  const download = async (bundle = false) => {
+  // A page downloads with the files it loads, so it opens as it shows here.
+  const website = info?.kind === 'html';
+  const download = async () => {
     if (!sid || !path || !info) return;
     setDownloading(true);
     setPreviewError(null);
     try {
-      const blob = bundle ? await api.artifactBundle(sid, path) : await api.artifactBlob(sid, path, true);
-      downloadBlob(blob, bundle ? `${info.name.replace(/\.html?$/i, '')}-website.zip` : info.name);
+      const blob = website ? await api.artifactBundle(sid, path) : await api.artifactBlob(sid, path, true);
+      downloadBlob(blob, website ? `${info.name.replace(/\.html?$/i, '')}-website.zip` : info.name);
     } catch (error) {
       setPreviewError(error);
     } finally {
@@ -135,7 +137,8 @@ export function ArtifactModal({
   return (
     <Modal
       open={Boolean(path || delivery)}
-      onClose={onClose}
+      // Esc, or the scrim, takes a full-screen preview back to the dialog first.
+      onClose={expanded ? () => setExpanded(false) : onClose}
       label={delivery ? (zh ? '交付成果' : 'Delivery') : t('artifact.preview')}
       width={delivery ? expanded ? 'max-w-none' : 'max-w-6xl' : pdfPreview ? 'max-w-none' : 'max-w-5xl'}
       viewport={delivery ? expanded : pdfPreview}
@@ -152,7 +155,7 @@ export function ArtifactModal({
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
         </select> : null}
-        {files.length > 0 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : files.length > 1 ? (zh ? '下载全部（zip）' : 'Download all (zip)') : (zh ? '打包下载' : 'Download as zip')}</button></div> : null}
+        {files.length > 0 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : zh ? '下载全部（zip）' : 'Download all (zip)'}</button></div> : null}
         {/* With a file open the summary folds above it; with none it is the page. */}
         {delivery.summary && path && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><div className="delivery-summary-body"><MarkdownContent sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div></details>}
       </header>}
@@ -177,14 +180,13 @@ export function ArtifactModal({
           && <button type="button" onClick={() => onEdit(path)} className="artifact-tool shrink-0">{zh ? '编辑与版本' : 'Edit & versions'}</button>}
         {onRevise && path && <button type="button" disabled={!info} onClick={() => onRevise(path)}
           className="artifact-tool shrink-0 disabled:opacity-50">{zh ? '继续修改' : 'Revise'}</button>}
-        {info?.kind === 'html' && <button type="button" disabled={downloading} onClick={() => void download(true)} className="artifact-tool shrink-0 disabled:opacity-50">{zh ? '下载完整网页' : 'Download website'}</button>}
         <button
           type="button"
           disabled={!info || downloading}
           onClick={() => void download()}
           className="artifact-tool artifact-tool-primary disabled:cursor-wait disabled:opacity-50"
         >
-          {downloading ? t('artifact.downloading') : t('artifact.download')}
+          {downloading ? t('artifact.downloading') : website ? (zh ? '下载网页（zip）' : 'Download page (zip)') : t('artifact.download')}
         </button>
         </div>
         {(!delivery || expanded) && <button

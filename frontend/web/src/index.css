@@ -987,7 +987,7 @@ button {
 .result-card-files { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; color: rgb(var(--ink-dim)); font-size: 13px; }
 .result-card-files li { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .result-card-files li > span { color: rgb(var(--ink-faint)); font-size: 11px; }
-.result-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 10px -8px 0; }
+.result-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 12px 0 0; }
 .result-card-actions button {
   min-height: 30px;
   border-radius: var(--radius-control);
@@ -997,7 +997,8 @@ button {
   transition: color 150ms ease, background-color 150ms ease;
 }
 .result-card-actions button:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
-.result-card-actions .result-card-open { color: rgb(var(--ink)); font-weight: 500; }
+/* Opening the result is the card's one action, and looks like a button. */
+.result-card-actions .result-card-open { border: 1px solid rgb(var(--line)); background: rgb(var(--surface)); color: rgb(var(--ink)); font-weight: 500; padding-inline: 16px; }
 @media (max-width: 640px), (pointer: coarse) {
   .result-card-actions button, .chat-context-tools button, .task-line-action { min-height: 44px; }
   .chat-context { padding: 8px 16px 6px; align-items: center; }
