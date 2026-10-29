@@ -479,14 +479,14 @@ export function Sidebar({
                 <span aria-hidden="true" className="tracking-[0.12em]">···</span>
               </summary>
               <div className="sidebar-more-menu">
-                {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={15} />{zh ? '设备' : 'Devices'}</button>}
+                {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 w-full items-center gap-2 px-2 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={15} />{zh ? '设备与登录' : 'Devices and sign-in'}</button>}
                 {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
                   <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
                     className="icon-control flex h-8 w-8 items-center justify-center">
                     <Cpu size={16} />
                   </a>
                 ) : null}
-                <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
+                <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} labelled />
               </div>
             </details>
             {settingsHint && <p role="status" className="sidebar-settings-hint">{zh ? '先打开或创建一个项目，再调整该项目的设置。' : 'Open or create a project first to adjust its settings.'}</p>}

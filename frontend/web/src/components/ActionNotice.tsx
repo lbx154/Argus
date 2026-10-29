@@ -20,8 +20,8 @@ export function ActionNotice({
   const { locale } = useI18n();
   useEffect(() => {
     if (!notice) return;
-    if (notice.tone === 'error') return;
-    const timeout = window.setTimeout(onClose, 5_000);
+    // Errors stay longer so they can be read, but still clear on their own.
+    const timeout = window.setTimeout(onClose, notice.tone === 'error' ? 10_000 : 5_000);
     return () => window.clearTimeout(timeout);
   }, [notice, onClose]);
 

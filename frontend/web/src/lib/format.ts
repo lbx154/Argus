@@ -116,6 +116,8 @@ export function errorText(error: unknown): string {
 function apiErrorText(error: ApiError): string {
   const detail = error.detail.trim();
   const status = error.status;
+  const limit = /active daemon limit (\d+) reached/.exec(detail);
+  if (limit) return translate('error.daemonLimit', { limit: limit[1] });
   if (!status) return translate('error.network');
   if (status === 401) return translate('error.unauthorized');
   if (status === 403) return detail || translate('error.forbidden');
