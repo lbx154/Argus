@@ -53,7 +53,7 @@ import { dispatchWebCommand, type WebCommandHandlers } from './lib/webCommands';
 import { buildWebCommandHandlers } from './lib/commandHandlers';
 import { finishManagerMessage } from './lib/messageResult';
 import { COMMANDS, parseCommand } from '../../core/src/commands';
-import { COMMANDS_CAPABILITY, LAUNCH_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
+import { COMMANDS_CAPABILITY, EDITIONS_CAPABILITY, LAUNCH_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import { type EventViewFilter } from '../../core/src/events';
 import { eventViewReducer, initialEventViewState } from './lib/eventView';
 import {
@@ -244,6 +244,7 @@ export default function App() {
   const setRoute = useCapability(ROUTE_CAPABILITY) ? setRouteOverride : undefined;
   const [launchSettings, setLaunchSettings] = useState<LaunchSettings>(DEFAULT_LAUNCH_SETTINGS);
   const launches = useCapability(LAUNCH_CAPABILITY);
+  const editions = useCapability(EDITIONS_CAPABILITY);
   const [chatPending, setChatPending] = useState(false);
   const [waitingForUploads, setWaitingForUploads] = useState(false);
   const [localConversationEvents, setLocalConversationEvents] = useState<EventMsg[]>([]);
@@ -720,6 +721,8 @@ export default function App() {
   const editArtifact = (path: string) => {
     setEditor({ path }); setArtifactPath(null); deliveryCenter.close();
   };
+  // Editing keeps versions, which only a server that has them offers.
+  const onEditArtifact = kiosk || !editions ? undefined : editArtifact;
   const useMaterial = (title: string, content: string, scope: string) => {
     if (!loadedSid || loadedSid !== sidRef.current || kiosk) return;
     const name = `${title.replace(/[\\/:*?"<>|]/g, '-')}.md`;
@@ -1355,7 +1358,7 @@ export default function App() {
         reviewActivity={deliveryCenter.selection.sid === loadedSid ? reviewActivity : undefined}
         onSelectDelivery={openDelivery} onSelectPath={deliveryCenter.selectPath} onClose={deliveryCenter.close}
         onRevise={kiosk ? undefined : reviseArtifact}
-        onEdit={kiosk ? undefined : editArtifact}
+        onEdit={onEditArtifact}
       />}
       {!kiosk && sidebarOpen ? (
         <button
@@ -1517,7 +1520,7 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                     onCompose={kiosk ? undefined : composeContext}
-                    onConversationAction={kiosk || messagePending ? undefined : setConversationEditor}
+                    onConversationAction={kiosk || messagePending || !editions ? undefined : setConversationEditor}
                     requestedMessageTs={highlightedTs}
                     notifications={kiosk ? undefined : notifications}
                     latestDelivery={deliveryHistory[0] ?? null}
@@ -1638,7 +1641,7 @@ export default function App() {
                 onOpenDelivery={(receipt) => openDelivery(receipt)}
                 loading={artifactsQ.isLoading}
                 onRevise={kiosk ? undefined : reviseArtifact}
-                onEdit={kiosk ? undefined : editArtifact}
+                onEdit={onEditArtifact}
                 onRetry={() => void artifactsQ.refetch()}
                 routeVisible
               />
@@ -1727,7 +1730,7 @@ export default function App() {
       ) : null}
       <ArtifactModal sid={activeSid} path={artifactPath} artifacts={artifactsQ.data ?? []}
         onRevise={kiosk ? undefined : reviseArtifact}
-        onEdit={kiosk ? undefined : editArtifact}
+        onEdit={onEditArtifact}
         reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />

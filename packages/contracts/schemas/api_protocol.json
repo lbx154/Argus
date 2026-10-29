@@ -36,6 +36,7 @@
     "composer.commands.v1",
     "map.annotations.v1",
     "project.launch.v1",
-    "composer.route.v1"
+    "composer.route.v1",
+    "project.editions.v1"
   ]
 }

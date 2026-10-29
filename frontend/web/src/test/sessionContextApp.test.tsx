@@ -326,7 +326,7 @@ describe('App session composer ownership', () => {
     expect(props().value).toBe('');
   });
 
-  it('offers settings, the model chooser, slash commands, launch settings and the route choice only where the server declares them', async () => {
+  it('offers settings, the model chooser, slash commands, launch settings, the route choice and editions only where the server declares them', async () => {
     const send = vi.spyOn(api, 'messageStream').mockResolvedValue();
     // A server that declares only what every server has, as the TypeScript core does.
     await act(async () => { renderer.update(<Capabilities.Provider value={['manager.sse.v1']}>{mountedApp()}</Capabilities.Provider>); });
@@ -334,6 +334,7 @@ describe('App session composer ownership', () => {
     expect(renderer.root.findByType(ComposerRuntime).props.onOpenSettings).toBeUndefined();
     expect(props().settings).toBeUndefined();
     expect(props().onRouteOverrideChange).toBeUndefined();
+    expect(renderer.root.findByType(EventStream).props.onConversationAction).toBeUndefined();
     type('/help');
     await act(async () => { expect(await props().onSend('/help')).toBe(true); });
     expect(send).toHaveBeenCalledWith('s-A', '/help', expect.any(Object), expect.objectContaining({ routeOverride: 'auto', launch: undefined }));

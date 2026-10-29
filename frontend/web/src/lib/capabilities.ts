@@ -16,6 +16,8 @@ export const COMMANDS_CAPABILITY = 'composer.commands.v1';
 export const LAUNCH_CAPABILITY = 'project.launch.v1';
 /** The composer's choice of Auto, Task or Chat for a message. */
 export const ROUTE_CAPABILITY = 'composer.route.v1';
+/** Versions of a result or a reply the operator edits, and their history. */
+export const EDITIONS_CAPABILITY = 'project.editions.v1';
 
 /** What the server declared; main.tsx provides it once the handshake is in. */
 export const Capabilities = createContext<readonly string[] | null>(null);
