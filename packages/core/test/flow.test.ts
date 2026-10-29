@@ -172,6 +172,15 @@ test("every role is shown Argus's skills and the team's beside them, and a role 
   }
 });
 
+test("a letter whose first line is a heading names its task by the heading's words", async t => {
+  const { flow, id } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: '# Total **the** [columns](data.csv)\nOf data.csv.' },
+    { role: 'engineer', to: 'manager', letter: 'Done.' },
+    { role: 'manager', to: 'operator', letter: 'Done.' },
+  ]);
+  assert.deepEqual((await say(flow, id, 'Total the columns')).tasks.map(task => task.title), ['Total the columns']);
+});
+
 test("the Manager's letter opens a task, whose Reviewer writes its judgment back for the Manager to report", async t => {
   const { flow, id, requests, events } = await setup(t, [
     toEngineer,

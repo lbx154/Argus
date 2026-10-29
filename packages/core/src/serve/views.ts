@@ -8,7 +8,7 @@ import {
   type Snapshot, type UsageSummary,
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
-import { openTasks } from '../flow.js';
+import { firstLine, openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
@@ -36,10 +36,6 @@ const seconds = (iso: string): number => Date.parse(iso) / 1000;
  * else the first line of its request. */
 const named = (project: Project): string =>
   project.name || project.tasks.find(task => task.from === 'manager')?.title || project.request.split('\n')[0]!.slice(0, 80);
-
-/** A letter's first line as a heading reads it: a link as its words, without markup. */
-const firstLine = (text: string): string => text.split('\n')
-  .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it, named as
  * it was when delivered (a record from before then, by the letter's first line). */

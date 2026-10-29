@@ -330,7 +330,7 @@ export class Flow {
   /** A letter to the Engineer opens a task; its first line names it. It waits only for tasks opened
    * before it, so no tasks wait for each other in a circle. */
   private open(project: Project, from: Task['from'], letter: string, after: string[] = []): Task {
-    const title = letter.split('\n')[0]!.slice(0, 100);
+    const title = firstLine(letter).slice(0, 100);
     const waits = [...new Set(after)].filter(id => project.tasks.some(task => task.id === id));
     const task: Task = {
       id: `t${project.tasks.length + 1}`, title, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},
@@ -378,6 +378,11 @@ export class Flow {
 }
 
 export const openTasks = ({ tasks }: Project): Task[] => tasks.filter(task => task.status === 'open');
+
+/** A letter's first line as a heading reads it: a link as its words, without markup. It names the
+ * task the letter opens. */
+export const firstLine = (text: string): string => text.split('\n')
+  .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
 
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');
