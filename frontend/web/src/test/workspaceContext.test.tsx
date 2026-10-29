@@ -17,10 +17,8 @@ const snap: Snapshot = {
 };
 const props: ActiveWorkbenchPageProps = {
   sid: 's-A', active: false, snapshot: snap,
-  project: { id: 's-A', label: 'A', objective: '', last_active: 1, daemon_alive: false, daemon_pid: null,
-    uptime_seconds: null, workdir: '/stale/project-index' },
-  events: [], connected: false, snapshotUpdatedAt: 1, refresh: vi.fn(),
-  controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' }, navigate: vi.fn(),
+  events: [], connected: false, refresh: vi.fn(),
+  controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' },
 };
 let client: QueryClient;
 const fetch = vi.fn(() => { throw new Error('Context presentation must not fetch'); });
@@ -55,7 +53,7 @@ describe('A3 snapshot-only session context', () => {
   });
 
   it('retains all module IDs in entry order', () => {
-    expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['timeline', 'experiments', 'ide', 'runtime']);
+    expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['experiments', 'ide', 'runtime']);
   });
 
   it('falls back to the snapshot cwd and labels missing information as pending', () => {

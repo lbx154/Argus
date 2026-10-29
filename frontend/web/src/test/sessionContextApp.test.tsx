@@ -38,7 +38,6 @@ vi.mock('../hooks', async importOriginal => ({
   useProjectCosts: () => fixture.idle,
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
-  useGitDiff: () => fixture.idle,
   useJournal: () => fixture.idle,
   useTranscript: () => ({ ...fixture.idle, data: fixture.turns }),
   useEventStream: () => ({ events: fixture.events, connected: true }),

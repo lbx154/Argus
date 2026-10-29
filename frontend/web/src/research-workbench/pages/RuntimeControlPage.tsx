@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Activity, ArrowDownToLine, Check, Folder, Pause, Play, RefreshCw, RotateCcw, Search, Settings2, Trash2 } from 'lucide-react';
+import { Check, Folder, Pause, Play, RefreshCw, RotateCcw, Search, Settings2, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import { ResourceStatusView } from '../../components/ResourceStatus';
 import { RawDisclosure } from '../../components/primitives';
@@ -11,8 +11,6 @@ import { requestFailureText, routeRefused } from '../../lib/requestFailure';
 import { currentWorkStatus, workStatusLabel } from '../../lib/workStatus';
 import type { ActiveWorkbenchPageProps } from './pageTypes';
 import './runtimeControl.css';
-
-const HOSTED_TRIAL = import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1';
 
 async function requireCommandSuccess(operation: Promise<unknown>) {
   const result = await operation;
@@ -32,7 +30,6 @@ export function RuntimeControlPage({
   const zh = locale === 'zh-CN';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [workdir, setWorkdir] = useState(snap.session.workdir ?? snap.session.cwd ?? '');
   const [trashDraft, setTrashDraft] = useState('');
   const [trashQuery, setTrashQuery] = useState('');
@@ -49,22 +46,12 @@ export function RuntimeControlPage({
     queryKey: ['runtime-trash', trashQuery], queryFn: () => api.trash(trashQuery),
     enabled: active && recoveryOpen && !readOnly, retry: false,
   });
-  const metrics = useQuery({
-    queryKey: ['runtime-metrics'], queryFn: () => api.metrics(),
-    enabled: active && diagnosticsOpen, retry: false,
-  });
-  const source = useQuery({
-    queryKey: ['runtime-source-update'], queryFn: ({ signal }) => api.sourceUpdateStatus(signal),
-    enabled: active && settingsOpen && !HOSTED_TRIAL && !readOnly, retry: false,
-    refetchInterval: query => query.state.data?.running ? 1_500 : false,
-  });
   useEffect(() => {
     setWorkdir(snap.session.workdir ?? snap.session.cwd ?? '');
   }, [snap.session.workdir, snap.session.cwd]);
 
   const disabled = readOnly || !!busy || controls.busy;
   const external = snap.daemon.alive && snap.daemon.control_available === false;
-  const incompatible = snap.daemon.alive && snap.daemon.protocol_compatible === false;
   const work = currentWorkStatus(snap, snap.mission_view, events);
   const empty = work.state === 'idle' && !snap.backlog.length && !snap.mission_view?.mission.id && !snap.session.objective;
   const foreground = !snap.daemon.alive && ['running', 'waiting'].includes(work.state);
@@ -89,7 +76,6 @@ export function RuntimeControlPage({
   const requestError = (error: unknown) => error
     ? routeRefused(error) ? t('operations.unavailableHere') : requestFailureText(error, t).text
     : '';
-  const replacements = snap.daemon_admission?.running_daemons ?? [];
 
   return <div className="runtime-control-page">
     <section className="runtime-summary">
@@ -105,7 +91,7 @@ export function RuntimeControlPage({
         </div>
       </div>
       <div className="runtime-main-actions">
-        <button className="button button--primary" disabled={disabled || external || incompatible || foreground || work.state === 'unknown'}
+        <button className="button button--primary" disabled={disabled || external || foreground || work.state === 'unknown'}
           onClick={() => { if (empty) onCompose(); else if (snap.daemon.alive) void controls.stop(true); else void controls.start(); }}>
           {snap.daemon.alive ? <Pause size={16} /> : <Play size={16} />}
           {controls.busy || foreground ? zh ? '正在处理…' : 'Working…' : empty ? zh ? '描述任务' : 'Describe a task' : snap.daemon.alive ? zh ? '安全暂停' : 'Pause safely' : work.state === 'paused' ? zh ? '继续运行' : 'Resume' : zh ? '启动运行' : 'Start work'}
@@ -117,8 +103,6 @@ export function RuntimeControlPage({
         : zh ? '安全暂停会等待当前工作结束。新的任务和调整直接在对话中告诉 Argus。' : 'Safe pause waits for current work to finish. Send new tasks and adjustments in the conversation.'}</p>
       {readOnly && <p>{zh ? '当前为只读展示，不能执行控制操作。' : 'Read-only view; control actions are disabled.'}</p>}
       {external && <p role="alert">{zh ? '此运行实例由外部管理，请在其启动端控制。' : 'This instance is externally managed. Control it from its host.'}</p>}
-      {incompatible && <p role="alert">{zh ? '运行实例版本不兼容，请展开运行设置进行安全重启。' : 'The running version is incompatible. Open settings to restart safely.'}</p>}
-      {snap.daemon.protocol_error && <p role="alert">{snap.daemon.protocol_error}</p>}
       {controls.error && <p role="alert" className="text-err">{controls.error}</p>}
     </section>
 
@@ -141,28 +125,7 @@ export function RuntimeControlPage({
         <div className="runtime-field-row">
           <button className="button" disabled={disabled} onClick={() => confirmRun('reset', zh ? '将清空当前对话的上下文，任务和文件会保留。确认重置？' : 'Clear conversation context? Tasks and files are preserved.',
             () => api.resetManager(sid), zh ? '对话上下文已重置。' : 'Conversation context reset.')}><RotateCcw size={15} />{zh ? '重置对话上下文' : 'Reset conversation context'}</button>
-          <button className="button" disabled={disabled || external} onClick={() => confirmRun('restart', zh ? '等待当前工作结束后，使用当前版本重新启动。确认继续？' : 'Wait for active work, then restart on the current release?',
-            () => api.upgradeDaemon(sid, snap.daemon_commands?.revision), zh ? '安全重启请求已提交。' : 'Safe restart requested.')}><RefreshCw size={15} />{zh ? '安全重启' : 'Restart safely'}</button>
         </div>
-        {!HOSTED_TRIAL && !readOnly && <div className="runtime-source-update">
-          <h3>{t('operations.sourceUpdate')}</h3>
-          {source.error ? <p role="alert">{requestError(source.error)}</p> : source.data?.error || source.data?.message ? <p>{source.data.error || source.data.message}</p> : null}
-          {!source.error && <div className="runtime-field-row">
-            <button className="button" disabled={disabled || source.data?.running} onClick={() => void run('check-update', async () => { await api.checkSourceUpdate(); await source.refetch(); }, zh ? '已提交更新检查。' : 'Update check requested.')}><RefreshCw size={15} />{zh ? '检查更新' : 'Check updates'}</button>
-            <button className="button" disabled={disabled || !source.data?.can_update || !source.data.update_available || source.data.running}
-              onClick={() => confirmRun('update', zh ? '将下载并构建新版本；完成后可能需要重启服务。确认更新？' : 'Download and build the new release? A service restart may be needed.',
-                async () => { await api.applySourceUpdate(); await source.refetch(); }, zh ? '更新请求已提交。' : 'Update requested.')}><ArrowDownToLine size={15} />{t('operations.pullLatest')}</button>
-          </div>}
-          {source.data?.restart_required && <p>{t('operations.updateRestart')}</p>}
-        </div>}
-        {!!replacements.length && <div>
-          <h3>{zh ? '切换运行名额' : 'Switch active session'}</h3>
-          <p>{zh ? '先安全暂停指定项目，再启动当前项目。' : 'Safely pause the selected project, then start this one.'}</p>
-          {replacements.map(row => <button key={row.id} className="button" disabled={disabled}
-            onClick={() => confirmRun(`replace:${row.id}`, zh ? `将暂停“${row.label || row.id}”并启动当前项目，确认继续？` : `Pause ${row.label || row.id} and start this project?`,
-              () => api.replaceDaemon(sid, row.id, Boolean(snap.continuous?.enabled), snap.daemon_commands?.revision),
-              zh ? '项目切换请求已提交。' : 'Session switch requested.')}><RefreshCw size={15} />{row.label || row.id}</button>)}
-        </div>}
       </div>
     </details>
     {!readOnly && <details className="runtime-section" open={recoveryOpen} onToggle={event => setRecoveryOpen(event.currentTarget.open)}>
@@ -177,14 +140,5 @@ export function RuntimeControlPage({
         {trash.data && trash.data.total > trash.data.entries.length && <p>{zh ? `显示最近 ${trash.data.entries.length} 条，请缩小搜索范围。` : `Showing ${trash.data.entries.length} recent matches. Narrow the search for more.`}</p>}
       </div>
     </details>}
-    <details className="runtime-section" open={diagnosticsOpen} onToggle={event => setDiagnosticsOpen(event.currentTarget.open)}>
-      <summary><Activity size={17} /><span>{zh ? '技术诊断' : 'Technical diagnostics'}</span></summary>
-      <div className="runtime-section-body">
-        {metrics.error ? <p role="alert">{requestError(metrics.error)}</p> : !metrics.data ? <p>{t('common.loading')}</p> : <>
-          <p>{t(metrics.data.slo?.status === 'healthy' ? 'operations.slo.healthy' : 'operations.slo.degraded')}</p>
-          <RawDisclosure><pre>{JSON.stringify(metrics.data, null, 2)}</pre></RawDisclosure>
-        </>}
-      </div>
-    </details>
   </div>;
 }

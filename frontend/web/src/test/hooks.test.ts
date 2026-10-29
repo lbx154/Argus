@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTIVE_DAEMON_POLL_MS,
   ARTIFACTS_POLL_MS,
-  GIT_DIFF_POLL_MS,
   PROJECT_COST_POLL_MS,
   PROJECT_POLL_MS,
   SNAPSHOT_POLL_MS,
@@ -23,7 +22,6 @@ describe('project-scoped event stream', () => {
     expect(SNAPSHOT_POLL_MS).toBeGreaterThanOrEqual(8_000);
     expect(ACTIVE_DAEMON_POLL_MS).toBeLessThanOrEqual(2_000);
     expect(ARTIFACTS_POLL_MS).toBeGreaterThanOrEqual(10_000);
-    expect(GIT_DIFF_POLL_MS).toBeGreaterThanOrEqual(10_000);
     expect(STREAM_RENDER_BATCH_MS).toBeGreaterThanOrEqual(16);
     expect(STREAM_RENDER_BATCH_MS).toBeLessThanOrEqual(100);
   });

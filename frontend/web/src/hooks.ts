@@ -14,7 +14,6 @@ export const PROJECT_COST_POLL_MS = 5_000;
 export const SNAPSHOT_POLL_MS = 8_000;
 export const ACTIVE_DAEMON_POLL_MS = 2_000;
 export const ARTIFACTS_POLL_MS = 10_000;
-export const GIT_DIFF_POLL_MS = 10_000;
 
 export function queryRetryPolicy(failureCount: number, error: unknown): boolean {
   return !isAuthenticationError(error) && !(error instanceof PageUpdateRequiredError) && failureCount < 1;
@@ -91,14 +90,6 @@ export function useSnapshot(sid: string | null) {
   });
 }
 
-export const useStatus = (sid: string | null, enabled = true) =>
-  useQuery({
-    queryKey: ['status', sid],
-    queryFn: ({ signal }) => api.status(sid!, signal),
-    enabled: !!sid && enabled,
-    refetchInterval: enabled ? 6_000 : false,
-  });
-
 export const useJournal = (sid: string | null, n = 30, enabled = true) =>
   useQuery({
     queryKey: ['journal', sid, n],
@@ -155,14 +146,6 @@ export const useArtifact = (
       && !isAuthenticationError(query.state.error) ? 2_000 : false,
   });
 
-export const useGitDiff = (sid: string | null, enabled = true) =>
-  useQuery({
-    queryKey: ['git-diff', sid],
-    queryFn: ({ signal }) => api.gitDiff(sid!, signal),
-    enabled: !!sid && enabled,
-    refetchInterval: enabled ? GIT_DIFF_POLL_MS : false,
-  });
-
 export const useBacklogItem = (sid: string | null, itemId: string | null) =>
   useQuery({
     queryKey: ['backlog-item', sid, itemId],
@@ -176,7 +159,6 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
   const qc = useQueryClient();
   const invalidateProject = (targetSid: string | null) => {
     qc.invalidateQueries({ queryKey: ['snapshot', targetSid] });
-    qc.invalidateQueries({ queryKey: ['status', targetSid] });
     qc.invalidateQueries({ queryKey: ['projects'] });
     qc.invalidateQueries({ queryKey: ['backlog-item', targetSid] });
   };

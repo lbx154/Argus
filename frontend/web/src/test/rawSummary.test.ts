@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lastMeaningfulLine, metricsFigures, outputSummary, plainLogLine } from '../lib/rawSummary';
+import { lastMeaningfulLine, outputSummary, plainLogLine } from '../lib/rawSummary';
 
 describe('lastMeaningfulLine', () => {
   it('returns the last line that says something, without its timestamp and level', () => {
@@ -27,26 +27,5 @@ describe('outputSummary', () => {
   it('gives the first line and the line count', () => {
     expect(outputSummary('research-idea-playbook\nwriting-checklist\n\nsource-index')).toEqual({ first: 'research-idea-playbook', lines: 3 });
     expect(outputSummary('')).toEqual({ first: '', lines: 0 });
-  });
-});
-
-describe('metricsFigures', () => {
-  it('picks the numbers a person watching a run cares about', () => {
-    expect(metricsFigures({
-      provider: { completed: 40, errors: 2, denied: 0, success_rate: 0.95, p95_duration_ms: 8200 },
-      web: { requests: 900, errors_5xx: 0 },
-    })).toEqual([
-      { key: 'calls', value: '42' },
-      { key: 'failed', value: '2' },
-      { key: 'slowest', value: '8.2s' },
-    ]);
-  });
-
-  it('skips the slow-call figure without a p95, and renders nothing without metrics', () => {
-    expect(metricsFigures({ provider: { completed: 0, errors: 0 } })).toEqual([
-      { key: 'calls', value: '0' },
-      { key: 'failed', value: '0' },
-    ]);
-    expect(metricsFigures(null)).toEqual([]);
   });
 });

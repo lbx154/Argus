@@ -274,9 +274,8 @@ describe('deriveProgressEstimate', () => {
 function renderPage(value: Snapshot, taskEvents: EventMsg[] = events) {
   const props: ActiveWorkbenchPageProps = {
     sid: value.session.id,
-    project: { id: value.session.id, label: 'Test project', objective: '', cwd: '/tmp', workdir: '/tmp', last_active: 1_000, daemon_alive: value.daemon.alive, daemon_pid: 1, uptime_seconds: 500 },
-    snapshot: value, events: taskEvents, connected: false, snapshotUpdatedAt: 1_000, active: true,
-    refresh: () => {}, navigate: () => {},
+    snapshot: value, events: taskEvents, connected: false, active: true,
+    refresh: () => {},
     controls: { start: async () => {}, stop: async () => {}, busy: false, error: '' },
   };
   return renderToStaticMarkup(createElement(ExperimentsPage, { ...props, onCompose: () => {}, readOnly: false }));

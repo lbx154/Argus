@@ -8,12 +8,11 @@ import type { WorkspaceGit } from '../research-workbench/workspaceApi';
 const diff = 'diff --git a/demo.txt b/demo.txt\nindex 1111111..2222222 100644\n--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-before\n+after\n';
 const props: ActiveWorkbenchPageProps = {
   sid: 's-A', active: false,
-  project: { id: 's-A', label: 'A', objective: '', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
   snapshot: { session: { id: 's-A', display_name: 'Synthetic A', cwd: '/synthetic', objective: '', last_active: 1 },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
     roles: [], backlog: [], recent_events: [] },
-  events: [], connected: false, snapshotUpdatedAt: 1, refresh: vi.fn(),
-  controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' }, navigate: vi.fn(),
+  events: [], connected: false, refresh: vi.fn(),
+  controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' },
 };
 let client: QueryClient;
 let view: ReactTestRenderer;

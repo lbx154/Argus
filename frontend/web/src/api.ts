@@ -9,12 +9,10 @@ import type {
   BacklogItem,
   Daemon,
   EventMsg,
-  GitDiffView,
   LaunchSettings,
   ProjectRow,
   ProjectCostRow,
   ProgressSourceRef,
-  Role,
   Snapshot,
   VerticalAction,
   VerticalManageResult,
@@ -42,7 +40,6 @@ export type {
   BacklogItem,
   Daemon,
   EventMsg,
-  GitDiffView,
   ProjectRow,
   ProjectCostRow,
   Role,
@@ -281,17 +278,6 @@ export interface JournalEntry {
   cost_usd?: number;
   extra?: Record<string, unknown>;
 }
-export interface StatusView {
-  identity: string;
-  backlog_pending: BacklogItem[];
-  pending_questions: Array<Record<string, unknown>>;
-  journal: JournalEntry[];
-  continuous: { enabled: boolean; objective: string; done_reason?: string; done_at?: string };
-  inbox_pending: number;
-  daemon: Daemon;
-  roles: Role[];
-  active_role: string | null;
-}
 export interface DoctorCheck {
   name: string;
   ok: boolean;
@@ -478,36 +464,6 @@ export interface TrashEntry {
   launch_cwd: string;
   trash_path: string;
   trashed_at: number;
-}
-export interface MetricsSnapshot {
-  schema_version?: number;
-  slo?: { status?: string; [key: string]: unknown };
-  web?: Record<string, unknown>;
-  provider?: Record<string, unknown>;
-  daemon_commands?: Record<string, unknown>;
-  event_validation_failures?: number;
-  [key: string]: unknown;
-}
-export interface SourceUpdateStatus {
-  schema_version: number;
-  state: 'idle' | 'checking' | 'available' | 'current' | 'updating' | 'succeeded' | 'failed';
-  phase: string;
-  running: boolean;
-  source_root: string;
-  upstream: string;
-  current_revision: string;
-  upstream_revision: string;
-  branch: string;
-  dirty: boolean | null;
-  can_update: boolean;
-  update_available: boolean | null;
-  changed: boolean;
-  restart_required: boolean;
-  message: string;
-  error: string;
-  started_at: number | null;
-  checked_at: number | null;
-  updated_at: number;
 }
 
 const TOKEN_KEY = 'argus_web_token';
@@ -1168,8 +1124,6 @@ export const api = {
     );
     return requireSnapshotContract(value);
   },
-  status: (sid: string, signal?: AbortSignal) =>
-    getJson<StatusView>(P(sid, '/status'), signal),
   journal: (sid: string, n = 20, signal?: AbortSignal) =>
     getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`), signal)
       .then((r) => r.journal),
@@ -1240,19 +1194,9 @@ export const api = {
   /** A mesh, glTF buffer or texture a registered model references, by the reference as written. */
   artifactModelAsset: (sid: string, path: string, ref: string, signal?: AbortSignal) =>
     getBlob(P(sid, `/artifact/model-asset?${new URLSearchParams({ path, ref })}`), signal),
-  gitDiff: (sid: string, signal?: AbortSignal) =>
-    getJson<GitDiffView>(P(sid, '/git-diff'), signal),
   deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>
     getJson<{ path: string; available: boolean; diff: string; truncated: boolean }>(
       P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
-  metrics: (signal?: AbortSignal) =>
-    getJson<MetricsSnapshot>('/api/metrics', signal),
-  sourceUpdateStatus: (signal?: AbortSignal) =>
-    getJson<SourceUpdateStatus>('/api/runtime/source-update', signal),
-  checkSourceUpdate: () =>
-    postJson<SourceUpdateStatus>('/api/runtime/source-update/check'),
-  applySourceUpdate: () =>
-    postJson<SourceUpdateStatus>('/api/runtime/source-update/apply'),
   resources: (signal?: AbortSignal) =>
     getJson<ResourceStatus>('/api/system/resources', signal),
   trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
@@ -1657,18 +1601,6 @@ export const api = {
     command_id: commandId(),
     expected_revision: expectedRevision,
   }).then(requireDaemonCommand),
-  replaceDaemon: (sid: string, victimSid: string, resumeContinuous = false, expectedRevision?: number) =>
-    postJson(P(sid, '/daemon/replace'), {
-      victim_sid: victimSid,
-      resume_continuous: resumeContinuous,
-      command_id: commandId(),
-      expected_revision: expectedRevision,
-    }).then(requireDaemonCommand),
-  upgradeDaemon: (sid: string, expectedRevision?: number) =>
-    postJson(P(sid, '/daemon/upgrade'), {
-      command_id: commandId(),
-      expected_revision: expectedRevision,
-    }).then(requireDaemonCommand),
 };
 
 /** How the live event stream closed: `code` is the HTTP status that refused it, 0 for a lost

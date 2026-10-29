@@ -3,7 +3,6 @@
 // helpers pick the line or the few numbers a person actually reads, so the
 // raw text can wait behind a disclosure.
 
-import type { MetricsSnapshot } from '../api';
 
 const LINE_PREFIX = [
   // 2026-09-11 22:07:01,123 · 2026-09-11T22:07:01Z · [2026-09-11 22:07:01]
@@ -33,31 +32,4 @@ export function lastMeaningfulLine(text: string, limit = 200): string {
 export function outputSummary(text: string, limit = 160): { first: string; lines: number } {
   const lines = String(text ?? '').split(/\r?\n/).filter((line) => line.trim());
   return { first: lines.length ? clip(lines[0].trim(), limit) : '', lines: lines.length };
-}
-
-export type MetricFigureKey = 'calls' | 'failed' | 'slowest';
-
-export interface MetricFigure {
-  key: MetricFigureKey;
-  value: string;
-}
-
-const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
-
-/**
- * The three numbers a person watching a run cares about: how many model calls
- * today, how many failed, and how slow the slow ones were. Web request counts
- * and SLO bookkeeping stay in the raw block.
- */
-export function metricsFigures(metrics: MetricsSnapshot | null | undefined): MetricFigure[] {
-  if (!metrics) return [];
-  const provider = metrics.provider ?? {};
-  const figures: MetricFigure[] = [];
-  const completed = num(provider.completed) ?? 0;
-  const errors = num(provider.errors) ?? 0;
-  figures.push({ key: 'calls', value: String(completed + errors) });
-  figures.push({ key: 'failed', value: String(errors) });
-  const p95 = num(provider.p95_duration_ms);
-  if (p95 && p95 > 0) figures.push({ key: 'slowest', value: `${(p95 / 1000).toFixed(1)}s` });
-  return figures;
 }
