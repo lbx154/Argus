@@ -19,19 +19,6 @@ export const PHASE_TONE: Record<TeamPhase, string> = {
   running: 'running', waiting_you: 'waiting', paused: 'idle', stopped: 'failed', done: 'done', unknown: 'idle',
 };
 
-export function teamPhaseLabel(phase: TeamPhase, locale: Locale): string {
-  const zh = locale === 'zh-CN';
-  const labels: Record<TeamPhase, [string, string]> = {
-    running: ['运行中', 'Running'],
-    waiting_you: ['等你回复', 'Waiting for you'],
-    paused: ['已暂停', 'Paused'],
-    stopped: ['已停止', 'Stopped'],
-    done: ['已完成', 'Done'],
-    unknown: ['状态未知', 'Status unknown'],
-  };
-  return labels[phase][zh ? 0 : 1];
-}
-
 const QUEUED = ['pending', 'queued', 'running', 'in_progress', 'claimed', 'paused'];
 
 /** "暂停团队" / "继续": pauses or resumes the background team, never the Manager's reply. */

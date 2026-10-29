@@ -106,18 +106,24 @@ export function plainRowText(ev: EventMsg, r: RenderedLine, locale: Locale, task
   return plainDetail(cleaned, locale);
 }
 
-/**
- * What a role is doing or concluded, in one plain line: its newest message or
- * verdict, never a command. With nothing said yet, the newest tool step in
- * words, else how many commands it ran. The live card says a role with this too.
- */
-export function roleHeadline(rows: Row[], locale: Locale, taskTitle?: (id: string) => string): string {
+/** What a role said last, in one plain line: its newest message or verdict, never a command. */
+export function roleSaid(rows: Row[], locale: Locale, taskTitle?: (id: string) => string): string {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const { ev, r } = rows[index];
     if (isCallRow(ev) || r.reasoning || UNSAID.has(String(ev.type || ''))) continue;
     const line = firstLine(plainRowText(ev, r, locale, taskTitle).text);
     if (line) return line;
   }
+  return '';
+}
+
+/**
+ * What a role concluded, in one plain line: what it said last. With nothing
+ * said, its newest tool step in words, else how many commands it ran.
+ */
+export function roleHeadline(rows: Row[], locale: Locale, taskTitle?: (id: string) => string): string {
+  const said = roleSaid(rows, locale, taskTitle);
+  if (said) return said;
   const calls = rows.filter(row => isCallRow(row.ev));
   const tool = [...calls].reverse().find(row => row.ev.kind === 'tool_use');
   if (tool) return plainToolLabel(tool.ev, locale);

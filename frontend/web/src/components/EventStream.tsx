@@ -1,4 +1,4 @@
-import { Fragment, createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
@@ -34,7 +34,7 @@ import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
 import { plainDetail, plainTaskReport } from '../lib/plainStatus';
-import { isCallRow, plainRowText, roleHeadline, type ProgressText } from '../lib/plainProgress';
+import { isCallRow, plainRowText, roleHeadline, roleSaid, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, eventTaskId } from '../lib/workStatus';
 import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
@@ -440,6 +440,7 @@ function RoleLogGroup({
   open,
   active,
   tasks,
+  round,
   earlier,
   onToggle,
 }: {
@@ -449,6 +450,8 @@ function RoleLogGroup({
   active: boolean;
   /** The tasks it is at work on now. */
   tasks: string[];
+  /** When the operator last wrote: what a role at work does now is what it did since. */
+  round: number;
   /** What the role last said in the whole record, for when its loaded log says nothing. */
   earlier?: string;
   onToggle: () => void;
@@ -465,17 +468,24 @@ function RoleLogGroup({
   const commandCount = useMemo(() => rows.filter(row => isCallRow(row.ev)).length, [rows]);
   const shown = useMemo(() => showCommands ? rows : rows.filter(row => !isCallRow(row.ev)), [rows, showCommands]);
   const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
-  // The collapsed header says what the role is doing or concluded, never a command:
-  // at work, only what it does on the tasks the server says it is on now.
+  // The collapsed header says what the role concluded, or at work what it does now: what it
+  // said since the operator last wrote on the tasks the server says it is on, else its newest step.
   const taskTitle = useContext(TaskTitleContext);
+  const workspace = useContext(WorkspaceContext);
+  const doing = useCallback((on: ActivityRow[]) => {
+    const now = on.filter(row => Number(row.ev.ts) >= round);
+    const step = now.filter(row => isCallRow(row.ev) && row.ev.kind !== 'tool_result').at(-1);
+    return roleSaid(now, locale, taskTitle) || (!step ? '' : step.ev.kind === 'command_execution'
+      ? `${zh ? '运行 ' : 'Running '}${plainCommand(step.r.text, workspace)}` : plainToolLabel(step.ev, locale));
+  }, [round, locale, zh, taskTitle, workspace]);
   const headline = useMemo(() => active
-    ? roleHeadline(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows, locale, taskTitle)
-    : roleHeadline(rows, locale, taskTitle) || earlier || '', [active, tasks, rows, locale, taskTitle, earlier]);
+    ? doing(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows)
+    : roleHeadline(rows, locale, taskTitle) || earlier || '', [active, doing, tasks, rows, locale, taskTitle, earlier]);
   // At work on several tasks at once, it says what it does now on each.
   const several = active && tasks.length > 1;
   const each = useMemo(() => several ? tasks.map(id => ({
-    id, title: taskTitle(id) || id, now: roleHeadline(rows.filter(row => eventTaskId(row.ev) === id), locale, taskTitle),
-  })) : [], [several, tasks, rows, locale, taskTitle]);
+    id, title: taskTitle(id) || id, now: doing(rows.filter(row => eventTaskId(row.ev) === id)),
+  })) : [], [several, tasks, rows, doing, taskTitle]);
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -605,12 +615,13 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active, tasks, earlier, followLatest }: {
+function RoleLogCollection({ rows, active, tasks, round, earlier, followLatest }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
   /** The tasks the role is at work on now. */
   tasks: (role: string) => string[];
+  round: number;
   /** What the role last said in the whole record. */
   earlier?: (role: string) => string | undefined;
   followLatest: boolean;
@@ -636,6 +647,7 @@ function RoleLogCollection({ rows, active, tasks, earlier, followLatest }: {
           open={openRoles.has(role)}
           active={active(role)}
           tasks={tasks(role)}
+          round={round}
           earlier={earlier?.(role)}
           onToggle={() => {
             userToggledRole.current = true;
@@ -1122,7 +1134,8 @@ export function EventStream({
   const timeline = useMemo(() => {
     const blocks = conversationTimeline(rows.list);
     const workRows = rows.list.filter((row) => row.ev.type !== 'ui.operator' && row.ev.type !== 'ui.argus');
-    return { blocks, workRows };
+    const round = Math.max(0, ...rows.list.filter(row => row.ev.type === 'ui.operator').map(row => Number(row.ev.ts)));
+    return { blocks, workRows, round };
   }, [rows.list]);
   // Who works now, as the server knows it: several roles can at once, and none while the run is down.
   const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
@@ -1303,7 +1316,7 @@ export function EventStream({
             {timeline.workRows.length || snapshot?.roles.some(role => role.last) ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
               className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
               <div className="overflow-hidden rounded-lg border border-line/70">
-                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} followLatest
+                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} round={timeline.round} followLatest
                   tasks={role => snapshot?.roles.find(row => row.role === role)?.tasks ?? []}
                   earlier={role => snapshot?.roles.find(row => row.role === role)?.last?.text} />
               </div>

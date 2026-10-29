@@ -8,7 +8,7 @@ import { projectOverview } from "../map/overview";
 import { attentionTasks, type MapTask } from "../map/model";
 import { emptyMissionView } from "../../../core/src/missionView";
 import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
-import { teamPhase, teamPhaseLabel } from "../components/TeamControls";
+import { teamPhase } from "../components/TeamControls";
 import { TeamPauseButton } from "../components/TeamControls";
 
 vi.mock("@xyflow/react", async (original) => ({
@@ -66,7 +66,7 @@ describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
     Object.assign(view.mission, { id: "last", status: "failed" });
     for (const owns of [[".argus/maintenance/review-progress-repair"], ["report.md"]]) {
       const failed = currentWorkStatus(snapshot(owns), view, [], 10);
-      expect([teamPhaseLabel(teamPhase(failed), "zh-CN"), workStatusLabel(failed, "zh-CN")]).toEqual(["已暂停", "当前任务未在运行"]);
+      expect([teamPhase(failed), workStatusLabel(failed, "zh-CN")]).toEqual(["paused", "当前任务未在运行"]);
     }
   });
 });

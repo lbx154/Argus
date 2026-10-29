@@ -504,6 +504,29 @@ describe('project work status and conversation separation', () => {
     expect(visibleText(card('t1'))).toBe('Paused: Write a.py');
   });
 
+  it('says what a role at work does since the operator last wrote: its words, else its newest command', () => {
+    const { snapshot } = runtimeFixture();
+    snapshot.backlog = [];
+    snapshot.roles = [{ ...snapshot.roles[0], role: 'manager' }];
+    const manager = (ts: number, kind: string, text: string): EventMsg => ({ type: 'engineer.progress', kind, agent_layer: 'manager', text, event_id: `m-${ts}`, ts });
+    const round: EventMsg[] = [
+      { type: 'ui.operator', text: 'Make a timer', ts: 1 },
+      manager(2, 'agent_message', 'The page is done.'),
+      { type: 'ui.argus', text: 'Here is timer.html.', ts: 3 },
+      { type: 'ui.operator', text: 'Make it green', ts: 4 },
+      manager(5, 'command_execution', "/usr/bin/bash -lc 'sed -n 1,40p /tmp/timer.html'"),
+    ];
+    const headline = () => visibleText(renderer!.root.findByProps({ 'data-role': 'manager' }).findAllByType('button')[0]).trim();
+    act(() => { renderer = create(<EventStream events={round} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
+    // What it said in the last round is not what it does now.
+    expect(headline()).toBe('ManagerNow: Running sed -n 1,40p timer.html');
+    act(() => renderer!.update(<EventStream events={[...round, manager(6, 'agent_message', 'Switching the background to green.')]} snapshot={snapshot} connected showReasoning={false} />));
+    expect(headline()).toBe('ManagerNow: Switching the background to green.');
+    // At rest, it is what it said last.
+    act(() => renderer!.update(<EventStream events={round} snapshot={{ ...snapshot, roles: [{ ...snapshot.roles[0]!, active: false }] }} connected showReasoning={false} />));
+    expect(headline()).toBe('ManagerLast: The page is done.');
+  });
+
   it('keeps ongoing task A work out of the later question B conversation and preserves the role log reading state', () => {
     const first: EventMsg[] = [
       { type: 'ui.operator', text: 'Start research task A', ts: 1 },

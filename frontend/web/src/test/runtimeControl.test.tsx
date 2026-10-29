@@ -46,7 +46,7 @@ describe('embedded runtime control page', () => {
     props.controls.error = 'synthetic command error';
     await mount();
     const html = JSON.stringify(tree!.toJSON());
-    expect(html).toContain('Ready for a new task');
+    expect(html).toContain('Done');
     expect(html).not.toContain('Continuous work paused');
     expect(tree!.root.findByType('h2').children).toEqual(['Untitled project']);
     expect(html).toContain('synthetic command error');

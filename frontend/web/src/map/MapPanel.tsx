@@ -82,10 +82,9 @@ import "./atlas.css";
 import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { livePollInterval, mapIsPaused, mergeMapProgress } from "./incremental";
-import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
+import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
 import { taskFigures } from "./cardFigure";
 import { MapCardFigureContext } from "./cardContext";
-import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
 import { clearOfChrome, humanFrame, isHumanCardId, LINK_KINDS, resolveLinkTarget, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point, type RouteStep } from "./canvas";
@@ -1214,8 +1213,7 @@ export function MapCanvas({
   // The writer's reader-language account of a task's outcome, when cached.
   const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
   const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
-  const currentWork = workSummary(status, snapshot.mission_view, events, zh ? 'zh-CN' : 'en', actions.connected,
-    currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId));
+  const currentWork = workStatusLabel(status, zh ? 'zh-CN' : 'en', actions.connected);
   const decisionCards = useMemo(() => operatorDecisionCards(snapshot.pending_questions ?? [],
     snapshot.backlog.map((item) => ({ ...item })), currentTaskId), [snapshot.pending_questions, snapshot.backlog, currentTaskId]);
   const overview = useMemo(() => projectOverview({

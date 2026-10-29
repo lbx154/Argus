@@ -3,12 +3,11 @@ import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot, EventMsg } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { roleLabel } from '../lib/enumLabels';
-import { PHASE_TONE, teamPhase, teamPhaseLabel } from './TeamControls';
+import { PHASE_TONE, teamPhase } from './TeamControls';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPause, faPlay, faStop, faTerminal } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
-import { currentWorkStartedAt, currentWorkStatus } from '../lib/workStatus';
-import { workSummary } from '../lib/workSummary';
+import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { isFreshProject } from '../lib/workStatus';
 import { resumableTaskIds } from '../lib/resumable';
@@ -58,8 +57,6 @@ export function TopBar({
 }) {
   const { t, locale } = useI18n();
   const work = currentWorkStatus(snap, missionView, events);
-  const progress = workSummary(work, missionView, events, locale, streamOk,
-    currentWorkStartedAt(snap, missionView, work.taskId));
   const missionTerminal = ['complete', 'completed', 'done', 'success'].includes(
     String(missionView?.mission.status || '').toLowerCase(),
   );
@@ -77,7 +74,7 @@ export function TopBar({
   // A project nobody has written to yet has finished nothing: it waits for the person (rule 6).
   const untouched = isFreshProject(snap) && phase === 'done' && !events.length && !focus;
   const statusWords = !streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale')
-    : untouched ? (locale === 'zh-CN' ? '等你开始' : 'Waiting for you to start') : progress || teamPhaseLabel(phase, locale);
+    : untouched ? (locale === 'zh-CN' ? '等你开始' : 'Waiting for you to start') : workStatusLabel(work, locale);
   const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
   // A foreground request (a direct answer or a one-agent task) runs without
   // the daemon; offering "Run" then reads as if nothing had started.

@@ -10,7 +10,7 @@ vi.mock('../i18n', async (importOriginal) => {
   };
 });
 
-const { TeamPauseButton, teamPhase, teamPhaseLabel } = await import('../components/TeamControls');
+const { TeamPauseButton, teamPhase } = await import('../components/TeamControls');
 const { translate } = await import('../i18n');
 const { ContinuousSwitch } = await import('../components/ContinuousSwitch');
 
@@ -26,8 +26,6 @@ describe('team status and controls', () => {
     expect(teamPhase(status('paused', 'operator_input'))).toBe('waiting_you');
     expect(teamPhase(status('paused', 'not_running'))).toBe('paused');
     expect(teamPhase(status('idle'))).toBe('done');
-    expect(['running', 'waiting_you', 'paused', 'done'].map((phase) => teamPhaseLabel(phase as never, 'zh-CN')))
-      .toEqual(['运行中', '等你回复', '已暂停', '已完成']);
   });
 
   it('offers pause for a live team and resume for a stopped team with unfinished work', () => {
