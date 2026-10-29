@@ -21,7 +21,6 @@ reliably across backends).
 from __future__ import annotations
 
 import json
-import os
 import time
 from typing import Any, Callable
 
@@ -36,26 +35,6 @@ from ..core.secret_guard import known_secret_values, redact_secrets_text
 _PROGRESS_TEXT_LIMIT = 600
 _DEFAULT_DELTA_INTERVAL_S = 0.5
 _DEFAULT_DELTA_CHARS = 256
-
-
-def _nonnegative_float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return max(0.0, float(raw))
-    except ValueError:
-        return default
-
-
-def _nonnegative_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return default
 
 
 # Tool names that run a shell command, so their progress reads as a command
@@ -134,90 +113,9 @@ def _is_structured_role_result(actor: str, text: str) -> bool:
     return isinstance(payload, dict)
 
 
-def _shell_tool_bucket(command: str) -> str:
-    """Group shell commands by leading binary so 'apply_patch'-style
-    repeated failures cluster (e.g. all ``git ...`` invocations under
-    ``shell:git``) without one-bucket-per-unique-command explosion.
-    """
-    cmd = (command or "").strip()
-    # Codex wraps as /bin/bash -lc 'real cmd'; peel one quoting layer.
-    for p in ("/bin/bash -lc ", "/bin/bash -c ", "bash -lc ", "bash -c ", "sh -c "):
-        if cmd.startswith(p):
-            inner = cmd[len(p):].strip()
-            if len(inner) >= 2 and inner[0] == inner[-1] and inner[0] in ("'", '"'):
-                cmd = inner[1:-1]
-            else:
-                cmd = inner
-            break
-    leader = cmd.split(None, 1)[0] if cmd else ""
-    # Strip path so ``/usr/bin/python3`` and ``python3`` share a bucket.
-    leader = leader.rsplit("/", 1)[-1] or "shell"
-    return f"shell:{leader}"
-
-
-def _record_failure_if_any(ledger: Any, kind: str, item: dict[str, Any]) -> None:
-    """Inspect a codex ``item.completed`` payload and, when it represents
-    a failed beat, record it in the ledger.
-
-    Failure semantics observed in codex stream-json:
-      * ``command_execution``: ``status == "failed"`` AND/OR
-        non-zero ``exit_code``; ``aggregated_output`` carries stderr.
-      * ``file_change``: ``status == "failed"``; ``changes`` carries
-        path metadata. ``apply_patch``-style failures land here.
-      * ``tool_use``: rare in codex CLI but follow the same status
-        contract.
-
-    The ledger silently no-ops on success or unrecognised shapes so this
-    is safe to call on every beat.
-    """
-    if not isinstance(item, dict):
-        return
-    status = str(item.get("status") or "").lower()
-    exit_code = item.get("exit_code")
-    failed = (
-        status == "failed"
-        or (isinstance(exit_code, int) and exit_code not in (0, None))
-    )
-    if not failed:
-        return
-
-    err = ""
-    detail = ""
-    bucket = ""
-    if kind == "command_execution":
-        cmd = str(item.get("command") or "").strip()
-        bucket = _shell_tool_bucket(cmd)
-        detail = cmd
-        err = str(item.get("aggregated_output") or "").strip() or f"exit_code={exit_code}"
-    elif kind == "file_change":
-        bucket = "apply_patch"
-        changes = item.get("changes") or []
-        if isinstance(changes, list):
-            paths = ", ".join(
-                str(c.get("path", "?")) for c in changes if isinstance(c, dict)
-            )
-            detail = paths
-        err = (
-            str(item.get("aggregated_output") or item.get("error") or "").strip()
-            or f"file_change failed (status={status})"
-        )
-    elif kind == "tool_use":
-        bucket = "tool:" + str(item.get("name") or "unknown")
-        detail = str(item.get("name") or "")
-        err = str(item.get("aggregated_output") or item.get("error") or "").strip() or f"status={status}"
-    else:
-        return
-
-    try:
-        ledger.record(bucket, err, detail=detail)
-    except Exception:  # noqa: BLE001 — ledger failures must never crash the stream
-        pass
-
-
 def make_stream_progress_callback(
     sink: Any,
     *,
-    ledger: Any | None = None,
     min_delta_interval_s: float | None = None,
     min_delta_chars: int | None = None,
 ) -> Callable[[str, str], None]:
@@ -256,18 +154,12 @@ def make_stream_progress_callback(
     # ``thread.started`` below).
     codex_process = [0]
     delta_interval_s = (
-        _nonnegative_float_env(
-            "ARGUS_SKILL_STREAM_PROGRESS_INTERVAL_S",
-            _DEFAULT_DELTA_INTERVAL_S,
-        )
+        _DEFAULT_DELTA_INTERVAL_S
         if min_delta_interval_s is None
         else max(0.0, float(min_delta_interval_s))
     )
     delta_chars = (
-        _nonnegative_int_env(
-            "ARGUS_SKILL_STREAM_PROGRESS_CHARS",
-            _DEFAULT_DELTA_CHARS,
-        )
+        _DEFAULT_DELTA_CHARS
         if min_delta_chars is None
         else max(0, int(min_delta_chars))
     )
@@ -410,11 +302,6 @@ def make_stream_progress_callback(
             if not isinstance(item, dict):
                 return
             kind = str(item.get("type") or "").strip() or "message"
-            # Failure side-channel: codex marks failed beats with
-            # ``status == "failed"``. Tally these into the ledger so the
-            # engineer prompt can interrupt blind-retry loops.
-            if ledger is not None:
-                _record_failure_if_any(ledger, kind, item)
             text = _extract_text(item)
             if not text:
                 return
@@ -525,8 +412,6 @@ def make_stream_progress_callback(
                 "exit_code": exit_code,
                 "aggregated_output": result.get("output") or result.get("content") or "",
             }
-            if ledger is not None:
-                _record_failure_if_any(ledger, old_kind, item)
             _emit_progress(
                 kind=old_kind,
                 text=old_text or old_name,
@@ -599,8 +484,6 @@ def make_stream_progress_callback(
                 "exit_code": exit_code,
                 "aggregated_output": state.get("output") or "",
             }
-            if ledger is not None:
-                _record_failure_if_any(ledger, adapted_kind, adapted_item)
             extra = {
                 "status": adapted_item["status"],
                 "exit_code": exit_code,
@@ -682,8 +565,6 @@ def make_stream_progress_callback(
                 "status": "failed",
                 "aggregated_output": str(content or ""),
             }
-            if ledger is not None:
-                _record_failure_if_any(ledger, kind, item)
             _emit_progress(
                 kind=kind,
                 text=text or name,
@@ -889,8 +770,6 @@ def make_stream_progress_callback(
                 "exit_code": exit_code,
                 "aggregated_output": result.get("content") or "",
             }
-            if ledger is not None:
-                _record_failure_if_any(ledger, kind, item)
             _emit_progress(
                 kind=kind,
                 text=text or name,
@@ -985,7 +864,7 @@ def make_stream_progress_callback(
 
 
 class StreamProgressRelay:
-    """Reuse ONE ``make_stream_progress_callback`` per ``(sink, ledger)`` pair.
+    """Reuse ONE ``make_stream_progress_callback`` per sink.
 
     The callback closes over a per-instance copilot delta-accumulation buffer:
     copilot streams a reply as MANY per-token ``assistant.message_delta`` events
@@ -995,7 +874,7 @@ class StreamProgressRelay:
     per line resets the buffer every token, so each token is emitted as a
     standalone fragment — ``mergeFragment`` then newline-appends them and the
     cockpit shows one WORD PER LINE. This relay builds the callback lazily and
-    reuses it until the sink or ledger changes (a new mission — exactly when a
+    reuses it until the sink changes (a new mission — exactly when a
     fresh accumulation buffer IS wanted).
     """
 
@@ -1007,20 +886,17 @@ class StreamProgressRelay:
     ) -> None:
         self._cb: Callable[[str, str], None] | None = None
         self._sink: Any = None
-        self._ledger: Any = None
         self._min_delta_interval_s = min_delta_interval_s
         self._min_delta_chars = min_delta_chars
 
-    def __call__(self, sink: Any, ledger: Any, stream: str, line: str) -> None:
-        if self._cb is None or self._sink is not sink or self._ledger is not ledger:
+    def __call__(self, sink: Any, stream: str, line: str) -> None:
+        if self._cb is None or self._sink is not sink:
             self._cb = make_stream_progress_callback(
                 sink,
-                ledger=ledger,
                 min_delta_interval_s=self._min_delta_interval_s,
                 min_delta_chars=self._min_delta_chars,
             )
             self._sink = sink
-            self._ledger = ledger
         self._cb(stream, line)
 
 

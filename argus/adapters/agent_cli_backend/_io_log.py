@@ -16,7 +16,6 @@ identity on every row.
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 from pathlib import Path
@@ -24,10 +23,9 @@ from typing import Any
 
 from ...agent_cli.agent_cli_runner import AgentCliRunner
 from ...core.event_catalog import normalize_event_envelope
+from ...core.knobs import env_int
 from ...core.secret_guard import redact_secrets_record, redact_secrets_text
 
-_AGENT_IO_BATCH_BYTES_ENV = "ARGUS_SKILL_AGENT_IO_BATCH_BYTES"
-_AGENT_IO_FLUSH_INTERVAL_ENV = "ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S"
 # ``agent_io.jsonl`` is the verbatim provider transcript — a DEBUG artifact.
 # ``events.jsonl`` is the authoritative history, and it already rotates. This
 # one did not, so a long-lived session grew it without bound: measured 6.1 GiB
@@ -55,8 +53,8 @@ def raw_transcript_path(log_path: "Path | None") -> "Path | None":
     """
     return None if log_path is None else Path(log_path).with_name(_RAW_TRANSCRIPT_NAME)
 
-_DEFAULT_AGENT_IO_BATCH_BYTES = 64 * 1024
-_DEFAULT_AGENT_IO_FLUSH_INTERVAL_S = 0.5
+_AGENT_IO_BATCH_BYTES = 64 * 1024
+_AGENT_IO_FLUSH_INTERVAL_S = 0.5
 _PROGRESS_STREAM_MARKERS = (
     '"item.completed"',
     '"assistant.message_delta"',
@@ -124,16 +122,6 @@ def _saved_frame(line: str, prompt: str) -> bool:
     return event.get("type") not in _UNSAVED_FRAMES and AgentCliRunner.retain_json_event(event)
 
 
-def _positive_float_env(name: str, default: float) -> float:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return max(0.01, float(raw))
-    except ValueError:
-        return default
-
-
 def _needed_for_live_progress(stream: str, line: str) -> bool:
     canonical_stream = stream.rsplit(".", 1)[-1]
     if canonical_stream != "stdout":
@@ -174,16 +162,6 @@ def _jsonl_append(path: Path, row: dict[str, Any], lock: threading.Lock) -> None
         return
 
 
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return max(0, int(raw))
-    except ValueError:
-        return default
-
-
 def _roll_agent_io_log(path: Path) -> None:
     """Rotate ``path`` once it exceeds the cap, keeping a bounded ring.
 
@@ -193,7 +171,7 @@ def _roll_agent_io_log(path: Path) -> None:
     total disk is worth more than infinite retention. Best-effort: a failed
     rotation must never break the provider call that is trying to log.
     """
-    max_bytes = _positive_int_env(_AGENT_IO_MAX_BYTES_ENV, _DEFAULT_AGENT_IO_MAX_BYTES)
+    max_bytes = env_int(_AGENT_IO_MAX_BYTES_ENV, _DEFAULT_AGENT_IO_MAX_BYTES)
     if max_bytes <= 0:
         return
     try:
@@ -201,7 +179,7 @@ def _roll_agent_io_log(path: Path) -> None:
             return
     except OSError:
         return
-    keep = _positive_int_env(_AGENT_IO_KEEP_ENV, _DEFAULT_AGENT_IO_KEEP)
+    keep = env_int(_AGENT_IO_KEEP_ENV, _DEFAULT_AGENT_IO_KEEP)
     try:
         if keep <= 0:
             path.unlink(missing_ok=True)
@@ -308,15 +286,8 @@ class AgentIOLogger:
             context["buffer_bytes"] += len(line.encode("utf-8")) + 1
             if (
                 context["buffer_bytes"]
-                >= _positive_int_env(
-                    _AGENT_IO_BATCH_BYTES_ENV,
-                    _DEFAULT_AGENT_IO_BATCH_BYTES,
-                )
-                or now - context["last_flush"]
-                >= _positive_float_env(
-                    _AGENT_IO_FLUSH_INTERVAL_ENV,
-                    _DEFAULT_AGENT_IO_FLUSH_INTERVAL_S,
-                )
+                >= _AGENT_IO_BATCH_BYTES
+                or now - context["last_flush"] >= _AGENT_IO_FLUSH_INTERVAL_S
             ):
                 flush_lines = list(buffer)
                 buffer.clear()

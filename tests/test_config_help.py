@@ -52,7 +52,6 @@ def test_registry_covers_the_key_operator_knobs() -> None:
         "ARGUS_SKILL_LIGHT_MODEL",
         "ARGUS_SKILL_LIGHT_REASONING_EFFORT",
         "ARGUS_SKILL_ENGINEER_REASONING_EFFORT",
-        "ARGUS_SKILL_PROVIDER_TURN_CAP",
         "ARGUS_SKILL_SOURCE_ROOT",
         "ARGUS_SKILL_LETTER_INTERVAL_HOURS",
     ):

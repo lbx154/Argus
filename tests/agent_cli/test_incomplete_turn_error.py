@@ -98,7 +98,6 @@ class _Process:
 
 
 def _run_copilot(monkeypatch, *, stderr, exit_code):
-    monkeypatch.setenv("ARGUS_SKILL_PROVIDER_TURN_CAP", "0")
     events = [{"type": "result", "sessionId": "s-1", "exitCode": exit_code}]
     process = _Process(events, stderr=stderr, exit_code=exit_code)
     monkeypatch.setattr(_run_exec, "spawn_owned_process", lambda *args, **kwargs: process)

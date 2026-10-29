@@ -23,10 +23,7 @@ from ...core.runner_errors import (
     is_model_catalog_startup_error,
     terminal_failure_diagnostic,
 )
-from ...core.runner_receipts import (
-    is_provider_background_wait_receipt,
-    is_provider_turn_cap_receipt,
-)
+from ...core.runner_receipts import is_provider_background_wait_receipt
 from ...core.stop_kinds import (
     StopKind,
     normalize_stop_kind,
@@ -93,12 +90,10 @@ def _raw_backend_stop_kind(
         return None
     low = fatal.casefold()
     if (
-        is_provider_turn_cap_receipt(fatal)
-        or is_provider_background_wait_receipt(fatal)
+        is_provider_background_wait_receipt(fatal)
         or is_execution_host_startup_error(fatal)
     ):
         # Local terminal receipts outrank recovered failures in captured stderr.
-        # Keep the existing compatibility category for the dedicated cap handler.
         return "backend_unavailable"
     if low.startswith("external interrupt:"):
         interrupt_kind = stop_kind_from_external_interrupt(fatal)
@@ -137,8 +132,7 @@ def looks_like_auth_failure(stderr_lines) -> bool:  # noqa: ANN001
         if not raw:
             continue
         if (
-            is_provider_turn_cap_receipt(raw)
-            or is_provider_background_wait_receipt(raw)
+            is_provider_background_wait_receipt(raw)
             or is_execution_host_startup_error(raw)
         ):
             continue

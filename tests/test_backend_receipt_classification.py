@@ -14,11 +14,6 @@ from argus.adapters.agent_cli_backend._result import (
 )
 from argus.provider_integrations.authorization_retry import _unauthorized_cause
 
-CAP_RECEIPT = (
-    "Provider turn cap reached: this engineer-r1 call used 40 provider turns "
-    "(allowance 40, ARGUS_SKILL_PROVIDER_TURN_CAP)."
-)
-
 
 @pytest.mark.parametrize("code", [401, 403, 429, 502, 503, 504])
 @pytest.mark.parametrize("template", [
@@ -33,39 +28,6 @@ def test_non_http_numbers_do_not_classify_provider_failures(code, template):
     assert _raw_backend_stop_kind(fatal_error=diagnostic, exit_code=1) == "backend_unavailable"
     assert not looks_like_auth_failure([diagnostic])
     assert not _unauthorized_cause(SimpleNamespace(exit_code=1, fatal_error=diagnostic))
-
-
-@pytest.mark.parametrize("history", [
-    "2026-09-07T04:28:00.401010Z WARN local history projection failed",
-    "Reconnecting... 1/3 (HTTP 401 Unauthorized)",
-    "HTTP 429 Too Many Requests",
-    "ERROR: Failed to load models: HTTP 503 Service Unavailable",
-    "access denied by policy settings",
-])
-def test_authoritative_cap_receipt_preserves_usage_and_historical_diagnostics(history):
-    raw = SimpleNamespace(
-        exit_code=1, fatal_error=CAP_RECEIPT, turn_failed=True,
-        stderr_lines=[history], stdout_lines=[], thread_id="capped-session",
-        agent_messages=["completed the first four experiments"],
-        json_events=[{"type": "turn.completed", "usage": {
-            "input_tokens": 1000, "output_tokens": 100,
-        }}],
-    )
-    result = translate_result(
-        raw, resume_thread_id=None, copilot_usage=None,
-        usage_accumulator=UsageAccumulator(),
-    )
-    assert result.fatal_error == CAP_RECEIPT
-    assert result.stop_kind == "backend_unavailable"
-    assert result.stderr_lines == [history]
-    assert result.thread_id == "capped-session"
-    assert result.input_tokens == 1000
-    assert result.output_tokens == 100
-    assert result.agent_messages == raw.agent_messages
-    assert not _unauthorized_cause(raw)
-    combined = CAP_RECEIPT + "\n" + history
-    assert _raw_backend_stop_kind(fatal_error=combined, exit_code=1) == "backend_unavailable"
-    assert not looks_like_auth_failure([combined])
 
 
 def test_generic_failed_turn_still_uses_catalog_startup_stderr():

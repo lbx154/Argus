@@ -860,7 +860,6 @@ class SkillLoopExecuteMixin:
         sink/usage-context teardown.
         """
         self._current_sink = sink
-        self._current_failure_ledger = None
         self._set_usage_context(usage_mission_id or mission_id)
         pipeline_state_snapshot = self._snapshot_pipeline_state(ex_state.workdir)
         skill_snapshots, skill_snapshot_error = self._snapshot_playground_skill_files()
@@ -1028,7 +1027,6 @@ class SkillLoopExecuteMixin:
             raise
         finally:
             self._current_sink = None
-            self._current_failure_ledger = None
             self._set_usage_context(None)
             if ex_state.maintenance_checkpoint_dir is not None:
                 try:

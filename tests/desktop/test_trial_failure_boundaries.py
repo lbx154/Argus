@@ -9,13 +9,7 @@ import pytest
 
 from argus.adapters.agent_cli_backend import _exec
 from argus.core.models import RunnerOptions, RunnerResult
-from argus.core.runner_receipts import is_provider_turn_cap_receipt
 from argus.trial import attention, client
-
-CAP_RECEIPT = (
-    "Provider turn cap reached: this engineer-r1 call used 40 provider turns "
-    "(allowance 40, ARGUS_SKILL_PROVIDER_TURN_CAP). Continue with a checkpoint."
-)
 
 
 @pytest.fixture
@@ -43,15 +37,6 @@ def backend():
 def run(result, monkeypatch):
     monkeypatch.setattr(_exec, "_execute_prepared", lambda *a, **kw: result)
     return _exec.execute(backend(), prompt="Synthetic test only", options=RunnerOptions(), run_label="engineer-r1")
-
-
-def test_provider_turn_allowance_keeps_the_checkpoint_receipt_and_does_not_pause_the_account(trial_host, monkeypatch):
-    original = RunnerResult(exit_code=-15, fatal_error=CAP_RECEIPT, stop_kind="backend_unavailable")
-    result = run(original, monkeypatch)
-    assert is_provider_turn_cap_receipt(result.fatal_error)
-    assert result.stop_kind == "backend_unavailable"
-    assert not (trial_host / "trial-attention.json").exists()
-    assert not attention.reason()
 
 
 @pytest.mark.parametrize("code", [

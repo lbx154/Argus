@@ -199,8 +199,6 @@ def test_second_401_requires_login_without_third_attempt(
 
 
 @pytest.mark.parametrize("fatal_error", [
-    "Provider turn cap reached: this engineer-r1 call used 40 provider turns "
-    "(allowance 40, ARGUS_SKILL_PROVIDER_TURN_CAP).",
     "local history: expected ordinal 401, got 400",
     "2026-09-07T04:28:00.401Z WARN local history projection failed",
     "mse=0.401",
@@ -211,10 +209,7 @@ def test_relay_non_auth_receipts_do_not_replay_or_set_auth_failure(
     _configure_relay_credential(tmp_path, monkeypatch, "fake-relay-token")
     backend = AgentCliBackend(backend="codex")
     calls = 0
-    history = (
-        ["Reconnecting... 1/3 (HTTP 401 Unauthorized)"]
-        if fatal_error.startswith("Provider turn cap") else []
-    )
+    history: list[str] = []
 
     def fake_run_exec(self: Any, **_kwargs: Any) -> AgentRunResult:
         nonlocal calls
@@ -406,8 +401,8 @@ def test_full_agent_io_batches_raw_stream_writes(
 
     log_path = tmp_path / "events.jsonl"
     monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_LOG", str(log_path))
-    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_BATCH_BYTES", "65536")
-    monkeypatch.setenv("ARGUS_SKILL_AGENT_IO_FLUSH_INTERVAL_S", "60")
+    monkeypatch.setattr(_io_log, "_AGENT_IO_BATCH_BYTES", 65536)
+    monkeypatch.setattr(_io_log, "_AGENT_IO_FLUSH_INTERVAL_S", 60)
     batch_sizes: list[int] = []
     original_append = _io_log._jsonl_append_lines
 

@@ -10,7 +10,6 @@ from typing import Any
 
 from ..core.http_status import has_http_status
 from ..core.runner_errors import is_execution_host_startup_error, terminal_failure_diagnostic
-from ..core.runner_receipts import is_provider_turn_cap_receipt
 from ..core.secret_guard import redact_secrets_text
 from ..tools.capability_vault import read_codex_provider_config
 
@@ -151,7 +150,7 @@ def _read_env_credential(path: Path, env_key: str) -> str:
 
 def _unauthorized_cause(result: Any) -> str:
     fatal_error = getattr(result, "fatal_error", None)
-    if is_provider_turn_cap_receipt(fatal_error) or is_execution_host_startup_error(fatal_error):
+    if is_execution_host_startup_error(fatal_error):
         return ""
     failed = bool(
         int(getattr(result, "exit_code", 0) or 0) != 0

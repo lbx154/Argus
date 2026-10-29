@@ -223,14 +223,13 @@ class EventConsumerMixin:
         """True when this event marks the end of ONE provider request.
 
         A "provider turn" here is one request/response round trip inside a
-        single CLI call — the unit the CLI resends the whole transcript for,
-        and therefore the unit the per-call allowance counts. Each dialect
+        single CLI call; the runner counts it as model progress. Each dialect
         exposes a different receipt for it:
 
         - copilot: ``model.call_finished`` fires once per model request.
           Native subagents share stdout but have separate conversations; their
-          events carry a top-level ``agentId`` and do not consume the parent
-          conversation's allowance.
+          events carry a top-level ``agentId`` and do not count for the parent
+          conversation.
         - claude family / cursor / grok: one ``assistant`` frame per assistant
           message, carrying that request's ``message.usage``.
         - opencode: one ``step_finish`` per step (reason ``tool-calls`` for the

@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..core.knobs import resolve_role_model
+from ..core.knobs import env_int, resolve_role_model
 from ..core.models import RunnerOptions
 from ..core.ports import EventSink
 from ..core.progress_step import REPLY_KINDS, ProgressDeduper, ProgressTally, describe_progress_step
@@ -14,7 +14,6 @@ from ..core.role_actions import role_actions
 from ..core.run_gateway import run_exec as gateway_run_exec
 from ..core.secret_guard import known_secret_values, redact_secrets_record
 from ..engineer.runner import should_clear_thread_id_after_outcome
-from ._env import env_int
 from ._runtime_backends import _Outcome
 
 if TYPE_CHECKING:
@@ -174,7 +173,6 @@ class SelfReplyMixin:
         backend = conversation_backend(self)
         sink.handle_event({"type": "loop.start", "text": f"Manager: {message[:120]}"})
         self._current_sink = sink
-        self._current_failure_ledger = None
         try:
             with role_actions(backend, options, actions) as bound:
                 result = gateway_run_exec(
