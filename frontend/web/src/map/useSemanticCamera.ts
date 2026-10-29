@@ -469,6 +469,10 @@ export function useSemanticCamera(
       height = -1,
       dockHeight = -1;
     const observer = new ResizeObserver(() => {
+      // A hidden map (a phone showing another tab) has no view to fit: it
+      // keeps the one it had, which fits again when it shows. Zooming a
+      // canvas of no size, d3 passes through NaN.
+      if (!el.clientWidth || !el.clientHeight) return;
       const nextDockHeight = dock?.getBoundingClientRect().height || 0;
       if (
         width === el.clientWidth &&
