@@ -13,7 +13,8 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   field is a year or more old, and it reaches for the models and methods of its training data.
 - Build on the official code of the strongest fitting method or framework, and on the strongest
   current open model the machine can run, unless the question names others. A study of an
-  outdated model or a toy setup is a result nobody will use.
+  outdated model, a toy setup, or a benchmark the model already nearly solves (GSM8K for a
+  current 4B model) is a result nobody will use.
 - Use the whole machine. `node <this folder>/machine.mjs` shows the GPUs with their free memory,
   the Python ML stack and the disk; size the model, batch and number of runs to it, and run
   independent jobs side by side. Work that generates a lot (RL rollouts, evaluation, synthetic
@@ -38,8 +39,8 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
 
 ## When a number looks wrong
 
-- A result far from what the model, method or benchmark is known to do is a setup defect until
-  shown otherwise. One campaign measured 6.0% on MATH-500 for a model published at 79.7%: its
+- A result far from what the model, method, benchmark or engine is known to do, in accuracy or in
+  speed, is a setup defect until shown otherwise. One campaign measured 6.0% on MATH-500 for a model published at 79.7%: its
   token cap and a missing tool execution were the cause, not the model.
 - Look first at the single setting that would produce exactly that number, usually something
   between the model's output and the score:
@@ -48,6 +49,9 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   - the chat template, which must match between training and inference;
   - the scorer's parsing of the answer;
   - the protocol behind the published number.
+- Before calling a gap a defect, measure the same gap between two things you trust: two seeds, two
+  correct code paths, two graders. A gap no larger is noise; a bar set before that measurement is
+  a guess, which the measurement replaces.
 - Read ten raw outputs before anything expensive: most defects show in ten generations and hide
   in an aggregate.
 - A weak first result is a defect to find, not a finding. Change one thing at a time, starting

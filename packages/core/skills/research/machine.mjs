@@ -7,8 +7,9 @@ const run = (command, args) => {
   try { return execFileSync(command, args, { encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; }
 };
 
-console.log('GPUs (index, name, memory used, memory total, utilization):');
-console.log(run('nvidia-smi', ['--query-gpu=index,name,memory.used,memory.total,utilization.gpu', '--format=csv,noheader']) ?? 'none found (no nvidia-smi)');
+// CUDA numbers only the GPUs it can use, skipping a failed one: a GPU is known by its UUID.
+console.log('GPUs (index, uuid, name, memory used, memory total, utilization):');
+console.log(run('nvidia-smi', ['--query-gpu=index,uuid,name,memory.used,memory.total,utilization.gpu', '--format=csv,noheader']) ?? 'none found (no nvidia-smi)');
 console.log(`CUDA_VISIBLE_DEVICES=${process.env.CUDA_VISIBLE_DEVICES ?? '(unset: every GPU)'}\n`);
 
 const python = ['python3', 'python'].find(name => run(name, ['--version']));
