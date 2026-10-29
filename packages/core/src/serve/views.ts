@@ -240,17 +240,20 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       const addressed = [...reading.questions.values()].filter(row => row.agent_layer === event.to);
       const question = event.to ? reading.questions.get(event.answer_to ?? '')
         ?? (addressed.length === 1 ? addressed[0] : undefined) : undefined;
-      put(row, String(row.message_id), question ? Number(question.order) + 0.1 : line);
       if (question) {
+        // The answered pair is new dialogue. Move and version both rows together so
+        // the stream sends the question even when it is outside the loaded page.
+        put({ ...question, event_id: line }, String(question.row_id));
+        put({ ...row, answer_to: question.question_id }, String(row.message_id), line + 0.1);
         reading.questions.delete(String(question.question_id));
         move(String(question.item_id ?? ''));
-      }
+      } else put(row, String(row.message_id));
     } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
       const id = questionId({ role: event.role, task: event.task ?? null, question: event.letter });
       const row = { type: 'ui.question', ts, event_id: line, question_id: id, agent_layer: event.role,
         item_id: event.task ?? '', text: event.letter, order: line };
       put(row, `q${line}`);
-      reading.questions.set(id, row);
+      reading.questions.set(id, reading.rows.get(`q${line}`)!);
     } else if (event.type === 'handoff' && event.role === 'manager') {
       const row = converted[0]!;
       put(row, String(row.message_id));
@@ -313,7 +316,8 @@ export function conversationPage(rows: EventMsg[], cursor: number, limit: number
   const earlier = rows.filter(row => Number(row.order) < before);
   let start = Math.max(0, earlier.length - limit);
   // A question and its answer cross a page boundary together.
-  if (start > 0 && earlier[start - 1]?.type === 'ui.question' && earlier[start]?.type === 'ui.operator') start--;
+  if (start > 0 && earlier[start - 1]?.type === 'ui.question'
+    && earlier[start - 1]?.question_id === earlier[start]?.answer_to) start--;
   return { rows: earlier.slice(start), before: start ? Number(earlier[start]!.order) : null, cursor };
 }
 

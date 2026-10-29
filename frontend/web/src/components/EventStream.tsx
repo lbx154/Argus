@@ -39,7 +39,7 @@ import { activeProviderRequest, eventTaskId } from '../lib/workStatus';
 import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
-import type { ConversationHistoryStatus } from '../useConversationHistory';
+import type { ConversationHistoryStatus, ConversationPagination } from '../useConversationHistory';
 import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
@@ -785,9 +785,6 @@ export function EventStream({
   snapshot?: Snapshot;
   historyStatus?: ConversationHistoryStatus;
   historyRefreshing?: boolean;
-  hasOlder?: boolean;
-  loadingOlder?: boolean;
-  onLoadOlder?: () => void;
   /** Showing content kept from an earlier visit while it refreshes. */
   refreshingKept?: boolean;
   /** Offered on a running task's card when it looks stuck. */
@@ -796,7 +793,7 @@ export function EventStream({
   rememberPosition?: boolean;
   onConversationAction?: (target: ConversationRevision) => void;
   requestedMessageTs?: number;
-}) {
+} & Partial<ConversationPagination>) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
   const followingRef = useRef(true);

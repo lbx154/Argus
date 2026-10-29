@@ -6,6 +6,12 @@ import { mergeConversationEvents } from './lib/conversationEvents';
 
 export type ConversationHistoryStatus = 'loading' | 'error' | 'ready';
 
+export interface ConversationPagination {
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  onLoadOlder: () => void;
+}
+
 /** Page over server rows; the stream replaces rows by their durable identity. */
 export function useConversationHistory(
   sid: string | null, enabled: boolean, optimistic: EventMsg[], optimisticSid: string | null,
@@ -50,5 +56,10 @@ export function useConversationHistory(
     return mergeConversationEvents(recorded, optimisticSid === sid ? optimistic : []);
   }, [sid, query.data, optimistic, optimisticSid]);
   const status: ConversationHistoryStatus = query.isError ? 'error' : query.isPending ? 'loading' : 'ready';
-  return { query, events, status };
+  const pagination = useMemo<ConversationPagination>(() => ({
+    hasOlder: query.hasNextPage,
+    loadingOlder: query.isFetchingNextPage,
+    onLoadOlder: () => { void query.fetchNextPage(); },
+  }), [query.hasNextPage, query.isFetchingNextPage, query.fetchNextPage]);
+  return { query, events, status, pagination };
 }

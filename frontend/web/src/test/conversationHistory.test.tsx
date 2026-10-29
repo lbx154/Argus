@@ -99,10 +99,38 @@ it('replaces a moved task across loaded pages and retains the server order of qu
   act(() => { renderer = create(tree('b')); });
   const receive = vi.mocked(openConversation).mock.calls.at(-1)![2];
   act(() => receive({ type: 'ui.projection', cursor: 15, round: 12, role_events: [], rows: [
-    { type: 'ui.operator', row_id: 'answer', text: 'Yes', event_id: 12, order: 10.1 },
+    { ...question, event_id: 12, order: 12 },
+    { type: 'ui.operator', row_id: 'answer', text: 'Yes', event_id: 12, order: 12.1 },
     { ...task, state: 'done', event_id: 15, order: 15.2 },
   ] }));
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
   expect(latest.events.map(row => row.row_id)).toEqual(['q1', 'answer', 'task-t1']);
   expect(latest.events.at(-1)?.state).toBe('done');
+});
+
+it('adds an answered pair absent from the current page and uses the same paging controller to load older rows', async () => {
+  const recent = { type: 'ui.argus', row_id: 'm30', text: 'Later Manager reply', event_id: 30, order: 30 };
+  client.setQueryData(['conversation', 'b'], {
+    pages: [{ rows: [recent], before: 30, cursor: 30 }], pageParams: [undefined],
+  });
+  const request = vi.spyOn(api, 'conversation').mockResolvedValue({
+    rows: [{ type: 'ui.operator', row_id: 'm1', text: 'Original request', event_id: 1, order: 1 }],
+    before: null, cursor: 35,
+  });
+  const { openConversation } = await import('../api');
+  act(() => { renderer = create(tree('b')); });
+  expect(latest.events).toEqual([recent]);
+  const receive = vi.mocked(openConversation).mock.calls.at(-1)![2];
+  act(() => receive({ type: 'ui.projection', cursor: 35, round: 35, role_events: [], rows: [
+    { type: 'ui.question', row_id: 'q1', question_id: 'seed', text: 'Which seed?', event_id: 35, order: 35 },
+    { type: 'ui.operator', row_id: 'answer', answer_to: 'seed', text: '424242', event_id: 35, order: 35.1 },
+  ] }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  expect(latest.events.map(row => row.text)).toEqual(['Later Manager reply', 'Which seed?', '424242']);
+  expect(latest.pagination.hasOlder).toBe(true);
+  act(() => latest.pagination.onLoadOlder());
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  expect(request).toHaveBeenCalledWith('b', 30, expect.any(AbortSignal));
+  expect(latest.pagination.hasOlder).toBe(false);
+  expect(latest.events.map(row => row.text)).toEqual(['Original request', 'Later Manager reply', 'Which seed?', '424242']);
 });

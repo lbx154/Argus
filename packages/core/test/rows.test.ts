@@ -61,7 +61,7 @@ test('answers stay beside their question, task lines move to their latest state 
   work.tasks[0]!.status = 'closed';
   const rows = rowsOf(events, work, { since: 1, calls: [{ role: 'engineer', task: work.tasks[1]!.id }], requests: [] });
   const dialogue = rows.filter(row => row.type !== 'ui.task');
-  assert.deepEqual(dialogue.map(row => row.text), [questions[0]!.question, 'First choice', questions[1]!.question, 'Second choice']);
+  assert.deepEqual(dialogue.map(row => row.text), [questions[1]!.question, 'Second choice', questions[0]!.question, 'First choice']);
   assert.equal(rows.at(-1)?.state, 'done');
   assert.equal(rows.find(row => row.item_id === work.tasks[1]!.id && row.type === 'ui.task')?.event_id, 4);
   const page = conversationPage(rows, events.length - 1, 3);

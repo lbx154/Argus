@@ -1,3 +1,4 @@
+import type { ConversationPagination } from '../useConversationHistory';
 import { errorText } from '../lib/format';
 import { MapConversation } from './MapConversation';
 import { mapStatusSentence } from './status';
@@ -92,6 +93,7 @@ import { HumanCardView, HumanLinkView, type HumanCardNode, type HumanLinkEdge } 
 
 interface MapWorkspaceActions {
   conversationEvents: EventMsg[];
+  conversationPagination?: ConversationPagination;
   connected: boolean;
   artifacts: ArtifactInfo[];
   deliveryCount: number;
@@ -1507,7 +1509,7 @@ export function MapCanvas({
               <button type="button" aria-label={zh ? "知道了，不再提示" : "Got it, hide this tip"} title={zh ? "知道了，不再提示" : "Got it, hide this tip"} onClick={dismissCanvasHint}>×</button>
             </div>
           )}
-          {conversationOpen && <MapConversation events={actions.conversationEvents} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
+          {conversationOpen && <MapConversation events={actions.conversationEvents} pagination={actions.conversationPagination} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && data.kind === 'live' && <aside className="map-agent-drawer nowheel nodrag nopan">
             <AgentActivity sid={snapshot.session.id} view={snapshot.mission_view} roles={snapshot.roles} events={events}
               taskId={focusedNode?.data.task.id || snapshot.mission_view?.mission.id || undefined}
@@ -2059,6 +2061,7 @@ export const MapPanel = memo(function MapPanel({
   routeOverride,
   onRouteOverrideChange,
   conversationEvents,
+  conversationPagination,
   connected,
   artifacts,
   deliveryCount,
@@ -2247,10 +2250,10 @@ export const MapPanel = memo(function MapPanel({
     pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
   [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy]);
   const actions = useMemo<MapWorkspaceActions>(
-    () => ({ conversationEvents, connected, artifacts, deliveryCount,
+    () => ({ conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
              onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,
              teamStatus }),
-    [conversationEvents, connected, artifacts, deliveryCount,
+    [conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
      onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries, teamStatus],
   );
   const composer = useMemo<MapComposerProps>(

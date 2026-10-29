@@ -458,7 +458,7 @@ export default function App() {
     if (loadedSid && canvasRevision) refreshCanvas(queryClient, loadedSid, canvasRevision);
   }, [canvasRevision, loadedSid, queryClient]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events, locale), [events, locale]);
-  const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
+  const { query: transcriptQ, events: activityEvents, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
     loadedSid, true, localConversationEvents, localConversationSid.current,
   );
   const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
@@ -500,12 +500,11 @@ export default function App() {
     }
   }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
   // The map view follows the stream at a beat, not per token.
-  const mapInput = useMemo(() => ({ sid: loadedSid, events, conversation: activityEvents }), [loadedSid, events, activityEvents]);
+  const mapInput = useMemo(() => ({ sid: loadedSid, events }), [loadedSid, events]);
   const mapHistory = useThrottledValue(mapInput, 250);
   // A pending throttle belongs to its original project, even when the next
   // project's snapshot is already cached and renders synchronously.
   const mapEvents = mapHistory.sid === loadedSid ? mapHistory.events : [];
-  const mapConversationEvents = mapHistory.sid === loadedSid ? mapHistory.conversation : [];
   const missionView = useMemo(
     () => snap ? projectMissionView(snap, activityEvents, artifactsQ.data ?? []) : null,
     [activityEvents, artifactsQ.data, snap],
@@ -1198,7 +1197,7 @@ export default function App() {
                 onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRoute}
-                conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
+                conversationEvents={activityEvents} conversationPagination={conversationPagination} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
                   if (selection) openDelivery(selection.receipt, selection.path);
@@ -1227,9 +1226,7 @@ export default function App() {
                     showReasoning={false}
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isRefetching}
-                    hasOlder={transcriptQ.hasNextPage}
-                    loadingOlder={transcriptQ.isFetchingNextPage}
-                    onLoadOlder={() => void transcriptQ.fetchNextPage()}
+                    {...conversationPagination}
                     refreshingKept={refreshingKept}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
