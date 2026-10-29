@@ -22,6 +22,8 @@ async function setup(t: TestContext, token?: string) {
     const handoff = request.signal?.aborted ? null : { form: request.form, to: 'operator', letters: ['Hello.'] };
     return { callId: 'c', threadId: 'thread', completed: Boolean(handoff), error: handoff ? null : 'interrupted', handoff, model: null, usage: null, ms: 1 };
   };
+  // Codex names its models; the others name none here.
+  callAgent.models = async backend => backend === 'codex' ? [{ model: 'gpt-a', default: true }, { model: 'gpt-b', default: false }] : [];
   const store = new Store(home);
   const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web, ...(token ? { token } : {}) });
   t.after(() => served.close());
@@ -92,7 +94,14 @@ test('a project has its own backend, model and effort, which the settings change
   assert.deepEqual(config.roles.map(role => [role.role, role.backend, role.model, role.reasoning_effort]),
     ['manager', 'planner', 'engineer', 'reviewer'].map(role => [role, 'codex', '', null]));
   assert.deepEqual(config.operator_knobs.map(knob => [knob.name, knob.value]), [['ARGUS_SKILL_RUNNER_BACKEND', 'codex'], ['ARGUS_SKILL_MODEL', '']]);
-  assert.deepEqual((await get(`${P}/model-choices`)).options, []);
+  type Choices = { backend: string; options: { model: string; source: string; default: boolean }[] };
+  assert.deepEqual((await get<Choices>(`${P}/model-choices`)).options.map(({ model, source, default: chosen }) => [model, source, chosen]),
+    [['gpt-a', 'backend', true], ['gpt-b', 'backend', false]]);
+  // A model is tried with a short turn of its own, apart from the Manager's session.
+  const probe = await (await send('POST', `${P}/model-choices/probe`, { model: 'gpt-b' })).json() as { model: string; ok: boolean; error: string };
+  assert.deepEqual([probe.model, probe.ok, probe.error], ['gpt-b', true, '']);
+  assert.deepEqual(requests.splice(0).map(({ model, access, session, resume }) => ({ model, access, session, resume })),
+    [{ model: 'gpt-b', access: 'read', session: undefined, resume: undefined }]);
 
   store.save({ ...store.load(sid), sessions: { manager: 'codex-thread' } });
   assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'cursor')).status, 400);
@@ -111,7 +120,7 @@ test('a project has its own backend, model and effort, which the settings change
   });
   assert.deepEqual((await get<Snapshot>(`${P}/snapshot`)).roles.map(role => [role.backend, role.model, role.effort]),
     Array(4).fill(['claude', 'claude-opus-4-1', 'high']));
-  const choices = await get<{ backend: string; options: { model: string }[] }>(`${P}/model-choices`);
+  const choices = await get<Choices>(`${P}/model-choices`);
   assert.deepEqual([choices.backend, choices.options.map(option => option.model)], ['claude', ['claude-opus-4-1']]);
 
   await (await send('POST', `${P}/message`, { text: 'Hi' })).json();

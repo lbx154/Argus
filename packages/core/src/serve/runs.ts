@@ -21,7 +21,7 @@ export class Runs {
   /** Message requests whose Manager turn has not ended, by project; the value cancels one. */
   private readonly requests = new Map<string, Map<string, () => void>>();
 
-  constructor(private readonly store: Store, private readonly callAgent: CallAgent, readonly changed: (id: string, event?: FlowEvent) => void) {}
+  constructor(private readonly store: Store, readonly callAgent: CallAgent, readonly changed: (id: string, event?: FlowEvent) => void) {}
 
   live(id: string): Live {
     const active = this.active.get(id);

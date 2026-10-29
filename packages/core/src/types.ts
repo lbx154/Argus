@@ -89,5 +89,8 @@ export interface AgentResult {
 }
 
 /** One backend turn. `close` ends the sessions kept under keys that start with its prefix, and all
- * their CLIs started. */
-export type CallAgent = ((request: AgentRequest) => Promise<AgentResult>) & { close?: (prefix: string) => Promise<void> };
+ * their CLIs started; `models` names the models a backend offers, its default marked. */
+export type CallAgent = ((request: AgentRequest) => Promise<AgentResult>) & {
+  close?: (prefix: string) => Promise<void>;
+  models?: (backend: Backend, cwd: string) => Promise<{ model: string; default: boolean }[]>;
+};

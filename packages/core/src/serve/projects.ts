@@ -8,6 +8,7 @@ import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ProjectCostRow } from '@argus/contracts';
+import { modelPriceFor } from '@argus/runtime';
 import type { Project, Store } from '../store.js';
 import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
@@ -82,6 +83,18 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
         model_options: model ? [{ model, source: 'current' }] : [], how_to_change: [],
       };
     }],
+    // A model tried with a short turn of its own, before the operator picks it.
+    ['POST', /^\/api\/projects\/([^/]+)\/model-choices\/probe$/, async ({ params: [id], body }) => {
+      const model = String((await body()).model ?? '').trim();
+      const { id: sid, backend, workdir, effort } = project(id!);
+      const dir = store.dir(sid);
+      const started = Date.now();
+      const { completed, error } = await runs.callAgent({
+        backend, role: 'manager', form: 'manager', access: 'read', cwd: workdir, prompt: 'Write to the operator the one word: ok.',
+        model, ...effort ? { effort } : {}, callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+      }).catch((thrown: unknown) => ({ completed: false, error: thrown instanceof Error ? thrown.message : String(thrown) }));
+      return { model, ok: completed, error: completed ? '' : error ?? '', duration_ms: Date.now() - started };
+    }],
     ['POST', /^\/api\/projects\/([^/]+)\/config\/set$/, async ({ params: [id], body }) => {
       const { name, value } = await body();
       const set = SETTINGS[String(name ?? '').trim().toUpperCase()];
@@ -93,15 +106,22 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       edit(id!, work => set(work, word), set === SETTINGS.ARGUS_SKILL_RUNNER_BACKEND);
       return { name, value: word };
     }],
-    // The models to choose from are the backend's; the page offers the one set, and takes any other by name.
-    ['GET', /^\/api\/projects\/([^/]+)\/model-choices$/, ({ params: [id] }) => {
-      const { backend, model } = project(id!);
+    // The models to choose from are those the backend names, and the one set if it names it not;
+    // the page takes any other by name.
+    ['GET', /^\/api\/projects\/([^/]+)\/model-choices$/, async ({ params: [id] }) => {
+      const { backend, model, workdir } = project(id!);
+      const offered = await runs.callAgent.models?.(backend, workdir) ?? [];
+      const named = model && !offered.some(row => row.model === model) ? [...offered, { model, default: false }] : offered;
       return {
         backend, billing: 'token', premium_request_usd: null, task_sample: 0,
-        options: (model ? [model] : []).map(model => ({
-          model, source: 'current', default: false, invalid: false, price: null, task_estimate_usd: null, latency_ms: null, latency_samples: 0,
-          availability: { state: 'unknown', at: 0, reason: '' },
-        })),
+        options: named.map(row => {
+          const price = modelPriceFor(row.model);
+          return {
+            model: row.model, source: row.model === model ? 'current' : 'backend', default: row.default, invalid: false, task_estimate_usd: null,
+            price: price && { input: price.input_usd_per_mtok, cached_input: price.cached_input_usd_per_mtok, output: price.output_usd_per_mtok },
+            latency_ms: null, latency_samples: 0, availability: { state: 'unknown', at: 0, reason: '' },
+          };
+        }),
       };
     }],
     // The Manager's next turn starts a new session; the record it reads stays as it is.

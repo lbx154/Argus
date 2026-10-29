@@ -14,6 +14,7 @@ import { copilot } from './copilot.js';
 import { formSchema, judge } from './handoff.js';
 import { pi } from './pi.js';
 import { agentEnv, confine, launcher, notInstalled, sandboxed } from './sandbox.js';
+import { models } from './models.js';
 import { Cli, type Message } from './session.js';
 
 /** A backend's side of a session: how its CLI starts, and how a turn goes on it. */
@@ -128,6 +129,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
 }, {
   /** Ends every session kept under a key that starts with `prefix`, and all their CLIs started. */
   close: (prefix: string): Promise<void> => Promise.all([...live.keys()].filter(key => key.startsWith(prefix)).map(end)).then(() => undefined),
+  models,
 });
 
 const tokens = ({ cost_usd: _, ...counts }: Usage): Omit<Usage, 'cost_usd'> => counts;
