@@ -234,9 +234,9 @@ test('resetting the conversation gives the Manager a new session, and keeps the 
   assert.deepEqual(store.load(sid).sessions, {});
   assert.equal(store.load(sid).request, 'Hi');
   await (await send('POST', `${P}/message`, { text: 'Hi again' })).json();
-  // The next message is answered in a new session; the one the stop interrupted waits for Resume.
+  // The next message is answered in a new session, in place of the one the stop interrupted.
   assert.deepEqual(requests.map(request => request.resume), [undefined, 'thread', undefined]);
-  assert.deepEqual(store.load(sid).forManager?.map(letter => typeof letter === 'string' ? letter : letter.text), ['<hang>']);
+  assert.deepEqual(store.load(sid).forManager, []);
 });
 
 test('the cockpit is served beyond this machine only with a token', async t => {

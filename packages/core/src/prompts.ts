@@ -68,12 +68,12 @@ function where(project: Project, store: Store, writes: boolean): string {
     `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
     `Skills, a folder each whose SKILL.md says in its front matter what it is for: when one fits your work, read its SKILL.md whole, once, and the files it links as you need them. Argus's own, then the team's in ${library}:`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
-    writes && `The skills in ${library} are the team's: when your work, or the operator's word on it, teaches something later projects can use, write it there, in a new skill or one of the team's.`,
+    writes && `The skills in ${library} are the team's: when your work teaches how later projects can do theirs better, write it there, in a new skill or one of the team's. A fault in Argus itself is no skill: tell the operator.`,
     KEPT.includes(project.backend)
       ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
       : 'Your session ends with each turn, and everything you started with it.',
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
-    'Keep in the workspace what the work makes, for the other roles and the operator to see; install a tool you only check with (a browser, say) under ~/.cache, which every role and project shares. Your /tmp may be yours alone.',
+    'Keep in the workspace what the work makes, for the other roles and the operator to see; install a tool you only check with (a browser, say) under ~/.cache, which every role and project shares. Your /tmp may be yours alone, and a path elsewhere may be hidden from you: when the operator names a file you cannot read, ask them to attach it.',
     machine(),
   ].filter(Boolean).join('\n'));
 }
@@ -92,7 +92,7 @@ export const rewritePrompt = (draft: string): string => join(
   "Rewrite the operator's draft below as one clear paragraph the team can carry out as it stands. Keep the operator's language and intent, and add no requirement they did not state. Your letter, to the operator, is the rewritten paragraph alone: they read it, and send it as their own.",
   section('Draft', draft));
 
-/** A letter of the Planner's to a task that closed before its holder read it, back to the Planner. */
+/** A letter to a task that closed before its holder read it, back to its writer. */
 export const unread = (task: string, letter: string): string => `Your letter to task ${task}, which closed before it was read:\n${letter}`;
 
 /** A letter put into a turn under way. */

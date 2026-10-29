@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { Store, type Task } from '../src/store.js';
-import { progressMap } from '../src/serve/views.js';
+import { progressMap, type Recorded } from '../src/serve/views.js';
 
 const task: Task = { id: 't1', title: 'Read the map incrementally', from: 'manager', objective: 'Read the map incrementally', status: 'open', holder: 'engineer', note: null };
 const record = Buffer.from([
@@ -95,6 +95,57 @@ test("the tasks a message's answer opens follow it; a result handed over from th
     [['q0', 'qa', 'done', []], ['t1', 'task', 'done', ['q0']], ['t2', 'task', 'done', ['q0']], ['t3', 'task', 'done', ['t1', 't2']]]);
   assert.deepEqual(map.tasks.at(-1)!.result_paths, ['result.md']);
   assert.ok(!map.events.some(letter => letter.item_id === 'q0' && letter.id === 'e102'));
+});
+
+test('recorded Manager supplement is both a task letter and a reply, and its map card completes when the work rests', t => {
+  const record = fs.readFileSync(new URL('./fixtures/manager-task-update/events.jsonl', import.meta.url), 'utf8').trim().split('\n')
+    .map(line => JSON.parse(line) as Recorded);
+  const added = record.find(event => event.type === 'task.added');
+  assert.ok(added?.type === 'task.added');
+  const messages = record.filter(event => event.type === 'message');
+  const message = messages[1]!;
+  const supplement = record.filter(event => event.type === 'handoff').find(event => event.answers === message.request_id)!;
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-map-supplement-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: '', request: messages[0]!.text, backend: 'codex', model: null });
+  project.tasks = [{ ...added.task }];
+  project.status = 'working';
+  const path = join(store.dir(project.id), 'events.jsonl');
+  // Replay the original messages and letters, targeting t1 instead of opening the recorded t2.
+  fs.writeFileSync(path, record.filter(event => event.type !== 'task.added' || event.task.id === 't1')
+    .filter(event => event.type !== 'call.start' || event.task !== 't2')
+    .map(event => JSON.stringify(event === supplement ? { ...event, task: 't1' } : event)).join('\n') + '\n');
+  const before = progressMap(store, project, 0);
+  const question = before.tasks.find(card => card.objective === message.text)!;
+  const incoming = before.events.filter(letter => letter.text === supplement.letter);
+
+  // Controlled completion after the excerpt: the same task closes and the project rests.
+  const finished = '2026-10-29T21:51:00.000Z';
+  fs.appendFileSync(path, [
+    { type: 'handoff', role: 'reviewer', task: 't1', to: 'manager', letter: 'Accepted.', ts: finished },
+    { type: 'task.closed', task: 't1', ts: finished },
+    { type: 'status', status: 'idle', ts: finished },
+  ].map(event => JSON.stringify(event)).join('\n') + '\n');
+  project.tasks[0]!.status = 'closed';
+  project.status = 'idle';
+  const done = progressMap(store, project, Number(before.cursor));
+  const answered = done.tasks.find(card => card.id === question.id)!;
+  assert.deepEqual({
+    working: [question.status, question.finished_ts, question.latest_action?.text],
+    idle: [answered.status, answered.finished_ts !== null, answered.latest_action?.text],
+    incoming: incoming.map(letter => [letter.item_id, letter.type, letter.role, letter.to]),
+  }, {
+    working: ['in_progress', null, supplement.letter],
+    idle: ['done', true, supplement.letter],
+    incoming: [['t1', 'handoff', 'manager', 'engineer'], [question.id, 'turn.replied', 'manager', 'engineer']],
+  });
+  // The page merges history by event id: neither projection may overwrite the other.
+  assert.equal(new Set(before.events.map(letter => letter.id)).size, before.events.length);
+  assert.equal(done.tasks.find(card => card.id === 't1')!.status, 'done');
+  assert.deepEqual(done.events.map(letter => letter.text), ['Accepted.']);
+  assert.deepEqual(progressMap(store, project, 0).events.filter(letter => letter.text === supplement.letter), incoming);
+  assert.deepEqual(progressMap(store, project, Number(done.cursor)), { ...done, events: [] });
 });
 
 test('a message is on the map while it is answered, and after only if its answer set work going or handed something over; only a letter naming it answers it', t => {

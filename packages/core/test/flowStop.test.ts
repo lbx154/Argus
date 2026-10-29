@@ -11,6 +11,7 @@ import { Store, type FlowEvent, type ManagerLetter } from '../src/store.js';
 /** The letters waiting for the Manager, as their words. */
 const texts = (letters: ManagerLetter[] = []) => letters.map(letter => typeof letter === 'string' ? letter : letter.text);
 import { Flow } from '../src/flow.js';
+import { conversationRows, readRecord } from '../src/serve/views.js';
 
 type Turn = (request: AgentRequest) => Promise<{ to: string; letters: string[]; tasks?: { task: string; after: string[] }[] } | null>;
 
@@ -137,7 +138,7 @@ test('an answer on a stopped project goes to its asker, and hands no stopped mes
 });
 
 // Frontend review reproduction: stopped during "sleep 30", the next message re-ran it first.
-test('a message to a stopped project is answered on its own; the one the stop interrupted waits for Resume', async t => {
+test('a message to a stopped project is answered on its own, in place of the one the stop interrupted', async t => {
   const controller = new AbortController();
   const { flow, id, store, requests } = await setup(t, [aborted], controller);
   void flow.say(id, 'Run sleep 30');
@@ -150,12 +151,12 @@ test('a message to a stopped project is answered on its own; the one the stop in
   await later.say(id, 'Answer in one word');
   const project = await later.settled(id);
   assert.deepEqual([asked.map(request => request.prompt.includes('Answer in one word')), project.status, texts(project.forManager)],
-    [[true], 'stopped', ['Run sleep 30']]);
+    [[true], 'stopped', []]);
 });
 
-// Backend review reproduction: the message that woke a stopped project left the one the stop
-// interrupted "replying" for ever.
-test('a message that sets a stopped team working again resumes what the stop interrupted too', async t => {
+// Product review reproduction: told "do X instead" after a stop, Resume still carried out the stopped
+// message; a backend review saw it "replying" for ever.
+test('a message that sets a stopped team working again takes the place of the one the stop interrupted', async t => {
   const controller = new AbortController();
   const { flow, id, store, requests } = await setup(t, [aborted], controller);
   void flow.say(id, 'A: analyse it');
@@ -170,5 +171,8 @@ test('a message that sets a stopped team working again resumes what the stop int
   await later.say(id, 'B: do X instead');
   const project = await later.settled(id);
   assert.deepEqual([project.status, texts(project.forManager)], ['idle', []]);
-  assert.ok(asked.some(request => request.role === 'manager' && request.prompt.includes('A: analyse it')));
+  assert.ok(!asked.some(request => request.role === 'manager' && request.prompt.includes('A: analyse it')));
+  // The conversation says so: the stopped message was replaced, and nothing is still replying to it.
+  const rows = conversationRows(readRecord(store, id), project, { since: null, calls: [], requests: [] });
+  assert.deepEqual(rows.flatMap(row => row.type === 'ui.argus' && row.status ? [row.status] : []), ['replaced']);
 });

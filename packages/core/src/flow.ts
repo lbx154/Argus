@@ -1,5 +1,5 @@
 // The flow: every turn ends in a letter to someone. The operator writes to the Manager, who
-// answers at once, whether or not the team is working. A letter to the Engineer opens a task,
+// answers at once, whether or not the team is working. An untargeted letter to the Engineer opens a task,
 // whose brief it is; the Engineer and the Reviewer write to each other about it, and their letter
 // to anyone else closes it. Open tasks run side by side, each once the tasks it waits for have
 // closed, and the Planner reads its letters as they come, opening several tasks at once if it
@@ -47,9 +47,13 @@ export class Flow {
     project.request ||= text;
     // The message is named: the Manager's turn on it, and the letter that answers it, name it in turn.
     const message: OperatorMessage = { text, request_id, ...attachments?.length ? { attachments } : {} };
+    // A message to a stopped project takes the place of the operator's the stop left unanswered; the
+    // team's letters wait for Resume, or for this message to set the team working again. What a
+    // failed Manager turn left is taken up again.
+    const failed = project.failures?.some(failure => failure.role === 'manager');
+    if (project.status === 'stopped' && !failed && project.forManager) project.forManager = project.forManager.filter(letter => typeof letter === 'string');
     this.record(project, { type: 'message', from: 'operator', ...message });
-    // What the operator stopped waits for them to resume it; what a failed Manager turn left is taken up again.
-    if (project.status !== 'stopped' || project.failures?.some(failure => failure.role === 'manager')) this.retry(project);
+    if (project.status !== 'stopped' || failed) this.retry(project);
     return this.writeToManager(project, message);
   }
 
@@ -187,7 +191,11 @@ export class Flow {
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
       const letter = read(handoff);
-      if (handoff.to === 'engineer') this.open(project, 'manager', letter);
+      if (handoff.to === 'engineer') {
+        const id = handoff.tasks?.[0]?.task;
+        if (id) await this.taskLetter(project, 'manager', id, letter);
+        else this.open(project, 'manager', letter);
+      }
       else project.inbox.push(handedTo('manager', null, letter));
       // New work wakes a resting team; a stopped one only when the operator asked for it, which resumes
       // what the stop interrupted too.
@@ -271,21 +279,30 @@ export class Flow {
       const opened = new Map<string, string>();
       for (const [at, letter] of letters.entries()) {
         const { task: id = '', after = [] } = tasks?.[at] ?? {};
-        const open = openTasks(project).find(task => task.id === id);
         if (!id) opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
-        else if (!open) project.inbox.push(unread(id, letter));
-        else {
-          // The letter is on the task till a turn that read it ends; one its backend takes reads it as it goes.
-          const note: Note = { from: 'planner', text: letter };
-          (open.unread ??= []).push(note);
-          this.store.save(project);
-          if (await this.callAgent.steer?.(`${project.id}/${open.id}.${open.holder}`, letterPrompt('planner', letter))) this.steered.add(note);
-        }
+        else await this.taskLetter(project, 'planner', id, letter);
       }
       this.store.save(project);
     }
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
     else if (to === 'manager') await this.writeToManager(project, handedTo('planner', null, read(handoff)));
+  }
+
+  /** A letter stays on its task till a turn that read it ends; a backend that takes one reads it as it goes. */
+  private async taskLetter(project: Project, from: Task['from'], id: string, letter: string): Promise<void> {
+    const task = openTasks(project).find(task => task.id === id);
+    if (!task) return this.returnLetter(project, from, id, letter);
+    const note = { from, text: letter };
+    (task.unread ??= []).push(note);
+    this.store.save(project);
+    if (await this.callAgent.steer?.(`${project.id}/${task.id}.${task.holder}`, letterPrompt(from, letter))) this.steered.add(note);
+  }
+
+  /** An unread letter goes back to its writer; a Manager's waits until its current turn ends. */
+  private returnLetter(project: Project, from: Task['from'], task: string, letter: string): void {
+    const note = unread(task, letter);
+    if (from === 'manager') void this.writeToManager(project, note).catch(error => this.fail(project, 'manager', null, String(error)));
+    else project.inbox.push(note);
   }
 
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
@@ -372,8 +389,7 @@ export class Flow {
   /** A letter out of the task closes it, and stays on it as its last word; its sessions end, and
    * everything they left running. */
   private close(project: Project, task: Task, from: Role, letter: string): void {
-    // Letters its last turn came too late to read go back to their writer, the Planner.
-    for (const { text } of task.unread ?? []) project.inbox.push(unread(task.id, text));
+    for (const { from, text } of task.unread ?? []) this.returnLetter(project, from, task.id, text);
     delete task.unread;
     Object.assign(task, { status: 'closed', note: { from, text: letter } });
     this.record(project, { type: 'task.closed', task: task.id });

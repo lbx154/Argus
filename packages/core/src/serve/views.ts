@@ -325,11 +325,15 @@ export function readRecord(store: Store, id: string): Reading {
 
 export function conversationRows(reading: Reading, project: Project, live: Live): EventMsg[] {
   const projected = new Map(reading.rows);
+  // A message is answered while its turn runs or it waits for one; one no turn will take any more
+  // was replaced by a later one.
+  const pending = new Set([...live.requests, ...(project.forManager ?? []).flatMap(letter => typeof letter === 'string' ? [] : letter.request_id ?? [])]);
   // Pending replies come from the complete dialogue, including messages interrupted before any words.
   for (const [request, line] of reading.fold.asked) {
     const operator = reading.rows.get(`m${line}-operator`)!;
     const liveReply = live.calls.some(call => call.answers === request);
-    const status = liveReply ? 'running' : project.status === 'stopped' ? 'stopped' : project.failures?.some(f => f.role === 'manager') ? 'failed' : 'waiting';
+    const status = liveReply ? 'running' : !pending.has(request) ? 'replaced' : project.status === 'stopped' ? 'stopped'
+      : project.failures?.some(f => f.role === 'manager') ? 'failed' : 'waiting';
     projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
       request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.stateLine, order: line + 0.1,
       text: '', live: status === 'running' || status === 'waiting', status });
@@ -461,7 +465,8 @@ interface MapReading {
  * that opened a task is its objective. Each message of the operator's to the Manager is a
  * question-and-answer card (`q` and its line): answering till the letter that names it comes, then
  * answered, with the files that letter hands over; the tasks that answer opens, and that wait for no
- * other, follow it; a reply alone leaves the map with the next message. A letter's id is its line, and the lines read are
+ * other, follow it; a reply alone leaves the map with the next message. A letter's id is its line,
+ * with a reply suffix when it also belongs to a task, and the lines read are
  * the cursor: a page that holds one is sent only the letters after it. Like the live event stream,
  * the shared project reading continues at the last complete line. */
 export function progressMap(store: Store, project: Project, after: number) {
@@ -485,23 +490,27 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
   }
   else if (event.type === 'task.closed') closed.set(event.task, ts);
   else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts, line });
-  else if (event.type === 'handoff' && event.task) {
-    if (event.role === 'engineer' || event.role === 'reviewer') {
-      if (event.to === 'manager' || event.to === 'planner') opened.set(event.task, event.open ?? []);
-      actions.set(event.task, { role: event.role, text: event.letter, ts, line });
+  else if (event.type === 'handoff') {
+    if (event.task) {
+      if (event.role === 'engineer' || event.role === 'reviewer') {
+        if (event.to === 'manager' || event.to === 'planner') opened.set(event.task, event.open ?? []);
+        actions.set(event.task, { role: event.role, text: event.letter, ts, line });
+      }
+      letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
     }
-    letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
-  }
-  else if (event.type === 'handoff' && event.role === 'manager' && event.answers && qa.has(event.answers)) {
-    const card = qa.get(event.answers)!;
-    // A reply answers the message; work handed to the team answers it once that work is done.
-    const replied = event.to === 'operator';
-    Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
-    reading.answered = card.id;
-    if (event.to === 'planner') reading.briefed = card.id;
-    if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
-    actions.set(card.id, { role: event.role, text: event.letter, ts, line });
-    letters.push({ line, letter: { id: `e${line}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
+    if (event.role === 'manager' && event.answers && qa.has(event.answers)) {
+      const card = qa.get(event.answers)!;
+      // A reply answers the message; work handed to the team answers it once that work is done.
+      const replied = event.to === 'operator';
+      Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
+      // Word for a task under way joins the message to that task.
+      if (event.task) card.deps = [event.task];
+      reading.answered = card.id;
+      if (event.to === 'planner') reading.briefed = card.id;
+      if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
+      actions.set(card.id, { role: event.role, text: event.letter, ts, line });
+      letters.push({ line, letter: { id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
+    }
   }
 }
 

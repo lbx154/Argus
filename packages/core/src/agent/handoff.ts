@@ -21,7 +21,7 @@ const TO: Record<Form, Record<string, string>> = {
     operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; each starts once the tasks it waits for have closed, and those that wait for none run side by side at once. A letter naming an open task opens none: whoever holds that task reads it as soon as they can, in the turn under way or their next',
+    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; each starts once the tasks it waits for have closed, and those that wait for none run side by side at once',
     planner: 'nothing to open or tell now: the tasks under way go on, and you read on when the next letter comes',
     manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
     operator: OPERATOR,
@@ -63,7 +63,8 @@ export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSc
         properties: { letter, after: strings(AFTER), task: { type: 'string', description: TASK } },
       },
     },
-  } : { letter: { ...letter, description: LETTER }, open: strings(OPEN) };
+  } : { letter: { ...letter, description: LETTER }, open: strings(OPEN),
+    ...form === 'manager' ? { task: { type: 'string', description: TASK } } : {} };
   return {
     type: 'object', description: 'Your hand-off: the final answer of your turn.', additionalProperties: false,
     properties: { to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` }, ...fields },

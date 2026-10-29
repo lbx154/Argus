@@ -22,7 +22,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   const to = request.startsWith('From the ') ? 'operator' : ['reviewer', 'manager', 'engineer'].find(place => properties.to.enum.includes(place));
   const letter = { engineer: request.trim().split('\n').at(-1), operator: 'The work is done.' }[to] ?? `Ready for the ${to}.`;
   for (const [method, more] of [
-    ['item/completed', { item: { type: 'agentMessage', text: JSON.stringify({ to, letter, open: [] }) } }],
+    ['item/completed', { item: { type: 'agentMessage', text: JSON.stringify({ to, letter, open: [], ...properties.task ? { task: '' } : {} }) } }],
     ['turn/completed', { turn: { id: 'turn', status: 'completed', error: null } }],
   ]) emit({ method, params: { threadId: thread, ...more } });
 });

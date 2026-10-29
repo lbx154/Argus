@@ -56,8 +56,8 @@ export interface HandOff {
   /** Free text for them, passed on as written; the operator reads it too. One letter, except
    * when the Planner opens several tasks at once: one letter each. */
   letters: string[];
-  /** For each of the Planner's letters to the Engineer, the open task it is for, or the tasks the
-   * task it opens waits for. */
+  /** For each letter to the Engineer, the open task it is for, or the tasks the Planner's new
+   * task waits for. */
   tasks?: { task: string; after: string[] }[];
   /** The files of the result the letter hands over, the first to open first. */
   open?: string[];

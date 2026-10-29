@@ -47,15 +47,15 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(schemaErrors({ to: 'done', letter: '', open: [], extra: 1 }, formSchema('engineer')), [
     'to must be one of ["reviewer","engineer","planner","manager","operator"]', 'letter must have length >= 1', 'extra is not allowed',
   ]);
-  assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required', 'open is required']);
+  assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required', 'open is required', 'task is required']);
   // A letter that hands over a result names its files; the Planner's letters hand over none.
-  const report = { to: 'operator', letter: 'The report is done.', open: ['report/index.html', 'figures/a.png'] };
+  const report = { to: 'operator', letter: 'The report is done.', open: ['report/index.html', 'figures/a.png'], task: '' };
   assert.deepEqual(judge('manager', formSchema('manager'), report), { form: 'manager', to: 'operator', letters: ['The report is done.'], open: report.open });
   assert.deepEqual(judge('manager', formSchema('manager'), { ...report, open: [] }), { form: 'manager', to: 'operator', letters: ['The report is done.'] });
   // Only letters to the Engineer are for tasks: the Planner's question naming one is for none, so its answer finds it.
   assert.deepEqual(judge('plan', formSchema('plan'), { to: 'operator', letters: [{ letter: 'Which dataset should t1 use?', task: 't1', after: [] }] }),
     { form: 'plan', to: 'operator', letters: ['Which dataset should t1 use?'] });
-  assert.deepEqual(judge('review', formSchema('review', 'planner'), { ...report, to: 'planner' }),
+  assert.deepEqual(judge('review', formSchema('review', 'planner'), { to: 'planner', letter: report.letter, open: report.open }),
     { form: 'review', to: 'planner', letters: ['The report is done.'], open: report.open });
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [], task: '' }], open: [] }, formSchema('plan')), ['open is not allowed']);
   // A task's form offers its giver: the Planner, which never had a task the Manager gave, is not on its form.
@@ -70,6 +70,8 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(judge('plan', formSchema('plan'), plan), { form: 'plan', to: 'engineer', letters: ['Train the baseline', 'Compare with it', 'Use the newer model.'],
     tasks: [{ task: '', after: [] }, { task: '', after: ['t3'] }, { task: 't2', after: [] }] });
   assert.deepEqual(judge('plan', formSchema('plan'), { to: 'manager', letters: [{ letter: 'Done.', after: [], task: '' }] }), { form: 'plan', to: 'manager', letters: ['Done.'] });
+  assert.deepEqual(judge('manager', formSchema('manager'), { to: 'engineer', letter: '继续现有任务，使用新模型。', task: 't1', open: [] }),
+    { form: 'manager', to: 'engineer', letters: ['继续现有任务，使用新模型。'], tasks: [{ task: 't1', after: [] }] });
   // A letter that opens a task names it in its first line, the title the progress map shows.
   for (const form of ['manager', 'plan'] as const) assert.match(String(formSchema(form).properties!.to!.description), /opens a task, [^;]*first line, a short title/);
   // Every field is required and none other allowed: the strict shape OpenAI's structured outputs take.
@@ -127,6 +129,11 @@ const reported: Record<Backend, Pick<AgentResult, 'model' | 'usage'> & { env: st
 };
 
 for (const backend of BACKENDS) {
+  test(`${backend}: the Manager can address an existing task through its form`, async () => {
+    const result = await call(backend, { output: { to: 'engineer', letter: 'Continue the existing task.', task: 't1', open: [] } }, { role: 'manager', form: 'manager' });
+    assert.deepEqual(result.handoff, { form: 'manager', to: 'engineer', letters: ['Continue the existing task.'], tasks: [{ task: 't1', after: [] }] });
+  });
+
   test(`${backend}: the form the turn ends with, usage and the raw output are recorded`, async () => {
     const result = await call(backend, { output: handoff });
     assert.equal(result.completed, true);

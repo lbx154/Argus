@@ -108,7 +108,9 @@ const stoppedRecord = readFileSync(new URL('./fixtures/conversation-stop/events.
   .trim().split('\n').map(line => JSON.parse(line) as Recorded);
 test('real stopped conversation: refresh retains the original request and Resume reuses its reply row', () => {
   const stop = stoppedRecord.findIndex(event => event.type === 'call.end');
-  const work = { ...project, tasks: [], status: 'stopped' as const };
+  // The message the stop interrupted waits for Resume.
+  const asked = stoppedRecord.find(event => event.type === 'message')!;
+  const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [{ text: asked.type === 'message' ? asked.text : '', request_id: 'stop-request-1' }] };
   const stopped = rowsOf(stoppedRecord.slice(0, stop + 1), work);
   assert.equal(stopped.length, 2);
   assert.match(String(stopped[0]?.text), /不要丢掉这条消息/);
@@ -136,7 +138,7 @@ test('a queued operator message keeps its own reply and a letter from the team d
     { type: 'message', from: 'operator', text: 'One more question', request_id: 'r-more', ts: at(7) },
   ];
   const live: Live = { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'r-new' }], requests: [] };
-  const rows = rowsOf(events, { ...project, tasks: [], status: 'working' }, live);
+  const rows = rowsOf(events, { ...project, tasks: [], status: 'working', forManager: [{ text: 'One more question', request_id: 'r-more' }] }, live);
   assert.equal(rows.find(row => row.text === 'On the team report')?.request_id, undefined);
   assert.equal(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.text, '');
   assert.equal(rows.find(row => row.request_id === 'r-more' && row.type === 'ui.argus')?.status, 'waiting');

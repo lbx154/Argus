@@ -11,6 +11,7 @@ import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
 import { progressMap, taskTrace } from '../src/serve/views.js';
 import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
+import { formSchema, judge } from '../src/agent/handoff.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
@@ -185,7 +186,7 @@ test("every role is shown Argus's skills and the team's beside them, and a role 
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- software: `) && prompt.includes(join(SKILLS, 'research')));
-    assert.equal(prompt.includes(`\nThe skills in ${own} are the team's: when your work, or the operator's word on it, teaches something`), access === 'write');
+    assert.equal(prompt.includes(`\nThe skills in ${own} are the team's: when your work teaches how later projects can do theirs better`), access === 'write');
   }
 });
 
@@ -451,6 +452,84 @@ test("a letter to a task under way goes into its holder's turn at once, where th
   assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.unread ?? []], ['idle', 1, []]);
 });
 
+test('replay the recorded Manager supplement: an explicit task target delivers the same letter without adding t2', async t => {
+  const record = readFileSync(new URL('./fixtures/manager-task-update/events.jsonl', import.meta.url), 'utf8').trim().split('\n')
+    .map(line => JSON.parse(line) as FlowEvent);
+  const added = record.filter(event => event.type === 'task.added').map(event => event.task);
+  const letters = record.filter(event => event.type === 'handoff').filter(event => event.role === 'manager' && event.to === 'engineer');
+  const messages = record.filter(event => event.type === 'message');
+  assert.ok(messages[0]!.request_id);
+  assert.ok(messages[1]!.request_id);
+  assert.deepEqual(added.map(task => [task.id, task.title]), [['t1', added[0]!.title], ['t2', added[0]!.title]]);
+  assert.match(letters[1]!.letter, /继续现有任务/);
+  assert.equal(letters[1]!.letter, added[1]!.objective);
+  for (const target of ['', 't1']) await t.test(target ? 'target the original task' : 'reproduce the original untargeted hand-off', async t => {
+    const held = gate();
+    t.after(held.open);
+    // The original record has no task field. Supply the new form's empty value to replay it,
+    // then change only that field to t1; the recorded letters and operator messages stay verbatim.
+    const handoff = judge('manager', formSchema('manager'), { to: 'engineer', letter: letters[1]!.letter, open: [], task: target });
+    assert.ok(typeof handoff !== 'string', String(handoff));
+    const { flow, id, requests, events, store, callAgent } = await setup(t, [
+      { role: 'manager', to: 'engineer', letter: letters[0]!.letter },
+      { role: 'engineer', waits: held.shut, to: 'operator', letter: 'Waiting for input.' },
+      { role: 'manager', to: handoff.to, letters: handoff.letters, ...handoff.tasks ? { tasks: handoff.tasks } : {} },
+      ...target ? [] : [{ role: 'engineer' as const, to: 'operator', letter: 'A second Engineer started.' }],
+    ]);
+    const steered: string[][] = [];
+    Object.assign(callAgent, { steer: async (session: string, text: string) => { steered.push([session, text]); return true; } });
+    await flow.say(id, messages[0]!.text, { request_id: messages[0]!.request_id! });
+    while (requests.length < 2) await tick();
+    await flow.say(id, messages[1]!.text, { request_id: messages[1]!.request_id! });
+    const project = store.load(id);
+    assert.deepEqual(project.tasks.map(task => [task.id, task.objective]),
+      added.slice(0, target ? 1 : 2).map(task => [task.id, task.objective]));
+    assert.deepEqual(steered, target ? [[`${id}/t1.engineer`, `## From the Manager, during your turn\n${letters[1]!.letter}`]] : []);
+    assert.equal(events().filter(event => event.type === 'task.added').length, target ? 1 : 2);
+    if (target) {
+      assert.deepEqual(project.tasks[0]!.unread, [{ from: 'manager', text: letters[1]!.letter }]);
+      assert.ok(events().some(event => event.type === 'handoff' && event.role === 'manager' && event.task === 't1'
+        && event.letter === letters[1]!.letter && event.answers === messages[1]!.request_id));
+    }
+    held.open();
+    const settled = await flow.settled(id);
+    assert.equal(settled.status, 'asking');
+    assert.equal(requests.filter(request => request.role === 'engineer').length, target ? 1 : 2);
+  });
+});
+
+for (const holder of ['engineer', 'reviewer'] as const) for (const steer of [false, true]) {
+  test(`the Manager writes to the task's ${holder}, read ${steer ? 'during this turn' : 'next turn'}, without opening another task`, async t => {
+    const held = gate();
+    t.after(held.open);
+    const letter = '继续现有任务，使用新模型。';
+    const { flow, id, requests, events, store, callAgent } = await setup(t, [
+      toEngineer,
+      ...holder === 'reviewer' ? [{ role: 'engineer' as const, to: 'reviewer', letter: 'Ready to check.' }] : [],
+      { role: holder, waits: held.shut, to: 'engineer', letter: 'Carry on.' },
+      { role: 'manager', to: 'engineer', letter, tasks: [{ task: 't1', after: [] }] },
+      { role: 'engineer', to: 'manager', letter: 'Switched models.' },
+      report,
+    ]);
+    const steered: string[][] = [];
+    Object.assign(callAgent, { steer: async (session: string, text: string) => { steered.push([session, text]); return steer; } });
+    await flow.say(id, 'Build the CSV summary tool');
+    while (!requests.some(request => request.role === holder && request.session === `${id}/t1.${holder}`)) await tick();
+    await flow.say(id, '使用新模型');
+    assert.deepEqual(steered, [[`${id}/t1.${holder}`, `## From the Manager, during your turn\n${letter}`]]);
+    assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: letter }]);
+    assert.equal(taskTrace(store, store.load(id), 't1').groups.at(-1)?.role, 'manager');
+    held.open();
+    const project = await flow.settled(id);
+    assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.objective, project.tasks[0]?.unread], ['idle', 1, brief, undefined]);
+    assert.equal(events().filter(event => event.type === 'task.added').length, 1);
+    assert.ok(events().some(event => event.type === 'handoff' && event.role === 'manager' && event.task === 't1' && event.letter === letter));
+    const next = requests.find(request => request.role === 'engineer' && request.prompt.startsWith(`## From the ${holder === 'engineer' ? 'Engineer' : 'Reviewer'}\nCarry on.`));
+    assert.ok(next);
+    assert.equal(next.prompt.includes(`## From the Manager, since the task's last turn\n${letter}`), !steer);
+  });
+}
+
 test('the operator talks to the Manager while the team works, and what it hands on runs beside the work', async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });
@@ -545,6 +624,41 @@ test('a failed turn holds up only its task: the rest goes on, and the project sh
 
 const gate = () => { let open = (): void => {}; const shut = new Promise<void>(resolve => { open = resolve; }); return { shut, open }; };
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+for (const timing of ['before delivery', 'after delivery']) {
+  test(`an unread Manager letter returns to the Manager when its task closes ${timing}`, async t => {
+    const engineer = gate(), manager = gate();
+    t.after(engineer.open);
+    t.after(manager.open);
+    const letter = 'Also log the loss.';
+    const { flow, id, store, requests, events } = await setup(t, [
+      toEngineer,
+      { role: 'engineer', waits: engineer.shut, to: 'manager', letter: 'Baseline trained.' },
+      { role: 'manager', ...timing === 'before delivery' ? { waits: manager.shut } : {},
+        to: 'engineer', letter, tasks: [{ task: 't1', after: [] }] },
+      report, report,
+    ]);
+    await flow.say(id, 'Train a baseline');
+    while (requests.length < 2) await tick();
+    const supplement = flow.say(id, 'Also log the loss');
+    while (requests.length < 3) await tick();
+    if (timing === 'after delivery') {
+      await supplement;
+      assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: letter }]);
+    }
+    engineer.open();
+    if (timing === 'before delivery') {
+      while (store.load(id).tasks[0]?.status !== 'closed') await tick();
+      manager.open();
+    }
+    await supplement;
+    const project = await flow.settled(id);
+    assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.status, project.tasks[0]?.unread, project.inbox], ['idle', 1, 'closed', undefined, []]);
+    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which closed before it was read:\n${letter}`).length, 1);
+    assert.ok(!requests.some(request => request.role === 'planner'));
+    assert.equal(events().filter(event => event.type === 'task.added').length, 1);
+  });
+}
 
 test("a Planner's letter to a task that closed during its turn goes back to it, and the ids its other letters name hold", async t => {
   const t1 = gate(), planner = gate();

@@ -64,12 +64,12 @@ the task or the Planner, till the operator resumes the work, while the rest goes
 
 | Role | Writes to |
 |---|---|
-| Manager | `engineer`: the work, whole, when one person can carry it through, opened as a task, the letter its brief; `planner`: work too large for one task, whose later parts depend on what the earlier ones find, or word on the work it runs; `operator`: the answer, report or question |
+| Manager | `engineer`: the work, whole, when one person can carry it through, opened as a task, the letter its brief, or word addressed to an existing task; `planner`: work too large for one task, whose later parts depend on what the earlier ones find, or word on the work it runs; `operator`: the answer, report or question |
 | Planner | `engineer`: the next tasks, a letter each, each a result to carry through and its letter its brief, each naming the tasks it waits for; `planner`: nothing to open now, it reads on with the next letter; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question it waits on |
 | Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the work is stuck; `operator` |
 | Reviewer | `engineer`: what to repair before the operator sees it; `planner` or `manager`: its judgment, accepted or what is wrong, to whoever gave the task; `operator` |
 
-A letter to the Engineer opens a task; a letter from the Engineer or its Reviewer to anyone but
+An untargeted letter to the Engineer opens a task; a letter from the Engineer or its Reviewer to anyone but
 the two of them closes it, and stays on it as its last word. Nothing is done or finished: the
 host never decides whether a task succeeded, the letter says so. Open tasks run side by side,
 in the same workspace, each once the tasks it waits for have closed. The Planner lays out work
@@ -241,7 +241,7 @@ A session ends, and everything its CLI started with it, when its task closes, it
 stops or comes to rest with no question or failure waiting in it, Argus exits, a turn on it is
 stopped, or the CLI exits on its own; the next turn starts a new CLI, which resumes the session
 from the backend's record. A turn that asks for other settings (a model, an effort) does the
-same. A letter the Planner writes to a task under way waits on the task till a turn that read it
+same. A letter the Manager or Planner writes to a task under way waits on the task till a turn that read it
 ends; Codex also puts it into the turn under way (`turn/steer`), so the holder reads it as they
 go. Ending a CLI ends what it
 started however it detached (`nohup … &`, `setsid`): the CLI's environment carries
