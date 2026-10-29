@@ -268,16 +268,6 @@ export type ResearchMethod =
     change_log: ResearchMethodChange[];
   };
 
-export interface JournalEntry {
-  id: string;
-  ts: number;
-  kind: string;
-  title: string;
-  summary: string;
-  tags: string[];
-  cost_usd?: number;
-  extra?: Record<string, unknown>;
-}
 export interface DoctorCheck {
   name: string;
   ok: boolean;
@@ -1124,9 +1114,6 @@ export const api = {
     );
     return requireSnapshotContract(value);
   },
-  journal: (sid: string, n = 20, signal?: AbortSignal) =>
-    getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`), signal)
-      .then((r) => r.journal),
   doctor: (sid: string, signal?: AbortSignal) =>
     getJson<DoctorReport>(P(sid, '/doctor'), signal),
   config: (sid: string, signal?: AbortSignal) =>

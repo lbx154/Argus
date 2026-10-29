@@ -1,20 +1,17 @@
-import type { JournalEntry, Snapshot } from '../api';
+import type { Snapshot } from '../api';
 import { useI18n } from '../i18n';
 import { BacklogPanel } from './BacklogPanel';
-import { JournalPanel } from './JournalPanel';
 import { Modal, ModalHeader } from './Modal';
 import { RolesPanel } from './RolesPanel';
 
 export function ProjectInspectorModal({
   open,
   snap,
-  journal,
   onClose,
   onInspect,
 }: {
   open: boolean;
   snap: Snapshot;
-  journal: JournalEntry[];
   onClose: () => void;
   onInspect: (id: string) => void;
 }) {
@@ -24,10 +21,7 @@ export function ProjectInspectorModal({
       <ModalHeader title={t('panel.project')} sub={snap.session.display_name || snap.session.id} />
       <div className="h-[68vh] min-h-0 space-y-3 overflow-y-auto bg-bg p-3 scroll-thin lg:grid lg:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.8fr)] lg:gap-3 lg:space-y-0 lg:overflow-hidden">
         <BacklogPanel items={snap.backlog} onInspect={onInspect} />
-        <div className="flex min-h-0 flex-col gap-3">
-          <RolesPanel roles={snap.roles} />
-          <JournalPanel entries={journal} />
-        </div>
+        <RolesPanel roles={snap.roles} />
       </div>
     </Modal>
   );

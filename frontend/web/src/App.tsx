@@ -1,6 +1,6 @@
 import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useWorkspaceTree } from './hooks';
+import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
 import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
@@ -591,7 +591,6 @@ export default function App() {
       void transcriptQ.refetch();
     }
   }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
-  const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
   // The map view follows the stream at a beat, not per token.
   const mapInput = useMemo(() => ({ sid: loadedSid, events, conversation: activityEvents }), [loadedSid, events, activityEvents]);
   const mapHistory = useThrottledValue(mapInput, 250);
@@ -1705,7 +1704,6 @@ export default function App() {
         <ProjectInspectorModal
           open={overlay === 'inspector'}
           snap={snap}
-          journal={journalQ.data ?? []}
           onClose={() => setOverlay('none')}
           onInspect={setTaskItemId}
         />

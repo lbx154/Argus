@@ -90,14 +90,6 @@ export function useSnapshot(sid: string | null) {
   });
 }
 
-export const useJournal = (sid: string | null, n = 30, enabled = true) =>
-  useQuery({
-    queryKey: ['journal', sid, n],
-    queryFn: ({ signal }) => api.journal(sid!, n, signal),
-    enabled: !!sid && enabled,
-    refetchInterval: enabled ? 8_000 : false,
-  });
-
 export const useDoctor = (sid: string | null, enabled: boolean) =>
   useQuery({ queryKey: ['doctor', sid], queryFn: ({ signal }) => api.doctor(sid!, signal), enabled: !!sid && enabled });
 

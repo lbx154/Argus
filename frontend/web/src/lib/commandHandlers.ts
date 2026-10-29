@@ -63,7 +63,6 @@ export function buildWebCommandHandlers({
   return {
     status: async () => onOpenInspector(),
     roles: async () => onOpenOperations(),
-    journal: async () => onOpenInspector(),
     backlog: async () => onOpenInspector(),
     item: async (rest) => { if (rest) onSetTaskItemId(rest); },
     artifacts: async () => onShowArtifacts(),

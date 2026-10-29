@@ -3,7 +3,7 @@ import { EVENT_VIEW_FILTERS, type EventViewFilter } from './events.js';
 export type CommandKind = 'panel' | 'action' | 'local';
 
 export type CommandId =
-  | 'crystalpilot' | 'status' | 'roles' | 'journal' | 'backlog' | 'artifacts' | 'artifact'
+  | 'crystalpilot' | 'status' | 'roles' | 'backlog' | 'artifacts' | 'artifact'
   | 'events' | 'find' | 'cancel' | 'ask' | 'task' | 'plan' | 'rewrite' | 'nudge' | 'abort'
   | 'note' | 'item' | 'run' | 'new' | 'daemons'
   | 'resume' | 'attach' | 'rename' | 'doctor' | 'backend' | 'config'
@@ -21,9 +21,8 @@ export interface SlashCommand {
 }
 
 export const COMMANDS: SlashCommand[] = [
-  { id: 'status', name: '/status', argument: 'none', desc: 'roles, queued work, journal, and health', group: 'Everyday', kind: 'panel' },
+  { id: 'status', name: '/status', argument: 'none', desc: 'roles, queued work and health', group: 'Everyday', kind: 'panel' },
   { id: 'roles', name: '/roles', argument: 'none', desc: 'per-role backend / model / effort + live activity', group: 'Everyday', kind: 'panel' },
-  { id: 'journal', name: '/journal', arg: '[N]', argument: 'optional', desc: 'recent journal entries (default 10)', group: 'Everyday', kind: 'panel' },
   { id: 'backlog', name: '/backlog', arg: '[all]', argument: 'optional', desc: 'pending tasks (all = incl. done/skipped)', group: 'Everyday', kind: 'panel' },
   { id: 'artifacts', name: '/artifacts', argument: 'none', desc: 'result files the Reviewer has checked (Enter previews)', group: 'Everyday', kind: 'panel' },
   { id: 'artifact', name: '/artifact', arg: '<path>', argument: 'required', desc: 'preview one reviewed result file', group: 'Everyday', kind: 'panel' },
