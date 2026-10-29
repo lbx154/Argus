@@ -31,7 +31,8 @@ export const codex: StartBackend = (request, { confined, started, schema, stem }
     '--output-schema', schemaFile,
     ...request.resume ? [request.resume] : [], '-',
   ];
-  let threadId = request.resume ?? null;
+  // A resumed thread is announced again; one that cannot be resumed never is.
+  let threadId: string | null = null;
   let completed = false;
   let failed = false;
   let error: string | null = null;

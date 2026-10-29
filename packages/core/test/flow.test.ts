@@ -98,7 +98,8 @@ test('the Manager answers directly', async t => {
   assert.match(request?.prompt ?? '', /^You are the Argus Manager[\s\S]*## Where things are[\s\S]*## Message\nWhat is 6 times 7\?$/);
   const readme = join(SKILLS, 'research', 'README.md');
   assert.ok(request?.prompt.includes(`\n- research: ${readFileSync(readme, 'utf8').split('\n')[0]!.replace(/^# /, '')} (${readme})\n`));
-  assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff', 'status']);
+  // A project with no work rests, and an answer leaves it resting.
+  assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
 });
 
@@ -146,7 +147,7 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   assert.equal(manager?.resume, 'manager-1');
   assert.equal(manager?.prompt, 'From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted: the totals match the data.');
   assert.deepEqual(events().map(event => event.type), [
-    'message', 'call.start', 'call.end', 'handoff', 'task.added', 'call.start', 'call.end', 'handoff',
+    'message', 'call.start', 'call.end', 'handoff', 'task.added', 'status', 'call.start', 'call.end', 'handoff',
     'call.start', 'call.end', 'handoff', 'task.closed', 'call.start', 'call.end', 'handoff', 'status',
   ]);
 });
@@ -340,7 +341,8 @@ test("the operator's message outlasts a Manager turn the process stopped, and re
   const again = new Flow(new Store(home), next.callAgent);
   again.resume(id);
   const project = await again.settled(id);
-  assert.equal(next.requests[0]?.prompt.endsWith('## Message\nWhat is 6 times 7?'), true);
+  // The turn the stop cut off goes on in its session.
+  assert.deepEqual([next.requests[0]?.resume, next.requests[0]?.prompt], ['manager-1', 'What is 6 times 7?']);
   assert.deepEqual(project.forManager, []);
   // Its words are in the conversation once, and the reply follows them.
   assert.deepEqual(events().filter(event => event.type === 'message' || event.type === 'handoff').map(event => event.type), ['message', 'handoff']);
@@ -428,8 +430,9 @@ test('a restarted process continues from project.json', async t => {
   const project = await say(new Flow(store, next.callAgent), id, 'continue');
   assert.equal(project.status, 'idle');
   assert.equal(next.requests[0]?.resume, 'manager-1');
-  assert.equal(next.requests[1]?.resume, undefined);
-  assert.match(next.requests[1]?.prompt ?? '', /^You are the Argus Reviewer[\s\S]*## From the Engineer\nsummary\.py added$/);
+  // The Reviewer the restart cut off goes on in its session, with the letter it was reading.
+  assert.equal(next.requests[1]?.resume, 'reviewer-3');
+  assert.match(next.requests[1]?.prompt ?? '', /## From the Engineer\nsummary\.py added$/);
 });
 
 test("the projects are what is named as one: a file the desktop leaves beside them is none", async t => {

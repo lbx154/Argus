@@ -263,6 +263,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject).listen(options.port, host, resolveListen);
   });
+  // Work a shutdown cut off goes on; what the operator stopped stays stopped.
+  for (const { id, status } of store.list()) if (status === 'working') runs.resume(id);
   return {
     url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
     close: async () => {

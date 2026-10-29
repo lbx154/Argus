@@ -149,7 +149,7 @@ a browser. There are no subcommands: everything else happens in the page.
 | `--model M` | the model new projects use, in the backend's own name for it; without it, the CLI's default |
 | `--host H` | serve on another address, for example `0.0.0.0` |
 | `--web DIR` | serve a web page built elsewhere instead of the bundled one |
-| `ARGUS_WEB_TOKEN` | the access token, kept across restarts; unset, a new one each start. The printed address carries it |
+| `ARGUS_WEB_TOKEN` | the access token; unset, one made on the first start and kept in the state root, so open pages stay signed in across restarts. The printed address carries it |
 | `ARGUS_HOME` | the state directory (default `~/.argus`) |
 
 In the page, create a project and tell the Manager what you want. A project works in its

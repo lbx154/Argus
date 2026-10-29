@@ -105,7 +105,7 @@ wiki the page also asks for is empty.
 ## The web cockpit
 
 `argus` serves the cockpit (on 127.0.0.1, or on `--host`, `0.0.0.0` for every network; project
-requests always need a bearer token, `ARGUS_WEB_TOKEN` or one made at each start and printed in the
+requests always need a bearer token, `ARGUS_WEB_TOKEN` or one made on the first start, kept in the state root and printed in the
 address, since the roles' sandbox shares the machine's network)
 and runs the work of its projects in its own process, projects side by side. The page reads files
 as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
@@ -115,7 +115,10 @@ Manager takes the message up in its next turn, at once unless it is answering a 
 team, while the team's work goes on, and what its letter hands on joins that work. The message
 is recorded when the Manager takes it up, so the Manager's letter after it is its reply; the
 message's stream follows that turn and ends with the reply. Stop interrupts every call under
-way on the project and Start resumes. The live event stream is server-sent events, in both
+way on the project and records it `stopped`: no turn starts again till Start, or the Manager
+handing the team new work at the operator's word. A turn goes on next time in the session its
+backend reported, whether it ended, was cut off or failed. When `argus` starts, the projects a
+shutdown cut off, still `working`, go on. The live event stream is server-sent events, in both
 runtimes.
 
 The composer's draft is kept in the project's directory, so a reload or another device picks it

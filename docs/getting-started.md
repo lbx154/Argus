@@ -77,7 +77,7 @@ subcommands, and it does not open a browser by itself.
 | `--model M` | the model new projects use, in the backend's own name for it; without it, the CLI's default |
 | `--host H` | serve on another address, for example `0.0.0.0` |
 | `--web DIR` | serve a web page built elsewhere instead of the bundled one |
-| `ARGUS_WEB_TOKEN` | the access token every project request must carry, kept across restarts; unset, `argus` makes a new one at each start. The printed address includes it |
+| `ARGUS_WEB_TOKEN` | the access token every project request must carry, kept across restarts; unset, `argus` makes one on its first start and keeps it in the state root (`web-token`). The printed address includes it |
 | `ARGUS_HOME` | the state directory (default `~/.argus`) |
 
 One `argus` process owns a state directory. A second one on the same directory stops with
@@ -136,9 +136,11 @@ For scale: in the core's first real run, Codex took one sentence to a reviewed d
 - **Knowledge & skills**: the bundled skills and those in `~/.argus/skills/`, newest
   changes first, so a skill a role writes shows up while the work goes on.
 
-Stopping a project interrupts every call under way on it; starting it again resumes where
-it was. The work runs inside the `argus` process, so stopping `argus` stops it too, and
-you start the project again from the page after the restart.
+Stopping a project interrupts every call under way on it, and it stays stopped, whatever
+you say to the Manager, until you start it again; each role then goes on in its own session
+where it was. The work runs inside the `argus` process, so stopping `argus` stops it too;
+when `argus` starts again, the work it cut off goes on by itself, and a project you stopped
+stays stopped.
 
 ## Skills and plugins
 

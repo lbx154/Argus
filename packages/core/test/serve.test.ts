@@ -353,8 +353,23 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.equal((await (await post(`${P}/daemon/start`, { command_id: 'c2' })).json() as { rc: number }).rc, 0);
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done');
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager', 'engineer', 'reviewer', 'manager']);
-  // The interrupted Engineer starts afresh: its turn did not end.
+  // The interrupted Engineer starts afresh: its backend reported no session to go on in.
   assert.equal(requests[4]!.resume, undefined);
+});
+
+test('work a shutdown cut off goes on when Argus starts again; what the operator stopped stays stopped', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-serve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const task = { id: 't1', title: 'Summarize the CSV.', from: 'manager' as const, objective: brief, status: 'open' as const, holder: 'engineer' as const, note: null };
+  const [cut, stopped] = [0, 1].map(() => store.create({ workdir: '', request: 'Summarize data.csv', backend: 'codex', model: null }));
+  store.save({ ...cut!, status: 'working', tasks: [task] });
+  store.save({ ...stopped!, status: 'stopped', tasks: [task] });
+  const { callAgent, requests } = agent([{ role: 'engineer', to: 'manager', letter: 'report.md written' }, { role: 'manager', to: 'operator', letter: 'Done.' }]);
+  const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web: home });
+  t.after(() => served.close());
+  await eventually(async () => store.load(cut!.id).status, status => status === 'idle');
+  assert.deepEqual([requests.map(request => request.role), store.load(stopped!.id).status], [['engineer', 'manager'], 'stopped']);
 });
 
 test('pausing lets the calls under way end and starts no other, until the work resumes', async t => {

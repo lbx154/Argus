@@ -109,7 +109,7 @@ export class Store {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),
-      status: 'working', error: null, questions: [], tasks: [], inbox: [], sessions: {},
+      status: 'idle', error: null, questions: [], tasks: [], inbox: [], sessions: {},
     };
     mkdirSync(project.workdir, { recursive: true });
     mkdirSync(join(this.dir(id), 'calls'), { recursive: true });
