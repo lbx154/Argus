@@ -325,7 +325,7 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
   for (const [request, line] of reading.fold.asked) {
     const operator = reading.rows.get(`m${line}-operator`)!;
     const liveReply = live.calls.some(call => call.answers === request);
-    const status = project.status === 'stopped' ? 'stopped' : project.failures?.some(f => f.role === 'manager') ? 'failed' : liveReply ? 'running' : 'waiting';
+    const status = liveReply ? 'running' : project.status === 'stopped' ? 'stopped' : project.failures?.some(f => f.role === 'manager') ? 'failed' : 'waiting';
     const latest = projected.get(`m${line}-argus`)!;
     projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
       request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.fold.line - 1, order: line + 0.1,
@@ -361,17 +361,17 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
   const count = openTasks(project).length;
   const running = new Set(live.calls.flatMap(call => call.task ?? [])).size;
   const questions = project.questions.length;
-  const stopped = project.status === 'stopped' || project.status === 'failed';
+  // Stopped while there is work to resume; a reply to the operator goes on whatever the work does.
+  const stopped = project.status === 'failed' || project.status === 'stopped' && resumable(project);
   const foreground = live.requests.length > 0 || live.calls.some(call => call.answers);
-  const state = stopped ? 'paused' : foreground || roles.length ? 'running' : questions ? 'paused' : live.since !== null ? 'waiting' : 'idle';
-  const label = stopped
-    ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务暂停` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} tasks paused` : ''}` }
-    : foreground ? { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' }
+  const state = foreground ? 'running' : stopped ? 'paused' : roles.length ? 'running' : questions ? 'paused' : live.since !== null ? 'waiting' : 'idle';
+  const label = foreground ? { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' }
+    : stopped ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务暂停` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} tasks paused` : ''}` }
     : questions ? { 'zh-CN': `等你回答 ${questions} 个问题${running ? ` · ${running} 个任务继续进行` : roles.length ? ' · 团队继续工作' : ''}`, en: `Waiting for ${questions} answer${questions === 1 ? '' : 's'}${roles.length ? ' · Other work continues' : ''}` }
     : state === 'running' ? { 'zh-CN': running ? `${running} 个任务进行中` : '团队正在工作', en: running ? `${running} task${running === 1 ? '' : 's'} in progress` : 'The team is working' }
     : state === 'waiting' ? { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' }
-    : { 'zh-CN': project.request ? '已完成' : '等你开始', en: project.request ? 'Done' : 'Waiting for you to start' };
-  return { state, reason: stopped ? 'not_running' : questions ? 'operator_input' : state === 'waiting' ? 'awaiting_next_step' : '',
+    : { 'zh-CN': project.request ? '已回复' : '等你开始', en: project.request ? 'Replied' : 'Waiting for you to start' };
+  return { state, reason: state === 'paused' && stopped ? 'not_running' : questions ? 'operator_input' : state === 'waiting' ? 'awaiting_next_step' : '',
     role: foreground ? 'manager' : roles[0] ?? '', roles, taskId: task?.id ?? '', title: task?.title ?? '', foreground,
     activityAt, label };
 }
@@ -497,7 +497,9 @@ export function progressMap(store: Store, project: Project, after: number) {
     }
     else if (event.type === 'handoff' && event.role === 'manager' && event.answers && qa.has(event.answers)) {
       const card = qa.get(event.answers)!;
-      Object.assign(card, { status: 'done', finished_ts: ts, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
+      // A reply answers the message; work handed to the team answers it once that work is done.
+      const replied = event.to === 'operator';
+      Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
       reading.answered = card.id;
       if (event.to === 'planner') reading.briefed = card.id;
       if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
@@ -512,9 +514,17 @@ export function progressMap(store: Store, project: Project, after: number) {
   // unanswered, is the conversation's.
   const answering = project.status !== 'stopped' && project.status !== 'failed';
   const last = [...qa.values()].at(-1);
-  const tasks = [...[...qa.values()].filter(card => worked.has(card.id) || !card.status && answering || card === last && card.status === 'done').map(card => ({
-    ...card, status: card.status || 'in_progress', latest_action: actions.get(card.id),
-  })), ...backlog(project).map((item, index) => {
+  // Work handed to the team is done once the tasks that follow its message have closed, or with none
+  // of its own, once the team has no work going.
+  const done = (card: MapCard): number | null => {
+    const own = [...follows].flatMap(([task, follow]) => follow === card.id ? [task] : []);
+    if (own.length ? own.some(task => !closed.has(task)) : project.status === 'working' || project.inbox.length > 0) return null;
+    return Math.max(card.ts ?? 0, ...own.map(task => closed.get(task)!));
+  };
+  const tasks = [...[...qa.values()].filter(card => worked.has(card.id) || !card.status && answering || card === last && card.status === 'done').map(card => {
+    const finished = card.status === 'in_progress' ? done(card) : card.finished_ts;
+    return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: actions.get(card.id) };
+  }), ...backlog(project).map((item, index) => {
     const question = asked(project, item.id);
     const follow = follows.get(item.id);
     return {

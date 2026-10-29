@@ -121,11 +121,14 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
       error: typeof verdict === 'string' ? verdict : ended.completed ? null
         : notInstalled(request.backend) ?? (request.signal?.aborted ? 'Run cancelled.' : null) ?? ended.error ?? cli.why(),
     };
-    mkdirSync(dirname(request.usageFile), { recursive: true });
-    appendFileSync(request.usageFile, `${JSON.stringify({
-      ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: result.model,
-      tokens: result.usage && tokens(result.usage), cost_usd: result.usage?.cost_usd ?? null,
-    })}\n`);
+    // What a call used, as its backend reported it; one it reported nothing for (a stopped turn) adds nothing.
+    if (result.usage) {
+      mkdirSync(dirname(request.usageFile), { recursive: true });
+      appendFileSync(request.usageFile, `${JSON.stringify({
+        ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: result.model,
+        tokens: tokens(result.usage), cost_usd: result.usage.cost_usd ?? null,
+      })}\n`);
+    }
     return result;
   } finally {
     await new Promise(resolve => raw.end(resolve));

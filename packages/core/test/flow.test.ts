@@ -100,20 +100,26 @@ test('a project with work from before names were kept keeps the name its request
   assert.equal((await say(flow, id, 'Make me a CSV summary tool')).name, undefined);
 });
 
-test('a result the Manager hands the operator keeps its files in the record, beside its letter, each as it was; several are named by the letter', async t => {
-  const open = ['summary.py', 'plot.png', 'missing.md'];
-  const { home, store, flow, id, events } = await setup(t, [{ ...report, open }, { ...report, open }, { ...report, open }]);
+test('a result the Manager hands the operator keeps its files in the record, beside its letter, each as it was, named by its first; one the operator cannot open goes back once', async t => {
+  const open = ['summary.py', 'plot.png'];
+  const { home, store, flow, id, events, requests } = await setup(t, [
+    { ...report, open: [...open, 'missing.md', '.hidden/notes.md'] }, { ...report, open }, { ...report, open: ['./summary.py', 'plot.png'] }, { ...report, open },
+  ]);
   writeFileSync(join(home, 'summary.py'), 'print(1)\n');
   writeFileSync(join(home, 'plot.png'), 'PNG\0');
+  mkdirSync(join(home, '.hidden'));
+  writeFileSync(join(home, '.hidden', 'notes.md'), '# Notes\n');
   await say(flow, id, 'Make me a CSV summary tool');
+  assert.match(requests[1]!.prompt, /refused your hand-off: the operator cannot open missing\.md, \.hidden\/notes\.md/);
   await say(flow, id, 'Send it again');
   writeFileSync(join(home, 'summary.py'), 'print(2)\n');
   const project = await say(flow, id, 'Print the totals instead');
+  // Each delivery names its files by their paths in the workspace, and is titled by its first.
   const handoffs = events().flatMap(event => event.type === 'handoff' ? [event] : []);
-  const named = 'summary.py prints the totals; checked against data.csv.';
-  assert.deepEqual(handoffs.map(event => [event.letter, event.open, event.title]), [[report.letter, open, named], [report.letter, open, named], [report.letter, open, named]]);
-  assert.equal(project.name, named);
-  // A text file is copied as delivered; a binary one is named by its size and time; a missing one is left out.
+  assert.deepEqual(handoffs.map(event => [event.letter, event.open, event.title]), [[report.letter, open, 'summary.py'], [report.letter, open, 'summary.py'], [report.letter, open, 'summary.py']]);
+  // A reply to the operator names no project.
+  assert.equal(project.name, undefined);
+  // A text file is copied as delivered; a binary one is named by its size and time.
   const [first, again, changed] = handoffs.map(event => event.snapshots ?? []);
   assert.deepEqual(first?.map(({ path, size, stored }) => [path, size, stored]), [['summary.py', 9, true], ['plot.png', 4, false]]);
   // A file the same as its last copy keeps its version; a changed one has a new copy.
@@ -347,7 +353,7 @@ test("tasks the Planner opens together run side by side; one's question holds up
 });
 
 test('a task the Planner opens waits for the tasks it names, and starts once they have all closed', async t => {
-  const { flow, id, requests, events } = await setup(t, [
+  const { home, flow, id, requests, events } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letters: ['Train the baseline', 'Train the method', 'Compare the two'],
       tasks: [{ task: '', after: [] }, { task: '', after: [] }, { task: '', after: ['t1', 't2', 't9', 't3'] }] },
@@ -360,6 +366,8 @@ test('a task the Planner opens waits for the tasks it names, and starts once the
     { role: 'planner', to: 'manager', letter: 'Done.' },
     report,
   ]);
+  mkdirSync(join(home, 'results'));
+  writeFileSync(join(home, 'results', 'compare.md'), '# Compare\n');
   const project = await say(flow, id, 'Does the method beat the baseline?');
   // Only tasks opened before it are waited for: a later or unknown one is none.
   assert.deepEqual(project.tasks.map(task => [task.id, task.after ?? []]), [['t1', []], ['t2', []], ['t3', ['t1', 't2']]]);

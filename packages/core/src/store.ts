@@ -66,8 +66,8 @@ export interface Project {
   model: string | null;
   /** The reasoning effort of every call, in the backend's word for it; absent, the backend's default. */
   effort?: string;
-  /** The project's name: the operator's, or the title of the first work the Manager handed on or
-   * delivered; absent, the page names it by its request. */
+  /** The project's name: the operator's, or the title of the first work the Manager handed the
+   * team; absent, the page names it by its request. */
   name?: string;
   status: Status;
   /** Why the last call failed, while a failed turn waits. */

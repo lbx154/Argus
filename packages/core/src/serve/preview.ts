@@ -95,12 +95,7 @@ function page(path: string, html: string, result: (path: string) => ReturnType<t
     if (!inlined.has(file)) {
       // Taken before it is read, so a stylesheet that leads back to itself gets nothing.
       inlined.set(file, 'data:,');
-      let found: ReturnType<typeof under>;
-      try { found = result(file); }
-      catch (error) {
-        if (!(error instanceof HttpError) || ![404, 410].includes(error.status)) throw error;
-        found = null;
-      }
+      const found = result(file);
       if (!found || (bytes += found.stat.size) > PAGE_BYTES) warnings.push(`Could not include local resource: ${ref}`);
       else {
         files.push(found);

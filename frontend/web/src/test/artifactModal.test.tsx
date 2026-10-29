@@ -5,7 +5,6 @@ import { ArtifactModal } from '../components/ArtifactModal';
 import { Modal } from '../components/Modal';
 import { PdfPreview } from '../components/PdfPreview';
 import { api } from '../api';
-import { ApiError } from '../../../core/src/http';
 import { useArtifact } from '../hooks';
 import { loadPdfEngine } from '../lib/pdfEngine';
 
@@ -112,18 +111,6 @@ it('selects delivery-specific queries, distinguishes repeated names, and offers 
   expect(useArtifact).toHaveBeenLastCalledWith('s', 'index.html', null, 'd2');
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('Download page (zip)'))).toHaveLength(1);
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('Download all (zip)'))).toHaveLength(0);
-});
-
-it('reports a missing saved copy and never renders current text in its place', () => {
-  artifact.isError = true;
-  artifact.error = new ApiError('The saved copy is gone', 410, 'GET', '/artifact', 'delivery_snapshot_unavailable');
-  const file = { path: 'report.md', label: 'report.md', source: 'manager', why: '', delivery_number: 1 };
-  const delivery: DeliveryReceipt = { schema_version: 1, delivery_id: 'd1', title: 'Report', kind: 'result', item_id: '', summary: 'Old explanation',
-    status: 'done', review_status: '', delivered_at: 1, targets: [file], primary_target: file };
-  act(() => { tree = create(<ArtifactModal sid="s" path="report.md" delivery={delivery} onClose={() => {}} />); });
-  expect(JSON.stringify(tree!.toJSON())).toContain('The saved copy of this delivery is no longer available.');
-  expect(tree!.root.findAllByType('pre').some(pre => pre.children.includes('Current content'))).toBe(false);
-  expect(tree!.root.find(node => node.type === 'button' && node.children.includes('Download')).props.disabled).toBe(true);
 });
 
 it('keeps the selected delivery in file downloads and archive downloads', async () => {

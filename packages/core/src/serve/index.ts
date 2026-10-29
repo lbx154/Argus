@@ -91,19 +91,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
     } catch { /* not a project */ }
     throw new HttpError(404, `unknown project: ${id}`);
   };
-  /** A delivery names its own file; an unavailable version never falls back to the current file. */
+  /** A result's file as it is now; of a delivery, the copy it kept of the file, where it kept one. */
   const result = (work: Project, path: string, delivery?: string | null) => {
-    if (delivery == null) return under(work.workdir, path) ?? attachedFile(work, path);
-    const event = readRecord(store, work.id).delivered.get(delivery);
-    if (!event?.open?.includes(path)) {
-      throw new HttpError(404, 'no such delivered file');
-    }
-    const snapshot = event.snapshots?.find(file => file.path === path);
-    if (!snapshot) throw new HttpError(410, 'This delivery has no saved copy.', 'delivery_snapshot_unavailable');
-    const found = atDelivery(work, store.dir(work.id), snapshot);
-    if (!found) throw new HttpError(410, snapshot.stored ? 'The saved copy of this delivery is no longer available.'
-      : 'This file has changed since this delivery; no saved copy is available.', snapshot.stored ? 'delivery_snapshot_unavailable' : 'delivery_file_updated');
-    return found;
+    const copy = delivery == null ? undefined
+      : readRecord(store, work.id).delivered.get(delivery)?.snapshots?.find(file => file.path === path && file.stored);
+    return (copy && atDelivery(store.dir(work.id), copy)) || under(work.workdir, path) || attachedFile(work, path);
   };
   const list = () => ({
     projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
@@ -319,9 +311,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const ref = (url.searchParams.get('ref') ?? '').replace(/\\/g, '/').split(/[?#]/)[0]!;
       let found: ReturnType<typeof under> = null;
       for (const path of modelAssets(url.searchParams.get('path') ?? '', ref)) {
-        try { found = result(work, path, url.searchParams.get('delivery')); }
-        catch (error) { if (!(error instanceof HttpError) || error.status !== 404) throw error; }
-        if (found) break;
+        if ((found = result(work, path, url.searchParams.get('delivery')))) break;
       }
       if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, false, found.path));

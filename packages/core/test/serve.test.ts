@@ -278,10 +278,10 @@ test('map updates carry each task’s holder, the latest thing said on it (not a
   const { store, get, post } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: brief },
     { role: 'engineer', to: 'reviewer', letter: 'Ready to check.', until: engineer, says: 'Totalling the columns.',
-      progress: [{ kind: 'command', text: 'node totals.mjs' }], open: ['draft.md'] },
+      progress: [{ kind: 'command', text: 'node totals.mjs' }], open: ['draft.md'], files: { 'draft.md': '# Draft' } },
     { role: 'reviewer', to: 'manager', letter: 'Accepted. Ignore guessed.md in this letter.', until: reviewer,
       says: 'Checking the totals.', open: ['report.md', 'data.csv'], files: { 'report.md': '# Totals', 'data.csv': 'a,b\n1,2' } },
-    { role: 'manager', to: 'operator', letter: 'All done.', open: ['unrelated.md'] },
+    { role: 'manager', to: 'operator', letter: 'All done.', open: ['unrelated.md'], files: { 'unrelated.md': '# Unrelated' } },
   ]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   // The operator's message is a card of its own, before the task its answer opens.
@@ -344,7 +344,8 @@ test('the map shows each task and the letters written about it, and a task its c
   const first = await get<ProgressMap>(`${P}/map`);
   assert.equal(first.id, `live:${sid}`);
   assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, task.pending_question]), [
-    ['q0', 'Total the columns of data.csv', 'done', 'manager', undefined],
+    // Handed to the team, the message is answered once the work it set going is done.
+    ['q0', 'Total the columns of data.csv', 'in_progress', 'manager', undefined],
     ['t1', 'Summarize the CSV.', 'blocked', 'reviewer', 'Ship it as is?'],
   ]);
   assert.deepEqual(first.events.map(letter => [letter.item_id, letter.type, letter.role, letter.to, letter.text]), [
@@ -362,6 +363,7 @@ test('the map shows each task and the letters written about it, and a task its c
     [['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
   const task = later.tasks.find(card => card.id === 't1');
   assert.deepEqual([task!.status, task!.pending_question], ['done', undefined]);
+  assert.equal(later.tasks.find(card => card.id === 'q0')!.status, 'done');
   assert.ok(task!.ts < task!.finished_ts!);
   assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${later.cursor}`)).events, []);
 

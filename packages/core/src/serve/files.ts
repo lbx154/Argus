@@ -103,15 +103,11 @@ export function textOf(file: string): string | null {
 export const kept = (dir: string, version: string): string | null =>
   /^[0-9a-f]{32}$/.test(version) ? textOf(join(dir, 'delivered', version)) : null;
 
-/** The existing saved text copy, or an unchanged unsaved file. Missing copies never read the workdir. */
-export function atDelivery(project: Project, dir: string, snapshot: DeliverySnapshot): ReturnType<typeof under> {
-  if (snapshot.stored) {
-    if (kept(dir, snapshot.version) === null) return null;
-    const file = join(dir, 'delivered', snapshot.version);
-    return { file, path: snapshot.path, stat: statSync(file) };
-  }
-  const found = under(project.workdir, snapshot.path);
-  return found && `${found.stat.size}:${found.stat.mtimeMs}` === snapshot.version ? found : null;
+/** The copy a delivery kept of a text file; null once it is gone. */
+export function atDelivery(dir: string, { path, version }: DeliverySnapshot): ReturnType<typeof under> {
+  const file = join(dir, 'delivered', version);
+  const stat = /^[0-9a-f]{32}$/.test(version) ? statSync(file, { throwIfNoEntry: false }) : undefined;
+  return stat?.isFile() ? { file, path, stat } : null;
 }
 
 /** Each file of a result the Manager delivers, as it is now. A text file is copied into `dir`'s

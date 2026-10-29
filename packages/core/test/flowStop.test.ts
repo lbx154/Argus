@@ -135,3 +135,20 @@ test('an answer on a stopped project goes to its asker, and hands no stopped mes
   const project = await later.settled(id);
   assert.deepEqual([asked.length, project.status, project.tasks.length, texts(project.forManager)], [0, 'stopped', 2, ['Rewrite it all in Rust']]);
 });
+
+// Frontend review reproduction: stopped during "sleep 30", the next message re-ran it first.
+test('a message to a stopped project is answered on its own; the one the stop interrupted waits for Resume', async t => {
+  const controller = new AbortController();
+  const { flow, id, store, requests } = await setup(t, [aborted], controller);
+  void flow.say(id, 'Run sleep 30');
+  await until(() => requests.length === 1);
+  flow.stop(id);
+  controller.abort();
+  await flow.settled(id);
+  const { callAgent, requests: asked } = agent([async () => ({ to: 'operator', letters: ['ok'] })]);
+  const later = new Flow(store, callAgent);
+  await later.say(id, 'Answer in one word');
+  const project = await later.settled(id);
+  assert.deepEqual([asked.map(request => request.prompt.includes('Answer in one word')), project.status, texts(project.forManager)],
+    [[true], 'stopped', ['Run sleep 30']]);
+});

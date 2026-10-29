@@ -493,18 +493,14 @@ test('recorded deliveries count occurrences per file and preview their saved tex
   }
   await rm(join(project.workdir, 'report.md'));
   assert.match((await get<{ preview: string }>(`${P}/artifact?path=report.md&delivery=${receipts[0]!.delivery_id}`)).preview, /数值：10/);
-  const version = receipts[0]!.snapshots![0]!.version;
-  await rm(join(dir, 'delivered', version));
-  for (const route of ['artifact', 'artifact/raw']) {
-    const response = await call(`${P}/${route}?path=report.md&delivery=${receipts[0]!.delivery_id}`);
-    assert.equal(response.status, 410);
-    assert.equal((await response.json() as { code: string }).code, 'delivery_snapshot_unavailable');
-  }
-  assert.equal((await call(`${P}/artifact?path=data.csv&delivery=${receipts[0]!.delivery_id}`)).status, 404, 'a delivery cannot read other workspace files');
-  assert.equal((await call(`${P}/artifact?path=report.md&delivery=d999`)).status, 404);
+  // A file the delivery kept no copy of is read as it is now: one the report links to, say.
+  assert.match((await get<{ preview: string }>(`${P}/artifact?path=data.csv&delivery=${receipts[0]!.delivery_id}`)).preview, /20/);
+  // Its copy gone and the file deleted, there is nothing to show.
+  await rm(join(dir, 'delivered', receipts[0]!.snapshots![0]!.version));
+  for (const route of ['artifact', 'artifact/raw']) assert.equal((await call(`${P}/${route}?path=report.md&delivery=${receipts[0]!.delivery_id}`)).status, 404);
 });
 
-test('delivered HTML, nested resources, model assets and downloads use their own copies; unsaved versions fail explicitly', async t => {
+test('delivered HTML, nested resources, model assets and downloads use their own copies where kept, else the files as they are now', async t => {
   const { store, project, call, get } = await setup(t, {
     'index.html': '<h1>Old page</h1><link rel="stylesheet" href="style.css"><img src="unlisted.png">',
     'style.css': 'body { color: red }', 'unlisted.png': 'current image', 'data.bin': 'old\0',
@@ -524,32 +520,28 @@ test('delivered HTML, nested resources, model assets and downloads use their own
   const old = await get<{ html: string; warnings: string[] }>(`${P}/artifact/preview?path=index.html&delivery=d0`);
   assert.match(old.html, /Old page/);
   assert.ok(old.html.includes(Buffer.from('body { color: red }').toString('base64')));
-  assert.equal(old.warnings.length, 1, 'resources outside this delivery are reported, never loaded from current files');
+  assert.deepEqual(old.warnings, [], 'a resource the delivery kept no copy of is the current file');
+  assert.ok(old.html.includes(Buffer.from('current image').toString('base64')));
   assert.match(await (await call(`${P}/artifact/preview/page?path=index.html&delivery=d0`)).text(), /Old page/);
   assert.match(await (await call(`${P}/artifact/preview/page?path=index.html&delivery=d1`)).text(), /New page/);
   const files = unzip(Buffer.from(await (await call(`${P}/artifact/bundle?path=index.html&delivery=d0`)).arrayBuffer()));
   assert.match(files['index.html']!, /Old page/);
   assert.equal(files['style.css'], 'body { color: red }');
-  assert.equal(files['unlisted.png'], undefined);
+  assert.equal(files['unlisted.png'], 'current image');
   const model = await call(`${P}/artifact/model-asset?path=robot.urdf&ref=package://robot/mesh.obj&delivery=d0`);
   assert.equal(model.status, 200);
   assert.equal(await model.text(), 'v 0 0 1\n');
-  for (const route of ['artifact', 'artifact/raw']) {
-    const response = await call(`${P}/${route}?path=data.bin&delivery=d0`);
-    assert.equal(response.status, 410);
-    assert.equal((await response.json() as { code: string }).code, 'delivery_file_updated');
-  }
-  assert.equal(await (await call(`${P}/artifact/raw?path=data.bin&delivery=d1`)).text(), 'updated binary\0');
+  // A binary file is not copied: every delivery of it reads it as it is now, as does one recorded before deliveries kept copies.
+  for (const delivery of ['d0', 'd1']) assert.equal(await (await call(`${P}/artifact/raw?path=data.bin&delivery=${delivery}`)).text(), 'updated binary\0');
   store.append(project.id, { type: 'handoff', role: 'manager', to: 'operator', letter: 'No snapshot', open: ['legacy.md'] });
-  assert.equal((await call(`${P}/artifact?path=legacy.md&delivery=d2`)).status, 410);
+  assert.equal(await (await call(`${P}/artifact/raw?path=legacy.md&delivery=d2`)).text(), 'now');
 });
 
-test('a delivered model stops at its first available mesh candidate and reports that candidate’s own failure', async t => {
+test('a delivered model reads its first mesh candidate that is there', async t => {
   const fixture = JSON.parse(await readFile(new URL('./fixtures/delivery-versions/model-candidates.json', import.meta.url), 'utf8')) as {
     events: import('../src/serve/views.js').Recorded[];
     copies: Record<string, string>;
     files: Record<string, { base64: string; mtime: number }>;
-    originalRoot: { base64: string; mtime: number };
   };
   const { store, project, call } = await setup(t);
   const dir = store.dir(project.id);
@@ -567,17 +559,7 @@ test('a delivered model stops at its first available mesh candidate and reports 
   const raw = (path: string) => call(`${P}/artifact/raw?${new URLSearchParams({ path, delivery: receipt.delivery_id })}`);
   const asset = () => call(`${P}/artifact/model-asset?${new URLSearchParams({ path: 'robot/robot.urdf', ref: 'package://robot/mesh.stl', delivery: receipt.delivery_id })}`);
   assert.equal((await raw('robot/mesh.stl')).status, 200);
-  assert.equal((await raw('mesh.stl')).status, 410, 'a later candidate was updated, independently of the model’s mesh');
   const found = await asset();
-  assert.equal(found.status, 200, 'the first candidate wins before the unrelated updated candidate is read');
+  assert.equal(found.status, 200);
   assert.deepEqual(Buffer.from(await found.arrayBuffer()), Buffer.from(fixture.files['robot/mesh.stl']!.base64, 'base64'));
-
-  // Make the later candidate readable, then invalidate the selected mesh: its own failure must propagate.
-  await writeFile(join(project.workdir, 'mesh.stl'), Buffer.from(fixture.originalRoot.base64, 'base64'));
-  await utimes(join(project.workdir, 'mesh.stl'), fixture.originalRoot.mtime, fixture.originalRoot.mtime);
-  await writeFile(join(project.workdir, 'robot/mesh.stl'), Buffer.concat([Buffer.from(fixture.files['robot/mesh.stl']!.base64, 'base64'), Buffer.from([0])]));
-  assert.equal((await raw('mesh.stl')).status, 200);
-  const unavailable = await asset();
-  assert.equal(unavailable.status, 410);
-  assert.equal((await unavailable.json() as { code: string }).code, 'delivery_file_updated');
 });
