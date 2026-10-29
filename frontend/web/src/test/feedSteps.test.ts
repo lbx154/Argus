@@ -373,6 +373,19 @@ describe('EventStream renders folded rows', () => {
     expect(html.slice(html.indexOf('data-role="engineer"')).split('event-activity-row')).toHaveLength(2);
   });
 
+  it("colours a role's dot and name, never what it wrote", () => {
+    const html = renderToStaticMarkup(createElement(EventStream, {
+      events: [{ type: 'round.review.completed', agent_layer: 'reviewer', review_source: 'reviewer', status: 'engineer', reason: 'Fix the off-by-one.', item_id: 't1', ts: (clock += 1) }],
+      connected: true,
+      showReasoning: false,
+    }));
+    const lane = html.slice(html.indexOf('data-role="reviewer"'));
+    expect(lane).toContain('Fix the off-by-one.');
+    // The verdict's mark may take its tone; the words it says do not.
+    expect(lane).toMatch(/<div class="mt-0\.5 [^"]*text-ink [^"]*"[^>]*>(?:(?!<\/div>)[^])*Fix the off-by-one\./);
+    expect(lane).not.toMatch(/<div class="mt-0\.5 [^>]*style=/);
+  });
+
   it('names the task of each record, and a role at work on two tasks says what it does on each', () => {
     const task = (id: string, title: string) => ({ id, title, objective: '', status: 'in_progress', priority: 1 });
     const reviewer = { role: 'reviewer', backend: 'codex', backend_label: 'Codex', model: '', effort: null, active: true, label: 'Reviewer', status: 'running', age_s: null, tasks: ['t1', 't2'] };

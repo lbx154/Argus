@@ -163,7 +163,8 @@ function EventRow({
             {clockOf(latest ?? ev)}
           </time>
         </div>
-        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.reasoning ? 'italic' : ''}`} style={{ color }} title={tooltip || undefined}>
+        {/* The role's colour marks its dot and name; what it said reads in the text's own colour. */}
+        <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.tone === 'dim' ? 'text-ink-dim' : 'text-ink'} ${r.reasoning ? 'italic' : ''}`} title={tooltip || undefined}>
           <RowWords {...plain} />
         </div>
         {plain.full ? <>
@@ -238,7 +239,7 @@ function FeedGroupRow({
               {clockOf(group.latest)}
             </time>
           </div>
-          <div className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5" style={{ color }}>
+          <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${group.r.tone === 'dim' ? 'text-ink-dim' : 'text-ink'}`}>
             {summary}
           </div>
         </button>
