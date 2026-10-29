@@ -389,7 +389,9 @@ test('pausing lets the calls under way end and starts no other, until the work r
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
   await frames(await post(`${P}/message/stream`, { text: 'go', request_id: 'r1' }));
-  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+  const working = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+  // A role at work names the task it is on.
+  assert.deepEqual(working.roles.find(role => role.role === 'engineer')!.tasks, working.backlog.map(item => item.id));
 
   const pausing = await (await post(`${P}/daemon/stop`, { after_current: true, command_id: 'c1' })).json() as { rc: number; draining: boolean };
   assert.deepEqual([pausing.rc, pausing.draining], [0, true]);

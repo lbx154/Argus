@@ -84,6 +84,13 @@ function rowText(ev: EventMsg, r: RenderedLine, locale: Locale, workspace: strin
   return { ...plainRowText(ev, r, locale, taskTitle), prose: !['tool_result', 'file_change'].includes(call) };
 }
 
+/** The task a record belongs to, by its title, else its id: one role can work on several at once. */
+function TaskTag({ ev }: { ev: EventMsg }) {
+  const id = eventTaskId(ev);
+  const title = useContext(TaskTitleContext)(id);
+  return id ? <span data-row-task={id} className="min-w-0 truncate text-[11px] text-ink-faint" title={title || id}>{title || id}</span> : null;
+}
+
 function RowWords({ text, prose }: Pick<RowText, 'text' | 'prose'>) {
   return prose ? <MarkdownExcerpt>{text}</MarkdownExcerpt> : <>{text}</>;
 }
@@ -140,6 +147,7 @@ function EventRow({
           >
             {r.label}
           </span>
+          <TaskTag ev={ev} />
           <span className="text-xs" style={{ color }}>{r.glyph}</span>
           {repeat > 1 ? (
             <span
@@ -220,6 +228,7 @@ function FeedGroupRow({
             >
               {group.r.label}
             </span>
+            <TaskTag ev={group.latest} />
             <span className="text-xs" style={{ color }}>{group.r.glyph}</span>
             <span className="font-mono text-[10px] tabular-nums text-ink-faint">{group.calls}</span>
             <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -431,6 +440,7 @@ function RoleLogGroup({
   rows,
   open,
   active,
+  tasks,
   earlier,
   onToggle,
 }: {
@@ -438,6 +448,8 @@ function RoleLogGroup({
   rows: ActivityRow[];
   open: boolean;
   active: boolean;
+  /** The tasks it is at work on now. */
+  tasks: string[];
   /** What the role last said in the whole record, for when its loaded log says nothing. */
   earlier?: string;
   onToggle: () => void;
@@ -457,6 +469,11 @@ function RoleLogGroup({
   // The collapsed header says what the role is doing or concluded, never a command.
   const taskTitle = useContext(TaskTitleContext);
   const headline = useMemo(() => roleHeadline(rows, locale, taskTitle) || earlier || '', [rows, locale, taskTitle, earlier]);
+  // At work on several tasks at once, it says what it does now on each.
+  const several = active && tasks.length > 1;
+  const each = useMemo(() => several ? tasks.map(id => ({
+    id, title: taskTitle(id) || id, now: roleHeadline(rows.filter(row => eventTaskId(row.ev) === id), locale, taskTitle),
+  })) : [], [several, tasks, rows, locale, taskTitle]);
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -493,7 +510,8 @@ function RoleLogGroup({
         />
         <span className={`text-xs font-semibold ${active ? 'text-ok' : 'text-ink-faint'}`}>{roleLabel(role, t)}</span>
         <span data-role-headline className="min-w-0 flex-1 truncate text-xs text-ink-faint" title={headline.replace(/\*\*|`/g, '') || undefined}>
-          {headline
+          {several ? (zh ? `· ${tasks.length} 个任务进行中` : `· ${tasks.length} tasks under way`)
+            : headline
             ? <>{active ? (zh ? '现在：' : 'Now: ') : (zh ? '之前：' : 'Last: ')}<RowWords text={headline} prose /></>
             : rows.length ? null : zh ? '还没开始' : 'Not started'}
         </span>
@@ -501,6 +519,11 @@ function RoleLogGroup({
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
       </button>
+      {each.length ? <ul data-role-tasks className="-mt-1 space-y-0.5 px-4 pb-2 pl-8 text-xs text-ink-faint">
+        {each.map(task => <li key={task.id} data-role-task={task.id} className="truncate">
+          <span className="text-ink-dim">{task.title}</span>{' · '}{zh ? '现在：' : 'Now: '}{task.now ? <RowWords text={task.now} prose /> : zh ? '刚开始' : 'Just started'}
+        </li>)}
+      </ul> : null}
       {open ? (
         <div className="grid grid-rows-[1fr]">
           {commandCount > 0 ? <div className="flex border-t border-line/40 px-4 py-1.5">
@@ -584,10 +607,12 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active, earlier, followLatest }: {
+function RoleLogCollection({ rows, active, tasks, earlier, followLatest }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
+  /** The tasks the role is at work on now. */
+  tasks: (role: string) => string[];
   /** What the role last said in the whole record. */
   earlier?: (role: string) => string | undefined;
   followLatest: boolean;
@@ -611,6 +636,7 @@ function RoleLogCollection({ rows, active, earlier, followLatest }: {
           rows={roleRows[role]}
           open={openRoles.has(role)}
           active={active(role)}
+          tasks={tasks(role)}
           earlier={earlier?.(role)}
           onToggle={() => {
             userToggledRole.current = true;
@@ -1305,6 +1331,7 @@ export function EventStream({
               className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
               <div className="overflow-hidden rounded-lg border border-line/70">
                 <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} followLatest
+                  tasks={role => snapshot?.roles.find(row => row.role === role)?.tasks ?? []}
                   earlier={role => snapshot?.roles.find(row => row.role === role)?.last?.text} />
               </div>
             </section> : null}

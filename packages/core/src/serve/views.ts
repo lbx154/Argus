@@ -17,8 +17,8 @@ import { ROLES, type Backend, type Role, type Step } from '../types.js';
 export interface Live {
   /** When the run under way started (epoch seconds); null when none is. */
   since: number | null;
-  /** The role of each call under way: tasks run side by side. */
-  roles: Role[];
+  /** Each call under way, by its role and the task it is on: tasks run side by side. */
+  calls: Array<{ role: Role; task: string | undefined }>;
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
@@ -249,10 +249,13 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
-    roles: ROLES.map(role => ({
-      role, backend, backend_label: BACKEND_LABELS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: live.roles.includes(role),
-      label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null, last: said[role] ?? null,
-    })),
+    roles: ROLES.map(role => {
+      const under = live.calls.filter(call => call.role === role);
+      return {
+        role, backend, backend_label: BACKEND_LABELS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: under.length > 0,
+        label: NAMES[role], status: under.length ? 'running' : 'idle', age_s: null, last: said[role] ?? null, tasks: under.flatMap(call => call.task ?? []),
+      };
+    }),
     last_call: last ? {
       backend: String(last.backend), model: String(last.model ?? ''), effort: project.effort ?? '', run_label: String(last.role), role: String(last.role), ts: Number(last.ts),
     } : null,
@@ -280,7 +283,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     id: project.id, label: project.name || project.id, display_name: project.name ?? '', objective: project.request,
     cwd: project.workdir, workdir: project.workdir, launch_cwd: project.workdir, last_active: lastActive(store, project.id),
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
-    active_role: live.roles.at(-1) ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
+    active_role: live.calls.at(-1)?.role ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
     unfinished_tasks: openTasks(project).length,
     spend_usd: summary.cost_usd, known_cost_usd: summary.known_cost_usd,
     spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>, usage_calls: summary.call_count,
