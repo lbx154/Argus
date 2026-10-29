@@ -404,7 +404,6 @@ def create_app(
     from .routes.advisor import register_advisor_routes
     from .routes.artifacts import register_artifact_routes
     from .routes.context import ServerContext
-    from .routes.counterexamples import register_counterexample_routes
     from .routes.daemon import register_daemon_routes
     from .routes.manager import register_manager_routes
     from .routes.meta import register_meta_routes
@@ -449,7 +448,6 @@ def create_app(
 
     register_experience_routes(app, ctx)
     register_workitem_routes(app, ctx)
-    register_counterexample_routes(app, ctx)
     register_daemon_routes(app, ctx)
     register_artifact_routes(app, ctx)
     from .routes.reader_foundation import register_reader_foundation_routes

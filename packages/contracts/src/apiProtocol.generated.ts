@@ -19,7 +19,6 @@ export const REQUIRED_API_CAPABILITIES = [
   "project.attachments.v1",
   "project.git-diff.v1",
   "project.cost-feed.v1",
-  "project.counterexamples.v1",
   "project.workdir.v1",
   "research.events.v1",
   "release.identity.v1",
