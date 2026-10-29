@@ -102,11 +102,17 @@
 
 /* ── The summary: the same card from overview to the edge of detail ─────── */
 
+/* The card and its results row share the frame: neither spills over its edge. */
+.argus-map .macro-summary {
+  display: flex;
+  flex-direction: column;
+  height: var(--summary-height);
+}
 .argus-map .macro-summary .map-card {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  height: var(--summary-height);
+  flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
   border: 0;
@@ -188,31 +194,7 @@
   overflow-wrap: break-word;
   word-break: normal;
 }
-.argus-map .macro-summary .map-card-objective,
-.argus-map .macro-summary .map-card > p.map-card-objective {
-  font-size: 12px;
-  line-height: 1.55;
-  color: rgb(var(--ink-faint));
-  margin: 0 0 8px;
-  -webkit-line-clamp: 2;
-  flex-shrink: 0;
-}
-/* Where the task stands, in one line under what it is about. */
-.argus-map .macro-summary .map-card-conclusion {
-  flex-shrink: 0;
-  margin: 0 0 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: color-mix(in srgb, #3f8f68 72%, rgb(var(--ink)));
-  background: color-mix(in srgb, #3f8f68 9%, transparent);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-}
-/* Where the task stands and what it is doing, with its figure beside them. */
+/* Who holds the task and what was last said on it, with its figure beside them. */
 .argus-map .macro-summary .map-card-state {
   display: flex;
   align-items: flex-start;
@@ -222,14 +204,7 @@
   margin: 0 0 8px;
 }
 .argus-map .macro-summary .map-card-state:empty { display: none; }
-.argus-map .macro-summary .map-card-state-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.argus-map .macro-summary .map-card-state-text .map-card-conclusion { margin: 0; }
+.argus-map .macro-summary .map-card-now { flex: 1 1 auto; gap: 4px; }
 .argus-map .macro-summary .map-card-figure {
   flex: 0 0 auto;
   width: 136px;
@@ -250,28 +225,10 @@
   max-height: 100%;
   object-fit: contain;
 }
-/* The excerpt takes the remaining space in the fixed card layout. */
-.argus-map .macro-summary .map-card-copy {
-  display: block;
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: hidden;
-  -webkit-line-clamp: unset;
-  font-size: 12px;
-  line-height: 1.6;
-  color: rgb(var(--ink-dim));
-  margin: 0 0 8px;
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.4em), transparent);
-}
 .argus-map .macro-summary .map-card-stages {
   margin: auto 0 0;
   padding-top: 4px;
   flex-shrink: 0;
-}
-.argus-map .macro-summary .map-card-stages > span,
-.argus-map .macro-summary .map-card-bottom,
-.argus-map .macro-summary .map-card-submap-hint {
-  font-size: 10px;
 }
 .argus-map .macro-summary .map-card-bottom {
   display: flex;
@@ -286,9 +243,6 @@
 .argus-map .macro-summary .map-card-submap-hint svg {
   width: 1.1em;
   height: 1.1em;
-}
-.argus-map .macro-summary .map-history-toggle {
-  font-size: 10px;
 }
 .argus-map .map-macro[data-has-history="true"] .map-card {
   padding-bottom: 30px;
@@ -468,9 +422,6 @@
 }
 .argus-map .macro-summary .map-card-number {
   color: var(--ink-3);
-}
-.argus-map .macro-summary .map-card-copy {
-  color: var(--ink-2);
 }
 
 /* ── The course of a task ───────────────────────────────────────────────── */
@@ -713,7 +664,7 @@
 .argus-map .macro-summary .map-card:hover,
 .argus-map .macro-summary .map-card:active { border: 0; outline: 0; box-shadow: none !important; background: transparent; transform: none; }
 .argus-map .macro-summary .map-card .map-card-top { padding: 0 0 10px; gap: 10px; justify-content: flex-start; }
-.argus-map .macro-summary .map-card .map-card-number { font-size: 11px; letter-spacing: .04em; color: rgb(var(--ink-faint)); }
+.argus-map .macro-summary .map-card .map-card-number { letter-spacing: .04em; color: rgb(var(--ink-faint)); }
 .argus-map .macro-summary .map-status {
   margin-left: auto; padding: 0; border-radius: 0; background: none; font-size: var(--status-size, 11.5px); font-weight: 500;
   min-width: 0; overflow: hidden; text-overflow: ellipsis;
@@ -732,19 +683,12 @@
   margin: 0 0 6px; min-height: 0; font-family: var(--map-title-serif);
   font-size: 19px; line-height: 1.35; font-weight: 600; letter-spacing: -.01em; color: rgb(var(--ink));
 }
-.argus-map .macro-summary .map-card-conclusion {
-  margin: 0 0 6px; padding: 0; background: none; border-radius: 0;
-  font-size: 13px; line-height: 1.5; color: rgb(var(--ink-dim)); -webkit-line-clamp: 1;
-}
-.argus-map .macro-summary .map-card-copy { font-size: 12.5px; line-height: 1.55; -webkit-line-clamp: 2; color: rgb(var(--ink-dim)); }
-.argus-map .macro-summary .map-card:has(.map-card-conclusion) .map-card-copy,
-.argus-map .macro-summary .map-card:has(.map-card-conclusion) .map-card-objective { display: none; }
 .argus-map .macro-summary .map-card-course { gap: 2px; padding-top: 4px; }
 .argus-map .macro-summary .map-card-course > span { padding: 2px 3px; background: none; box-shadow: none; color: rgb(var(--ink-faint)); opacity: .5; }
 .argus-map .macro-summary .map-card-course > span b { display: none; }
 .argus-map .macro-summary .map-card-course > span[data-present="true"] { background: none; box-shadow: none; color: rgb(var(--ink-dim)); opacity: 1; }
 .argus-map .macro-summary .map-card-course > span[data-active="true"] { color: var(--map-accent-ink); box-shadow: none; }
-.argus-map .macro-summary .map-card-bottom { border-top: 0; padding: 6px 0 0; font-size: 11px; color: rgb(var(--ink-faint)); }
+.argus-map .macro-summary .map-card-bottom { border-top: 0; padding: 6px 0 0; color: rgb(var(--ink-faint)); }
 /* Details on demand: the course, the summary line and the way in. */
 .argus-map .macro-summary .map-card-course,
 .argus-map .macro-summary .map-card-bottom { transition: opacity 180ms ease; }
@@ -754,13 +698,20 @@
    re-rendering on zoom (the markup is the same at every zoom): --on-screen is
    how large one card pixel is on screen; below about 0.8 the 19px title would
    read under 15px, so it grows to stay near 15 screen px (capped to fit three
-   lines), the state dot and word grow to stay near 11 screen px, and the rest
-   of the card is hidden below the readable scale (--near is 0 or 1). */
+   lines), and the state dot and word grow to stay near 11 screen px. The rest
+   of the card's text is 14px and grows to stay at 10.5 screen px or more; where
+   that would take over 17.5px (below 0.6) it is not shrunk to specks but
+   hidden, links out of reach too (--near is 0 or 1), and the results row folds
+   away so the title keeps the card's height. --z is the zoom step at or below
+   the zoom, so the text on screen is never smaller than this reckons. */
 .argus-map .macro-summary {
   --on-screen: calc(var(--z, 0.24) * var(--summary-scale, 5));
-  --near: round(down, clamp(0, calc((var(--on-screen) - 0.62) * 5), 1), 1);
+  --near: round(down, min(1, var(--on-screen) / 0.6), 1);
   --status-size: clamp(11.5px, calc(11px / var(--on-screen)), 36px);
+  --text-size: max(14px, calc(10.5px / var(--on-screen)));
 }
+.argus-map .macro-summary :is(.map-card-number, .map-card-said, .map-card-live, .map-card-stages > span,
+  .map-card-bottom, .map-card-results button, .map-history-toggle) { font-size: var(--text-size); }
 /* Three whole lines always fit the card (its height less the status row and
    padding, over 3 × 1.35 lines), so the clamp ends on an ellipsis instead of
    the card cutting through a line of glyphs. */
@@ -772,9 +723,10 @@
   padding-right: 4px;
 }
 .argus-map .macro-summary .map-card > :not(h3):not(.map-card-top),
-.argus-map .macro-summary .map-card .map-card-number { opacity: var(--near); }
-.argus-map .macro-summary .map-card > .map-card-state:has(.map-card-now) { opacity: 1; }
-.argus-map .macro-summary .map-card h3 .macro-note-badge { opacity: var(--near); }
+.argus-map .macro-summary .map-card .map-card-number,
+.argus-map .macro-summary .map-card h3 .macro-note-badge,
+.argus-map .macro-summary > .map-history-toggle { scale: var(--near); }
+.argus-map .macro-summary > .map-card-results { max-height: calc(var(--near) * 3em); padding-bottom: calc(var(--near) * 12px); overflow: hidden; }
 
 /* Full canvas: the toolbar is a few quiet floating icons until pointed at. */
 .argus-map[data-immersive="true"] .map-canvas-toolbar > button,

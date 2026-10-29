@@ -54,7 +54,6 @@
   gap: 4px;
   margin-left: auto;
   color: #6a8da8;
-  font-size: 11px;
 }
 .macro-detail {
   position: absolute;
@@ -996,8 +995,8 @@
 }
 
 /* Card excerpts keep Markdown semantics at the card's scale. */
-.map-card-copy strong, .submap-step-copy strong { color: rgb(var(--ink)); font-weight: 600; }
-.map-card-copy code, .submap-step-copy code { font-size: .94em; border-radius: 3px; padding: 0 3px; background: rgb(var(--blue) / .06); }
+.map-card-said strong, .submap-step-copy strong { color: rgb(var(--ink)); font-weight: 600; }
+.map-card-said code, .submap-step-copy code { font-size: .94em; border-radius: 3px; padding: 0 3px; background: rgb(var(--blue) / .06); }
 /* Inside an opened card nothing reads below 12px, code included. */
 .submap-step-copy code { font-size: 1em; }
 .markdown-excerpt-link { color: rgb(var(--blue)); }

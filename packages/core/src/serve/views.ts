@@ -293,8 +293,9 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
 }
 
 /** How far each record has been read for the map, and what the map keeps of it: when each task
- * was added and closed, its latest step or letter, the files its latest letter handed over (once it
- * has closed, its result), and the letters written about tasks, by line. */
+ * was added and closed, the latest thing said on it (a message or a letter, not a command), the
+ * files its latest letter handed over (once it has closed, its result), and the letters written
+ * about tasks, by line. */
 interface MapReading {
   end: number;
   line: number;
@@ -321,10 +322,10 @@ export function progressMap(store: Store, project: Project, after: number) {
     const line = reading.line++;
     if (event.type === 'task.added') added.set(event.task.id, seconds(event.ts));
     else if (event.type === 'task.closed') closed.set(event.task, seconds(event.ts));
-    else if (event.type === 'step' && event.task) actions.set(event.task, { role: event.role, kind: event.kind, text: event.text, ts: seconds(event.ts) });
+    else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts: seconds(event.ts) });
     else if (event.type === 'handoff' && event.task) {
       opened.set(event.task, event.open ?? []);
-      actions.set(event.task, { role: event.role, kind: 'message', text: event.letter, ts: seconds(event.ts) });
+      actions.set(event.task, { role: event.role, text: event.letter, ts: seconds(event.ts) });
       letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter } });
     }
   }

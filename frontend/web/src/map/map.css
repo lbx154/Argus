@@ -357,17 +357,6 @@
   overflow: hidden;
   min-height: 44px;
 }
-.map-card-copy {
-  margin: 0 16px 13px;
-  font-size: 11px;
-  line-height: 1.65;
-  color: rgb(var(--ink-faint));
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 36px;
-}
 .map-card-bottom {
   display: flex;
   align-items: center;
