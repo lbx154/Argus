@@ -205,15 +205,23 @@ each); Pi from each assistant message's `usage`, with `cost.total` as the cost.
 Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system directories
 read-only, the workdir and the task's write directories writable, a private home per workdir
 with the CLI's login file passed through, and only the environment the CLI needs to sign in.
-A shell waits after the CLI until everything it started has ended, so a detached job is not
-killed when the turn ends. Without `bwrap` (macOS, Windows) the CLI's own sandbox mode is
-used: Codex's `workspace-write`, on Windows its sandbox that needs no administrator
+Without `bwrap` (macOS, Windows) the CLI's own sandbox mode is used: Codex's
+`workspace-write`, on Windows its sandbox that needs no administrator
 (`windows.sandbox="unelevated"`); Claude Code's `acceptEdits`, edits without commands.
 
 Starting the CLI: no shell is involved. On Windows npm installs a CLI as a `.cmd` shim, which
 only `cmd.exe` runs; the agent layer runs the file the shim names instead, a script with
-Node. Cancelling ends the CLI's whole process tree: its process group on POSIX,
-`taskkill /T` on Windows.
+Node.
+
+A turn ends when everything it started has ended, so a job the Engineer leaves running
+(`nohup … &`, `setsid`) is waited for, not killed (`executeProcess` in the runtime). The CLI's
+environment carries `ARGUS_TURN`, a value of the turn's own that whatever it starts inherits
+however it detaches; after the CLI exits the turn waits, looking every 5 seconds, until nothing
+carries it, stays in the CLI's process group or holds its output. Under bubblewrap a shell in
+the sandbox also waits, as a sandbox ends with its first process. Cancelling ends all of it. On
+Windows a process cannot read another's environment and Node has no job object, so a turn there
+waits only for what holds its output, and cancelling reaches the CLI's process tree
+(`taskkill /T`) only while the CLI runs: a job it left detached runs on, unseen.
 
 ## The package
 

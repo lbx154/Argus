@@ -73,13 +73,10 @@ if (mode.startsWith('structured-')) {
 } else if (mode === 'queue-limit') {
   process.stdout.write(('x'.repeat(64) + '\n').repeat(2000));
   setInterval(() => {}, 1000);
-} else if (mode === 'descendant') {
-  const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  descendant.unref();
-  send({ type: 'descendant', pid: descendant.pid });
-  send({ type: 'agent_settled' });
-} else if (mode === 'inherited-pipe') {
-  const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'inherit'] });
+} else if (['descendant', 'detached', 'inherited-pipe'].includes(mode)) {
+  // A job left running: in the process group, in a session of its own, or holding the output.
+  const descendant = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'],
+    mode === 'inherited-pipe' ? { stdio: ['ignore', 'inherit', 'inherit'] } : { stdio: 'ignore', detached: mode === 'detached' });
   descendant.unref();
   send({ type: 'descendant', pid: descendant.pid });
   send({ type: 'agent_settled' });

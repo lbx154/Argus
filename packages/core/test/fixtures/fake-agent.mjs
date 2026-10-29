@@ -58,6 +58,16 @@ if (cli === 'codex') emit({ type: 'thread.started', thread_id: thread });
 else if (cli === 'claude') emit({ type: 'system', subtype: 'init', session_id: thread, model: 'claude-test' });
 else if (cli === 'pi') emit({ type: 'session', version: 3, id: thread, cwd: process.cwd() });
 
+// Jobs it leaves running, as `nohup … &` and `setsid` start them: each notes in job-<how>.txt
+// when it starts and, `ms` later, when it ends, and holds a connection to `port` if there is one.
+for (const how of scenario.jobs ? ['nohup', 'setsid'] : []) {
+  const { ms, port } = scenario.jobs;
+  const file = JSON.stringify(join(process.cwd(), `job-${how}.txt`));
+  spawn(process.execPath, ['-e', `const { appendFileSync } = require('node:fs'); appendFileSync(${file}, 'started\\n');
+    ${port ? `require('node:net').connect(${port}, '127.0.0.1');` : ''}
+    setTimeout(() => { appendFileSync(${file}, 'ended\\n'); process.exit(); }, ${ms});`], { stdio: 'ignore', detached: how === 'setsid' }).unref();
+}
+
 if (scenario.hang) {
   // A job that runs as long as its connection to the test's port is open.
   spawn(process.execPath, ['-e', `require('node:net').connect(${scenario.hang}, '127.0.0.1')`], { stdio: 'ignore' });
