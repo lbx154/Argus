@@ -21,6 +21,9 @@ export function HistorySearch({ open, onClose, onChoose }: {
   const [input, setInput] = useState('');
   const [query, setQuery] = useState('');
   useEffect(() => {
+    if (!open) { setInput(''); setQuery(''); }
+  }, [open]);
+  useEffect(() => {
     const timer = window.setTimeout(() => { setQuery(input.trim()); }, 300);
     return () => window.clearTimeout(timer);
   }, [input]);
@@ -83,7 +86,7 @@ export function ProjectTrash({ open, onClose, onRestored }: {
     try {
       const restored = await api.restoreTrash(id);
       await onRestored(restored.sid);
-      await trash.refetch({ throwOnError: true });
+      onClose();
     } catch (problem) { setError(problem); }
     finally { setRestoring(''); }
   };
@@ -101,8 +104,8 @@ export function ProjectTrash({ open, onClose, onRestored }: {
           {!trash.data.total && <p role="status">{query ? zh ? '没有匹配的项目。' : 'No matching projects.' : t('operations.trashEmpty')}</p>}
           <div className="search-result-list">
             {trash.data.entries.map(entry => <div key={entry.trash_id} className="flex items-center gap-3 border-b border-line py-3">
-              <div className="min-w-0 flex-1"><strong className="block break-words">{entry.label}</strong>
-                <small className="block break-all text-ink-faint">{entry.launch_cwd}</small></div>
+              <div className="min-w-0 flex-1"><strong className="block truncate" title={entry.label}>{entry.label}</strong>
+                <time className="block text-ink-faint" dateTime={new Date(entry.trashed_at * 1000).toISOString()}>{new Date(entry.trashed_at * 1000).toLocaleString(locale)}</time></div>
               <Button disabled={Boolean(restoring)} onClick={() => void restore(entry.trash_id)}>
                 {restoring === entry.trash_id ? zh ? '正在恢复…' : 'Restoring…' : zh ? '恢复' : 'Restore'}</Button>
             </div>)}

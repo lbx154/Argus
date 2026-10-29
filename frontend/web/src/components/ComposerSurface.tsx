@@ -9,7 +9,7 @@ import './composer.css';
 
 const MIRRORED = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'marginTop', 'marginBottom', 'maxHeight'] as const;
 
-/** One visual/input surface for the ordinary conversation and research map. */
+/** The main conversation input. */
 export function ComposerSurface({
   value, onChange, inputRef, fileInputRef, onFiles, inputProps, onSend,
   pending, disabled = false, controls, sendLabel, ghost, onAcceptGhost,
@@ -39,7 +39,7 @@ export function ComposerSurface({
   useLayoutEffect(() => {
     const mirror = ghostRef.current;
     if (!mirror || !inputRef.current) return;
-    // The map's stylesheet can restyle this textarea too; copy what it ended up with.
+    // The gray suggestion uses the same typography as the input.
     const style = getComputedStyle(inputRef.current);
     for (const name of MIRRORED) mirror.style[name] = style[name];
   }, [ghost, inputRef]);

@@ -27,26 +27,17 @@ import {
 } from '../src/ensureApi.js';
 import { type ApiOwnershipRecord } from '../src/apiOwnership.js';
 
-const SOURCE_SUMMARY = '2 files, 10 bytes';
-
 function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    service: 'argus-skill-webapi',
+    service: 'argus-webapi',
     protocol: { name: 'argus.webapi', major: 1, minor: API_PROTOCOL.minServerMinor },
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
       package_version: RELEASE_ID.split('+')[0],
       release_id: RELEASE_ID,
-      manifest_source_digest: SOURCE_SUMMARY,
-      runtime_source_digest: SOURCE_SUMMARY,
-      release_matches_source: true,
       source_root: '/home/dev/current/argus',
-      configured_source_root: '/home/dev/current/argus',
-      source_root_matches_config: true,
-      revision: 'abc123',
       pid: 123,
-      python_version: '3.13.0',
       executable: '/venv/bin/python',
       started_at: '2026-07-11T00:00:00Z',
     },
@@ -95,15 +86,7 @@ test('protocol contract accepts the current server and rejects missing capabilit
   }));
   assert.equal(oldMinor.compatible, false);
   assert.match(oldMinor.reason, new RegExp(`older than required ${API_PROTOCOL.minServerMinor}`));
-  const wrongCheckout = inspectApiMeta(meta({
-    runtime: {
-      ...(meta().runtime as Record<string, unknown>),
-      source_root_matches_config: false,
-      configured_source_root: '/home/dev/other/argus',
-    },
-  }));
-  assert.equal(wrongCheckout.compatible, false);
-  assert.equal(wrongCheckout.reason, 'backend is running from a different installation than configured');
+
 });
 
 
@@ -182,25 +165,6 @@ test('warning reporter emits each warning only once', () => {
   ]);
 });
 
-test('ensureApi preserves and emits a compatible source-drift warning', async () => {
-  const warnings: string[] = [];
-  const result = await ensureApi({
-    host: '127.0.0.1',
-    port: 8799,
-    onWarning: (warning) => warnings.push(warning),
-    dependencies: {
-      probeApi: async () => ({
-        state: 'compatible',
-        message: 'current release',
-        warning: 'backend code and installed artifacts differ',
-      }),
-    },
-  });
-
-  assert.equal(result.reachable, true);
-  assert.equal(result.warning, 'backend code and installed artifacts differ');
-  assert.deepEqual(warnings, ['backend code and installed artifacts differ']);
-});
 
 // ── Stale-release recovery ──────────────────────────────────────────────────
 

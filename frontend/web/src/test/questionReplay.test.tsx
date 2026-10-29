@@ -37,7 +37,12 @@ it('keeps the pending question out of conversation rows, role headlines, map pro
 });
 
 it('retains the answered question as history and removes resend only from the actual answer bubble', () => {
-  const { html } = replay([added, ask, answer]);
+  const { html, store, project } = replay([added, ask, answer]);
+  project.questions = [];
+  const reading = projectRecord([added, ask, answer]);
+  expect(conversationRows(reading, project, { since: null, calls: [], requests: [] })
+    .find(row => row.type === 'ui.task')?.progress).toBe('');
+  expect(progressMap(store, project, 0).tasks[0].latest_action).toBeUndefined();
   expect(html.match(new RegExp(question, 'g'))).toHaveLength(1);
   expect(html).toContain('请用中文。');
   expect(html).not.toContain('Edit and resend');

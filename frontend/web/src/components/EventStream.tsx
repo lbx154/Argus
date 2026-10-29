@@ -25,7 +25,7 @@ import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
 import { EmptyHint } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
-import { deliveryFileUpdated, deliveryNumberLabel, deliveryFiles } from './deliveryPresentation';
+import { deliveryFileUpdated, deliveryOptionLabel, deliveryFiles } from './deliveryPresentation';
 
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i;
 import { ModelThumbnail } from './ModelPreview';
@@ -37,7 +37,7 @@ import { CopyButton } from './CopyButton';
 import { roleLabel } from '../lib/enumLabels';
 import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { plainDetail } from '../lib/plainStatus';
-import { isCallRow, plainRowText, roleHeadline, roleSaid, type ProgressText } from '../lib/plainProgress';
+import { isCallRow, plainRowText, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, eventTaskId } from '../lib/workStatus';
 import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
 export { activeProviderRequest } from '../lib/workStatus';
@@ -390,15 +390,12 @@ function RoleLogGroup({
   rows,
   open,
   active,
-  tasks,
   onToggle,
 }: {
   role: typeof ROLE_ORDER[number];
   rows: ActivityRow[];
   open: boolean;
   active: boolean;
-  /** The tasks it is at work on now. */
-  tasks: string[];
   onToggle: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -410,23 +407,6 @@ function RoleLogGroup({
   const shown = useMemo(() => showCommands ? rows : rows.filter(row => !isCallRow(row.ev)), [rows, showCommands]);
   const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
   const visible = folded.slice(-visibleCount);
-  // The collapsed header says what the role concluded, or at work what it does now: what it
-  // said since the operator last wrote on the tasks the server says it is on, else its newest step.
-  const taskTitle = useContext(TaskTitleContext);
-  const doing = useCallback((on: ActivityRow[]) => {
-    const now = on;
-    const step = now.filter(row => isCallRow(row.ev) && row.ev.kind !== 'tool_result').at(-1);
-    return roleSaid(now, locale, taskTitle) || (!step ? '' : step.ev.kind === 'command_execution'
-      ? (zh ? '正在运行命令' : 'Running a command') : plainToolLabel(step.ev, locale));
-  }, [locale, zh, taskTitle]);
-  const headline = useMemo(() => active
-    ? doing(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows)
-    : roleHeadline(rows, locale, taskTitle) || '', [active, doing, tasks, rows, locale, taskTitle]);
-  // At work on several tasks at once, it says what it does now on each.
-  const several = active && tasks.length > 1;
-  const each = useMemo(() => several ? tasks.map(id => ({
-    id, title: taskTitle(id) || id, now: doing(rows.filter(row => eventTaskId(row.ev) === id)),
-  })) : [], [several, tasks, rows, doing, taskTitle]);
   return (
     <section
       className="role-log-group border-b border-line/50"
@@ -442,21 +422,10 @@ function RoleLogGroup({
       >
         <span data-role-dot={role} aria-hidden="true" className="status-dot" data-tone={active ? 'running' : undefined} />
         <span className={`text-xs font-semibold ${active ? 'text-ink' : 'text-ink-faint'}`}>{roleLabel(role, t)}</span>
-        <span data-role-headline className="min-w-0 flex-1 truncate text-xs text-ink-faint" title={headline.replace(/\*\*|`/g, '') || undefined}>
-          {several ? (zh ? `· ${tasks.length} 个任务进行中` : `· ${tasks.length} tasks under way`)
-            : headline
-            ? <>{active ? (zh ? '现在：' : 'Now: ') : (zh ? '之前：' : 'Last: ')}<RowWords text={headline} prose /></>
-            : active ? (zh ? '刚开始' : 'Just started') : null}
-        </span>
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
       </button>
-      {each.length ? <ul data-role-tasks className="-mt-1 space-y-0.5 px-4 pb-2 pl-8 text-xs text-ink-faint">
-        {each.map(task => <li key={task.id} data-role-task={task.id} className="truncate">
-          <span className="text-ink-dim">{task.title}</span>{' · '}{zh ? '现在：' : 'Now: '}{task.now ? <RowWords text={task.now} prose /> : zh ? '刚开始' : 'Just started'}
-        </li>)}
-      </ul> : null}
       {open ? (
         <div className="grid grid-rows-[1fr]">
           {commandCount > 0 ? <div className="flex border-t border-line/40 px-4 py-1.5">
@@ -521,12 +490,10 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active, tasks }: {
+function RoleLogCollection({ rows, active }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
-  /** The tasks the role is at work on now. */
-  tasks: (role: string) => string[];
 }) {
   const { roleRows, systemRows } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(() => new Set());
@@ -541,7 +508,6 @@ function RoleLogCollection({ rows, active, tasks }: {
           rows={roleRows[role]}
           open={openRoles.has(role)}
           active={active(role)}
-          tasks={tasks(role)}
           onToggle={() => {
             setOpenRoles((current) => {
               const next = new Set(current);
@@ -576,8 +542,7 @@ export function ProjectRoleLogs({ snapshot, connected, showReasoning = false, de
       className={details ? '' : 'mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]'}>
       <div className="overflow-hidden rounded-lg border border-line/70">
         <RoleLogCollection rows={rows} key={`${snapshot.session.id}:${log.round}:${taskId ?? ''}`}
-          active={role => working.includes(role)}
-          tasks={role => snapshot.roles.find(row => row.role === role)?.tasks ?? []} />
+          active={role => working.includes(role)} />
         {details && !rows.length && !working.length ? <p className="px-4 py-3 text-xs text-ink-faint">{locale === 'zh-CN' ? '本轮暂无工作记录' : 'No work recorded this round'}</p> : null}
       </div>
     </section>
@@ -662,11 +627,10 @@ function DeliveryCard({
           {t(deliveryHeadingKey(delivery))}
         </div>
         <div className="result-card-title" title={delivery.title}>{delivery.title}</div>
-        {visual && <p className="text-xs text-ink-faint">{deliveryNumberLabel(visual, zh)}</p>}
+        <p className="text-xs text-ink-faint">{deliveryOptionLabel(delivery, zh)}</p>
         {listed.length ? <ul className="result-card-files">
           {listed.map(file => <li key={file.path} title={file.path}>
             <span aria-hidden="true">{fileGlyph(file.path)}</span>{file.label || file.path.split('/').pop()}
-            <small>{deliveryNumberLabel(file, zh)}</small>
           </li>)}
           {others.length > listed.length ? <li className="text-ink-faint">{zh ? `另有 ${others.length - listed.length} 个文件` : `${others.length - listed.length} more files`}</li> : null}
         </ul> : null}
@@ -685,11 +649,11 @@ function DeliveryCard({
 type TaskCardState = 'running' | 'done' | 'failed' | 'asking' | 'queued' | 'paused' | 'idle';
 
 const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [string, string]> = {
-  done: ['已完成', 'Done'],
+  done: ['已结束', 'Ended'],
   failed: ['没有完成', 'Not finished'],
-  asking: ['已暂停', 'Paused'],
+  asking: ['等你回答', 'Waiting for your answer'],
   queued: ['待开始', 'Up next'],
-  paused: ['已暂停', 'Paused'],
+  paused: ['已停止', 'Stopped'],
 };
 
 const TASK_TONE: Partial<Record<TaskCardState, string>> = { running: 'running', done: 'done', failed: 'failed', asking: 'waiting' };
@@ -770,6 +734,7 @@ export function EventStream({
   rememberPosition = false,
   onConversationAction,
   requestedMessageTs,
+  onMessageLocated,
 }: {
   events: EventMsg[];
   connected: boolean;
@@ -790,6 +755,7 @@ export function EventStream({
   rememberPosition?: boolean;
   onConversationAction?: (prompt: string) => void;
   requestedMessageTs?: number;
+  onMessageLocated?: () => void;
 } & Partial<ConversationPagination>) {
   const { locale, t } = useI18n();
   const sessionId = useContext(SessionIdContext);
@@ -802,25 +768,13 @@ export function EventStream({
   const [activityTick, setActivityTick] = useState(() => Date.now());
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const restored = useRef(false);
   const searchSeen = useRef<number | undefined>();
   const [readingError, setReadingError] = useState(false);
   // Rendering a long Markdown/event history is interruptible, so incoming
   // provider fragments never take priority over typing or scrolling.
   const deferredEvents = useDeferredValue(events);
   const deliveries = useMemo(() => deferredEvents.flatMap(event => { const receipt = deliveryFromEvent(event); return receipt ? [receipt] : []; }), [deferredEvents]);
-  useEffect(() => {
-    if (requestedMessageTs === undefined) { searchSeen.current = undefined; return; }
-    if (searchSeen.current === requestedMessageTs) return;
-    const target = content.current?.querySelector<HTMLElement>(`[data-conversation-ts="${requestedMessageTs}"]`);
-    if (target) {
-      content.current?.querySelectorAll<HTMLElement>('[data-search-hit]').forEach(previous => { delete previous.dataset.searchHit; });
-      target.dataset.searchHit = 'true';
-      target.scrollIntoView({ block: 'center' });
-      searchSeen.current = requestedMessageTs;
-      setFollowing(false);
-      followingRef.current = false;
-    }
-  }, [requestedMessageTs, deferredEvents]);
   const workspace = snapshot?.session.workdir || '';
   const taskTitle = useMemo(() => {
     const titles = new Map((snapshot?.backlog ?? []).map((item) => [item.id, item.title || '']));
@@ -853,51 +807,58 @@ export function EventStream({
       prepend.current = null;
     }
   }, [loadingOlder, events]);
-  const tailContentLength = useMemo(
-    () => rows.list.slice(-20).reduce((total, row) => total + row.r.text.length, 0),
-    [rows.list],
-  );
-
-  useEffect(() => {
-    if (!following) return;
-    const frame = window.requestAnimationFrame(() => {
-      if (followingRef.current && scroller.current) {
-        scroller.current.scrollTop = scroller.current.scrollHeight;
-        lastScrollTop.current = scroller.current.scrollTop;
-      }
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [rows.list.length, tailContentLength, following]);
-
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
     const positionKey = rememberPosition && snapshot ? `argus.conversation.position.v1:${snapshot.session.id}` : null;
-    let restored = false;
+    // Initial placement and later explicit searches share this one decision.
+    // Deferred rows must have caught up before a search can be marked reached.
     const restorePosition = () => {
-      if (restored || !positionKey || historyStatus !== 'ready' || el.clientHeight === 0) return;
-      restored = true;
-      try {
-        const raw = localStorage.getItem(positionKey);
-        if (!raw) return;
-        const saved: unknown = JSON.parse(raw);
-        if (!saved || typeof saved !== 'object' || !('top' in saved) || typeof saved.top !== 'number'
-          || !Number.isFinite(saved.top) || saved.top < 0 || !('following' in saved) || typeof saved.following !== 'boolean') throw new Error('Invalid reading position');
-        followingRef.current = saved.following;
-        setFollowing(saved.following);
-        if (!saved.following) {
-          el.scrollTop = saved.top;
-          lastScrollTop.current = el.scrollTop;
+      if (historyStatus !== 'ready' || deferredEvents !== events || el.clientHeight === 0) return;
+      if (restored.current) {
+        if (requestedMessageTs === undefined) { searchSeen.current = undefined; return; }
+        if (requestedMessageTs === searchSeen.current) return;
+      }
+      let follow = true;
+      if (requestedMessageTs !== undefined) {
+        const target = content.current?.querySelector<HTMLElement>(`[data-conversation-ts="${requestedMessageTs}"]`);
+        if (!target) {
+          const older = loadEarlier.current;
+          if (older.hasOlder && !older.loadingOlder) older.onLoadOlder?.();
+          return;
         }
-      } catch { setReadingError(true); }
+        content.current?.querySelectorAll<HTMLElement>('[data-search-hit]').forEach(previous => { delete previous.dataset.searchHit; });
+        const brief = target.closest('details');
+        if (brief) brief.open = true;
+        target.dataset.searchHit = 'true';
+        target.scrollIntoView({ block: 'center' });
+        follow = false;
+      } else {
+        try {
+          const raw = positionKey ? localStorage.getItem(positionKey) : null;
+          if (raw) {
+            const saved: unknown = JSON.parse(raw);
+            if (!saved || typeof saved !== 'object' || !('top' in saved) || typeof saved.top !== 'number'
+              || !Number.isFinite(saved.top) || saved.top < 0 || !('following' in saved) || typeof saved.following !== 'boolean') throw new Error('Invalid reading position');
+            follow = saved.following;
+            if (!follow) el.scrollTop = saved.top;
+          }
+        } catch { setReadingError(true); }
+        if (follow) el.scrollTop = el.scrollHeight;
+      }
+      restored.current = true;
+      searchSeen.current = requestedMessageTs;
+      followingRef.current = follow;
+      setFollowing(follow);
+      lastScrollTop.current = el.scrollTop;
+      if (requestedMessageTs !== undefined) onMessageLocated?.();
     };
     restorePosition();
     const onScroll = () => {
-      if (el.clientHeight === 0) return;
+      if (!restored.current || el.clientHeight === 0) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-      // Scroll anchoring can move down during layout growth before the resize
-      // callback catches up. Only an upward movement leaves an active follow;
-      // reaching the bottom resumes it, including after a viewport clamp.
+      // Scroll anchoring may move down during growth. An upward reader
+      // movement leaves following; reaching the bottom resumes it.
       followingRef.current = atBottom || (followingRef.current && el.scrollTop >= lastScrollTop.current - 1);
       lastScrollTop.current = el.scrollTop;
       setFollowing(followingRef.current);
@@ -908,18 +869,16 @@ export function EventStream({
         prepend.current = { height: el.scrollHeight, top: el.scrollTop };
         older.onLoadOlder();
       }
-      if (positionKey && restored) setReadingError(!writeLocalStorage(positionKey, JSON.stringify({ top: el.scrollTop, following: followingRef.current })));
+      if (positionKey) setReadingError(!writeLocalStorage(positionKey, JSON.stringify({ top: el.scrollTop, following: followingRef.current })));
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     let frame: number | null = null;
     const observer = new ResizeObserver(() => {
       restorePosition();
-      if (!followingRef.current) return;
+      if (!restored.current || !followingRef.current) return;
       if (frame !== null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        // Reflow can move the bottom without adding an event. A reader who
-        // scrolled into history while this frame was queued still takes priority.
         if (followingRef.current) {
           el.scrollTop = el.scrollHeight;
           lastScrollTop.current = el.scrollTop;
@@ -933,7 +892,7 @@ export function EventStream({
       observer.disconnect();
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, [snapshot?.session.id, historyStatus, rememberPosition]);
+  }, [snapshot?.session.id, historyStatus, rememberPosition, requestedMessageTs, deferredEvents, events, hasOlder, loadingOlder, onMessageLocated]);
 
   const jump = () => {
     followingRef.current = true;
@@ -1008,7 +967,7 @@ export function EventStream({
 
           </>
         )}
-            {/* The team's progress: each role, what it does now or did last, its work a click away. */}
+            {/* Each role's process stays folded until opened. */}
             {snapshot ? <ProjectRoleLogs snapshot={snapshot} connected={connected} showReasoning={showReasoning} /> : null}
         </div>
       </div>

@@ -22,7 +22,7 @@ it("sends a follow-up from the chat view while a reply is running instead of swa
       key: "Enter", shiftKey: false, nativeEvent: {}, preventDefault() {}, stopPropagation() {}, defaultPrevented: true,
     });
   });
-  expect(onSend).toHaveBeenCalledExactlyOnceWith("Also cover the empty input", [], undefined, { whileRunning: true });
+  expect(onSend).toHaveBeenCalledExactlyOnceWith("Also cover the empty input", [], { whileRunning: true });
 });
 
 it("offers a send button, and no stop, for a follow-up typed while a reply is running", async () => {
@@ -38,7 +38,7 @@ it("offers a send button, and no stop, for a follow-up typed while a reply is ru
   const send = renderer.root.findByProps({ type: "submit", className: "map-send" });
   expect(send.props.disabled).toBe(false);
   await act(async () => { renderer.root.findByType("form").props.onSubmit({ preventDefault() {} }); });
-  expect(onSend).toHaveBeenCalledExactlyOnceWith("Also cover the empty input", [], undefined, { whileRunning: true });
+  expect(onSend).toHaveBeenCalledExactlyOnceWith("Also cover the empty input", [], { whileRunning: true });
   expect(renderer.root.findAll(node => node.props["aria-label"] === "Stop")).toHaveLength(0);
 });
 

@@ -16,7 +16,6 @@ import type {
 import { ApiError, ensureResponseOk } from '../../core/src/http';
 import { observePageRelease, requireCurrentPage } from './lib/pageUpdate';
 import {
-  RELEASE_ARTIFACT_DRIFT_WARNING,
   requireCompatibleApiMeta,
   requireSnapshotContract,
   type ApiMeta,
@@ -335,7 +334,6 @@ async function fetchArgus(path: string, init: RequestInit): Promise<Response> {
     throw new LocalArgusUnavailableError(String(init.method ?? 'GET'), path);
   }
   if (response.ok) {
-    observePageRelease(response.headers.get('X-Argus-Release'));
     // Do not decode a newer snapshot with the old UI schema. Mutation
     // receipts still belong to their accepted request and must be delivered.
     if (!init.method || init.method === 'GET') requireCurrentPage();
@@ -424,7 +422,6 @@ async function postResponse(
     signal,
   });
   await ensureResponseOk(r, 'POST', path);
-  observePageRelease(r.headers.get('X-Argus-Release'));
   return r;
 }
 
@@ -453,7 +450,6 @@ async function uploadRequest<T>(
     signal,
   }, method === 'DELETE' ? 5_000 : 120_000, async response => {
     await ensureResponseOk(response, method, path);
-    observePageRelease(response.headers.get('X-Argus-Release'));
     return await response.json() as T;
   });
 }
@@ -490,7 +486,6 @@ function uploadSmallAttachments(
           ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status,
           statusText: xhr.statusText, text: async () => xhr.responseText,
         }, 'POST', path);
-        observePageRelease(xhr.getResponseHeader('X-Argus-Release'));
         resolve(JSON.parse(xhr.responseText) as AttachmentUploadResponse);
       } catch (error) { reject(error); }
     };
@@ -534,7 +529,6 @@ async function mutationJson<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   await ensureResponseOk(r, method, path);
-  observePageRelease(r.headers.get('X-Argus-Release'));
   return (await r.json()) as T;
 }
 
@@ -596,13 +590,7 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
           await ensureResponseOk(response, 'GET', path);
           const payload = await response.json();
           observePageRelease(payload?.runtime?.release_id);
-          return requireCompatibleApiMeta(payload, (warning) => {
-            // Release drift is a publisher's note: the served bundle already
-            // matches this API (the validator would have thrown otherwise),
-            // so a reader's console has nothing to act on.
-            if (warning === RELEASE_ARTIFACT_DRIFT_WARNING) return;
-            console.warn(`Argus API compatibility warning: ${warning}`);
-          });
+          return requireCompatibleApiMeta(payload);
         },
       );
       if (meta.authentication?.required && !meta.authentication.authenticated) {
@@ -705,7 +693,7 @@ export interface Edition { version: number; content: string; note: string; creat
 export interface SearchResult {
   sid: string; title: string; kind: 'project' | 'conversation' | 'artifact' | 'edition';
   snippet: string; text: string; path?: string; version?: number; role?: string;
-  ts?: number; line?: number; message_id?: string; truncated?: boolean;
+  ts?: number; line?: number; message_id?: string; task_id?: string; truncated?: boolean;
 }
 
 export const api = {

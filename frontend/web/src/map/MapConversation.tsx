@@ -12,7 +12,7 @@ export function MapConversation({ snapshot, events, connected, pending, artifact
   const conversation = events;
   return <aside className="map-conversation nowheel nodrag nopan" aria-label={zh ? '地图对话' : 'Map conversation'}>
     <header><MessageCircle size={16} /><strong>{zh ? `与 ${applicationBrand().name} 对话` : `Talk to ${applicationBrand().name}`}</strong><button type="button" onClick={onClose} aria-label={zh ? '关闭对话' : 'Close conversation'}><X size={18} /></button></header>
-    {conversation.length ? <EventStream snapshot={snapshot} events={conversation} {...pagination} connected={connected} showReasoning={false} embedded showHeader={false} artifacts={artifacts} onOpenArtifact={onOpenArtifact} onOpenDelivery={onOpenDelivery} /> : <p className="map-conversation-empty">{zh ? '在下方发送目标或问题，回复会保留在这里。' : 'Send a goal or question below. Your conversation stays here.'}</p>}
+    {conversation.length ? <EventStream snapshot={snapshot} events={conversation} {...pagination} connected={connected} showReasoning={false} embedded showHeader={false} artifacts={artifacts} onOpenArtifact={onOpenArtifact} onOpenDelivery={onOpenDelivery} /> : <p className="map-conversation-empty">{zh ? '在“对话”标签发送目标或问题，回复会保留在这里。' : 'Send a goal or question from the Conversation tab. Your conversation stays here.'}</p>}
     {pending && !conversation.some(event => event.type === 'ui.argus' && event.live === true) && <p className="map-conversation-pending" role="status">{zh ? `${applicationBrand().name} 正在回复…` : `${applicationBrand().name} is replying…`}</p>}
   </aside>;
 }

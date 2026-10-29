@@ -175,7 +175,7 @@ it('browser record: a Manager answer with a file is a neutral result in chat and
   expect(chat).toContain('data-delivery-kind="result"');
   expect(chat).toContain('Result');
   expect(files).toContain('Latest result');
-  expect(files).toContain('Result');
+  expect(files).not.toContain('Latest result · Result');
   expect(chat + files).not.toContain('Task completed');
 });
 
@@ -185,14 +185,16 @@ it('replays per-file delivery occurrences, including unchanged text, in conversa
   const events = webEvents(fixture.text.events as Recorded[]);
   const receipts = events.flatMap(row => row.delivery ? [row.delivery as DeliveryReceipt] : []);
   const markup = renderToStaticMarkup(createElement(EventStream, { events, connected: true, showReasoning: false }));
-  expect(markup).not.toContain('Delivery 1');
+  expect(markup).toContain('Delivery 1');
   expect(markup).toContain('Delivery 2');
   expect(markup).toContain('Delivery 3');
   expect(receipts[2].targets.map(file => file.delivery_number)).toEqual([3, 2]);
   expect(receipts[1].snapshots?.[0].version).toBe(receipts[2].snapshots?.[0].version);
   expect(receipts.map(receipt => deliveryOptionLabel(receipt, true))).toEqual([
-    '版本报告', '版本报告 · report.md 第 2 次交付 · data.csv', '版本报告 · report.md 第 3 次交付 · data.csv 第 2 次交付',
+    ...receipts.map((receipt, index) => `第 ${index + 1} 次交付 · ${new Date(receipt.delivered_at * 1000).toLocaleString('zh-CN')}`),
   ]);
+  expect(markup.match(/Delivery 2/g)).toHaveLength(1);
+  expect(markup.match(/Delivery 3/g)).toHaveLength(1);
   expect(deliveryFileUpdated(receipts[0], receipts, 'report.md')).toBe(false);
 });
 

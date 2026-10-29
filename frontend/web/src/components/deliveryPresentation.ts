@@ -34,11 +34,11 @@ export function previousDeliveryVersion(receipt: DeliveryReceipt, receipts: Deli
 
 /** Each path has its own occurrence count, supplied by the server's record fold. */
 export const deliveryNumberLabel = (file: DeliveryTarget, zh: boolean): string =>
-  file.delivery_number && file.delivery_number > 1 ? (zh ? `第 ${file.delivery_number} 次交付` : `Delivery ${file.delivery_number}`) : '';
+  file.delivery_number && file.delivery_number > 0 ? (zh ? `第 ${file.delivery_number} 次交付` : `Delivery ${file.delivery_number}`) : '';
 
 export function deliveryOptionLabel(receipt: DeliveryReceipt, zh: boolean): string {
-  const files = deliveryFiles(receipt);
-  return [receipt.title, ...files.map(file => [files.length > 1 ? file.label || file.path : '', deliveryNumberLabel(file, zh)].filter(Boolean).join(' '))].filter(Boolean).join(' · ');
+  const file = deliveryFiles(receipt)[0];
+  return [file ? deliveryNumberLabel(file, zh) : '', new Date(receipt.delivered_at * 1000).toLocaleString(zh ? 'zh-CN' : 'en')].filter(Boolean).join(' · ');
 }
 
 /** No copy was kept of this file, and a later delivery names a different version of it. */

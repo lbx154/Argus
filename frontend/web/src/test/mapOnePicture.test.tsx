@@ -16,12 +16,11 @@ const task: MapTask = {
   id: "recheck", title: "完成必经步骤① hc-35885033b637", objective: "", status: "running", deps: [], ts: 5,
 };
 const card = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({
-  id: "recheck-card",
+  id: "recheck-card", type: "task", zIndex: 0, draggable: false, selected: false, dragging: false, selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0,
   data: {
     id: "recheck-card", task, ordinal: 2, part: 1, partCount: 1, start: 1, end: 0, totalSteps: 0,
     layout: layoutSubmap(task, [], true, []), frame: { width: 1440, height: 900, scale: 1 },
-    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false,
-    source: "live:project", readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(),
+    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false, open: vi.fn(), readStep: vi.fn(),
     ...patch,
   },
 }) as NodeProps<MacroNode>;

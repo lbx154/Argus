@@ -6,7 +6,7 @@ export type WorkbenchText = (zh: string, en: string) => string;
 const ROLE_LABELS: Record<string, readonly [string, string]> = {
   system: ['Argus', 'Argus'],
   operator: ['你', 'You'],
-  stopped: ['已暂停', 'Paused'],
+  stopped: ['已停止', 'Stopped'],
   idle: ['等待中', 'Waiting'],
 };
 

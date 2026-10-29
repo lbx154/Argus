@@ -75,6 +75,8 @@ export const workspaceApi = {
     get<WorkspaceFile>('/api/v2/workspace/file', { ...context(sid, workspaceId), path }, signal),
   git: (sid: string, workspaceId: string, signal?: AbortSignal) =>
     get<WorkspaceGit>('/api/v2/workspace/git', context(sid, workspaceId), signal),
+  commit: (sid: string, workspaceId: string, commit: string, signal?: AbortSignal) =>
+    get<{ diff: string; truncated: boolean }>('/api/v2/workspace/git/commit', { ...context(sid, workspaceId), commit }, signal),
   rawUrl: (sid: string, workspaceId: string, path: string) =>
     `/api/v2/workspace/raw?${new URLSearchParams({ ...context(sid, workspaceId), path })}`,
   /** Any regular workspace file as a download (credential-like names are refused). */

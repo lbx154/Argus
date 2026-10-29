@@ -100,7 +100,8 @@ it('selects delivery-specific queries, distinguishes repeated names, and offers 
   act(() => { tree = create(<ArtifactModal sid="s" path="index.html" delivery={first} deliveries={[second, first]}
     onSelectDelivery={onSelectDelivery} onClose={() => {}} />); });
   expect(useArtifact).toHaveBeenLastCalledWith('s', 'index.html', null, 'd1');
-  expect(tree!.root.findAllByType('option').map(option => option.children.join(''))).toEqual(['Same title · Delivery 2', 'Same title']);
+  expect(tree!.root.findAllByType('option').map(option => option.children.join(''))).toEqual([`Delivery 2 · ${new Date(2000).toLocaleString('en')}`, `Delivery 1 · ${new Date(1000).toLocaleString('en')}`]);
+  expect(JSON.stringify(tree!.toJSON()).match(/Delivery 2/g)).toHaveLength(1);
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.some(child => typeof child === 'string' && child.includes('(zip)')))).toHaveLength(0);
   const select = tree!.root.findByType('select');
   act(() => select.props.onChange({ target: { value: 'd2' } }));

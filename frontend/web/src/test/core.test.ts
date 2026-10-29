@@ -280,15 +280,10 @@ describe('shared frontend core', () => {
         selected_option: '',
         note: '',
       },
-      busy: false,
-      error: '',
-      note: '',
-      onNoteChange: () => undefined,
-      onSubmit: async () => true,
     }));
     expect(html).not.toContain('role="dialog"');
     expect(html).toContain('Which dataset should the process use?');
-    expect(html).toContain('Review and respond');
+    expect(html).not.toMatch(/<textarea|<form|<button/);
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {

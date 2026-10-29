@@ -17,11 +17,10 @@ vi.mock('@xyflow/react', async original => ({
 const task = { id: 'historical-task', title: 'Recorded task', objective: 'Original task objective', status: 'done', revision: 'task-v1' };
 const step: SubmapStep = { id: 'earlier-review', kind: 'review', title: 'Earlier review', detail: 'Original result from that attempt.',
   status: 'failed', ts: 100, source: 'event', eventIds: ['old-event'] };
-const props = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({ id: 'historical-part', data: {
+const props = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({ id: 'historical-part', type: "task", zIndex: 0, draggable: false, selected: false, dragging: false, selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0, data: {
   id: 'historical-part', task, ordinal: 1, part: 1, partCount: 2, start: 1, end: 1, totalSteps: 2,
   layout: layoutSubmap(task, [], false, [step]), frame: { width: 900, height: 650, scale: 1 },
-  canvasSize: { width: 1440, height: 960 }, zh: false, focused: true, detailed: true,
-  source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(), readCopy: vi.fn(),
+  canvasSize: { width: 1440, height: 960 }, zh: false, focused: true, detailed: true, open: vi.fn(), readStep: vi.fn(), readCopy: vi.fn(),
   ...patch,
 } } as NodeProps<MacroNode>);
 let renderer: ReactTestRenderer | undefined;

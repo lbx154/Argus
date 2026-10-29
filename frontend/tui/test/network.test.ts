@@ -11,26 +11,17 @@ import { RELEASE_ID } from '../../core/src/protocol.js';
 import { ApiClient } from '../src/api.js';
 import { describeFetchFailure, fetchWithTimeout } from '../src/network.js';
 
-const SOURCE_SUMMARY = '2 files, 10 bytes';
-
 function compatibleMeta(): Record<string, unknown> {
   return {
-    service: 'argus-skill-webapi',
+    service: 'argus-webapi',
     protocol: { name: 'argus.webapi', major: 1, minor: API_PROTOCOL.minServerMinor },
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
       package_version: RELEASE_ID.split('+')[0],
       release_id: RELEASE_ID,
-      manifest_source_digest: SOURCE_SUMMARY,
-      runtime_source_digest: SOURCE_SUMMARY,
-      release_matches_source: true,
       source_root: 'G:\\code\\argus',
-      configured_source_root: 'G:\\code\\argus',
-      source_root_matches_config: true,
-      revision: 'abc123',
       pid: 123,
-      python_version: '3.13.0',
       executable: 'G:\\code\\argus\\.venv\\Scripts\\python.exe',
       started_at: '2026-08-13T00:00:00Z',
     },

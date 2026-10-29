@@ -37,7 +37,7 @@ let lastRead = 0;
 const readAt = (): number => (lastRead = Math.max(Date.now(), lastRead + 1));
 
 /** A project's name: its own, else its request's first line. */
-export const named = ({ name, request }: Project): string => name || request.split('\n')[0]!.slice(0, 80);
+export const named = ({ name, request }: Project): string => name || request.split('\n')[0]!;
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it, named as
  * it was when delivered (a record from before then, by the letter's first line). */
@@ -226,11 +226,10 @@ export interface Reading {
   rows: Map<string, EventMsg>;
   roleEvents: EventMsg[];
   round: number;
-  status: string;
   activityAt: number | null;
   stateLine: number;
   calls: Set<string>;
-  tasks: Map<string, { title: string; closed: boolean; line: number; ts: number }>;
+  tasks: Map<string, { title: string; line: number; ts: number }>;
   questions: Map<string, EventMsg>;
   /** The results the Manager handed over, by delivery (`d` and its line), each with its files as delivered. */
   delivered: Map<string, Extract<Recorded, { type: 'handoff' }>>;
@@ -239,7 +238,7 @@ export interface Reading {
 
 export function projectRecord(events: Recorded[], reading: Reading = {
   end: 0, fold: { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() }, rows: new Map(),
-  roleEvents: [], round: 0, status: '', activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
+  roleEvents: [], round: 0, activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
     answered: null, briefed: null, worked: new Set(), follows: new Map() },
 }): Reading {
@@ -250,10 +249,6 @@ export function projectRecord(events: Recorded[], reading: Reading = {
     foldMap(reading.map, event, line);
     if (event.type !== 'step') reading.stateLine = line;
     const put = (row: EventMsg, id: string, order = line) => reading.rows.set(id, { ...row, row_id: id, order });
-    const move = (id: string) => {
-      const task = reading.tasks.get(id);
-      if (task && !task.closed) Object.assign(task, { line, ts });
-    };
     if (event.type === 'message') {
       reading.roleEvents = [];
       reading.round = line;
@@ -266,7 +261,6 @@ export function projectRecord(events: Recorded[], reading: Reading = {
         put({ ...question, event_id: line }, String(question.row_id));
         put({ ...row, answer_to: question.question_id }, String(row.message_id), line + 0.1);
         reading.questions.delete(asker({ role: event.to!, task: event.task ?? null }));
-        move(String(question.item_id ?? ''));
       } else {
         put(row, String(row.message_id));
         if (!event.to && event.request_id) put({ type: 'ui.argus', agent_layer: 'manager', text: '', ts, event_id: line,
@@ -284,18 +278,7 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       const operator = reading.rows.get(operatorId);
       if (operator) reading.rows.set(operatorId, { ...operator, answer: event.letter, event_id: line });
     }
-    if (event.type === 'task.added') reading.tasks.set(event.task.id, { title: event.task.title, closed: false, line, ts });
-    else if (event.type === 'task.closed') {
-      move(event.task);
-      const task = reading.tasks.get(event.task);
-      if (task) task.closed = true;
-    } else if (event.type === 'status') {
-      if (['stopped', 'failed'].includes(event.status) || ['stopped', 'failed'].includes(reading.status)) {
-        for (const id of reading.tasks.keys()) move(id);
-      }
-      reading.status = event.status;
-    } else if ('task' in event && typeof event.task === 'string' && event.type !== 'step' && event.type !== 'call.end') move(event.task);
-    else if (event.type === 'call.end' && !event.completed && event.task) move(event.task);
+    if (event.type === 'task.added') reading.tasks.set(event.task.id, { title: event.task.title, line, ts });
 
     if (event.type === 'call.end') reading.calls.add(event.callId);
     if (event.type === 'handoff' && event.role === 'manager' && event.open) reading.delivered.set(`d${line}`, event);
@@ -351,7 +334,7 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
       : item?.status === 'pending' ? 'queued' : live.since !== null ? 'running' : 'paused';
     rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: task.title, state, role,
       progress: action ? firstLine(action.text) : '', result_paths: closed.has(id) ? opened.get(id) ?? [] : [],
-      ts: task.ts, event_id: Math.max(task.line, actions.get(id)?.line ?? 0), order: task.line + 0.2 });
+      ts: task.ts, event_id: Math.max(reading.stateLine, actions.get(id)?.line ?? 0), order: task.line + 0.2 });
   }
   return rows.sort((a, b) => Number(a.order) - Number(b.order));
 }
@@ -377,7 +360,7 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
   const foreground = live.requests.length > 0 || live.calls.some(call => call.answers);
   const state = foreground ? 'running' : stopped ? 'paused' : roles.length ? 'running' : questions ? 'paused' : live.since !== null ? 'waiting' : 'idle';
   const label = foreground ? { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' }
-    : stopped ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务暂停` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} tasks paused` : ''}` }
+    : stopped ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务待继续` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} task${count === 1 ? '' : 's'} to resume` : ''}` }
     : state === 'paused' ? { 'zh-CN': '等你回答', en: 'Waiting for your answer' }
     : state === 'running' ? { 'zh-CN': running ? `${running} 个任务进行中` : '团队正在工作', en: running ? `${running} task${running === 1 ? '' : 's'} in progress` : 'The team is working' }
     : state === 'waiting' ? { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' }
@@ -450,7 +433,7 @@ interface MapReading {
   actions: Map<string, NonNullable<BacklogItem['latest_action']> & { line: number }>;
   opened: Map<string, string[]>;
   letters: { line: number; letter: Record<string, unknown> }[];
-  /** The operator's messages to the Manager, by request. */
+  /** Requests to the Manager; initial clarifications share the original request card. */
   qa: Map<string, MapCard>;
   /** The message the Manager's turn under way has answered, whose tasks follow it; and the one
    * whose answer last briefed the Planner, whose tasks follow it. */
@@ -461,14 +444,10 @@ interface MapReading {
   follows: Map<string, string>;
 }
 
-/** The progress map: a card per task, and on it a step per letter written about it; the letter
- * that opened a task is its objective. Each message of the operator's to the Manager is a
- * question-and-answer card (`q` and its line): answering till the letter that names it comes, then
- * answered, with the files that letter hands over; the tasks that answer opens, and that wait for no
- * other, follow it; a reply alone leaves the map with the next message. A letter's id is its line,
- * with a reply suffix when it also belongs to a task, and the lines read are
- * the cursor: a page that holds one is sent only the letters after it. Like the live event stream,
- * the shared project reading continues at the last complete line. */
+/** The progress map: a card per task, and a card for each operator request that starts work or
+ * hands over files. Clarifications before the original request starts work share its card,
+ * which always stays. Request ids and the Manager's `answers` join the letters to their card,
+ * and task handoffs join work to the request that set it going. The line cursor pages letters. */
 export function progressMap(store: Store, project: Project, after: number) {
   return mapProjection(readRecord(store, project.id), project, after);
 }
@@ -477,10 +456,20 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
   const { added, closed, actions, opened, letters, qa, worked, follows } = reading;
   const ts = seconds(event.ts);
   if (event.type === 'message' && !event.to && event.request_id) {
-    qa.set(event.request_id, {
+    const previous = [...qa.values()].at(-1);
+    // Before the original request starts work or delivers files, clarification extends that
+    // request. Later exchanges keep their own cards, as do requests queued before any reply.
+    if (previous === qa.values().next().value && previous?.status === 'done' && !worked.has(previous.id)) {
+      qa.set(event.request_id, previous);
+      Object.assign(previous, { status: '', finished_ts: null });
+      letters.push({ line, letter: { id: `e${line}`, item_id: previous.id, type: 'turn.asked', ts, role: 'operator', to: 'manager', text: event.text } });
+    } else qa.set(event.request_id, {
       id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text).slice(0, 100), objective: event.text, priority: 0, deps: [], status: '',
       role: 'manager', ts, started_ts: ts, finished_ts: null, result_paths: [],
     });
+  }
+  else if (event.type === 'message' && event.to && event.task) {
+    letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: 'operator', to: event.to, text: event.text } });
   }
   else if (event.type === 'call.start' && event.role === 'manager') reading.answered = null;
   else if (event.type === 'task.added') {
@@ -494,7 +483,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
     if (event.task) {
       if (event.role === 'engineer' || event.role === 'reviewer') {
         if (event.to === 'manager' || event.to === 'planner') opened.set(event.task, event.open ?? []);
-        actions.set(event.task, { role: event.role, text: event.letter, ts, line });
+        if (event.to !== 'operator') actions.set(event.task, { role: event.role, text: event.letter, ts, line });
       }
       letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
     }
@@ -516,11 +505,12 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
 
 function mapProjection(record: Reading, project: Project, after: number) {
   const { added, closed, actions, opened, letters, qa, worked, follows } = record.map;
-  // A message stays on the map while it is answered, and after if its answer set work going or handed
-  // something over, or till the next message comes; a reply before that, or one a stop or failure left
-  // unanswered, is the conversation's.
+  // The original request stays even when its first reply only asks for clarification.
+  // Other text-only exchanges stay while answered, or until the next exchange starts.
   const answering = project.status !== 'stopped' && project.status !== 'failed';
-  const last = [...qa.values()].at(-1);
+  const cards = [...new Set(qa.values())];
+  const first = cards[0];
+  const last = cards.at(-1);
   // Work handed to the team is done once the tasks that follow its message have closed, or with none
   // of its own, once the team has no work going.
   const done = (card: MapCard): number | null => {
@@ -532,7 +522,7 @@ function mapProjection(record: Reading, project: Project, after: number) {
     const found = actions.get(id);
     return found ? { role: found.role, text: found.text, ts: found.ts } : undefined;
   };
-  const tasks = [...[...qa.values()].filter(card => worked.has(card.id) || !card.status && answering || card === last && card.status === 'done').map(card => {
+  const tasks = [...cards.filter(card => card === first || worked.has(card.id) || !card.status && answering || card === last && card.status === 'done').map(card => {
     const finished = card.status === 'in_progress' ? done(card) : card.finished_ts;
     return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: action(card.id) };
   }), ...backlog(project).map((item, index) => {

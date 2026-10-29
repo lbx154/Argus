@@ -2,7 +2,6 @@ import type { EventMsg } from '../api';
 import type { RenderedLine } from '../../../core/src/eventRender';
 import type { Locale } from '../i18n';
 import { readableRecord } from '../map/submap';
-import { plainToolLabel } from './feedSteps';
 import { plainDetail, type PlainDetail } from './plainStatus';
 import { splitHarnessRecord } from './harnessNotes';
 import { STATUS_TAIL } from '../../../core/src/plainWords';
@@ -15,7 +14,6 @@ import { errorText } from './format';
  * host's own English reasons are folded away or said in the reader's language.
  */
 
-type Row = { ev: EventMsg; r: RenderedLine };
 export type ProgressText = PlainDetail & {
   /** Everything the row stands for, shown on request when `text` is its one-line form. */
   full?: string;
@@ -26,8 +24,6 @@ const CALL_KINDS = new Set(['command_execution', 'tool_use', 'tool_result', 'fil
 const MESSAGE_KINDS = new Set(['agent_message', 'assistant_message', 'message']);
 /** Round bookkeeping: a step of the loop, not something a role said. */
 const ROUND_MARKERS = new Set(['round.start', 'round.main.completed', 'round.review.started']);
-/** Rows that head no role: bookkeeping, and a task closing, which names no one who said it. */
-const UNSAID = new Set([...ROUND_MARKERS, 'life.mission.completed']);
 const zh = (locale: Locale) => locale === 'zh-CN';
 
 export function isCallRow(ev: EventMsg): boolean {
@@ -104,30 +100,4 @@ export function plainRowText(ev: EventMsg, r: RenderedLine, locale: Locale, task
     return { ...detail, technical: [detail.technical, receipt].filter(Boolean).join(' '), full: cleaned };
   }
   return plainDetail(cleaned, locale);
-}
-
-/** What a role said last, in one plain line: its newest message or verdict, never a command. */
-export function roleSaid(rows: Row[], locale: Locale, taskTitle?: (id: string) => string): string {
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const { ev, r } = rows[index];
-    if (isCallRow(ev) || r.reasoning || UNSAID.has(String(ev.type || ''))) continue;
-    const line = firstLine(plainRowText(ev, r, locale, taskTitle).text);
-    if (line) return line;
-  }
-  return '';
-}
-
-/**
- * What a role concluded, in one plain line: what it said last. With nothing
- * said, its newest tool step in words, else how many commands it ran.
- */
-export function roleHeadline(rows: Row[], locale: Locale, taskTitle?: (id: string) => string): string {
-  const said = roleSaid(rows, locale, taskTitle);
-  if (said) return said;
-  const calls = rows.filter(row => isCallRow(row.ev));
-  const tool = [...calls].reverse().find(row => row.ev.kind === 'tool_use');
-  if (tool) return plainToolLabel(tool.ev, locale);
-  const commands = calls.filter(row => row.ev.kind === 'command_execution').length;
-  if (!commands) return '';
-  return zh(locale) ? `运行了 ${commands} 条命令` : `Ran ${commands} command${commands === 1 ? '' : 's'}`;
 }

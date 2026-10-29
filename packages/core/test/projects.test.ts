@@ -284,3 +284,23 @@ test('directory errors distinguish files, unavailable parents and real permissio
   assert.equal((await changed.json() as { code: string }).code, 'workdir_relative');
   assert.equal(store.load(created.sid).workdir, home);
 });
+
+test('project names stay complete through request naming, automatic naming, rename and trash restore', async t => {
+  const { store, create, send, get } = await setup(t);
+  const title = '完整项目名称 long word '.repeat(12) + '结尾';
+  const sid = await create();
+  await (await send('POST', `/api/projects/${sid}/message/stream`, { text: title, request_id: 'long-name' })).text();
+  const snapshot = () => get<Snapshot>(`/api/projects/${sid}/snapshot`);
+  assert.equal((await snapshot()).session.display_name, title);
+  const renamed = title + ' renamed';
+  assert.equal((await send('PATCH', `/api/projects/${sid}`, { name: renamed })).status, 200);
+  assert.equal(store.load(sid).name, renamed);
+  assert.equal((await snapshot()).session.display_name, renamed);
+  assert.equal((await get<{ projects: { id: string; display_name: string }[] }>('/api/projects')).projects.find(row => row.id === sid)!.display_name, renamed);
+  const { trash_path } = await (await send('DELETE', `/api/projects/${sid}`)).json() as { trash_path: string };
+  const entry = (await get<{ entries: { label: string; trashed_at: number }[] }>('/api/trash')).entries[0]!;
+  assert.equal(entry.label, renamed);
+  assert.ok(entry.trashed_at > 0);
+  assert.equal((await send('POST', `/api/trash/${basename(trash_path)}/restore`)).status, 200);
+  assert.equal((await snapshot()).session.display_name, renamed);
+});

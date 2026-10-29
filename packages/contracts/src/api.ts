@@ -1,4 +1,4 @@
-/** Metadata returned by the current Python WebAPI; protocol-compatible during migration. */
+/** Metadata returned by the Argus WebAPI. */
 export interface ApiRuntimeIdentity {
   /** Explicit application route owner; absent on the native Argus workbench. */
   application_routes?: string;
@@ -6,17 +6,10 @@ export interface ApiRuntimeIdentity {
   state_root?: string | null;
   package_version: string;
   source_root: string;
-  configured_source_root: string | null;
-  source_root_matches_config: boolean | null;
-  revision: string | null;
   pid: number;
-  python_version: string;
   executable: string;
   started_at: string;
   release_id: string;
-  manifest_source_digest: string | null;
-  runtime_source_digest: string | null;
-  release_matches_source: boolean | null;
 }
 
 export interface ApiMeta {

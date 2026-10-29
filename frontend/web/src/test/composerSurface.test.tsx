@@ -4,7 +4,6 @@ import { act, create } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerSurface } from '../components/ComposerSurface';
 import { ChatBox } from '../components/ChatBox';
-import { MapComposer } from '../map/MapComposer';
 import { referenceText } from '../map/presentation';
 
 const mainProps = {
@@ -14,21 +13,15 @@ const mainProps = {
 };
 
 describe('shared conversation surface', () => {
-  it('keeps the shared attachment and send affordances in both composer layouts', () => {
-    const main = renderToStaticMarkup(createElement(ChatBox, mainProps));
-    const map = renderToStaticMarkup(createElement(MapComposer, {
-      ...mainProps, onSend: async () => false, focusSignal: 0, zh: true,
-    }));
-    for (const html of [main, map]) {
-      expect(html).toMatch(/class="[^"]*\bmap-composer\b/);
-      expect(html).toContain('type="file"');
-      expect(html).toContain('aria-label="attach files"');
-      expect(html).toContain('<textarea');
-      expect(html).toContain('class="map-send');
-      expect(html).not.toContain('📎');
-    }
-    expect(main).toContain('lucide-paperclip');
-    expect(map).toContain('lucide-paperclip');
+  it('keeps attachments and send in the main composer', () => {
+    const html = renderToStaticMarkup(createElement(ChatBox, mainProps));
+    expect(html).toMatch(/class="[^"]*\bmap-composer\b/);
+    expect(html).toContain('type="file"');
+    expect(html).toContain('aria-label="attach files"');
+    expect(html).toContain('<textarea');
+    expect(html).toContain('class="map-send');
+    expect(html).not.toContain('📎');
+    expect(html).toContain('lucide-paperclip');
   });
 
   it('preserves IME composition and Shift+Enter, and sends once on normal Enter', () => {

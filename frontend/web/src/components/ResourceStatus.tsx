@@ -44,7 +44,7 @@ export function ResourceStatusView({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-ink">{acceleratorLabel(accelerator.kind, t)}</span>
                   <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${probeTone[accelerator.status]}`}>
-                    {statusLabel(accelerator.status, t)} · {accelerator.kind === 'cpu' ? (zh ? `${accelerator.device_count} 核` : `${accelerator.device_count} cores`) : t('resource.devices', { count: accelerator.device_count })}
+                    {statusLabel(accelerator.status, t)} · {accelerator.kind === 'cpu' ? (zh ? `${accelerator.device_count} 核` : `${accelerator.device_count} cores`) : (!zh && accelerator.device_count === 1 ? '1 GPU' : t('resource.devices', { count: accelerator.device_count }))}
                   </span>
                 </div>
                 {accelerator.kind === 'cpu' && accelerator.load_average !== undefined
@@ -59,8 +59,9 @@ export function ResourceStatusView({
           <div className="gpu-device-grid">
             {status.accelerators.flatMap(accelerator => (accelerator.devices ?? []).map(device => {
               const state = device.utilization_percent > 0 ? 'computing' : device.used_memory_mib > 0 ? 'allocated' : 'quiet';
+              const memory = device.used_memory_mib < 1024 ? `${device.used_memory_mib} MiB` : `${(device.used_memory_mib / 1024).toFixed(1)} GiB`;
               const label = state === 'computing' ? zh ? '正在计算' : 'Computing'
-                : state === 'allocated' ? zh ? '计算负载 0% · 有显存占用' : '0% compute load · memory in use'
+                : state === 'allocated' ? zh ? `计算负载 0% · 已用 ${memory}` : `0% compute load · ${memory} used`
                 : zh ? '暂无活动' : 'No activity';
               const memoryPercent = device.total_memory_mib > 0 ? Math.min(100, device.used_memory_mib / device.total_memory_mib * 100) : 0;
               return <article key={`${accelerator.kind}:${device.index}`} className="gpu-device-card" data-gpu-state={state} aria-label={`GPU ${device.index} · ${device.name} · ${label}`}>
@@ -74,7 +75,7 @@ export function ResourceStatusView({
                   <div role="meter" aria-label={zh ? '计算负载' : 'Compute load'} aria-valuemin={0} aria-valuemax={100} aria-valuenow={device.utilization_percent}><i style={{ width: `${device.utilization_percent}%` }} /></div>
                 </div>
                 <div className="gpu-device-meter">
-                  <div><span>{zh ? '显存' : 'GPU memory'}</span><strong>{device.used_memory_mib < 1024 ? `${device.used_memory_mib} MiB` : `${(device.used_memory_mib / 1024).toFixed(1)} GiB`} / {(device.total_memory_mib / 1024).toFixed(1)} GiB</strong></div>
+                  <div><span>{zh ? '显存' : 'GPU memory'}</span><strong>{memory} / {(device.total_memory_mib / 1024).toFixed(1)} GiB</strong></div>
                   <div role="meter" aria-label={zh ? '显存占用' : 'GPU memory usage'} aria-valuemin={0} aria-valuemax={device.total_memory_mib || 1} aria-valuenow={device.used_memory_mib}><i style={{ width: `${memoryPercent}%` }} /></div>
                 </div>
               </article>;

@@ -44,22 +44,22 @@ export function classifyDiff(diff: string): DiffLine[] | null {
   return result;
 }
 
-export function ReadonlyDiffView({ diff, truncated = false }: { diff: string; truncated?: boolean }) {
+export function ReadonlyDiffView({ diff, truncated = false, title }: { diff: string; truncated?: boolean; title?: string }) {
   const { text } = useWorkbenchText();
   const lines = useMemo(() => classifyDiff(diff), [diff]);
   const [raw, setRaw] = useState(false);
   const colored = lines !== null && !raw;
   return <section className="readonly-diff" data-readonly-diff>
     <div className="readonly-diff__toolbar">
-      <strong>{text('当前工作区差异', 'Current workspace diff')}</strong>
+      <strong>{title ?? text('当前工作区差异', 'Current workspace diff')}</strong>
       {lines && <button type="button" aria-pressed={raw} onClick={() => setRaw(value => !value)}>
         {raw ? text('着色视图', 'Highlighted view') : text('原始文本', 'Original text')}
       </button>}
       {diff && <CopyButton text={diff} label={text('复制原始差异', 'Copy original diff')} copiedLabel={text('已复制', 'Copied')} />}
     </div>
     {truncated && <p role="status" className="readonly-diff__notice">{text('后端返回的差异已截断，当前内容不完整。', 'The backend truncated this diff; the displayed content is incomplete.')}</p>}
-    {!diff && <p className="readonly-diff__hint">{text('没有工作区差异。', 'No workspace diff.')}</p>}
-    <pre className="readonly-diff__text" tabIndex={0} aria-label={text('工作区差异文本', 'Workspace diff text')} data-diff-mode={colored ? 'highlighted' : 'raw'}>
+    {!diff && <p className="readonly-diff__hint">{text('没有差异。', 'No differences.')}</p>}
+    <pre className="readonly-diff__text" tabIndex={0} aria-label={title ?? text('工作区差异文本', 'Workspace diff text')} data-diff-mode={colored ? 'highlighted' : 'raw'}>
       {colored ? lines.map((line, index) => <span key={index} data-diff-kind={line.kind} className={`readonly-diff__line--${line.kind}`}>{line.text}</span>) : diff}
     </pre>
   </section>;

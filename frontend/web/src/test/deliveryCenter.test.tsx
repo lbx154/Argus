@@ -57,13 +57,14 @@ it('finds the previous version of a redelivered file', async () => {
   expect(previousDeliveryVersion({ ...v2, snapshots: snap('b', false) }, [v2, v1], 'report.md')).toBeNull();
 });
 
-it('shows a delivery count only after the first delivery of a file', async () => {
+it('uses recorded delivery counts, including the first, without inventing missing counts', async () => {
   const { deliveryNumberLabel } = await import('../components/deliveryPresentation');
   const file = receipt('one').primary_target!;
-  for (const number of [undefined, 0, 1]) {
+  for (const number of [undefined, 0]) {
     expect(deliveryNumberLabel({ ...file, delivery_number: number }, true)).toBe('');
     expect(deliveryNumberLabel({ ...file, delivery_number: number }, false)).toBe('');
   }
+  expect(deliveryNumberLabel({ ...file, delivery_number: 1 }, true)).toBe('第 1 次交付');
   expect(deliveryNumberLabel({ ...file, delivery_number: 2 }, true)).toBe('第 2 次交付');
   expect(deliveryNumberLabel({ ...file, delivery_number: 2 }, false)).toBe('Delivery 2');
 });

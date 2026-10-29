@@ -16,6 +16,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+from ..webapi.protocol import API_SERVICE
 from .models import DoctorFinding, DoctorReport
 
 
@@ -108,7 +109,7 @@ def _probe_web(host: str, port: int) -> tuple[str, dict[str, Any]]:
         request = Request(f"http://{host}:{port}/api/meta")
         with urlopen(request, timeout=1.5) as response:  # noqa: S310 - loopback/operator target
             payload = json.load(response)
-        if payload.get("service") == "argus-skill-webapi":
+        if payload.get("service") == API_SERVICE:
             return "compatible", payload
         return "foreign_http", payload if isinstance(payload, dict) else {}
     except HTTPError as exc:

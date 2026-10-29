@@ -86,7 +86,7 @@ function search(store: Store, query: string) {
       }
       // The Manager's letters are the conversation's replies; the others' open the project.
       for (const event of events) {
-        if (event.type === 'handoff' && event.role !== 'manager') match(event.letter, 'project', { role: event.role, ts: Date.parse(event.ts) / 1000 });
+        if (event.type === 'handoff' && event.role !== 'manager') match(event.letter, 'project', { role: event.role, ts: Date.parse(event.ts) / 1000, task_id: event.task });
       }
     } catch (error) {
       errors.push(`${project.id}: ${error instanceof Error ? error.message : String(error)}`);

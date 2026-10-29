@@ -35,7 +35,6 @@ function chromeRect(el: HTMLElement, selector: string) {
 function viewingArea(el: HTMLElement, detailed = false) {
   const bounds = el.getBoundingClientRect();
   const toolbar = chromeRect(el, ".map-canvas-toolbar");
-  const composer = chromeRect(el, ".map-composer-dock");
   const minimap = chromeRect(el, ".react-flow__minimap");
   const legend = chromeRect(el, ".map-legend");
   const controls = chromeRect(el, ".react-flow__controls");
@@ -48,10 +47,9 @@ function viewingArea(el: HTMLElement, detailed = false) {
     !hideChrome && el.clientWidth < 640 && controls ? controls.bottom - bounds.top + 16 : 0,
   );
   const bottom = Math.max(
-    mobileDetail ? 20 : composer ? bounds.bottom - composer.top + 24 : 100,
+    mobileDetail ? 20 : 100,
     !hideChrome && minimap ? bounds.bottom - minimap.top + 20 : 0,
-    // On a wide screen the legend sits along the bottom edge, beside the
-    // composer; cards fitted under it would be covered.
+    // Cards fitted under the bottom legend would be covered.
     !hideChrome && el.clientWidth >= 640 && legend ? bounds.bottom - legend.top + 16 : 0,
   );
   return {
@@ -63,9 +61,9 @@ function viewingArea(el: HTMLElement, detailed = false) {
 }
 
 // A focused card's short side targets FOCUS_FILL of the canvas's short side so
-// submap text is readable without a manual zoom, no matter how much of the
-// area the composer eats; FOCUS_FILL_MAX stops oversized fills when chrome is
-// thin. Screen pixels of card context kept visible above an open step reader.
+// submap text is readable without a manual zoom; FOCUS_FILL_MAX stops
+// oversized fills when chrome is thin. Screen pixels of card context kept
+// visible above an open step reader.
 export const FOCUS_FILL = 0.72;
 export const FOCUS_FILL_MAX = 0.85;
 export const READER_HEADROOM = 48;
@@ -171,7 +169,6 @@ export function readerViewport(
 /** Camera/opacity updates never update node dimensions or edge geometry. */
 export function useSemanticCamera(
   root: RefObject<HTMLDivElement>,
-  composerVisible = true,
 ) {
   const flow = useReactFlow<MacroNode>();
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -455,26 +452,20 @@ export function useSemanticCamera(
     const el = root.current;
     if (!el) return;
     let timer: ReturnType<typeof setTimeout>;
-    const dock = el.querySelector(".map-composer-dock");
     let width = -1,
-      height = -1,
-      dockHeight = -1;
+      height = -1;
     const observer = new ResizeObserver(() => {
       // A hidden map (a phone showing another tab) has no view to fit: it
       // keeps the one it had, which fits again when it shows. Zooming a
       // canvas of no size, d3 passes through NaN.
       if (!el.clientWidth || !el.clientHeight) return;
-      const nextDockHeight = dock?.getBoundingClientRect().height || 0;
       if (
         width === el.clientWidth &&
-        height === el.clientHeight &&
-        dockHeight === nextDockHeight
+        height === el.clientHeight
       )
         return;
       width = el.clientWidth;
       height = el.clientHeight;
-      dockHeight = nextDockHeight;
-      el.style.setProperty("--map-composer-height", `${dockHeight}px`);
       setCanvasSize((previous) =>
         previous.width === width && previous.height === height
           ? previous
@@ -493,12 +484,11 @@ export function useSemanticCamera(
       }, 100);
     });
     observer.observe(el);
-    if (dock) observer.observe(dock);
     return () => {
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [root, composerVisible]);
+  }, [root]);
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
     const changed = () => setReducedMotion(query.matches);

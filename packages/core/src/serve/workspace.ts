@@ -53,6 +53,11 @@ export function workspace(project: (id: string) => Project): [string, RegExp, Ha
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, how === 'download'));
     }],
     ['GET', /^\/api\/v2\/workspace\/git$/, ({ url }) => git(named(url).workdir)],
+    ['GET', /^\/api\/v2\/workspace\/git\/commit$/, ({ url }) => {
+      const commit = url.searchParams.get('commit') ?? '';
+      if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(commit)) throw new HttpError(400, 'invalid commit');
+      return commitDiff(named(url).workdir, commit);
+    }],
   ];
 }
 
@@ -82,28 +87,42 @@ function tree(root: string) {
   return { root, entries, truncated: entries.length >= ENTRIES };
 }
 
-/** What git says of the workdir, read without changing anything; a workdir that is not a
- * repository of its own has nothing to say. */
+/** Git run in the workdir, read without changing anything: output past the limit is shown up to
+ * it; a command that failed says nothing. */
+const reader = (root: string) => async (...args: string[]): Promise<string> => {
+  try {
+    return (await run('git', [...SAFE_GIT, ...args], { cwd: root, env: GIT_ENV, maxBuffer: GIT_BYTES, timeout: 10_000 })).stdout;
+  } catch (error) {
+    const { code, stdout } = error as { code?: unknown; stdout?: string };
+    return code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `${stdout}${CUT}` : '';
+  }
+};
+
+/** Every filter the config defines runs nothing: an attribute naming one may be in .git/info/attributes. */
+async function filtersOff(read: ReturnType<typeof reader>): Promise<string[]> {
+  const filters = new Set([...(await read('config', '--name-only', '--get-regexp', '^filter\\.')).matchAll(/^filter\.(.+)\.[\w-]+$/gm)]
+    .map(([, name]) => name!));
+  return [...filters].flatMap(name => [...['clean', 'smudge', 'process'].map(key => `filter.${name}.${key}=`), `filter.${name}.required=false`])
+    .flatMap(setting => ['-c', setting]);
+}
+
+/** One commit's changes against its first parent. */
+async function commitDiff(root: string, commit: string) {
+  const read = reader(root);
+  const diff = await read(...await filtersOff(read), 'show', '--format=', '--diff-merges=first-parent', '--no-ext-diff', '--no-textconv',
+    '--ignore-submodules', '--unified=2', `${commit}^{commit}`, '--');
+  return { diff, truncated: diff.includes(CUT) };
+}
+
+/** What git says of the workdir; a workdir that is not a repository of its own has nothing to say. */
 async function git(root: string) {
-  const read = async (...args: string[]): Promise<string> => {
-    try {
-      return (await run('git', [...SAFE_GIT, ...args], { cwd: root, env: GIT_ENV, maxBuffer: GIT_BYTES, timeout: 10_000 })).stdout;
-    } catch (error) {
-      // Output past the limit is shown up to it; a command that failed says nothing.
-      const { code, stdout } = error as { code?: unknown; stdout?: string };
-      return code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' ? `${stdout}${CUT}` : '';
-    }
-  };
+  const read = reader(root);
   const [name, email] = await Promise.all([read('config', 'user.name'), read('config', 'user.email')]);
   const identity = { name: name.trim(), email: email.trim(), valid: Boolean(name.trim() && email.trim()) };
   if (!existsSync(join(root, '.git'))) {
     return { available: false, branch: '', status: '', diff: '', log: '', remotes: [], upstream: '', ahead: 0, behind: 0, identity };
   }
-  // Every filter the config defines runs nothing: an attribute naming one may be in .git/info/attributes.
-  const filters = new Set([...(await read('config', '--name-only', '--get-regexp', '^filter\\.')).matchAll(/^filter\.(.+)\.[\w-]+$/gm)]
-    .map(([, name]) => name!));
-  const off = [...filters].flatMap(name => [...['clean', 'smudge', 'process'].map(key => `filter.${name}.${key}=`), `filter.${name}.required=false`])
-    .flatMap(setting => ['-c', setting]);
+  const off = await filtersOff(read);
   const [status, staged, unstaged, log, remote] = await Promise.all([
     read(...off, 'status', '--short', '--branch', '--ignore-submodules'),
     read(...off, 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--ignore-submodules', '--unified=2'),

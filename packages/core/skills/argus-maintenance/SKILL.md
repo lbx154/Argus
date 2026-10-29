@@ -58,5 +58,5 @@ reviewer, whose workspace is read-only, type-checks with
 The requested behaviour is shown at a real entry point (the web cockpit, served by the build's
 `argus`), not only in unit tests, and `npm run check` passes at the repository root. A change to
 what the package ships is also installed from its pack by `packages/core/scripts/check-pack.sh`,
-which needs Docker; CI runs the tests and that install on Linux, macOS and Windows on every push to
-a `feat/ts-core*` branch.
+which needs Docker, missing from a role's sandbox: the operator runs it when merging, and CI runs
+the tests and that install on Linux, macOS and Windows on every push to a `feat/ts-core*` branch.

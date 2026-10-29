@@ -446,7 +446,9 @@ describe('EventStream role grouping', () => {
       showReasoning: true,
     }));
 
-    expect(html).toContain('active planner detail sentinel');
+    expect(html).not.toContain('active planner detail sentinel');
+    expect(html).not.toContain('manager latest summary');
+    expect(html).not.toContain('data-role-headline');
     expect(html).not.toContain('collapsed manager history sentinel');
     expect(html).not.toContain('collapsed system detail sentinel');
   });

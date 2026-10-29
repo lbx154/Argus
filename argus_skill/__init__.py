@@ -14,8 +14,8 @@ is never a second copy of a module-level singleton. ``sys.modules["argus_skill"]
 is ``argus`` itself.
 
 Persisted names are not part of this rename and keep their spelling:
-``ARGUS_SKILL_*`` environment variables and knobs, ``~/.argus-skill``, the
-``argus-skill-webapi`` wire id, and the other on-disk markers listed in the
+``ARGUS_SKILL_*`` environment variables and knobs, ``~/.argus-skill``, and
+the other on-disk markers listed in the
 README's "Renamed: argus-skill -> argus" section.
 """
 from __future__ import annotations

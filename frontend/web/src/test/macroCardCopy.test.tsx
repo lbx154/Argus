@@ -37,6 +37,7 @@ const propsFor = (
 ): NodeProps<MacroNode> =>
   ({
     id: "parent-card",
+    type: "task", zIndex: 0, draggable: false, selected: false, dragging: false, selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0,
     data: {
       id: "parent-card",
       task,
@@ -52,12 +53,7 @@ const propsFor = (
       zh: false,
       focused: true,
       detailed: false,
-
-      source: "live:project",
-      readOnly: false,
       open: vi.fn(),
-      quote: vi.fn(),
-      menu: vi.fn(),
       readStep: vi.fn(),
       ...patch,
     },
@@ -81,19 +77,19 @@ afterEach(() => {
 });
 
 describe("macro card copy", () => {
-  it("shows an explicitly cancelled solo run as cancelled", () => {
+  it("shows an explicitly cancelled task as ended", () => {
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([], {
       task: { ...task, status: "cancelled" }, live: false,
     })} />);
-    expect(markup).toContain("Cancelled");
+    expect(markup).toContain("Ended");
     expect(markup).not.toContain("Unknown status");
     expect(markup).not.toContain('class="macro-state">Paused');
   });
-  it("shows a blocked task as paused", () => {
+  it("shows a blocked task without a pending question as stopped", () => {
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([], {
       task: { ...task, status: "blocked" }, live: false,
     })} />);
-    expect(markup).toContain("Paused");
+    expect(markup).toContain("Stopped");
   });
   it("says under the title only who holds the task and what was last said, not its objective or a step's summary", () => {
     const completed = { ...task, status: "done", objective: "Build a reusable date workflow",

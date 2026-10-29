@@ -85,6 +85,14 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   git('symbolic-ref', 'HEAD', 'refs/heads/main');
   git('add', 'src/main.py');
   git('commit', '-q', '-m', 'First script');
+  const first = git('rev-parse', 'HEAD').toString().trim();
+  const firstDiff = await get<{ diff: string; truncated: boolean }>(W('git/commit', { commit: first }));
+  assert.match(firstDiff.diff, /^\+print\(1\)$/m);
+  assert.equal(firstDiff.truncated, false);
+  await writeFile(join(project.workdir, 'src/main.py'), 'print(3)\n');
+  git('add', 'src/main.py');
+  git('commit', '-q', '-m', 'Third print');
+  const second = git('rev-parse', 'HEAD').toString().trim();
   await writeFile(join(project.workdir, 'src/main.py'), 'print(2)\n');
   const status = await get<{ available: boolean; branch: string; status: string; diff: string; log: string }>(W('git'));
   assert.equal(status.available, true);
@@ -92,6 +100,13 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   assert.match(status.status, /^ M src\/main\.py$/m);
   assert.match(status.diff, /^\+print\(2\)$/m);
   assert.match(status.log, /\tAda\tFirst script$/);
+  const secondDiff = await get<{ diff: string }>(W('git/commit', { commit: second }));
+  assert.match(secondDiff.diff, /^-print\(1\)$/m);
+  assert.match(secondDiff.diff, /^\+print\(3\)$/m);
+  assert.doesNotMatch(secondDiff.diff, /^\+print\(2\)$/m);
+  assert.equal((await call(W('git/commit', { commit: '--output=/tmp/not-allowed' }))).status, 400);
+  assert.equal((await get<{ diff: string }>(W('git/commit', { commit: 'a'.repeat(40) }))).diff, '');
+  assert.equal((await call(`/api/v2/workspace/git/commit?sid=${sid}&workspace_id=project:p-0&commit=${first}`)).status, 404);
   // A program the repository's config or attributes name, which a role may write, never runs.
   const ran = join(project.workdir, '..', 'ran');
   await writeFile(join(project.workdir, '..', 'program.sh'), `#!/bin/sh\ntouch ${ran}\ncat\n`);
@@ -105,6 +120,7 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   const shown = await get<{ status: string; diff: string }>(W('git'));
   assert.match(shown.status, /src\/main\.py/);
   assert.match(shown.diff, /^\+print\(2\)$/m);
+  await get(W('git/commit', { commit: first }));
   assert.equal(existsSync(ran), false);
   // A diff past the limit is shown up to it, and says so.
   await writeFile(join(project.workdir, 'big.txt'), 'x'.repeat(1.5 * (1 << 20)));
@@ -357,6 +373,7 @@ test('a task in full and a search of every project\'s record', async t => {
     [id, 'project', 'engineer', 'chart.png drawn from sales.csv'],
   ]);
   assert.equal(results[0]!.message_id, 'm0-operator');
+  assert.equal(results[2]!.task_id, 't1');
   // A project is named as the project list names it; a match is quoted with the table it is in, whole.
   assert.equal(results[0]!.title, 'Sales chart');
   assert.equal((await get<{ results: { snippet: string }[] }>('/api/search?q=north')).results[0]!.snippet,

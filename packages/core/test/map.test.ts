@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { Store, type Task } from '../src/store.js';
-import { progressMap, type Recorded } from '../src/serve/views.js';
+import { conversationRows, progressMap, readRecord, type Recorded } from '../src/serve/views.js';
 
 const task: Task = { id: 't1', title: 'Read the map incrementally', from: 'manager', objective: 'Read the map incrementally', status: 'open', holder: 'engineer', note: null };
 const record = Buffer.from([
@@ -67,11 +67,44 @@ test('map polling reads only appended bytes while task state and each reader’s
   assert.equal(done.tasks[0]!.status, 'done');
   assert.deepEqual(done.tasks[0]!.result_paths, ['report.md']);
   assert.equal(done.tasks[0]!.finished_ts, Date.parse(ts) / 1000);
+  fs.appendFileSync(path, JSON.stringify({ ts, type: 'message', from: 'operator', to: 'reviewer', task: 't1', text: '可以交付。' }) + '\n');
+  const answered = progressMap(store, project, Number(done.cursor));
+  assert.equal(answered.tasks.length, 1);
+  assert.deepEqual(answered.events.map(letter => [letter.item_id, letter.role, letter.to, letter.text]), [['t1', 'operator', 'reviewer', '可以交付。']]);
 });
 
 // Real records, which the page's replay test reads too.
 const records = new Store(fileURLToPath(new URL('../../../frontend/web/src/test/fixtures/home', import.meta.url)));
 const at = (iso: string) => Date.parse(iso) / 1000;
+
+test('answering a recorded task question keeps its earlier progress until the asker reports again', t => {
+  const added = JSON.parse(fs.readFileSync(new URL('./fixtures/operator-task/events.jsonl', import.meta.url), 'utf8')) as Extract<Recorded, { type: 'task.added' }>;
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-answered-progress-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+  project.tasks = [added.task];
+  project.status = 'stopped';
+  const question = '请问输出用中文还是英文？';
+  project.questions = [{ role: 'engineer', task: added.task.id, question }];
+  const ts = '2026-10-29T12:21:00.000Z';
+  const path = join(store.dir(project.id), 'events.jsonl');
+  fs.writeFileSync(path, [added,
+    { type: 'step', role: 'engineer', task: added.task.id, kind: 'message', text: '正在检查已有脚本。', ts },
+    { type: 'handoff', role: 'engineer', task: added.task.id, to: 'operator', letter: question, ts },
+  ].map(event => JSON.stringify(event)).join('\n') + '\n');
+  const progress = () => ({
+    map: progressMap(store, project, 0).tasks[0]?.latest_action?.text,
+    row: conversationRows(readRecord(store, project.id), project, { since: null, calls: [], requests: [] })
+      .find(row => row.type === 'ui.task')?.progress,
+  });
+  assert.deepEqual(progress(), { map: undefined, row: '' });
+  project.questions = [];
+  fs.appendFileSync(path, JSON.stringify({ type: 'message', from: 'operator', to: 'engineer', task: added.task.id, text: '请用中文。', ts }) + '\n');
+  assert.deepEqual(progress(), { map: '正在检查已有脚本。', row: '正在检查已有脚本。' });
+  fs.appendFileSync(path, JSON.stringify({ type: 'step', role: 'engineer', task: added.task.id, kind: 'message', text: '已开始按中文输出修改。', ts }) + '\n');
+  assert.deepEqual(progress(), { map: '已开始按中文输出修改。', row: '已开始按中文输出修改。' });
+});
 
 test('each message the Manager takes up is a question and its answer on the map, answered by its letter with the files it hands over', () => {
   const project = records.load('p-0444b8d3');
@@ -179,10 +212,40 @@ test('a message is on the map while it is answered, and after only if its answer
   assert.deepEqual(cards('working'), [...done, ['q15', 'in_progress', [], []]]);
   write([{ type: 'handoff', role: 'manager', to: 'operator', letter: 'Here it is.', open: ['chart.png'], answers: 'r15' }]);
   assert.deepEqual(cards('working').at(-1), ['q15', 'done', [], ['chart.png']]);
-  // A reply alone stays till the next message, to be read on the map.
+  // A later reply alone stays till the next message, to be read on the map.
   write([{ type: 'message', from: 'operator', text: 'Thanks!', request_id: 'r20' }, manager('r20'),
     { type: 'handoff', role: 'manager', to: 'operator', letter: 'You are welcome.', answers: 'r20' }]);
   assert.deepEqual(cards('working').slice(-2).map(card => card.slice(0, 2)), [['q15', 'done'], ['q20', 'done']]);
   write([{ type: 'message', from: 'operator', text: 'One more thing.', request_id: 'r23' }]);
   assert.deepEqual(cards('working').slice(-2).map(card => card.slice(0, 2)), [['q15', 'done'], ['q23', 'in_progress']]);
+});
+
+test('the original request survives Manager clarification, with the answer and resulting task in the same exchange', t => {
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-map-clarification-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const record = fs.readFileSync(new URL('./fixtures/map-clarification/events.jsonl', import.meta.url), 'utf8');
+  const events = record.trim().split('\n').map(line => JSON.parse(line) as Recorded);
+  const original = events[0]!;
+  const answer = events[4]!;
+  const added = events.find(event => event.type === 'task.added');
+  assert.ok(original.type === 'message' && answer.type === 'message' && added?.type === 'task.added');
+  const project = store.create({ request: original.text, workdir: '', backend: 'codex', model: null });
+  const path = join(store.dir(project.id), 'events.jsonl');
+  fs.writeFileSync(path, events.slice(0, 4).map(event => JSON.stringify(event)).join('\n') + '\n');
+  const before = progressMap(store, project, 0);
+  assert.deepEqual(before.tasks.map(card => card.objective), [project.request]);
+  // Poll after the clarification arrives: the existing card id and objective survive.
+  fs.appendFileSync(path, events.slice(4).map(event => JSON.stringify(event)).join('\n') + '\n');
+  project.tasks = [{ ...added.task, status: 'closed' }];
+  const after = progressMap(store, project, Number(before.cursor));
+  assert.deepEqual(after.tasks.map(card => [card.id, card.objective, card.deps]), [
+    ['q0', original.text, []], ['t1', added.task.objective, ['q0']],
+  ]);
+  assert.ok(after.events.some(letter => letter.item_id === 'q0' && letter.type === 'turn.asked' && letter.text === answer.text));
+  assert.ok(after.events.some(letter => letter.item_id === 'q0' && letter.type === 'turn.replied' && letter.to === 'engineer'));
+  assert.ok(!after.tasks.some(card => card.objective === answer.text));
+  assert.equal(new Set(after.tasks.map(card => card.id)).size, after.tasks.length);
+  assert.deepEqual(progressMap(store, { ...project, status: 'stopped' }, 0).tasks[0]!.objective, project.request);
+  assert.deepEqual(progressMap(store, { ...project, status: 'failed' }, 0).tasks[0]!.objective, project.request);
 });

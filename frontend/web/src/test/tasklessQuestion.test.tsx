@@ -20,7 +20,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('keeps a Planner question taskless from the server snapshot through the banner and delivery notice', async () => {
+it('keeps a Planner question taskless from the server snapshot through the banner and answer endpoint', async () => {
   home = mkdtempSync(join(tmpdir(), 'argus-taskless-question-'));
   const store = new Store(home);
   const project = store.create({ workdir: home, request: '确认研究范围', backend: 'codex', model: null });
@@ -41,9 +41,7 @@ it('keeps a Planner question taskless from the server snapshot through the banne
   function QuestionPath({ snap }: { snap: Snapshot }) {
     session = usePendingReplySession({ activeSid: snap.session.id, pendingQuestions: snap.pending_questions,
       backlog: snap.backlog, notify, refetchSnapshot: async () => {} });
-    return session.pendingReply ? <PendingBanner reply={session.pendingReply} busy={session.pendingReplyBusy}
-      error={session.pendingReplyError} note={session.pendingReplyNote} onNoteChange={session.setPendingReplyNote}
-      onSubmit={session.answerPendingReply} /> : null;
+    return session.pendingReply ? <PendingBanner reply={session.pendingReply} /> : null;
   }
   act(() => { renderer = create(<QuestionPath snap={snap} />); });
   expect(session.pendingReply.item_id).toBe('');
@@ -53,9 +51,7 @@ it('keeps a Planner question taskless from the server snapshot through the banne
   expect(words()).toContain(`规划者问：${question}`);
   expect(words()).not.toContain('The Planner asks');
   expect(words()).not.toContain('Argus');
-  act(() => renderer!.root.findByType('button').props.onClick());
-  act(() => renderer!.root.findByType('textarea').props.onChange({ target: { value: '只研究已有数据。' } }));
-  await act(async () => renderer!.root.findByType('form').props.onSubmit({ preventDefault: () => {} }));
+  await act(async () => { expect(await session.answerPendingReply('只研究已有数据。')).toBe(true); });
   expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith(project.id, 'planner', 'custom', '只研究已有数据。');
-  expect(notify).toHaveBeenCalledExactlyOnceWith('success', '答复已交给规划者。');
+  expect(notify).not.toHaveBeenCalled();
 });

@@ -76,9 +76,10 @@ const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
 
 test('a project is named once, by the first work the Manager hands on, not by a greeting before it', async t => {
+  const name = 'Build the CSV summary tool with complete words '.repeat(4).trim();
   const { flow, id } = await setup(t, [
     { role: 'manager', to: 'operator', letter: 'Hello! What shall we work on?' },
-    toEngineer,
+    { ...toEngineer, letter: name },
     { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
     { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
     report,
@@ -91,9 +92,9 @@ test('a project is named once, by the first work the Manager hands on, not by a 
   flow.edit(id, project => { project.request = ''; });
   const hello = await say(flow, id, 'Hello');
   assert.deepEqual([hello.request, hello.name], ['Hello', undefined]);
-  assert.equal((await say(flow, id, 'Make me a CSV summary tool')).name, 'Build the CSV summary tool.');
+  assert.equal((await say(flow, id, 'Make me a CSV summary tool')).name, name);
   const later = await say(flow, id, 'Also export a PDF');
-  assert.deepEqual([later.request, later.name], ['Hello', 'Build the CSV summary tool.']);
+  assert.deepEqual([later.request, later.name], ['Hello', name]);
 });
 
 test('a project with work from before names were kept keeps the name its request gives it', async t => {

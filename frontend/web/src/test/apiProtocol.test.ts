@@ -6,25 +6,16 @@ import {
 } from '../../../core/src/protocol';
 import { RELEASE_ID } from '../../../core/src/protocol';
 
-const SOURCE_SUMMARY = '2 files, 10 bytes';
-
 const currentMeta = {
-  service: 'argus-skill-webapi',
+  service: 'argus-webapi',
   protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
   snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
   capabilities: [...REQUIRED_API_CAPABILITIES],
   runtime: {
     package_version: RELEASE_ID.split('+')[0],
     release_id: RELEASE_ID,
-    manifest_source_digest: SOURCE_SUMMARY,
-    runtime_source_digest: SOURCE_SUMMARY,
-    release_matches_source: true,
     source_root: '/checkout/argus',
-    configured_source_root: '/checkout/argus',
-    source_root_matches_config: true,
-    revision: 'abc123',
     pid: 12,
-    python_version: '3.13.0',
     executable: '/venv/bin/python',
     started_at: '2026-07-11T00:00:00Z',
   },
@@ -794,47 +785,5 @@ describe('small attachment batch fast path', () => {
     await requests[1].reply({ attachments: [], limits });
     await incomplete;
     expect(onUploaded).not.toHaveBeenCalled();
-  });
-});
-
-describe('a page left open across a deployment', () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.stubGlobal('window', { location: { search: '' } });
-    vi.stubGlobal('localStorage', { getItem: () => null });
-  });
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('detects a newer snapshot after the cached handshake and stops old option parsing', async () => {
-    let updated = false;
-    const fetchMock = vi.fn(async (path: string) => Response.json(
-      path === '/api/meta' ? currentMeta : path.includes('/snapshot') ? currentSnapshot : { projects: [] },
-      { headers: { 'X-Argus-Release': updated ? 'next-release' : RELEASE_ID } },
-    ));
-    vi.stubGlobal('fetch', fetchMock);
-    const { api, LocalArgusUnavailableError } = await import('../api');
-    const { getPageUpdateAvailable, observePageRelease, PageUpdateRequiredError } = await import('../lib/pageUpdate');
-    await api.projectIndex();
-    updated = true;
-    const failure = await api.snapshot('s-one').catch(error => error);
-    expect(failure).toBeInstanceOf(PageUpdateRequiredError);
-    expect(failure).not.toBeInstanceOf(LocalArgusUnavailableError);
-    expect(getPageUpdateAvailable()).toBe(true);
-    observePageRelease(RELEASE_ID); // A delayed response from before deployment.
-    expect(getPageUpdateAvailable()).toBe(true);
-    expect(fetchMock.mock.calls.filter(([path]) => path === '/api/meta')).toHaveLength(1);
-    const calls = fetchMock.mock.calls.length;
-    await expect(api.resolveDecision('s-one', 'engineer-t1', 'custom', 'My answer')).rejects.toThrow(/Refresh/);
-    expect(fetchMock).toHaveBeenCalledTimes(calls);
-  });
-
-  it('delivers an already accepted mutation receipt while raising the update notice', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json(
-      { kind: 'task', reply: 'Accepted' }, { headers: { 'X-Argus-Release': 'next-release' } },
-    )));
-    const { api } = await import('../api');
-    const { getPageUpdateAvailable } = await import('../lib/pageUpdate');
-    expect(await api.resolveDecision('s-one', 'engineer-t1', 'custom', 'My answer')).toEqual({ kind: 'task', reply: 'Accepted' });
-    expect(getPageUpdateAvailable()).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import { ErrorMessage } from './ErrorMessage';
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { deliveryFiles, previousDeliveryVersion, deliveryNumberLabel, deliveryOptionLabel, deliveryFileUpdated } from './deliveryPresentation';
+import { deliveryFiles, previousDeliveryVersion, deliveryOptionLabel, deliveryFileUpdated } from './deliveryPresentation';
 import { DeliveryChanges } from './DeliveryChanges';
 import { PackageCheck, Maximize2, Minimize2 } from 'lucide-react';
 import './delivery.css';
@@ -54,7 +54,6 @@ export function ArtifactModal({
   /** What a link in the summary or a Markdown file may open here. */
   const linked = [...artifacts, ...files.map((file) => ({ path: file.path }))];
   const deliveryId = delivery?.delivery_id;
-  const selectedFile = files.find(file => file.path === path);
   const updated = Boolean(delivery && path && deliveryFileUpdated(delivery, deliveries, path));
   const artifactQ = useArtifact(sid, path, null, deliveryId);
   const info = artifactQ.data;
@@ -160,7 +159,7 @@ export function ArtifactModal({
         {/* With a file open the summary folds above it; with none it is the page. */}
         {delivery.summary && path && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><div className="delivery-summary-body"><MarkdownContent delivery={deliveryId} sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div></details>}
       </header>}
-      {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span><small>{deliveryNumberLabel(file, zh)}</small>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
+      {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
       {/* On a phone the file's tools wrap onto their own rows under its name. */}
       <div className={`flex shrink-0 flex-wrap items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
@@ -168,7 +167,7 @@ export function ArtifactModal({
             {info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">
-            {selectedFile && deliveryNumberLabel(selectedFile, zh)}{selectedFile?.delivery_number ? ' · ' : ''}{info ? formatBytes(info.size) : artifactQ.isError ? (zh ? '此交付文件不可用' : 'Delivered file unavailable') : zh ? '正在读取文件' : 'Loading file'}
+            {info ? formatBytes(info.size) : artifactQ.isError ? (zh ? '此交付文件不可用' : 'Delivered file unavailable') : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 max-sm:order-last max-sm:basis-full">

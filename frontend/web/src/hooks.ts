@@ -52,6 +52,7 @@ export function useProjects() {
           ...index, projects: [...index.projects.filter((project) => project.id !== id), ...row ? [row] : []],
         });
         if (snapshot) queryClient.setQueryData(['snapshot', id], snapshot);
+        if (!row) return;
       }
       // The roles learn in their turns, and a turn's end is a change.
       void queryClient.invalidateQueries({ queryKey: ['learning-status'] });
@@ -150,11 +151,13 @@ export function useProjectActions(sid: string | null) {
       mutationFn: () => api.deleteProject(sid!),
       onSuccess: async () => {
         const deletedSid = sid;
+        qc.setQueryData<ProjectIndex>(['projects'], current => current && ({
+          ...current, projects: current.projects.filter(project => project.id !== deletedSid),
+        }));
         if (deletedSid) {
           const belongsToDeletedProject = (query: { queryKey: readonly unknown[] }) =>
             query.queryKey.some((part) => part === deletedSid);
           await qc.cancelQueries({ predicate: belongsToDeletedProject });
-          qc.removeQueries({ predicate: belongsToDeletedProject });
         }
         await qc.invalidateQueries({ queryKey: ['projects'] });
       },

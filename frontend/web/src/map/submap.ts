@@ -373,6 +373,14 @@ export function buildSubmap(
       rows.push({ ...workSegmentStep(e, zh), episode });
       continue;
     }
+    if (e.type === "turn.asked") {
+      rows.push({
+        id: e.id, kind: "execution", title: zh ? "你补充的说明" : "Your clarification",
+        detail: e.text || noDetails(zh), status: "recorded", ts: e.ts,
+        source: "event", eventIds: [e.id],
+      });
+      continue;
+    }
     if (e.type === "turn.replied") {
       const answer = readableRecord(e.text);
       rows.push({

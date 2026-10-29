@@ -26,6 +26,7 @@ export async function startSessionFixture(options = {}) {
     ? resolve(dist, 'fixture-release.json') : resolve(checkout, 'argus/release_manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const protocol = await readFile(resolve(checkout, 'packages/contracts/src/apiProtocol.generated.ts'), 'utf8');
+  const service = JSON.parse(protocol.match(/API_SERVICE = ("[^"]+");/)[1]);
   const capabilities = [...protocol.split('REQUIRED_API_CAPABILITIES = [')[1].split('] as const')[0].matchAll(/"([^"]+)"/g)].map(match => match[1]);
   const schema = Number(protocol.match(/SNAPSHOT_SCHEMA_VERSION = (\d+)/)[1]);
   const minor = Number(protocol.match(/minServerMinor: (\d+)/)[1]);
@@ -90,11 +91,11 @@ export async function startSessionFixture(options = {}) {
       if (state.delays.has(`${sid}:${endpoint}`)) await state.delays.get(`${sid}:${endpoint}`);
       if (response.destroyed) return;
       if (url.pathname === '/api/meta') return json(response, {
-        service: 'argus-skill-webapi', protocol: { name: 'argus.webapi', major: 1, minor }, snapshot_schema_version: schema, capabilities,
+        service, protocol: { name: 'argus.webapi', major: 1, minor }, snapshot_schema_version: schema, capabilities,
         authentication: { required: true, authenticated: true },
-        runtime: { package_version: manifest.package_version, source_root: checkout, configured_source_root: checkout, source_root_matches_config: true,
-          revision: 'synthetic-fixture', pid: process.pid, python_version: 'not-used', executable: 'deterministic-node-fixture', started_at: '2026-09-17T00:00:00Z',
-          release_id: manifest.release_id, manifest_source_digest: null, runtime_source_digest: null, release_matches_source: null },
+        runtime: { package_version: manifest.package_version, source_root: checkout,
+          pid: process.pid, executable: 'deterministic-node-fixture', started_at: '2026-09-17T00:00:00Z',
+          release_id: manifest.release_id },
       });
       if (method === 'GET' && options.read) {
         const extra = await options.read({ url, state, root });

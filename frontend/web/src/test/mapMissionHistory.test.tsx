@@ -3,7 +3,7 @@ import { act, create } from "react-test-renderer";
 import type { NodeProps } from "@xyflow/react";
 import { buildMap, type MapEvent, type MapTask } from "../map/model";
 import { layoutScene } from "../map/submap";
-import { MacroTaskNode, type MacroNode } from "../map/MacroTaskNode";
+import { MacroTaskNode, MapArtifactContext, type MacroNode } from "../map/MacroTaskNode";
 
 vi.mock("@xyflow/react", async (original) => ({
   ...await original<typeof import("@xyflow/react")>(),
@@ -58,8 +58,8 @@ it("keeps history navigation in the details without an overview history control"
     selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0,
     data: { ...card, layout: scene.layouts[card.id], frame: scene.frames[card.id],
       canvasSize: { width: 1440, height: 960 },
-      zh: false, focused: false, detailed: false,  readOnly: false, source: "live:test",
-      open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn() },
+      zh: false, focused: false, detailed: false,
+      open: vi.fn(), readStep: vi.fn() },
   };
   let renderer: ReturnType<typeof create>;
   act(() => { renderer = create(<MacroTaskNode {...props} />); });
@@ -67,4 +67,24 @@ it("keeps history navigation in the details without an overview history control"
   expect(JSON.stringify(renderer!.toJSON())).not.toContain("Continued");
   expect(renderer!.root.findAllByProps({ className: "macro-detail " })).toHaveLength(0);
   act(() => renderer!.unmount());
+});
+
+it.each([
+  ['results/solo.md'],
+  ['results/first.html', 'results/说明.md'],
+])('names every delivered file button: %s', (...paths) => {
+  const delivered = { ...task, status: 'done', result_paths: paths };
+  const scene = layoutScene(buildMap([delivered]), [], false);
+  const card = scene.cards[0];
+  const opened = vi.fn();
+  let renderer!: ReturnType<typeof create>;
+  act(() => { renderer = create(<MapArtifactContext.Provider value={{ onOpenArtifact: opened }}><MacroTaskNode {...{
+    id: card.id, type: "task", zIndex: 0, draggable: false, selected: false, dragging: false, selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0, data: { ...card, layout: scene.layouts[card.id], frame: scene.frames[card.id],
+      canvasSize: { width: 1440, height: 960 }, zh: false, focused: false, detailed: false, open: vi.fn(), readStep: vi.fn() },
+  } as NodeProps<MacroNode>} /></MapArtifactContext.Provider>); });
+  const buttons = renderer.root.findByProps({ className: 'map-card-results nodrag nopan' }).findAllByType('button');
+  expect(buttons.map(button => button.children.join(''))).toEqual(paths.map(path => path.split('/').pop()));
+  act(() => buttons.forEach(button => button.props.onClick()));
+  expect(opened.mock.calls).toEqual(paths.map(path => [path]));
+  act(() => renderer.unmount());
 });

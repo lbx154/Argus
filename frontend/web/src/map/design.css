@@ -744,23 +744,7 @@
 .argus-map .macro-replaced summary { cursor: pointer; color: var(--map-accent-ink); width: max-content; }
 .argus-map .macro-replaced ul { margin: 4px 0 0; padding-left: 1.1em; list-style: disc; max-height: 7.5em; overflow: auto; }
 
-/* Requests that started no task yet wait by the composer, not on the canvas. */
-.argus-map .map-loose-requests {
-  position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); z-index: 6;
-  display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: min(560px, calc(100% - 32px));
-  pointer-events: none;
-}
-.argus-map .map-loose-requests > span {
-  pointer-events: auto; max-width: 100%; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px;
-  padding: 4px 12px 4px 10px; border-radius: 10px 10px 10px 3px; font-size: 12.5px; line-height: 1.4;
-  background: var(--map-paper); border: 1px solid var(--map-hairline); box-shadow: inset 2px 0 0 var(--map-accent);
-  color: rgb(var(--ink-dim)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.argus-map .map-loose-requests i {
-  flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--map-status-running);
-  animation: canvas-step-pulse 1.8s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) { .argus-map .map-loose-requests i { animation: none; } }
+
 
 /* The map's key: what each kind of card is. */
 .argus-map .map-legend-info { position: relative; display: inline-flex; }

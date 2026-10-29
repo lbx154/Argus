@@ -9,11 +9,9 @@ export function DaemonManageModal({
   sid,
   name,
   alive,
-  resumable,
   busy,
   onClose,
   onRename,
-  onStart,
   onDelete,
   snapshot,
 }: {
@@ -21,12 +19,9 @@ export function DaemonManageModal({
   sid: string;
   name: string;
   alive: boolean;
-  /** Nothing is under way, and Resume has work to take up. */
-  resumable: boolean;
   busy: boolean;
   onClose: () => void;
   onRename: (name: string) => Promise<boolean>;
-  onStart: () => Promise<boolean>;
   onDelete: () => Promise<boolean>;
   /** The project's current cost and call count. */
   snapshot?: Snapshot | null;
@@ -35,12 +30,10 @@ export function DaemonManageModal({
   const zh = locale === 'zh-CN';
   const spend = snapshot ? spendEstimateLabel({ spendUsd: typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : null, spendStatus: snapshot.spend_status }, zh) : '';
   const [draftName, setDraftName] = useState(name);
-  const [resumed, setResumed] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraftName(name);
-      setResumed(false);
     }
   }, [open, name, sid]);
 
@@ -68,7 +61,6 @@ export function DaemonManageModal({
             <input
               value={draftName}
               onChange={(event) => setDraftName(event.target.value)}
-              maxLength={80}
               disabled={busy}
               className="h-9 min-w-0 flex-1 rounded-md border border-field-line/70 bg-surface px-3 text-sm text-ink outline-none focus:border-accent disabled:opacity-50"
             />
@@ -82,24 +74,6 @@ export function DaemonManageModal({
           </div>
         </label>
       </form>
-
-      {resumable && !resumed ? <div className="border-b border-line px-6 py-5">
-        <div className="text-xs font-medium text-ink-faint">{t('manage.executor')}</div>
-        <div className="mt-2 flex items-center justify-between gap-4">
-          <div>
-            <div className="text-sm text-ink">{t('manage.paused')}</div>
-            <p className="mt-0.5 text-[11px] text-ink-faint">{t('manage.resumeHint')}</p>
-          </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void onStart().then(started => setResumed(started))}
-            className="rounded border border-ink bg-ink px-3 py-1.5 text-xs text-surface hover:bg-ink/85 disabled:cursor-wait disabled:opacity-50"
-          >
-            {busy ? t('manage.working') : t('manage.resume')}
-          </button>
-        </div>
-      </div> : null}
 
       <div className="px-6 py-5">
         <div className="text-xs font-medium text-err">{t('manage.deleteSession')}</div>

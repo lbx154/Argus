@@ -558,12 +558,6 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-@media (max-width: 640px) {
-  .map-canvas-wrap[data-detailed="true"] .map-composer-dock {
-    visibility: hidden;
-    pointer-events: none;
-  }
-}
 .macro-reader-markdown p {
   margin: 0 0 12px;
 }
@@ -590,198 +584,6 @@
   margin-top: 14px;
   color: rgb(var(--ink-faint) / 0.9);
   font-size: 12px;
-}
-.macro-reader footer button {
-  color: rgb(var(--blue));
-  background: rgb(var(--blue) / 0.1);
-  font-size: 12px;
-  font-weight: 550;
-  line-height: 1;
-  padding: 8px 12px;
-  border-radius: 8px;
-  transition: background 140ms ease;
-}
-.macro-reader footer button:hover,
-.macro-reader footer button:focus-visible {
-  background: rgb(var(--blue) / 0.16);
-}
-.map-composer-dock {
-  --composer-width: min(660px, calc(100% - 440px));
-  position: absolute;
-  z-index: 8;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: var(--composer-width);
-  transition: width 320ms cubic-bezier(0.22, 1.18, 0.3, 1);
-}
-.map-composer-dock[data-compact="true"] {
-  width: 210px;
-}
-.map-composer-dock[data-compact="true"] .map-send {
-  width: 0;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-@media (hover: hover) and (pointer: fine) {
-  .map-composer-dock[data-compact="true"]:hover {
-    width: var(--composer-width);
-  }
-  .map-composer-dock[data-compact="true"]:hover .map-send {
-    width: 33px;
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-.map-composer {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  border: 1px solid rgb(var(--line) / 0.8);
-  border-radius: 29px;
-  background: var(--map-paper);
-  padding: 14px 15px 14px 22px;
-  box-shadow:
-    0 9px 28px #233b5510,
-    0 2px 5px #233b5509;
-}
-.map-composer:focus-within {
-  border-color: #a0b8cb;
-  box-shadow: 0 10px 32px #233b5516;
-}
-.map-composer-brand {
-  color: rgb(var(--ink));
-  flex-shrink: 0;
-}
-.map-attach {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  transition: background 140ms ease;
-}
-.map-attach:hover,
-.map-attach:focus-visible {
-  background: rgb(var(--line) / 0.6);
-  outline: 2px solid #a3bccf;
-  outline-offset: 2px;
-}
-.map-attach:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.map-attachment-tray {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-height: 140px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 8px 9px;
-}
-.map-attachment-tray > div {
-  flex: 1 1 200px;
-  max-width: 100%;
-}
-.map-attachment-notice {
-  padding: 7px 12px;
-  margin-bottom: 6px;
-  border-radius: 10px;
-  background: var(--map-paper);
-  color: rgb(var(--err));
-  font-size: 12px;
-  max-height: 72px;
-  overflow-y: auto;
-}
-.map-composer textarea {
-  min-width: 0;
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: none;
-  font-size: 15px;
-  line-height: 28px;
-  color: rgb(var(--ink));
-  max-height: 132px;
-}
-.map-composer textarea::placeholder {
-  color: rgb(var(--ink-faint));
-}
-.map-send {
-  width: 33px;
-  height: 33px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: #2d536f;
-  color: white;
-  transition:
-    width 220ms ease,
-    opacity 150ms ease;
-}
-.map-send:disabled {
-  background: rgb(var(--line) / 0.7);
-  color: rgb(var(--ink-faint));
-}
-.map-composer-caption {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
-  text-align: center;
-  font-size: 11px;
-  color: rgb(var(--ink-faint));
-  min-height: 15px;
-  padding-top: 5px;
-}
-.map-reference-chips {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 0 16px 7px;
-}
-.map-reference-chips > span {
-  display: flex;
-  align-items: center;
-  max-width: 100%;
-  gap: 9px;
-  border: 1px solid #b9ccd9;
-  background: var(--map-paper);
-  color: #5d7e98;
-  padding: 5px 9px;
-  border-radius: 9px;
-  font-size: 11px;
-  box-shadow: 0 2px 5px #233b5508;
-}
-.map-reference-chips > span > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.map-context-menu {
-  position: fixed;
-  z-index: 50;
-  padding: 5px;
-  width: 156px;
-  border: 1px solid rgb(var(--line));
-  border-radius: 10px;
-  background: var(--map-paper);
-  box-shadow: 0 8px 28px #233b5522;
-}
-.map-context-menu button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border-radius: 6px;
-  padding: 8px 12px;
-  font-size: 13px;
-}
-.map-context-menu button:hover {
-  background: var(--map-canvas);
 }
 .map-legend {
   bottom: 70px;
@@ -838,50 +640,13 @@
     box-shadow: 0 5px 25px #497ea536;
   }
 }
-@media (max-width: 1100px) {
-  .map-composer-dock {
-    --composer-width: min(580px, calc(100% - 230px));
-    left: 42%;
-  }
-}
 @media (max-width: 640px) {
-  .map-composer-dock {
-    --composer-width: calc(100% - 26px);
-    left: 50%;
-    bottom: 6px;
-  }
-  .map-composer {
-    padding: 10px 12px;
-    gap: 10px;
-    border-radius: 24px;
-  }
-  .map-composer textarea {
-    font-size: 14px;
-  }
-  /* Pinch zooms the map and the toolbar fits it; the small zoom buttons
-   * would only crowd the composer on a phone. */
+  /* The toolbar and pinch gesture provide the phone's zoom controls. */
   .argus-map .react-flow__controls {
     display: none;
   }
-  .map-reference-chips {
-    max-height: 65px;
-    overflow-y: auto;
-  }
-  .map-attachment-tray {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    max-height: 100px;
-  }
-  .map-attachment-tray > div {
-    flex: 0 0 240px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .map-composer-dock,
-  .map-send {
-    transition: none;
-  }
   .macro-detail,
   .macro-reader,
   .submap-step,

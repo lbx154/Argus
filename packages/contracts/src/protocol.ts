@@ -2,24 +2,14 @@ import type { Snapshot } from './models.js';
 import type { ApiMeta } from './api.js';
 import { API_SERVICE, API_PROTOCOL, SNAPSHOT_SCHEMA_VERSION, REQUIRED_API_CAPABILITIES } from './apiProtocol.generated.js';
 
-/** The Python source has moved on since the release manifest and bundles were
- * built. The interface being served still matches the API (release ids are
- * checked below), so this is a note for whoever publishes the checkout, not
- * something a reader of the page can act on. */
-export const RELEASE_ARTIFACT_DRIFT_WARNING =
-  'the Argus source checkout has changed since its release bundle was built; '
-  + 'before publishing, rebuild it with "python -m argus.release_tools.build_release" or reinstall Argus';
-
 export interface ApiCompatibility {
   compatible: boolean;
   reason: string;
-  warning?: string;
   meta?: ApiMeta;
 }
 
 export interface ApiRuntimeExpectation {
   releaseId: string;
-  sourceDigest?: string;
 }
 
 type JsonObject = Record<string, unknown>;
@@ -35,10 +25,7 @@ function number(value: unknown): number | null {
 }
 
 export function describeApiRuntime(meta: ApiMeta): string {
-  const mismatch = meta.runtime.source_root_matches_config === false
-    ? '; loaded code differs from the configured installation'
-    : '';
-  return `Argus backend is running (pid ${meta.runtime.pid})${mismatch}`;
+  return `Argus backend is running (pid ${meta.runtime.pid})`;
 }
 
 export function inspectApiMeta(
@@ -93,13 +80,6 @@ export function inspectApiMeta(
   if (missing.length > 0) {
     return { compatible: false, reason: `missing capabilities: ${missing.join(', ')}`, meta };
   }
-  if (runtime.source_root_matches_config === false) {
-    return {
-      compatible: false,
-      reason: 'backend is running from a different installation than configured',
-      meta,
-    };
-  }
   if (expected && runtime.release_id !== expected.releaseId) {
     return {
       compatible: false,
@@ -107,43 +87,17 @@ export function inspectApiMeta(
       meta,
     };
   }
-  if (expected?.sourceDigest) {
-    if (typeof runtime.runtime_source_digest !== 'string' || !runtime.runtime_source_digest) {
-      return {
-        compatible: false,
-        reason: 'backend cannot verify this local installation; restart it from the current checkout',
-        meta,
-      };
-    }
-    if (runtime.runtime_source_digest !== expected.sourceDigest) {
-      return {
-        compatible: false,
-        reason: 'backend is running code from a different local installation; restart it',
-        meta,
-      };
-    }
-  }
-  // A live source digest is a release-integrity signal, not a wire-contract
-  // version. Editable checkouts keep the last generated release_id while source
-  // changes, so drift cannot prove incompatibility. The versioned protocol,
-  // snapshot schema, and capabilities above remain the compatibility authority;
-  // keep drift visible so operators still know to rebuild before release.
-  const warning = runtime.release_matches_source === false
-    ? RELEASE_ARTIFACT_DRIFT_WARNING
-    : undefined;
-  return { compatible: true, reason: '', ...(warning ? { warning } : {}), meta };
+  return { compatible: true, reason: '', meta };
 }
 
 export function requireCompatibleApiMeta(
   value: unknown,
   expected?: ApiRuntimeExpectation,
-  onWarning?: (warning: string) => void,
 ): ApiMeta {
   const result = inspectApiMeta(value, expected);
   if (!result.compatible || !result.meta) {
     throw new Error(`incompatible Argus API: ${result.reason}`);
   }
-  if (result.warning) onWarning?.(result.warning);
   return result.meta;
 }
 

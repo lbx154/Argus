@@ -27,7 +27,7 @@ export function ChatBox({
 }: {
   value: string;
   onChange: (text: string) => void;
-  onSend: (text: string, attachments?: File[], observe?: undefined, options?: { whileRunning?: boolean }) => boolean | Promise<boolean>;
+  onSend: (text: string, attachments?: File[], options?: { whileRunning?: boolean }) => boolean | Promise<boolean>;
   disabled: boolean;
   pending: boolean;
   focusSignal?: number;
@@ -142,7 +142,7 @@ export function ChatBox({
       // The shared App controller owns draft/attachment clearance, including
       // when the operator switches to the map during an upload.
       const accepted = whileRunning
-        ? await onSend(value.trim(), [], undefined, { whileRunning: true })
+        ? await onSend(value.trim(), [], { whileRunning: true })
         : await onSend(value.trim(), attachments);
       if (accepted) {
         onCompletionSelectionChange(0);

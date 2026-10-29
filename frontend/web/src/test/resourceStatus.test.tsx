@@ -16,8 +16,8 @@ describe('ResourceStatusView', () => {
 
     const markup = renderToStaticMarkup(<ResourceStatusView status={status} error="" />);
 
-    expect(markup).toContain('Recommendations only');
-    expect(markup).toContain('Limited · Devices: 1');
+    expect(markup).toContain('Usage shown; Argus does not limit resources');
+    expect(markup).toContain('Limited · 1 GPU');
     expect(markup).toContain('could not parse one telemetry row');
     expect(markup).toContain('rocm-smi is not installed');
   });
@@ -58,6 +58,14 @@ it('reports 128 CPU cores and an idle compute sample with 1 MiB still allocated'
   ] }} error="" />);
   expect(html).toContain('128 cores');
   expect(html).not.toContain('Devices: 128');
-  expect(html).toContain('0% compute load · memory in use');
+  expect(html).toContain('0% compute load · 1 MiB used');
   expect(html).toContain('1 MiB / 40.0 GiB');
+});
+
+ it('names the GPU count as a quantity', () => {
+  const html = renderToStaticMarkup(<ResourceStatusView status={{ schema_version: 1, enforcement: 'advisory', accelerators: [
+    { kind: 'cuda', status: 'available', device_count: 4, detail: '' },
+  ] }} error="" />);
+  expect(html).toContain('4 GPUs');
+  expect(html).not.toContain('Devices:');
 });

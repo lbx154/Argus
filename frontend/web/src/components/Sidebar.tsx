@@ -129,20 +129,20 @@ export function Sidebar({
     : resultsCount ? (zh ? `查看这个项目的 ${resultsCount} 份成果` : `Open this project's ${resultsCount} result(s)`)
       : (zh ? '这个项目还没有交付成果' : 'No results delivered in this project yet');
   const preference = (id: string) => organization.values[id] ?? DEFAULT_PREFERENCE;
-  const projectIds = projects.map(project => project.id).join('\n');
   useEffect(() => {
     const focus = () => setSyncAttempt(value => value + 1);
     window.addEventListener('focus', focus);
     return () => window.removeEventListener('focus', focus);
   }, []);
   useEffect(() => {
+    if (loading) return;
     let cancelled = false;
     setSyncingOrganization(true);
     void (async () => {
       let remote = await api.organization();
       if (cancelled) return;
       if (remote.revision === 0) {
-        for (const id of projectIds.split('\n').filter(Boolean)) {
+        for (const { id } of projects) {
           const local = readOrganization().values[id];
           if (!local) continue;
           for (const field of ['pinned', 'archived', 'followup'] as const) {
@@ -162,7 +162,7 @@ export function Sidebar({
       }
     });
     return () => { cancelled = true; };
-  }, [projectIds, syncAttempt, zh]);
+  }, [loading, syncAttempt, zh]);
   const organize = async (id: string, field: keyof ProjectPreference) => {
     const next = !preference(id)[field];
     setSyncingOrganization(true);

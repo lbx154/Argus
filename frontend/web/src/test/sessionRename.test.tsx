@@ -63,11 +63,9 @@ describe('session rename', () => {
         sid={sid}
         name="Original name"
         alive={false}
-        resumable={false}
         busy={false}
         onClose={() => undefined}
         onRename={async () => true}
-        onStart={async () => true}
         onDelete={async () => true}
       />,
     );
@@ -79,8 +77,8 @@ describe('session rename', () => {
 
   it('says calls were unpriced or not billed instead of "no spend"', () => {
     const render = (spend_status: string) => renderToStaticMarkup(
-      <DaemonManageModal open sid={sid} name="Original name" alive={false} resumable={false} busy={false}
-        onClose={() => undefined} onRename={async () => true} onStart={async () => true}
+      <DaemonManageModal open sid={sid} name="Original name" alive={false} busy={false}
+        onClose={() => undefined} onRename={async () => true}
         onDelete={async () => true}
         snapshot={{ ...snapshot(), spend_usd: null, spend_status, usage_summary: { call_count: 40, known_cost_usd: 0 } } as unknown as Snapshot} />,
     );
@@ -92,7 +90,7 @@ describe('session rename', () => {
     }
   });
 
-  it('offers Resume only for work stopped short, and deletion once nothing runs', () => {
+  it('leaves run controls in the header and permits deletion once nothing runs', () => {
     const props = {
       open: true,
       sid,
@@ -100,28 +98,21 @@ describe('session rename', () => {
       busy: false,
       onClose: () => undefined,
       onRename: async () => true,
-      onStart: async () => true,
       onDelete: async () => true,
     };
     const running = renderToStaticMarkup(
-      <DaemonManageModal {...props} alive resumable={false} />,
+      <DaemonManageModal {...props} alive />,
     );
     const stopped = renderToStaticMarkup(
-      <DaemonManageModal {...props} alive={false} resumable />,
-    );
-    const done = renderToStaticMarkup(
-      <DaemonManageModal {...props} alive={false} resumable={false} />,
+      <DaemonManageModal {...props} alive={false} />,
     );
 
     // Stopping is the header's one Stop; here, a running project cannot be deleted.
     expect(running).not.toMatch(/Stop now|Resume/);
     expect(running).toMatch(/<button[^>]*disabled=""[^>]*>Delete/);
-    expect(stopped).toContain('Stopped');
-    expect(stopped).toContain('Resume');
+    expect(stopped).not.toContain('Stopped');
+    expect(stopped).not.toContain('Resume');
     expect(stopped).toContain('Delete');
-    // With nothing to go on with, there is nothing to resume.
-    expect(done).not.toContain('Resume');
-    expect(done).toContain('Delete');
   });
 
   it('updates the cached session list and header from the persisted server name', () => {

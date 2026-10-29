@@ -17,8 +17,8 @@ afterEach(() => { act(() => view?.unmount()); view = undefined; vi.restoreAllMoc
 it.each([false, true])('closes the rename dialog only when saving succeeds (%s)', async saved => {
   const close = vi.fn();
   const rename = vi.fn(async () => saved);
-  act(() => { view = create(<DaemonManageModal open sid="p-fixture" name="Before" alive={false} resumable={false} busy={false}
-    onClose={close} onRename={rename} onStart={async () => false} onDelete={async () => false} />); });
+  act(() => { view = create(<DaemonManageModal open sid="p-fixture" name="Before" alive={false} busy={false}
+    onClose={close} onRename={rename} onDelete={async () => false} />); });
   act(() => view!.root.findByType('input').props.onChange({ target: { value: 'After' } }));
   await act(async () => view!.root.findByType('form').props.onSubmit({ preventDefault() {} }));
   expect(rename).toHaveBeenCalledExactlyOnceWith('After');
@@ -74,8 +74,8 @@ it('distinguishes a missing credential from an invalid token link even after the
 
 it('deletes with one click and keeps deletion disabled while busy or running', async () => {
   const remove = vi.fn(async () => true);
-  const props = { open: true, sid: 'p-fixture', name: 'Before', alive: false, resumable: false, busy: false,
-    onClose: vi.fn(), onRename: async () => false, onStart: async () => false, onDelete: remove };
+  const props = { open: true, sid: 'p-fixture', name: 'Before', alive: false, busy: false,
+    onClose: vi.fn(), onRename: async () => false, onDelete: remove };
   act(() => { view = create(<DaemonManageModal {...props} />); });
   const button = () => view!.root.findAllByType('button').find(node => node.children.includes('Delete'))!;
   await act(async () => button().props.onClick());

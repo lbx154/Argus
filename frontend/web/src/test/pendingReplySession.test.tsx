@@ -18,17 +18,7 @@ function Probe({ sid = 'p-one', pending = questions }: { sid?: string; pending?:
 }
 afterEach(() => { act(() => renderer?.unmount()); vi.restoreAllMocks(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
-it('loads a question without session storage or an opened-dialog state', () => {
-  const storage = { getItem: vi.fn(), setItem: vi.fn() };
-  vi.stubGlobal('window', { sessionStorage: storage });
-  act(() => { renderer = create(<Probe />); });
-  expect(session.pendingReply.id).toBe('reviewer-t1');
-  expect(session).not.toHaveProperty('pendingReplyOpen');
-  expect(storage.getItem).not.toHaveBeenCalled();
-  expect(storage.setItem).not.toHaveBeenCalled();
-});
-
-it('delivers once to the displayed asker and names that role even when the next project opens', async () => {
+it('answers only the displayed question even when the next project opens', async () => {
   let finish!: (value: { resolved: boolean }) => void;
   vi.mocked(api.resolveDecision).mockReturnValue(new Promise(resolve => { finish = resolve; }));
   act(() => { renderer = create(<Probe />); });
@@ -38,7 +28,7 @@ it('delivers once to the displayed asker and names that role even when the next 
   act(() => renderer.update(<Probe sid="p-two" pending={[questions[1]]} />));
   await act(async () => { finish({ resolved: true }); expect(await answer).toBe(true); });
   expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('p-one', 'reviewer-t1', 'custom', 'Use the small dataset');
-  expect(notify).toHaveBeenCalledWith('success', 'Answer delivered to the Reviewer.');
+  expect(notify).not.toHaveBeenCalled();
   expect(refetchSnapshot).toHaveBeenCalledOnce();
   expect(session.pendingReply.id).toBe('engineer-t1');
 });
@@ -47,18 +37,16 @@ it('keeps API errors visible and never claims the answer was delivered', async (
   vi.mocked(api.resolveDecision).mockRejectedValue(new Error('Connection refused'));
   act(() => { renderer = create(<Probe />); });
   await act(async () => { expect(await session.answerPendingReply('Use UTF-8')).toBe(false); });
-  expect(session.pendingReplyError).toBeTruthy();
+  expect(notify).toHaveBeenCalledWith('error', expect.any(String), expect.objectContaining({ message: 'Connection refused' }));
   expect(session.pendingReplyBusy).toBe(false);
-  expect(notify).not.toHaveBeenCalled();
   expect(await session.answerPendingReply('   ')).toBe(false);
   expect(api.resolveDecision).toHaveBeenCalledOnce();
 });
 
-it('keeps the answer draft through a view rerender and clears it when its question changes', () => {
+it('reports a rejected answer and refreshes the pending question', async () => {
+  vi.mocked(api.resolveDecision).mockResolvedValue({ resolved: false, reply: 'Question already answered' });
   act(() => { renderer = create(<Probe />); });
-  act(() => session.setPendingReplyNote('Keep this answer while I inspect the map'));
-  act(() => renderer.update(<Probe />));
-  expect(session.pendingReplyNote).toBe('Keep this answer while I inspect the map');
-  act(() => renderer.update(<Probe pending={[questions[1]]} />));
-  expect(session.pendingReplyNote).toBe('');
+  await act(async () => { expect(await session.answerPendingReply('Use UTF-8')).toBe(false); });
+  expect(notify).toHaveBeenCalledWith('error', expect.any(String), 'Question already answered');
+  expect(refetchSnapshot).toHaveBeenCalledOnce();
 });

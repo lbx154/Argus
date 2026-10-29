@@ -78,7 +78,7 @@ export interface Dataset {
   read_only: boolean;
   tasks: MapTask[];
   events: MapEvent[];
-  /** Requests still being read that started no task yet: chips by the composer. */
+  /** The next recorded line to request when following map history. */
   cursor?: string;
   incremental?: boolean;
   tasks_complete?: boolean;

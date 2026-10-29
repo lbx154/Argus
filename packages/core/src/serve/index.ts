@@ -128,8 +128,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     runtime: {
       package_version: RELEASE_ID.split('+')[0]!, release_id: RELEASE_ID, pid: process.pid, started_at: STARTED,
       source_root: authenticated ? SOURCE_ROOT : '<redacted>', executable: authenticated ? process.execPath : '<redacted>',
-      state_root: authenticated ? store.home : null, configured_source_root: null, source_root_matches_config: null,
-      revision: null, python_version: '', manifest_source_digest: null, runtime_source_digest: null, release_matches_source: null,
+      state_root: authenticated ? store.home : null,
     },
     authentication: { required: Boolean(token), authenticated },
   });
@@ -319,7 +318,6 @@ export async function serve(options: ServeOptions): Promise<Served> {
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
-    response.setHeader('x-argus-release', RELEASE_ID);
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const method = request.method === 'HEAD' ? 'GET' : request.method;
     if (!url.pathname.startsWith('/api/')) {

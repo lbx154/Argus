@@ -1,17 +1,12 @@
 import type { ConversationPagination } from '../useConversationHistory';
 import { errorText } from '../lib/format';
 import { MapConversation } from './MapConversation';
-import { ComposerRuntime } from '../components/ComposerRuntime';
 import { WorkStatusBar } from '../components/WorkStatusBar';
-import { Button } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
 import { MapReaderContent } from './MapReaderContent';
 import { Activity, PackageCheck, MessageCircle } from 'lucide-react';
 import { ProjectRoleLogs } from '../components/EventStream';
 import { useRoleLog } from '../useRoleLog';
-import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
-import type { MapSend, DispatchObserver } from './submission';
-import { splitDraft } from './presentation';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
@@ -40,6 +35,7 @@ import {
   Info,
   LocateFixed,
   Maximize2,
+  Map as MapIcon,
   Expand,
   Shrink,
   Pause,
@@ -48,7 +44,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { api, type Snapshot, type MessageRouteOverride } from "../api";
+import { api, type Snapshot } from "../api";
 import { useI18n } from "../i18n";
 import { ACTIVE, buildMap, currentTask, statusKey, taskDependencies, type Dataset, } from "./model";
 import { layoutScene } from "./submap";
@@ -56,8 +52,6 @@ import { edgeLanes, relationPorts } from "./graphLayout";
 import { MacroTaskNode, MapArtifactContext, type MacroNode } from "./MacroTaskNode";
 import { ZoomStepContext } from "./zoomStep";
 import { INITIAL_VIEWPORT, useSemanticCamera } from "./useSemanticCamera";
-import { MapComposer, type MapComposerProps } from "./MapComposer";
-import { referenceText, type CardReference } from "./presentation";
 import type { ArtifactInfo, DeliveryReceipt, EventMsg } from "../../../core/src/types";
 import "@xyflow/react/dist/style.css";
 import "./map.css";
@@ -80,7 +74,6 @@ interface MapWorkspaceActions {
   onOpenDelivery: () => void;
   onOpenReceipt: (receipt: DeliveryReceipt, path?: string) => void;
   onOpenArtifact: (path: string) => void;
-  pendingQuestion?: ReactNode;
   /** Delivery receipts, newest first: the figures of the tasks they came from. */
   deliveries?: DeliveryReceipt[];
   /** The team status line with 暂停团队 / 继续, the same one the chat shows. */
@@ -116,8 +109,10 @@ const MINIMAP_STATUS: Record<string, string> = {
 
 export function MapCanvas({
   data,
+  requestedTaskId,
+  onTaskLocated,
   zh,
-  composer,
+  pending,
   snapshot,
   pendingLabel,
   readOnly,
@@ -129,9 +124,11 @@ export function MapCanvas({
   onImmersiveChange,
 }: {
   data: Dataset;
+  requestedTaskId?: string;
+  onTaskLocated?: () => void;
   sessionId: string;
   zh: boolean;
-  composer: MapComposerProps;
+  pending: boolean;
   snapshot: Snapshot;
   pendingLabel?: string;
   readOnly: boolean;
@@ -144,16 +141,12 @@ export function MapCanvas({
   onImmersiveChange?: (immersive: boolean) => void;
 }) {
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [minimapOpen, setMinimapOpen] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
-  const [flight, setFlight] = useState<MapDispatchFlight | null>(null);
-  const dispatchSerial = useRef(0);
-  const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const graph = useMemo(() => buildMap(data.tasks), [data.tasks]);
-  // Requests still being read wait by the composer; the newest few.
   const [nodes, setNodes, onNodesChange] = useNodesState<MacroNode>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
-  const camera = useSemanticCamera(canvasRef, !readOnly);
+  const camera = useSemanticCamera(canvasRef);
   const nodesReady = useNodesInitialized();
   const initialFit = useRef(false);
   // Gates the canvas fade-in: the first frames render at an arbitrary
@@ -179,7 +172,7 @@ export function MapCanvas({
   }, [camera.focusId, data.tasks]);
   const readingTask = readingCopy ? data.tasks.find(task => task.id === readingCopy.key) : undefined;
   const readingAnswer = readingTask?.turn_kind === 'qa'
-    ? data.events.find(event => event.item_id === readingTask.id && event.type === 'turn.replied') : undefined;
+    ? data.events.filter(event => event.item_id === readingTask.id && event.type === 'turn.replied').at(-1) : undefined;
   const readingNode = readingCopy ? nodes.find(node => node.id === readingCopy.nodeId) : undefined;
   const [traceId, setTraceId] = useState<string | null>(null);
   const tracedTask = graph.tasks.find((task) => task.id === traceId);
@@ -216,24 +209,6 @@ export function MapCanvas({
   const [replaying, setReplaying] = useState(false);
   const ordinalOf = useMemo(() => new Map(scene.cards.map((card) => [card.id, card.ordinal])), [scene.cards]);
   const growth = useMapGrowth(scene, !!data.history_loading);
-  const submitFromMap: MapSend = async (text, files = [], _observe, options) => {
-    // A note for the running turn has no flight of its own; it joins that turn.
-    if (options?.whileRunning) return composer.onSend(text, files, undefined, options);
-    const id = ++dispatchSerial.current;
-    const source = canvasRef.current?.querySelector('.map-composer')?.getBoundingClientRect();
-    setFlight({ id, text: splitDraft(text).text.replace(/\s+/g, ' ').slice(0, 180), origin: { x: source?.left ?? 20, y: source?.top ?? innerHeight - 100, width: source?.width ?? 260, height: source?.height ?? 56 } });
-    const observe: DispatchObserver = (result) => {
-      if (alive.current) setFlight((current) => current?.id === id ? { ...current, result } : current);
-    };
-    try {
-      const accepted = await composer.onSend(text, files, observe);
-      if (!accepted) observe({ type: 'settled', outcome: 'error' });
-      return accepted;
-    } catch (error) {
-      observe({ type: 'settled', outcome: 'error' });
-      throw error;
-    }
-  };
   // The map is fitted when its first cards appear (a map opened before its
   // project has a task fits when the tasks come), and again whenever cards
   // come or go while the reader has not moved the view (fitUpdatedScene).
@@ -252,8 +227,7 @@ export function MapCanvas({
       const canvas = canvasRef.current!;
       // A viewport is in screen pixels. A desktop view cannot be restored
       // onto a phone's stacked cards or a differently sized canvas.
-      // A phone too opens on the whole map: fitted to one task, its tall card
-      // filled the screen and ran under the composer.
+      // A phone too opens on the whole map, before entering any task details.
       if (saved && saved.canvasSize.width === canvas.clientWidth && saved.canvasSize.height === canvas.clientHeight)
         camera.restore(saved);
       else camera.fit();
@@ -279,61 +253,6 @@ export function MapCanvas({
     const frame = requestAnimationFrame(camera.fitUpdatedScene);
     return () => cancelAnimationFrame(frame);
   }, [scene.structure, nodesReady, camera.fitUpdatedScene]);
-  const composerRef = useRef(composer);
-  composerRef.current = composer;
-  const quote = useCallback(
-    (ref: CardReference) => {
-      if (readOnly) return;
-      const c = composerRef.current;
-      if (camera.canvasSize.width < 640) {
-        setReadingCopy(null);
-        camera.back();
-      }
-      c.onChange(referenceText(ref) + c.value);
-      window.setTimeout(
-        () =>
-          document
-            .querySelector<HTMLTextAreaElement>(".map-composer textarea")
-            ?.focus(),
-        0,
-      );
-    },
-    [readOnly, camera.canvasSize.width, camera.back],
-  );
-  const [menu, setMenu] = useState<{
-    ref: CardReference;
-    x: number;
-    y: number;
-  } | null>(null);
-  const showMenu = useCallback(
-    (ref: CardReference, point: { x: number; y: number }) => {
-      if (readOnly) return;
-      setMenu({
-        ref,
-        x: Math.min(window.innerWidth - 180, point.x),
-        y: Math.min(window.innerHeight - 140, point.y),
-      });
-    },
-    [readOnly],
-  );
-  useEffect(() => {
-    if (!menu) return;
-    const dismiss = (e: PointerEvent) => {
-      if (!(e.target as Element).closest(".map-context-menu")) setMenu(null);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setMenu(null);
-      }
-    };
-    window.addEventListener("pointerdown", dismiss);
-    document.addEventListener("keydown", key, true);
-    return () => {
-      window.removeEventListener("pointerdown", dismiss);
-      document.removeEventListener("keydown", key, true);
-    };
-  }, [menu]);
   const [query, setQuery] = useState("");
   // One predicate serves the dimmed-card filter, the match counter, and Enter
   // cycling, so the three can never disagree about what "a match" is.
@@ -402,10 +321,6 @@ export function MapCanvas({
           open: openCard,
           readStep: camera.readStep,
           readCopy,
-          menu: showMenu,
-          quote,
-          source: data.id,
-          readOnly,
           managerMessage: card.task.role === 'manager' && ACTIVE.has(card.task.status) ? pendingLabel : undefined,
           paused,
           seenCards,
@@ -426,11 +341,7 @@ export function MapCanvas({
     openCard,
     camera.readStep,
     readCopy,
-    showMenu,
-    quote,
-    data.id,
     pendingLabel,
-    readOnly,
     paused,
     seenCards,
   ]);
@@ -487,9 +398,6 @@ export function MapCanvas({
           arriving,
           revealing: replaying,
           growthDelay: growth.cards[n.id],
-          dispatchState: flight?.result?.type === 'task' && flight.result.taskId === n.data.task.id
-            ? flight.landed ? 'landed' : 'receiving'
-            : undefined,
           growingSteps: Object.fromEntries(n.data.layout.steps.flatMap((step) => {
             const delay = growth.steps[stepIdentity(n.id, step.id)];
             return delay == null ? [] : [[step.id, delay]];
@@ -522,7 +430,6 @@ export function MapCanvas({
       readingCopy,
       zh,
       growth,
-      flight,
       traceTasks,
       lit,
       hoverId,
@@ -658,6 +565,16 @@ export function MapCanvas({
     );
     camera.enter(id);
   };
+  const locatedTask = useRef<string>();
+  useEffect(() => {
+    if (!requestedTaskId) { locatedTask.current = undefined; return; }
+    if (!fitted || !nodesReady || locatedTask.current === requestedTaskId) return;
+    const card = scene.cards.filter(card => card.task.id === requestedTaskId).at(-1);
+    if (!card) return;
+    focus(card.id);
+    locatedTask.current = requestedTaskId;
+    onTaskLocated?.();
+  }, [fitted, nodesReady, requestedTaskId, scene.cards, camera.enter, onTaskLocated]);
   const locateCurrent = () => {
     const target = currentTask(data.tasks);
     if (target) {
@@ -670,7 +587,7 @@ export function MapCanvas({
         zh ? "发送一个目标，地图就会开始生长" : "Send a goal to start your map",
       );
   };
-  // Map-wide shortcuts; typing surfaces (search, composer, notes) keep every key.
+  // Map-wide shortcuts leave the search field its own keys.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
@@ -805,7 +722,7 @@ export function MapCanvas({
           data-fitted={fitted}
           data-hovering={!!hoverId && !camera.detailed}
         >
-          {conversationOpen && <MapConversation snapshot={snapshot} events={actions.conversationEvents} pagination={actions.conversationPagination} connected={actions.connected} pending={composer.pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
+          {conversationOpen && <MapConversation snapshot={snapshot} events={actions.conversationEvents} pagination={actions.conversationPagination} connected={actions.connected} pending={pending} artifacts={actions.artifacts} zh={zh} onClose={() => setConversationOpen(false)} onOpenArtifact={actions.onOpenArtifact} onOpenDelivery={actions.onOpenReceipt} />}
           {agentsOpen && <aside className="map-agent-drawer nowheel nodrag nopan">
             <header className="mb-3 flex items-center justify-between text-sm font-semibold">
               <span>{zh ? '工作详情' : 'Work details'}</span>
@@ -813,10 +730,6 @@ export function MapCanvas({
             </header>
             <ProjectRoleLogs snapshot={snapshot} connected={actions.connected} details taskId={focusedNode?.data.task.id} />
           </aside>}
-          {flight && !readOnly && <MapDispatchMotion flight={flight} canvas={canvasRef} zh={zh}
-            onReveal={(taskId) => { if (data.tasks.some((task) => task.id === taskId)) camera.fit(); }}
-            onLand={(id) => setFlight((current) => current?.id === id ? { ...current, landed: true } : current)}
-            onFinish={(id) => setFlight((current) => current?.id === id ? null : current)} />}
           <div className="map-canvas-toolbar nowheel">
             {onImmersiveChange && (
               <button
@@ -958,6 +871,10 @@ export function MapCanvas({
                 toolbar rather than a stack of them. */}
             {(
               <div className="map-workspace-actions">
+                <button type="button" aria-label={zh ? '小地图' : 'Minimap'}
+                  aria-expanded={minimapOpen} onClick={() => setMinimapOpen(open => !open)}>
+                  <MapIcon size={15} /><span>{zh ? '小地图' : 'Minimap'}</span>
+                </button>
                 <button
                   type="button"
                   aria-expanded={conversationOpen}
@@ -975,7 +892,7 @@ export function MapCanvas({
                   title={zh ? '各个角色正在做什么' : 'What each role is doing'}
                   onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}
                 >
-                  <Activity size={15} /><i data-active={(!paused && snapshot.roles.some(role => role.active)) || composer.pending} aria-hidden /><span>{zh ? '工作详情' : 'Work details'}</span>
+                  <Activity size={15} /><i data-active={(!paused && snapshot.roles.some(role => role.active)) || pending} aria-hidden /><span>{zh ? '工作详情' : 'Work details'}</span>
                 </button>
                 <button
                   type="button"
@@ -1008,15 +925,6 @@ export function MapCanvas({
                     ? "描述你想完成的事情，看 Argus 规划、执行、审查，最后在这里交付。"
                     : "Describe your goal. Watch Argus plan, build, review, and deliver here."}
               </p>
-              {!readOnly && <div className="map-starters">{(zh ? [
-                ['交互实验', '做一个交互式实验室，用动画展示 Dijkstra 和 A* 怎样寻找最短路径。让我能画障碍、单步播放、比较探索范围，并验证两个算法的结果一致。'],
-                ['数据洞察', '用一组可复现的模拟数据，做一个辛普森悖论交互演示。让我能切换整体和分组视角，看结论怎样反转，附上验证过程。'],
-                ['产品原型', '做一个精致的个人旅行规划网页。我能调整预算和出行天数，比较三种行程方案，并将选中的方案导出。让手机上也方便操作。'],
-              ] : [
-                ['Interactive lab', 'Build an interactive Dijkstra vs A* pathfinding lab with editable obstacles, step-by-step animation, and correctness checks.'],
-                ['Data insights', 'Create an interactive Simpson’s paradox demo using reproducible synthetic data, with aggregate and grouped views and validation.'],
-                ['Product prototype', 'Build a polished travel planner. Let me adjust budget and duration, compare three itineraries, and export my choice. Make it easy to use on a phone.'],
-              ]).map(([label, prompt]) => <button key={label} type="button" onClick={() => { composer.onChange(prompt); requestAnimationFrame(() => canvasRef.current?.querySelector('textarea')?.focus()); }}>{label} ↗</button>)}</div>}
             </div>
           ) : (
             <ReactFlow<MacroNode>
@@ -1061,7 +969,7 @@ export function MapCanvas({
                   duration: camera.reducedMotion ? 0 : 320,
                 }}
               />
-              <MiniMap<MacroNode>
+              {minimapOpen && <MiniMap<MacroNode>
                 nodeColor={(n) =>
                   MINIMAP_STATUS[statusKey((n as MacroNode).data.task)] ?? "#c6c8cb"
                 }
@@ -1072,7 +980,7 @@ export function MapCanvas({
                 pannable
                 zoomable
                 ariaLabel={zh ? "地图导航预览" : "Map navigation preview"}
-              />
+              />}
             </ReactFlow>
           )}
           {replaying && playbackStrip}
@@ -1087,42 +995,6 @@ export function MapCanvas({
             </span>
           </div>
 
-          {!readOnly && (
-            <MapComposer {...composer} before={actions.pendingQuestion} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
-              dispatchStatus={flight?.result?.type === 'task' ? flight.landed ? 'task' : 'launching' : flight?.result?.outcome}
-              onSend={submitFromMap} overview={!camera.detailed} startCompact={immersive} />
-          )}
-          {menu && !readOnly && (
-            <div
-              className="map-context-menu"
-              role="menu"
-              style={{ left: menu.x, top: menu.y }}
-            >
-              <button
-                role="menuitem"
-                onClick={() => {
-                  quote(menu.ref);
-                  setMenu(null);
-                }}
-              >
-                {zh ? "问这张卡" : "Ask about this card"}
-              </button>
-              {(
-                <>
-                  <button
-                    role="menuitem"
-                    onClick={() => {
-                      composer.onRouteOverrideChange?.("task");
-                      quote(menu.ref);
-                      setMenu(null);
-                    }}
-                  >
-                    {zh ? "从这里展开" : "Branch from here"}
-                  </button>
-                </>
-              )}
-            </div>
-          )}
           {(cyclic || graph.missing > 0) && (
             <div className="map-graph-warning">
               {cyclic
@@ -1146,9 +1018,6 @@ export function MapCanvas({
                 ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.latest_action?.text || (zh ? '尚无回答。' : 'No answer recorded.'))
                 : readingTask.objective || readingTask.latest_action?.text || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
-            {!readOnly ? <Button className="mt-3 text-xs" onClick={() => quote({ source: data.id, task_id: readingTask.id,
-              task_title: readingTask.title,
-              event_ids: readingAnswer ? [readingAnswer.id] : data.events.filter(event => event.item_id === readingTask.id).map(event => event.id), lang: zh ? 'zh' : 'en' })}>{readingTask.turn_kind === 'qa' ? (zh ? '引用这条问答' : 'Reference this Q&A') : zh ? "引用此任务" : "Reference this task"}</Button> : null}
           </div>
         </> : null}
       </Modal>
@@ -1164,18 +1033,10 @@ export const MapPanel = memo(function MapPanel({
   onImmersiveChange,
   snapshot,
   events,
-  draft,
-  onDraftChange,
-  onSend,
-  attachments: controlledAttachments,
-  onAttachmentsChange,
   pending,
-  rewriting,
-  focusSignal,
+  requestedTaskId,
+  onTaskLocated,
   readOnly = false,
-  onOpenSettings,
-  routeOverride,
-  onRouteOverrideChange,
   conversationEvents,
   conversationPagination,
   connected,
@@ -1184,7 +1045,6 @@ export const MapPanel = memo(function MapPanel({
   onOpenDelivery,
   onOpenReceipt,
   onOpenArtifact,
-  pendingQuestion,
   deliveries,
   onStopWork,
   onResumeTeam,
@@ -1195,62 +1055,16 @@ export const MapPanel = memo(function MapPanel({
   teamBusy?: boolean;
   snapshot: Snapshot;
   events: EventMsg[];
-  draft: string;
-  onDraftChange: (text: string) => void;
-  onSend: MapSend;
-  attachments?: File[];
-  onAttachmentsChange?: (files: File[]) => void;
   pending: boolean;
-  rewriting?: boolean;
-  focusSignal: number;
+  requestedTaskId?: string;
+  onTaskLocated?: () => void;
   readOnly?: boolean;
   /** The map fills the window: the header, overview and legend step aside. */
   immersive?: boolean;
   onImmersiveChange?: (immersive: boolean) => void;
-  onOpenSettings?: () => void;
-  routeOverride?: MessageRouteOverride;
-  onRouteOverrideChange?: (route: MessageRouteOverride) => void;
 } & MapWorkspaceActions) {
   const { locale, t } = useI18n();
   const zh = locale === "zh-CN";
-  const [localAttachments, setLocalAttachments] = useState<File[]>([]);
-  const attachments = controlledAttachments ?? localAttachments;
-  const attachmentRef = useRef(attachments);
-  attachmentRef.current = attachments;
-  const setAttachments = useCallback((update: File[] | ((current: File[]) => File[])) => {
-    const next = typeof update === 'function' ? update(attachmentRef.current) : update;
-    attachmentRef.current = next;
-    if (onAttachmentsChange) onAttachmentsChange(next);
-    else setLocalAttachments(next);
-  }, [onAttachmentsChange]);
-  const currentDraft = useRef(draft);
-  currentDraft.current = draft;
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-  const send: MapSend = useCallback(async (text, files = [], observe, options) => {
-    let failedBeforeAcceptance = false;
-    const accepted = await onSend(text, files, (result) => {
-      if (result.type === 'settled' && result.outcome === 'error') failedBeforeAcceptance = true;
-      if (!mounted.current) return;
-      if (result.type === 'settled' && result.outcome === 'error' && !currentDraft.current.trim()) {
-        onDraftChange(text);
-        setAttachments((current) => current.length ? current : files);
-      }
-      observe?.(result);
-    }, options);
-    if (accepted && !failedBeforeAcceptance && mounted.current) {
-      if (currentDraft.current === text) onDraftChange("");
-      setAttachments((current) =>
-        current.filter((file) => !files.includes(file)),
-      );
-    }
-    return accepted;
-  }, [onSend, onDraftChange, setAttachments]);
   const roleLog = useRoleLog(snapshot.session.id);
   const managerMessage = latestManagerMessage(roleLog.events);
   const client = useQueryClient();
@@ -1328,39 +1142,19 @@ export const MapPanel = memo(function MapPanel({
   );
 
   const data = live.data;
-  // Stable object identities: fresh actions/composer objects on every render
+  // Stable object identities: fresh actions objects on every render
   // would invalidate the node-data memos in every mounted MapCanvas card.
-  // The team line lives at the top of the canvas, beside the overview, so it
-  // stays in view when the composer is folded away.
+  // The team line lives at the top of the canvas, beside the overview.
   const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} connected={connected !== false} compact
     managerMessage={managerMessage}
     pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
   [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy, managerMessage]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
-             onOpenDelivery, onOpenReceipt, onOpenArtifact, pendingQuestion, deliveries,
+             onOpenDelivery, onOpenReceipt, onOpenArtifact, deliveries,
              teamStatus }),
     [conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
-     onOpenDelivery, onOpenReceipt, onOpenArtifact, pendingQuestion, deliveries, teamStatus],
-  );
-  const composer = useMemo<MapComposerProps>(
-    () => ({
-      footer: <><ComposerRuntime sid={snapshot.session.id} roles={snapshot.roles} running={snapshot.daemon.alive || Boolean(snapshot.manager_requests?.length)} lastCall={snapshot.last_call} onOpenSettings={readOnly ? undefined : onOpenSettings} /></>,
-      routeOverride,
-      onRouteOverrideChange,
-      value: draft,
-      onChange: onDraftChange,
-      onSend: send,
-      attachments,
-      onAttachmentsChange: setAttachments,
-      pending,
-      rewriting,
-      focusSignal,
-      zh, }),
-    [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
-     pending, rewriting, focusSignal, snapshot.session.display_name, snapshot.session.id,
-     zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
-     readOnly, onOpenSettings, events, connected, onStopWork, onResumeTeam, teamBusy],
+     onOpenDelivery, onOpenReceipt, onOpenArtifact, deliveries, teamStatus],
   );
   // Each task's figure, loaded separately from the map's task projection.
   const workspace = snapshot.session.workdir || '';
@@ -1404,6 +1198,8 @@ export const MapPanel = memo(function MapPanel({
         <ReactFlowProvider key={viewKey}>
           <MapCanvas
             data={data}
+            requestedTaskId={requestedTaskId}
+            onTaskLocated={onTaskLocated}
             actions={actions}
             snapshot={snapshot}
             pendingLabel={managerMessage}
@@ -1414,7 +1210,7 @@ export const MapPanel = memo(function MapPanel({
             readOnly={readOnly}
             immersive={immersive}
             onImmersiveChange={onImmersiveChange}
-            composer={composer}
+            pending={pending}
           />
         </ReactFlowProvider>
       ) : (

@@ -52,8 +52,6 @@ button.composer-model:hover, .composer-rewrite:hover:not(:disabled) { border-col
 .map-attachment-tray { display: flex; flex-wrap: wrap; gap: 8px; max-height: 140px; overflow-y: auto; overscroll-behavior: contain; padding: 0 8px 9px; }
 .map-attachment-tray > div { flex: 1 1 200px; max-width: 100%; animation: composer-attachment-enter 220ms cubic-bezier(.32,.72,0,1); }
 @keyframes composer-attachment-enter { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-.map-attachment-notice { padding: 7px 12px; margin-bottom: 6px; border-radius: 10px; background: rgb(var(--surface)); color: rgb(var(--err)); font-size: 12px; max-height: 72px; overflow-y: auto; }
-.map-composer-caption { display: block; text-align: center; font-size: 12px; line-height: 18px; color: rgb(var(--ink-faint)); padding-top: 6px; }
 .map-reference-chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 16px 7px; }
 .map-reference-chips > span { display: flex; align-items: center; max-width: 100%; gap: 9px; border: 1px solid rgb(var(--accent) / .35); background: rgb(var(--surface)); color: rgb(var(--accent-ink)); padding: 5px 9px; border-radius: 9px; font-size: 11px; }
 .map-reference-chips > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -73,7 +71,6 @@ button.composer-model:hover, .composer-rewrite:hover:not(:disabled) { border-col
 .route-seg button:disabled { opacity: .55; cursor: default; }
 .route-seg button:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
 .composer-controls .route-seg { margin-right: auto; }
-.map-island-dock .route-seg { margin-right: auto; }
 @media (max-width: 640px), (pointer: coarse) {
   .route-seg button, .composer-controls .route-seg button { min-height: 44px; }
 }

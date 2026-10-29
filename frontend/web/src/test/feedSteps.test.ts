@@ -336,7 +336,7 @@ describe('foldFeedRows · a real campaign', () => {
 });
 
 describe('EventStream renders folded rows', () => {
-  it("shows a role's own words in their Markdown and folds the command it ran", () => {
+  it("folds the role's own words and commands until opened", () => {
     // Trial s-f0e1b2f0: the Engineer's lane read "**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中…".
     const html = renderToStaticMarkup(createElement(EventStream, {
       events: [], snapshot: roleSnapshot([shell('ls sizefmt/__init__.py'), said('**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中，`format_kib` 舍弃小数。')]),
@@ -344,8 +344,8 @@ describe('EventStream renders folded rows', () => {
       showReasoning: false,
     }));
 
-    expect(html).toContain('<strong>尚未实现：取整规则存在歧义。</strong>');
-    expect(html).toContain('<code>sizefmt/core.py</code>');
+    expect(html).not.toContain('尚未实现：取整规则存在歧义。');
+    expect(html).not.toContain('sizefmt/core.py');
     expect(html).not.toContain('**');
     expect(html).not.toContain('ls sizefmt/__init__.py');
     expect(html).toContain('data-open="false"');
@@ -356,7 +356,8 @@ describe('EventStream renders folded rows', () => {
       events: [], snapshot: roleSnapshot([said('Checking the sources now.', { agent_layer: 'manager' })]),
       connected: true, showReasoning: false,
     }));
-    expect(html).toMatch(/data-role="manager"[^]*?Checking the sources now\./);
+    expect(html).toContain('data-role="manager"');
+    expect(html).not.toContain('Checking the sources now.');
   });
 
   it("colours a role's dot and name, never what it wrote", () => {
@@ -366,13 +367,13 @@ describe('EventStream renders folded rows', () => {
       showReasoning: false,
     }));
     const lane = html.slice(html.indexOf('data-role="reviewer"'));
-    expect(lane).toContain('Fix the off-by-one.');
+    expect(lane).not.toContain('Fix the off-by-one.');
     // The verdict's mark may take its tone; the words it says do not.
-    expect(lane).toMatch(/<span data-role-headline="true" class="[^"]*text-ink-faint/);
+    expect(lane).not.toContain('data-role-headline');
     expect(lane).not.toContain('style=');
   });
 
-  it('names the task of each record, and a role at work on two tasks says what it does on each', () => {
+  it('keeps task progress out of the collapsed role process panel', () => {
     const task = (id: string, title: string) => ({ id, title, objective: '', status: 'in_progress', priority: 1 });
     const reviewer = { role: 'reviewer', backend: 'codex', backend_label: 'Codex', model: '', effort: null, active: true, label: 'Reviewer', status: 'running', age_s: null, tasks: ['t1', 't2'] };
     const snapshot = { session: { id: 's' }, daemon: { alive: true }, roles: [reviewer], backlog: [task('t1', 'Write primes.py'), task('t2', 'Write fib.py')] } as unknown as Snapshot;
@@ -386,9 +387,9 @@ describe('EventStream renders folded rows', () => {
     }));
     const lane = html.slice(html.indexOf('data-role="reviewer"'));
 
-    expect(lane).toContain('· 2 tasks under way');
-    expect(lane).toMatch(/data-role-task="t1"[^]*?Write primes\.py[^]*?Now: [^]*?Checking primes\.py\./);
-    expect(lane).toMatch(/data-role-task="t2"[^]*?Write fib\.py[^]*?Now: [^]*?Checking fib\.py\./);
+    expect(lane).not.toContain('data-role-task');
+    expect(lane).not.toContain('Checking primes.py.');
+    expect(lane).not.toContain('Checking fib.py.');
     // Records stay folded until the reader opens the role.
     expect(lane).not.toContain('data-row-task=');
   });

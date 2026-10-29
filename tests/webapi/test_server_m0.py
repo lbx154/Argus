@@ -18,6 +18,7 @@ from argus.daemon import life_worker as daemon_worker
 from argus.webapi import project_state, server
 from argus.webapi.protocol import (
     API_CAPABILITIES,
+    API_SERVICE,
     API_PROTOCOL_MAJOR,
     API_PROTOCOL_MINOR,
     API_PROTOCOL_NAME,
@@ -202,7 +203,7 @@ def test_api_meta_identifies_protocol_capabilities_and_loaded_checkout(
 ) -> None:
     monkeypatch.setenv("ARGUS_DESKTOP_LAUNCH_NONCE", "desktop-launch-test")
     meta = build_api_meta()
-    assert meta["service"] == "argus-skill-webapi"
+    assert meta["service"] == API_SERVICE
     assert meta["protocol"] == {
         "name": API_PROTOCOL_NAME,
         "major": API_PROTOCOL_MAJOR,

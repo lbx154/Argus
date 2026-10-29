@@ -55,7 +55,7 @@ test('each prefix of the real record has identical live and refreshed rows and c
   });
 });
 
-test('answers stay beside their question, task lines move to their latest state change, and steps do not move them', () => {
+test('answers stay beside their question and task lines stay where opened through answers, closing and steps', () => {
   const work: Project = { ...project, tasks: project.tasks.slice(0, 2).map(task => ({ ...task, status: 'open' })), status: 'working', questions: [] };
   const questions = work.tasks.map(task => ({ role: 'engineer' as const, task: task.id, question: `Choose for ${task.id}?` }));
   const events: Recorded[] = [
@@ -70,8 +70,8 @@ test('answers stay beside their question, task lines move to their latest state 
   const rows = rowsOf(events, work, { since: 1, calls: [{ role: 'engineer', task: work.tasks[1]!.id }], requests: [] });
   const dialogue = rows.filter(row => row.type !== 'ui.task');
   assert.deepEqual(dialogue.map(row => row.text), [questions[1]!.question, 'Second choice', questions[0]!.question, 'First choice']);
-  assert.equal(rows.at(-1)?.state, 'done');
-  assert.equal(rows.find(row => row.item_id === work.tasks[1]!.id && row.type === 'ui.task')?.event_id, 4);
+  assert.deepEqual(rows.filter(row => row.type === 'ui.task').map(row => [row.item_id, row.order]), [[work.tasks[0]!.id, 0.2], [work.tasks[1]!.id, 1.2]]);
+  assert.equal(rows.find(row => row.item_id === work.tasks[0]!.id && row.type === 'ui.task')?.state, 'done');
   const page = conversationPage(rows, events.length - 1, 3);
   assert.equal(page.rows[0]?.type, 'ui.question');
   const reading = projectRecord(events);
@@ -87,7 +87,11 @@ test('snapshot status distinguishes stopped tasks, unanswered questions and conc
   work.status = 'stopped';
   store.save(work);
   writeFileSync(join(store.dir(work.id), 'events.jsonl'), longReplay.map(event => JSON.stringify(event)).join('\n') + '\n');
-  assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '已停止：2 个任务暂停');
+  assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '已停止：2 个任务待继续');
+  assert.equal(snapshot(store, work, idle).work_status?.label.en, 'Stopped: 2 tasks to resume');
+  work.tasks = work.tasks.slice(0, 1);
+  assert.equal(snapshot(store, work, idle).work_status?.label.en, 'Stopped: 1 task to resume');
+  work.tasks = project.tasks.slice(0, 2).map(task => ({ ...task, status: 'open' }));
   work.questions = [{ role: 'engineer', task: work.tasks[0]!.id, question: 'Choose?' }];
   work.status = 'asking';
   assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '等你回答');
@@ -175,6 +179,12 @@ test('real task fragments: progress and files share the map projection; incoming
   const before = events.slice(0, 6);
   write(before);
   const line = rowsOf(before, work).find(row => row.type === 'ui.task')!;
+  const openingOrder = line.order;
+  for (const status of ['stopped', 'working', 'failed'] as const) {
+    const stopped = rowsOf([...before, { type: 'status', status, ts: at(20) }], { ...work, status }).find(row => row.type === 'ui.task')!;
+    assert.equal(stopped.order, openingOrder);
+    assert.equal(stopped.event_id, before.length);
+  }
   assert.equal(line.progress, 'text' in events[3]! ? events[3]!.text : '');
   assert.deepEqual(line.result_paths, []);
   const trace = taskTrace(store, work, 't3');
@@ -186,6 +196,7 @@ test('real task fragments: progress and files share the map projection; incoming
   work.tasks[2]!.status = 'closed';
   const map = progressMap(store, work, 0).tasks.find(task => task.id === 't3')!;
   const done = rowsOf(events, work).find(row => row.type === 'ui.task')!;
+  assert.equal(done.order, openingOrder);
   assert.deepEqual(done.result_paths, ['result.md']);
   assert.deepEqual(done.result_paths, map.result_paths);
   assert.equal(done.progress, firstLine(map.latest_action!.text));

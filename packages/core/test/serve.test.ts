@@ -124,9 +124,13 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   ]);
 
   const metaResponse = await call('/api/meta');
-  assert.equal(metaResponse.headers.get('x-argus-release'), RELEASE_ID);
+  assert.equal(metaResponse.headers.get('x-argus-release'), null);
   const compatibility = inspectApiMeta(await metaResponse.json(), { releaseId: RELEASE_ID });
   assert.equal(compatibility.compatible, true, compatibility.reason);
+  assert.equal(compatibility.meta?.service, 'argus-webapi');
+  assert.deepEqual(Object.keys(compatibility.meta!.runtime).sort(), [
+    'package_version', 'release_id', 'pid', 'started_at', 'source_root', 'executable', 'state_root',
+  ].sort());
   assert.deepEqual(compatibility.meta?.authentication, { required: false, authenticated: true });
   // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
   assert.deepEqual(compatibility.meta?.capabilities, [
@@ -190,7 +194,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(events.find(event => event.type === 'engineer.progress'), { ...events.find(event => event.type === 'engineer.progress'),
     kind: 'agent_message', agent_layer: 'engineer', text: 'Totalling the columns.', item_id: 't1' });
   const { rows } = await get<{ rows: EventMsg[] }>(`${P}/conversation?limit=120`);
-  assert.deepEqual(rows.map(row => row.type), ['ui.operator', 'ui.argus', 'ui.question', 'ui.task']);
+  assert.deepEqual(rows.map(row => row.type), ['ui.operator', 'ui.argus', 'ui.task', 'ui.question']);
   assert.deepEqual(rows[1], reply[1]!.event);
 
   assert.equal((await post(`${P}/decisions/q-stale/resolve`, { option_id: 'custom', note: 'yes' })).status, 409);
@@ -361,7 +365,7 @@ test('the map shows each task and the letters written about it, and a task its c
   // A page that holds a cursor is sent the letters after it, and every task as it stands.
   const later = await get<ProgressMap>(`${P}/map?after=${first.cursor}`);
   assert.deepEqual(later.events.map(letter => [letter.role, letter.to, letter.text]),
-    [['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
+    [['operator', 'reviewer', 'Add the units first.'], ['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
   const task = later.tasks.find(card => card.id === 't1');
   assert.deepEqual([task!.status, task!.pending_question], ['done', undefined]);
   assert.equal(later.tasks.find(card => card.id === 'q0')!.status, 'done');
@@ -925,8 +929,12 @@ test('row stream, refreshed conversation and current-round role log share one pr
   const P = `/api/projects/${sid}`;
   const live = new AbortController();
   t.after(() => live.abort());
-  const stream = frames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame =>
-    (frame.rows as EventMsg[]).some(row => row.text === 'Delivered.'));
+  const stream = frames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame => {
+    // Use this frame's cursor: reading the current project can see a later state.
+    const event = readEvents(store, sid)[Number(frame.cursor)];
+    return event?.type === 'status' && event.status === 'idle'
+      && (frame.rows as EventMsg[]).some(row => row.type === 'ui.task' && row.state === 'done');
+  });
   await post(`${P}/message`, { text: 'Evaluate a seed.' });
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => Boolean(state.pending_questions?.length) && !state.daemon.alive);
   const card = (asking.pending_questions![0] as { operator_decision: { id: string } }).operator_decision;
@@ -942,9 +950,11 @@ test('row stream, refreshed conversation and current-round role log share one pr
   const refreshed = await get<{ rows: EventMsg[] }>(`${P}/conversation?limit=120`);
   assert.deepEqual([...rows.values()].sort((a, b) => Number(a.order) - Number(b.order)), refreshed.rows);
   const question = refreshed.rows.findIndex(row => row.type === 'ui.question');
-  assert.deepEqual(refreshed.rows.slice(question, question + 3).map(row => row.type), ['ui.question', 'ui.operator', 'ui.task']);
+  assert.deepEqual(refreshed.rows.slice(question, question + 2).map(row => row.type), ['ui.question', 'ui.operator']);
+  assert.equal(refreshed.rows[2]!.type, 'ui.task');
+  assert.ok(2 < question, 'the task stays below its opening brief, before the later question');
   assert.equal(refreshed.rows[question + 1]!.text, '42');
-  assert.equal(refreshed.rows[question + 2]!.state, 'done');
+  assert.equal(refreshed.rows[2]!.state, 'done');
   const ended = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
   const replay = frames(await call(`${P}/stream?view=rows&after=${Number(sent.at(-1)!.cursor)}`), () => true);
   const initial = (await replay)[0]!;

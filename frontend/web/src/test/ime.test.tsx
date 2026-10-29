@@ -55,7 +55,6 @@ describe('every keyboard handler guards composition', () => {
   const guarded = [
     'ChatBox.tsx',
     'CommandPalette.tsx',
-    'PendingBanner.tsx',
   ];
 
   it.each(guarded)('%s calls isImeComposing', async (file) => {

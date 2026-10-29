@@ -18,7 +18,6 @@ import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
-import type { CardReference } from "./presentation";
 import { ACTIVE, plainTitle, statusKey } from "./model";
 import {
   STEP_KINDS,
@@ -46,7 +45,6 @@ export type MacroData = MapCard & {
   managerMessage?: string;
   paused?: boolean;
   growthDelay?: number;
-  dispatchState?: 'receiving' | 'landed';
   growingSteps?: Record<string, number>;
   growingLinks?: Record<string, number>;
   seenCards?: Set<string>;
@@ -58,10 +56,6 @@ export type MacroData = MapCard & {
   arriving?: boolean;
   /** A replay is revealing cards in order. */
   revealing?: boolean;
-  readOnly: boolean;
-  source: string;
-  quote: (ref: CardReference) => void;
-  menu: (ref: CardReference, point: { x: number; y: number }) => void;
   readStep: (
     id: string,
     rect: {
@@ -97,22 +91,22 @@ const ICONS = {
 };
 /* Status words a reader outside the team understands at a glance. */
 const STATES: Record<string, [string, string]> = {
-  done: ["已完成", "Completed"],
+  done: ["已结束", "Ended"],
   running: ["进行中", "In progress"],
   pending: ["待开始", "Planned"],
   failed: ["执行失败", "Execution failed"],
   review_unavailable: ["这次结果检查没有完成", "Result check did not finish"],
   held: ["工作暂停，后续尚未安排", "Work paused; no next step scheduled"],
-  aborted: ["已取消", "Cancelled"],
-  cancelled: ["已取消", "Cancelled"],
+  aborted: ["已结束", "Ended"],
+  cancelled: ["已结束", "Ended"],
   skipped: ["已跳过", "Skipped"],
   superseded: ["已被新计划替代", "Replaced by a new plan"],
-  question: ["已暂停", "Paused"],
-  paused: ["已暂停", "Paused"],
+  question: ["等你回答", "Waiting for your answer"],
+  paused: ["已停止", "Stopped"],
   missing: ["记录中缺失", "Not in this record"],
   unknown: ["状态未知", "Unknown"],
   engineer: ["需再改一轮", "Another pass needed"],
-  operator: ["等待答复", "Waiting for an answer"],
+  operator: ["等你回答", "Waiting for your answer"],
   manager: ["等经理定夺", "With the Manager to decide"],
   blocked: ["受阻", "Held up"],
   started: ["进行中", "Under way"],
@@ -228,20 +222,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const activeStep = data.paused ? null : activityStep;
   const stepStatus = (step: SubmapStep) =>
     activityStep === step.id ? data.paused ? 'paused' : 'running' : step.status;
-  const reference = (step?: SubmapStep): CardReference => ({
-    source: data.source,
-    task_id: task.id,
-    task_title: title,
-    lang: zh ? "zh" : "en",
-    part: data.partCount > 1 ? data.part : undefined,
-    step_id: step?.id,
-    step_title: step?.title,
-    event_ids: step
-      ? step.eventIds
-      : data.partCount > 1
-        ? [...new Set(layout.steps.flatMap((s) => s.eventIds))]
-        : [...new Set(layout.steps.flatMap(step => step.eventIds))],
-  });
   const readerWidth = Math.min(
     640,
     layout.width - 48,
@@ -306,7 +286,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-lit={!!data.lit}
       data-hovered={!!data.hovered}
       data-growing={data.growthDelay != null}
-      data-dispatch={data.dispatchState}
       style={{
         animationDelay: `${data.growthDelay ?? (data.arriving ? arrivalDelay(ordinal) : 0)}ms`,
       } as CSSProperties}
@@ -315,11 +294,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       aria-label={title}
       data-completed-now={completedNow}
       data-active={!data.paused && ACTIVE.has(task.status)}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        data.menu(reference(), { x: e.clientX, y: e.clientY });
-      }}
     >
       {(["source", "target"] as const).flatMap((type) =>
         [Position.Left, Position.Right, Position.Top, Position.Bottom].map(
@@ -434,9 +408,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         </button>
         {task.status === 'done' && !!task.result_paths?.length && onOpenArtifact && (
           <div className="map-card-results nodrag nopan">
-            {task.result_paths.map((path, index) => (
+            {task.result_paths.map((path) => (
               <button key={path} type="button" title={path} onClick={() => onOpenArtifact(path)}>
-                {index === 0 ? (zh ? '打开结果' : 'Open results') : path.split('/').pop()}
+                {path.split('/').pop()}
               </button>
             ))}
           </div>
@@ -519,11 +493,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               data-status={stepStatus(step)}
               data-active={activeStep === step.id}
               data-growing={data.growingSteps?.[step.id] != null}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                data.menu(reference(step), { x: e.clientX, y: e.clientY });
-              }}
               style={{
                 animationDelay: `${data.growingSteps?.[step.id] ?? 0}ms`,
                 "--step-index": stepIndex,
@@ -603,11 +572,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               width: reader.width,
               height: reader.height,
             }}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              data.menu(reference(detail), { x: e.clientX, y: e.clientY });
-            }}
           >
             <header>
               <span>
@@ -641,11 +605,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                     )
                   : ""}
               </span>
-              {!data.readOnly && (
-                <button onClick={() => data.quote(reference(detail))}>
-                  {zh ? "引用此项" : "Reference"}
-                </button>
-              )}
             </footer>
           </section>
         )}

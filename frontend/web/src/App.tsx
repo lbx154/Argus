@@ -203,7 +203,6 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
-  const [highlightedTs, setHighlightedTs] = useState<number | undefined>();
   const homeRequest = useRef<{ text: string; files: File[] } | null>(null);
   const [initialSend, setInitialSend] = useState<{ sid: string; text: string; files: File[] } | null>(null);
   const [previewPathRequest, setPreviewPathRequest] = useState({ path: '', token: 0 });
@@ -286,7 +285,7 @@ export default function App() {
     }
     draftUploads.ensure(selectedSid, next, completedUploads);
   }, [completedUploads, composerAttachments, draftUploads, selectedSid, setComposerAttachments]);
-  const attachmentLimits = useQuery({ queryKey: ['attachment-limits', selectedSid], queryFn: ({ signal }) => api.attachmentLimits(selectedSid!, signal), enabled: !!selectedSid });
+  const attachmentLimits = useQuery({ queryKey: ['attachment-limits', activeSid], queryFn: ({ signal }) => api.attachmentLimits(activeSid!, signal), enabled: !!activeSid });
   const draftUploadView = useMemo<DraftUploadView>(() => ({
     status: file => draftUploads.status(file),
     retry: file => draftUploads.retry(file),
@@ -376,11 +375,11 @@ export default function App() {
   useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
 
   const snapQ = useSnapshot(activeSid);
-  const manageSnapQ = useSnapshot(manageTargetSid);
+  const manageSnapQ = useSnapshot(projects.some(project => project.id === manageTargetSid) ? manageTargetSid : null);
   const snap = snapQ.data;
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   useEffect(() => {
-    setEditor(null); setHighlightedTs(undefined);
+    setEditor(null);
   }, [activeSid]);
   const artifactsQ = useArtifacts(loadedSid, true);
   const { query: transcriptQ, events: activityEvents, connected, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
@@ -434,11 +433,8 @@ export default function App() {
     answerPendingReply,
     pendingReply,
     pendingReplyBusy,
-    pendingReplyError,
-    pendingReplyNote,
-    setPendingReplyNote,
   } = usePendingReplySession({
-    activeSid,
+    activeSid: loadedSid,
     backlog: snap?.backlog,
     notify,
     pendingQuestions: snap?.pending_questions,
@@ -561,7 +557,6 @@ export default function App() {
   const manageActions = useProjectActions(manageTargetSid);
   const daemonBusy = actions.startDaemon.isPending
     || actions.stopDaemon.isPending
-    || manageActions.startDaemon.isPending
     || manageActions.updateProject.isPending
     || manageActions.deleteProject.isPending;
 
@@ -580,17 +575,6 @@ export default function App() {
       onError: (error: Error) => notify('error', errorText(error), error),
     }),
   [notify, actions.stopDaemon, t]);
-
-  const manageStartDaemon = useCallback(async (): Promise<boolean> => {
-    try {
-      await manageActions.startDaemon.mutateAsync();
-      notify('success', t('daemon.resumed'));
-      return true;
-    } catch (error) {
-      notify('error', errorText(error), error);
-      return false;
-    }
-  }, [manageActions.startDaemon, notify, t]);
 
   const manageRenameProject = useCallback(async (name: string): Promise<boolean> => {
     if (!manageTargetSid) return false;
@@ -611,9 +595,9 @@ export default function App() {
       const deleted = await manageActions.deleteProject.mutateAsync();
       setDaemonManageOpen(false);
       setManageTargetSid(null);
+      if (deletedSid === activeSid) clearProjectSelection('replace');
       const refreshed = await projectsQ.refetch();
       if (deletedSid === activeSid) {
-        clearProjectSelection('replace');
         const next = rankProjects(refreshed.data?.projects ?? [])[0];
         if (next) selectProject(next.id, 'replace');
       }
@@ -723,8 +707,6 @@ export default function App() {
 
     const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
-      const item = result.item as { id?: unknown } | undefined;
-      if (typeof item?.id === 'string') observe?.({ type: 'task', taskId: item.id });
       const daemon = result.daemon && typeof result.daemon === 'object'
         ? result.daemon as Record<string, unknown>
         : null;
@@ -777,9 +759,7 @@ export default function App() {
               if (!isCurrent()) return;
               if (result.kind !== 'error') setRouteOverride('auto');
               finishMessage(result);
-              const item = result.item as { id?: unknown } | undefined;
-              if (result.kind !== 'task' || typeof item?.id !== 'string')
-                observe?.({ type: 'settled', outcome: result.kind === 'error' ? 'error' : 'message' });
+              observe?.({ type: 'settled', outcome: result.kind === 'error' ? 'error' : 'message' });
             },
             onError: (err) => {
               if (isCurrent()) streamErr = err;
@@ -821,13 +801,22 @@ export default function App() {
 
   const workspaceRoots = useMemo(() => [snap?.session.workdir].filter((root): root is string => Boolean(root)), [snap?.session.workdir]);
   const replyChoice = useCallback((choice: string) => { void sendMessageRef.current(choice); }, []);
-  const sendComposerMessage = async (text: string, files: File[] = [], observe?: DispatchObserver, options?: MapSendOptions): Promise<boolean> => {
+  const sendComposerMessage = async (text: string, files: File[] = [], options?: MapSendOptions): Promise<boolean> => {
     if (rewriting) return false;
     const draft = captureDraft(sidRef.current);
     if (!draft) return false;
     if (draft.missingAttachments?.length) {
       notify('error', locale === 'zh-CN' ? '刷新前的附件尚未上传。请重新选择，或在对话中移除提醒后再发送。' : 'Files selected before reloading were not uploaded. Select them again or discard their reminder in the conversation before sending.');
       return false;
+    }
+    if (pendingReply) {
+      if (files.length || draft.uploaded?.length) {
+        notify('error', locale === 'zh-CN' ? '回答问题请先移除附件。' : 'Remove attachments before answering the question.');
+        return false;
+      }
+      const accepted = await answerPendingReply(text);
+      if (accepted) consumeDraft(draft, files);
+      return accepted;
     }
     if (options?.whileRunning) {
       if (files.length || draft.uploaded?.length) {
@@ -851,7 +840,6 @@ export default function App() {
         failedBeforeAcceptance = true;
         if (cleared) restoreDraft(cleared, draft);
       }
-      if (sidRef.current === draft.sid) observe?.(result);
     }, {
       ready: draft.uploaded?.filter(item => !item.file).map(item => item.attachment),
       completed: new Map(draft.uploaded?.flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])),
@@ -876,17 +864,13 @@ export default function App() {
     if (!searchTarget || loadedSid !== searchTarget.sid) return;
     if (searchTarget.kind === 'artifact' && searchTarget.path) focusDeliveryPath(searchTarget.path);
     else if (searchTarget.kind === 'edition' && searchTarget.path) setEditor({ path: searchTarget.path, version: searchTarget.version });
-    else if (searchTarget.kind === 'conversation') {
-      localConversationSid.current = loadedSid;
-      setLocalConversationEvents(current => [...current, {
-        type: searchTarget.role === 'operator' ? 'ui.operator' : 'ui.argus',
-        agent_layer: searchTarget.role === 'operator' ? 'operator' : 'manager',
-        text: searchTarget.text, ts: Number(searchTarget.ts), message_id: searchTarget.message_id,
-      }]);
-      setHighlightedTs(Number(searchTarget.ts));
+    else if (searchTarget.kind === 'conversation') return; // The conversation consumes it after history is ready.
+    else if (searchTarget.task_id) {
+      setWorkspaceView('map'); setMobileView('activity');
+      return; // The map consumes the search result once its card is ready.
     }
     setSearchTarget(null);
-  }, [searchTarget, loadedSid, focusDeliveryPath]);
+  }, [searchTarget, loadedSid, focusDeliveryPath, setWorkspaceView, setMobileView]);
 
   const paletteItems: PaletteItem[] = useMemo(() => {
     const nav: PaletteItem[] = [
@@ -1031,9 +1015,8 @@ export default function App() {
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} rewriting={rewriting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel requestedTaskId={searchTarget?.sid === loadedSid ? searchTarget.task_id : undefined} onTaskLocated={() => setSearchTarget(null)} key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} pending={messagePending} readOnly={kiosk}
                 onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
-                routeOverride={routeOverride} onRouteOverrideChange={setRoute}
                 conversationEvents={activityEvents} conversationPagination={conversationPagination} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory);
@@ -1041,14 +1024,7 @@ export default function App() {
                 }}
                 onOpenReceipt={openDelivery} onOpenArtifact={setArtifactPath}
                 deliveries={deliveryHistory}
-                pendingQuestion={!kiosk && pendingReply ? <PendingBanner key={`${activeSid}:${pendingReply.id}`} reply={pendingReply} busy={pendingReplyBusy} error={pendingReplyError} note={pendingReplyNote} onNoteChange={setPendingReplyNote} onSubmit={answerPendingReply} /> : null}
               /></Suspense>}
-              {workspaceView === 'map' && !kiosk && (missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
-                <span className="text-warn">{draftStorageError
-                  ? locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'
-                  : locale === 'zh-CN' ? '刷新前的附件尚未上传，请重新选择或移除提醒。' : 'Unuploaded files must be selected again or discarded.'}</span>
-                <button type="button" onClick={() => { setWorkspaceView('activity'); setMobileView('activity'); }}>{locale === 'zh-CN' ? '前往对话处理' : 'Review in conversation'}</button>
-              </div>}
               <div className={`${workspaceView === 'activity' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1 flex-col`}>
                 <ProgressHealthBanner key={loadedSid || 'none'} sid={snap.session.id} health={health}
                   onAdjust={kiosk ? undefined : () => setComposerFocus((value) => value + 1)} />
@@ -1075,7 +1051,8 @@ export default function App() {
                       if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
                       setComposerDraft(text); setComposerFocus(value => value + 1);
                     }}
-                    requestedMessageTs={highlightedTs}
+                    requestedMessageTs={searchTarget?.sid === loadedSid && searchTarget.kind === 'conversation' ? Number(searchTarget.ts) : undefined}
+                    onMessageLocated={() => setSearchTarget(null)}
                     rememberPosition
                   />
                   </ReplyChoiceContext.Provider>
@@ -1083,8 +1060,7 @@ export default function App() {
                 {!kiosk ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
                     <div className="mx-auto w-full max-w-full lg:max-w-[61.8vw]">
-                    {workspaceView === 'activity' && pendingReply ? <PendingBanner key={`${activeSid}:${pendingReply.id}`} reply={pendingReply}
-                      busy={pendingReplyBusy} error={pendingReplyError} note={pendingReplyNote} onNoteChange={setPendingReplyNote} onSubmit={answerPendingReply} /> : null}
+                    {workspaceView === 'activity' && pendingReply ? <PendingBanner key={`${activeSid}:${pendingReply.id}`} reply={pendingReply} /> : null}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}
@@ -1092,7 +1068,7 @@ export default function App() {
                       onAttachmentsChange={changeComposerAttachments}
                       onChange={setComposerDraft}
                       onSend={sendComposerMessage}
-                      disabled={!activeSid}
+                      disabled={!loadedSid || pendingReplyBusy}
                       pending={messagePending}
                       focusSignal={composerFocus}
                       embedded
@@ -1214,8 +1190,11 @@ export default function App() {
       </SessionIdContext.Provider>
 
       {/* global overlays */}
-      <ProjectTrash open={trashOpen} onClose={() => setTrashOpen(false)} onRestored={async () => {
+      <ProjectTrash open={trashOpen} onClose={() => setTrashOpen(false)} onRestored={async (sid) => {
         await projectsQ.refetch({ throwOnError: true });
+        selectProject(sid);
+        setSidebarOpen(false);
+        notify('success', t('project.restored'));
       }} />
       <HistorySearch open={searchOpen} onClose={() => setSearchOpen(false)} onChoose={result => {
         setSearchTarget(result); selectProject(result.sid);
@@ -1264,7 +1243,6 @@ export default function App() {
             || ''}
           alive={manageSnapQ.data?.daemon.alive
             ?? Boolean(projects.find((project) => project.id === manageTargetSid)?.daemon_alive)}
-          resumable={manageSnapQ.data?.daemon.resumable === true}
           snapshot={manageSnapQ.data}
           busy={daemonBusy}
           onClose={() => {
@@ -1272,7 +1250,6 @@ export default function App() {
             setManageTargetSid(null);
           }}
           onRename={manageRenameProject}
-          onStart={manageStartDaemon}
           onDelete={async () => {
             const deletedSid = manageTargetSid;
             const deleted = await manageDeleteProject();

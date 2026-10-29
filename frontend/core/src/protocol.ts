@@ -9,13 +9,13 @@ import {
 export * from '../../../packages/contracts/src/api.js';
 export * from '../../../packages/contracts/src/apiProtocol.generated.js';
 export { RELEASE_ID };
-export { describeApiRuntime, requireSnapshotContract, RELEASE_ARTIFACT_DRIFT_WARNING } from '../../../packages/contracts/src/protocol.js';
+export { describeApiRuntime, requireSnapshotContract } from '../../../packages/contracts/src/protocol.js';
 export type { ApiCompatibility, ApiRuntimeExpectation } from '../../../packages/contracts/src/protocol.js';
 
 export function inspectApiMeta(value: unknown, expected: ApiRuntimeExpectation = { releaseId: RELEASE_ID }) {
   return inspectSharedApiMeta(value, expected);
 }
 
-export function requireCompatibleApiMeta(value: unknown, onWarning?: (warning: string) => void) {
-  return requireSharedApiMeta(value, { releaseId: RELEASE_ID }, onWarning);
+export function requireCompatibleApiMeta(value: unknown) {
+  return requireSharedApiMeta(value, { releaseId: RELEASE_ID });
 }

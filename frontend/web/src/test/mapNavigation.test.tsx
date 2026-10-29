@@ -20,8 +20,9 @@ vi.mock("@xyflow/react", async (original) => {
   const react = await import("react");
   return {
     ...await original<typeof import("@xyflow/react")>(),
-    ReactFlow: ({ nodes, edges, onlyRenderVisibleElements }: { nodes: MacroNode[]; edges: Edge[]; onlyRenderVisibleElements: boolean }) =>
-      <div data-testid="flow" data-nodes={nodes} data-edges={edges} data-culling={onlyRenderVisibleElements} />,
+    ReactFlow: ({ nodes, edges, onlyRenderVisibleElements, children }: { nodes: MacroNode[]; edges: Edge[]; onlyRenderVisibleElements: boolean; children: React.ReactNode }) =>
+      <div data-testid="flow" data-nodes={nodes} data-edges={edges} data-culling={onlyRenderVisibleElements}>{children}</div>,
+    Background: () => null, Controls: () => null, MiniMap: () => <aside data-testid="minimap" />,
     useNodesState: () => [...react.useState([]), () => {}],
     useNodesInitialized: () => initialization.ready,
   };
@@ -47,7 +48,6 @@ vi.mock("../components/Modal", () => ({
   Modal: ({ open, children, label }: ComponentProps<typeof Modal>) => open ? <div role="dialog" aria-label={label}>{children}</div> : null,
   ModalHeader: ({ title, sub }: { title: string; sub?: string }) => <header><h2>{title}</h2><p>{sub}</p></header>,
 }));
-vi.mock("../map/MapComposer", () => ({ MapComposer: () => null }));
 vi.mock("../map/viewMemory", () => ({ recalledView: () => memory, rememberView: () => {} }));
 
 const data: Dataset = {
@@ -67,10 +67,7 @@ const props: ComponentProps<typeof MapCanvas> = {
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
     roles: [], backlog: [],
   },
-  composer: {
-    value: "", onChange: () => {}, onSend: async () => false, pending: false, 
-    attachments: [], onAttachmentsChange: () => {}, focusSignal: 0, zh: false,
-  },
+  pending: false,
   actions: {
     conversationEvents: [], connected: true, artifacts: [], deliveryCount: 0,
     onOpenDelivery: () => {}, onOpenReceipt: () => {}, onOpenArtifact: () => {},
@@ -112,7 +109,7 @@ it("omits the empty status row and ambient decoration without hiding active work
   expect(renderer.root.findAllByProps({ className: "map-canvas-wrap" })).toHaveLength(1);
 
   act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={empty}
-    composer={{ ...props.composer, pending: true }} snapshot={{ ...props.snapshot, work_status: { state: "running", reason: "", role: "manager", roles: ["manager"], taskId: "", title: "", activityAt: null, foreground: true, label: { "zh-CN": "正在处理你的请求", en: "Working on your request" } } }} /></QueryClientProvider>));
+    pending={true} snapshot={{ ...props.snapshot, work_status: { state: "running", reason: "", role: "manager", roles: ["manager"], taskId: "", title: "", activityAt: null, foreground: true, label: { "zh-CN": "正在处理你的请求", en: "Working on your request" } } }} /></QueryClientProvider>));
   expect(renderer.root.findAllByProps({ className: "map-status-text" })).toHaveLength(0);
   expect(renderer.root.findAllByProps({ className: "map-progress" })).toHaveLength(0);
 });
@@ -270,4 +267,37 @@ it("keeps normal card navigation when the traced task disappears from the live m
   expect(button("Trace dependencies").props["aria-pressed"]).toBe(false);
   act(() => nodes()[0].data.open(nodes()[0].id));
   expect(focused()).toBe("parent");
+});
+
+it('waits for the initial fit before locating the task of a team-letter search result', () => {
+  const frames: FrameRequestCallback[] = [];
+  const located = vi.fn();
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
+  vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} requestedTaskId="question" onTaskLocated={located} /></QueryClientProvider>));
+  expect(focused()).toBeUndefined();
+  initialization.ready = true;
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} requestedTaskId="question" onTaskLocated={located} /></QueryClientProvider>));
+  act(() => { for (const callback of frames.splice(0)) callback(0); });
+  expect(focused()).toBe('question');
+  expect(located).toHaveBeenCalledOnce();
+  // Ordinary map updates keep the user's subsequent navigation.
+  act(() => button('Fit map').props.onClick());
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={{ ...data }} requestedTaskId="question" onTaskLocated={located} /></QueryClientProvider>));
+  expect(focused()).toBeUndefined();
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>));
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} requestedTaskId="question" onTaskLocated={located} /></QueryClientProvider>));
+  expect(focused()).toBe('question');
+  expect(located).toHaveBeenCalledTimes(2);
+});
+
+it("opens the minimap only on request and offers no map input path", () => {
+  expect(renderer.root.findAllByProps({ "data-testid": "minimap" })).toHaveLength(0);
+  expect(button("Minimap").props["aria-expanded"]).toBe(false);
+  act(() => button("Minimap").props.onClick());
+  expect(renderer.root.findAllByProps({ "data-testid": "minimap" })).toHaveLength(1);
+  act(() => button("Minimap").props.onClick());
+  expect(renderer.root.findAllByProps({ "data-testid": "minimap" })).toHaveLength(0);
+  expect(renderer.root.findAllByType("textarea")).toHaveLength(0);
+  expect(nodes().every(node => !('quote' in node.data) && !('menu' in node.data))).toBe(true);
 });

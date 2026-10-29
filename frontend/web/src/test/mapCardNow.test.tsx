@@ -53,8 +53,7 @@ describe('the task holder, the latest thing said and results on the map card', (
   const card = (value: MapTask): NodeProps<MacroNode> => ({ id: value.id, data: {
     id: value.id, task: value, ordinal: 1, part: 1, partCount: 1, start: 1, end: 0, totalSteps: 0,
     layout: layoutSubmap(value, [], true, []), frame: { width: 1440, height: 900, scale: 1 },
-    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false,
-    source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(),
+    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false, open: vi.fn(), readStep: vi.fn(),
   } as MacroData } as NodeProps<MacroNode>);
 
   it('refreshes the holder and the latest thing said, as text rather than Markdown, through the existing map merge', () => {
@@ -83,7 +82,7 @@ describe('the task holder, the latest thing said and results on the map card', (
     expect(tree!.root.findAllByProps({ title: 'report.md' })).toHaveLength(0);
     act(() => tree!.update(shown(next.tasks[0])));
     const result = tree!.root.findByProps({ title: 'report.md' });
-    expect(result.children.join('')).toBe('打开结果');
+    expect(result.children.join('')).toBe('report.md');
     act(() => result.props.onClick());
     act(() => tree!.root.findByProps({ title: 'data.csv' }).props.onClick());
     expect(open.mock.calls).toEqual([['report.md'], ['data.csv']]);

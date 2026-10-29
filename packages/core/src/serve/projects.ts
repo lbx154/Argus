@@ -76,7 +76,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       return { ok: true, workdir };
     }],
     ['PATCH', /^\/api\/projects\/([^/]+)$/, async ({ params: [id], body }) => {
-      const name = String((await body()).name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      const name = String((await body()).name ?? '').replace(/\s+/g, ' ').trim();
       edit(id!, work => { if (name) work.name = name; else delete work.name; });
       return { ok: true, sid: id, name };
     }],

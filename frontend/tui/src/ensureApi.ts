@@ -6,7 +6,6 @@ import { debuglog } from 'node:util';
 import {
   describeApiRuntime,
   inspectApiMeta,
-  RELEASE_ARTIFACT_DRIFT_WARNING,
   type ApiRuntimeExpectation,
   type ApiMeta,
 } from '../../core/src/protocol.js';
@@ -85,7 +84,6 @@ export interface ApiProbeResult {
   stateRootMismatch?: boolean;
   applicationMismatch?: boolean;
   message: string;
-  warning?: string;
   meta?: ApiMeta;
 }
 
@@ -147,10 +145,8 @@ async function waitForStartupPoll(
 function localRuntimeExpectation(
   env: NodeJS.ProcessEnv = process.env,
 ): ApiRuntimeExpectation {
-  const sourceDigest = env.ARGUS_TUI_LOCAL_SOURCE_DIGEST?.trim();
   return {
     releaseId: env.ARGUS_TUI_LOCAL_RELEASE_ID?.trim() || RELEASE_ID,
-    sourceDigest: sourceDigest || undefined,
   };
 }
 
@@ -210,15 +206,9 @@ export async function probeApi(
             meta: compatibility.meta,
           };
         }
-        let warning = compatibility.warning;
-        if (warning === RELEASE_ARTIFACT_DRIFT_WARNING && expectation.sourceDigest) {
-          debugArgus('local source checkout has release artifact drift: %s', warning);
-          warning = undefined;
-        }
         return {
           state: 'compatible',
           message: describeApiRuntime(compatibility.meta),
-          warning,
           meta: compatibility.meta,
         };
       },
@@ -247,7 +237,6 @@ export interface EnsureResult {
   reachable: boolean;
   spawned: boolean;
   message: string;
-  warning?: string;
   /** Exact record written for an API process tree created by this invocation. */
   spawnedApi?: SpawnedApiReceipt;
 }
@@ -267,17 +256,14 @@ function compatibleResult(
   options: {
     spawned: boolean;
     prefix: string;
-    onWarning?: (warning: string) => void;
     spawnedApi?: SpawnedApiReceipt;
   },
 ): EnsureResult {
-  const { spawned, prefix, onWarning, spawnedApi } = options;
-  if (probe.warning) onWarning?.(probe.warning);
+  const { spawned, prefix, spawnedApi } = options;
   return {
     reachable: true,
     spawned,
     message: `${prefix} · ${probe.message}`,
-    warning: probe.warning,
     ...(spawnedApi ? { spawnedApi } : {}),
   };
 }
@@ -483,7 +469,6 @@ export async function ensureApi(opts: {
     return compatibleResult(initial, {
       spawned: false,
       prefix: 'api up',
-      onWarning,
     });
   }
   if (initial.state === 'incompatible') {
@@ -604,7 +589,6 @@ export async function ensureApi(opts: {
           return compatibleResult(competing, {
             spawned: false,
             prefix: 'api up',
-            onWarning,
           });
         }
         return {
@@ -631,7 +615,6 @@ export async function ensureApi(opts: {
         return compatibleResult(probe, {
           spawned: true,
           prefix: 'api started',
-          onWarning,
           spawnedApi: { ownerFile, ownership },
         });
       }
@@ -700,7 +683,6 @@ export async function ensureApi(opts: {
         return compatibleResult(competing, {
           spawned: false,
           prefix: 'api up',
-          onWarning,
         });
       }
       return {
@@ -731,7 +713,6 @@ export async function ensureApi(opts: {
       return compatibleResult(probe, {
         spawned: true,
         prefix: 'api started',
-        onWarning,
         spawnedApi,
       });
     }

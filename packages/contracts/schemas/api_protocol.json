@@ -1,5 +1,5 @@
 {
-  "API_SERVICE": "argus-skill-webapi",
+  "API_SERVICE": "argus-webapi",
   "API_PROTOCOL_NAME": "argus.webapi",
   "API_PROTOCOL_MAJOR": 1,
   "API_PROTOCOL_MINOR": 16,

@@ -23,13 +23,16 @@ beforeEach(() => {
   client.setQueryData(['workspace-tree', 's-A', 'workspace-A'], { root: '/synthetic', entries: [], truncated: false });
 });
 afterEach(() => { if (view) act(() => view.unmount()); client.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
-function openGit(overrides: Partial<WorkspaceGit> = {}) {
+function openWorkspace(overrides: Partial<WorkspaceGit> = {}) {
   client.setQueryData(['workspace-git', 's-A', 'workspace-A'], {
     available: true, branch: 'synthetic', status: ' M demo.txt', diff, log: '', stat: '', remotes: [], upstream: '',
     ahead: 0, behind: 0, identity: { name: '', email: '', valid: false },
     ...overrides,
   });
   act(() => { view = create(<QueryClientProvider client={client}><IdePage {...props} /></QueryClientProvider>); });
+}
+function openGit(overrides: Partial<WorkspaceGit> = {}) {
+  openWorkspace(overrides);
   const changes = view.root.findAllByType('button').find(button => button.children.join('') === 'Changes')!;
   act(() => changes.props.onClick());
 }
@@ -43,7 +46,7 @@ it('wires the existing workspace diff to classified text and preserves backend t
 });
 it('represents an empty diff without claiming an Agent has finished or changed files', () => {
   openGit({ diff: '', status: '' });
-  expect(JSON.stringify(view.toJSON())).toContain('No workspace diff');
+  expect(view.root.findByProps({ className: 'readonly-diff__hint' }).children).toEqual(['No differences.']);
   expect(fetch).not.toHaveBeenCalled();
 });
 it('uses a Windows workspace basename without losing the full root or covering tree controls', () => {
@@ -55,10 +58,21 @@ it('uses a Windows workspace basename without losing the full root or covering t
   expect(name.props.title).toBe(path);
   expect(fetch).not.toHaveBeenCalled();
 });
-it('keeps the existing non-Git fallback and performs no additional queries', () => {
-  openGit({ available: false });
-  expect(JSON.stringify(view.toJSON())).toContain('Not a Git repository');
+it('omits source control for a non-Git workspace while keeping files readable without additional queries', () => {
+  client.setQueryData(['workspace-tree', 's-A', 'workspace-A'], { root: '/synthetic', entries: [
+    { path: 'demo.txt', name: 'demo.txt', type: 'file', size: 6, mtime: 1, extension: '.txt' },
+  ], truncated: false });
+  client.setQueryData(['workspace-file', 's-A', 'workspace-A', 'demo.txt'], {
+    root: '/synthetic', workspace_id: 'workspace-A', path: 'demo.txt', content: 'plain workspace content', size: 23, mtime: 1, extension: '.txt',
+  });
+  openWorkspace({ available: false });
+  expect(view.root.findAllByProps({ className: 'vscode-source-control' })).toHaveLength(0);
+  expect(view.root.findAllByProps({ 'aria-label': 'Source Control' })).toHaveLength(0);
   expect(view.root.findAllByProps({ 'data-readonly-diff': true })).toHaveLength(0);
+  const file = view.root.findByProps({ className: 'workspace-tree' }).findAllByType('button')
+    .find(button => button.findAllByType('span').some(span => span.children.includes('demo.txt')))!;
+  act(() => file.props.onClick());
+  expect(view.root.findByProps({ className: 'vscode-code' }).findByType('code').children).toEqual(['plain workspace content']);
   expect(fetch).not.toHaveBeenCalled();
 });
 

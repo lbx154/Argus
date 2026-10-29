@@ -187,7 +187,7 @@ export class Flow {
     // The project is named once, by the first work the Manager hands the team, whose first line is a
     // title: one with work before it keeps its name, and a reply to the operator names nothing.
     const title = !handoff || project.name || begun(project) || handoff.to === 'operator' ? '' : firstLine(read(handoff));
-    if (title) project.name = title.slice(0, 80);
+    if (title) project.name = title;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
       const letter = read(handoff);

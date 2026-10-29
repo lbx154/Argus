@@ -18,10 +18,8 @@ function meta(root: string | null = '/state/chosen'): ApiMeta {
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
       state_root: root, package_version: 'fixture', source_root: '/code',
-      configured_source_root: null, source_root_matches_config: true,
-      revision: null, pid: 123, python_version: 'fixture', executable: '/python',
-      started_at: '', release_id: RELEASE_ID, manifest_source_digest: null,
-      runtime_source_digest: null, release_matches_source: true,
+      pid: 123, executable: '/node',
+      started_at: '', release_id: RELEASE_ID,
     },
   };
 }
@@ -35,7 +33,7 @@ test('data directory identity handles POSIX and Windows canonical paths', () => 
 });
 
 test('real HTTP probe rejects another state directory even when the release matches', async (t) => {
-  const names = ['ARGUS_TUI_LOCAL_STATE_ROOT', 'ARGUS_TUI_LOCAL_RELEASE_ID', 'ARGUS_TUI_LOCAL_SOURCE_DIGEST'];
+  const names = ['ARGUS_TUI_LOCAL_STATE_ROOT', 'ARGUS_TUI_LOCAL_RELEASE_ID'];
   const previous = names.map((name) => process.env[name]);
   t.after(() => names.forEach((name, index) => {
     if (previous[index] === undefined) delete process.env[name];
@@ -43,7 +41,6 @@ test('real HTTP probe rejects another state directory even when the release matc
   }));
   process.env.ARGUS_TUI_LOCAL_STATE_ROOT = '/state/chosen';
   process.env.ARGUS_TUI_LOCAL_RELEASE_ID = RELEASE_ID;
-  delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
   let body = meta('/state/other');
   let status = 200;
   const server = createServer((_request, response) => {
@@ -119,14 +116,13 @@ test('another application is never claimed, signalled or replaced', async () => 
 
 test('HTTP probe checks application ownership in both directions', async (t) => {
   const names = ['ARGUS_APPLICATION_ROUTES', 'ARGUS_TUI_LOCAL_STATE_ROOT',
-    'ARGUS_TUI_LOCAL_SOURCE_DIGEST', 'ARGUS_TUI_LOCAL_RELEASE_ID'];
+    'ARGUS_TUI_LOCAL_RELEASE_ID'];
   const previous = names.map(name => process.env[name]);
   t.after(() => names.forEach((name, index) => {
     if (previous[index] === undefined) delete process.env[name];
     else process.env[name] = previous[index];
   }));
   delete process.env.ARGUS_TUI_LOCAL_STATE_ROOT;
-  delete process.env.ARGUS_TUI_LOCAL_SOURCE_DIGEST;
   process.env.ARGUS_TUI_LOCAL_RELEASE_ID = RELEASE_ID;
   process.env.ARGUS_APPLICATION_ROUTES = 'example:register';
   const body = meta();

@@ -91,7 +91,7 @@ it('never lends cached or optimistic history to another session, including a lat
   expect(rendered.filter(row => row.sid === 'b').every(row => !row.text.includes('session A'))).toBe(true);
 });
 
-it('replaces a moved task across loaded pages and retains the server order of question and answer', async () => {
+it('updates a task across loaded pages without moving it behind the question and answer', async () => {
   const task = { type: 'ui.task', row_id: 'task-t1', item_id: 't1', state: 'running', event_id: 1, order: 1 };
   const question = { type: 'ui.question', row_id: 'q1', text: 'Choose?', event_id: 10, order: 10 };
   client.setQueryData(['conversation', 'b'], {
@@ -104,11 +104,11 @@ it('replaces a moved task across loaded pages and retains the server order of qu
   act(() => receive({ type: 'ui.projection', cursor: 15, round: 12, role_events: [], rows: [
     { ...question, event_id: 12, order: 12 },
     { type: 'ui.operator', row_id: 'answer', text: 'Yes', event_id: 12, order: 12.1 },
-    { ...task, state: 'done', event_id: 15, order: 15.2 },
+    { ...task, state: 'done', event_id: 15 },
   ] }));
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-  expect(latest.events.map(row => row.row_id)).toEqual(['q1', 'answer', 'task-t1']);
-  expect(latest.events.at(-1)?.state).toBe('done');
+  expect(latest.events.map(row => row.row_id)).toEqual(['task-t1', 'q1', 'answer']);
+  expect(latest.events[0]?.state).toBe('done');
 });
 
 it('adds an answered pair absent from the current page and uses the same paging controller to load older rows', async () => {
@@ -173,6 +173,8 @@ it('keeps first-frame and appended role logs independent of snapshots and isolat
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
   const text = (node: import('react-test-renderer').ReactTestInstance): string => node.children.map(child => typeof child === 'string' ? child : text(child)).join('');
   const words = () => text(renderer!.root);
+  expect(words()).not.toContain('Streamed finding');
+  act(() => renderer!.root.findAllByProps({ 'data-role': 'engineer' }).forEach(group => group.findAllByType('button')[0].props.onClick()));
   expect(words().match(/Streamed finding/g)).toHaveLength(2);
   const saved = log;
   client.setQueryData(['snapshot', 'a'], snap);
@@ -195,6 +197,7 @@ it('keeps first-frame and appended role logs independent of snapshots and isolat
   act(() => renderer!.update(surfaces('a', true)));
   const conversation = renderer!.root.findByProps({ 'data-surface': 'conversation' });
   expect(conversation.findAllByProps({ 'data-project-work': true })).toHaveLength(0);
+  act(() => renderer!.root.findByProps({ 'data-surface': 'map' }).findByProps({ 'data-role': 'engineer' }).findAllByType('button')[0].props.onClick());
   expect(words().match(/New round finding/g)).toHaveLength(1);
   expect(log.events).toHaveLength(1);
 });

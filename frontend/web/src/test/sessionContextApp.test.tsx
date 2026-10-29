@@ -124,6 +124,43 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
+  it('answers the displayed question through the main composer without sending a Manager message', async () => {
+    const current = snapshot('s-A');
+    current.pending_questions = [{ id: 't1', operator_decision: {
+      id: 'reviewer-t1', item_id: 't1', status: 'pending', question: 'Which encoding?', options: [],
+    } }];
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: current });
+    refresh();
+    const answer = vi.spyOn(api, 'resolveDecision').mockResolvedValue({ resolved: true });
+    const stream = vi.spyOn(api, 'messageStream').mockResolvedValue();
+    const followup = vi.spyOn(api, 'queueFollowup').mockResolvedValue({ ok: true, queued: true, message_id: 'followup' });
+    type('Use UTF-8');
+    await act(async () => { expect(await props().onSend('Use UTF-8', [], { whileRunning: true })).toBe(true); });
+    expect(answer).toHaveBeenCalledExactlyOnceWith('s-A', 'reviewer-t1', 'custom', 'Use UTF-8');
+    expect(stream).not.toHaveBeenCalled();
+    expect(followup).not.toHaveBeenCalled();
+    expect(props().value).toBe('');
+  });
+
+  it('keeps the main answer draft on failure and does not send its attachments as a Manager message', async () => {
+    const current = snapshot('s-A');
+    current.pending_questions = [{ id: 't1', operator_decision: {
+      id: 'engineer-t1', item_id: 't1', status: 'pending', question: 'Which encoding?', options: [],
+    } }];
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: current });
+    refresh();
+    const answer = vi.spyOn(api, 'resolveDecision').mockRejectedValue(new Error('Connection refused'));
+    const stream = vi.spyOn(api, 'messageStream').mockResolvedValue();
+    type('Use UTF-8');
+    await act(async () => { expect(await props().onSend('Use UTF-8')).toBe(false); });
+    expect(props().value).toBe('Use UTF-8');
+    expect(renderer.root.findByType(ActionNotice).props.notice.tone).toBe('error');
+    await act(async () => { expect(await props().onSend('Use UTF-8', [new File(['data'], 'data.txt')])).toBe(false); });
+    expect(answer).toHaveBeenCalledOnce();
+    expect(stream).not.toHaveBeenCalled();
+    expect(props().value).toBe('Use UTF-8');
+  });
+
   it('shows no continuous work control or command for the server snapshot', () => {
     expect(renderer.root.findAllByProps({ role: 'switch' })).toHaveLength(0);
     expect(JSON.stringify(renderer.toJSON())).not.toMatch(/Keep going|continuous campaign|持续推进/);
@@ -353,11 +390,11 @@ describe('App session composer ownership', () => {
     const map = renderer.root.findByType(MapPanel);
     expect(renderer.root.findByType(TopBar).props.snap.session.id).toBe('s-A');
     expect(renderer.root.findByType(TopBar).props.showRunControl).toBe(false);
-    expect(map.props.draft).toBe('shared'); expect(map.props.attachments[0]).toBe(file);
-    act(() => map.props.onDraftChange('map edit'));
-    expect(props().value).toBe('map edit');
+    expect(map.props).not.toHaveProperty('draft');
+    expect(map.props).not.toHaveProperty('onSend');
+    expect(props().value).toBe('shared');
     select('s-B'); expect(props().routeOverride).toBe('auto');
-    select('s-A'); expect(props().value).toBe('map edit');
+    select('s-A'); expect(props().value).toBe('shared');
   });
 
   it('offers settings, the model chooser, the route choice and editions only where the server declares them', async () => {

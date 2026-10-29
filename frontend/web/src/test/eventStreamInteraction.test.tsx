@@ -309,6 +309,82 @@ it('restores an opted-in conversation reading position without jumping to the la
   expect(setItem).toHaveBeenCalledWith('argus.conversation.position.v1:session', JSON.stringify({ top: 180, following: false }));
 });
 
+it('waits for ready history before choosing search over the saved position, then keeps it through updates', () => {
+  const { snapshot } = runtimeFixture(false);
+  vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ top: 140, following: false }), setItem: vi.fn() });
+  const target = { dataset: {} as Record<string, string>, closest: () => null,
+    scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
+  content = { querySelector: () => target, querySelectorAll: () => [] };
+  const events: EventMsg[] = [{ type: 'ui.argus', text: 'Search hit', ts: 1 }];
+  const show = (ready: boolean, rows = events) => <EventStream events={rows} snapshot={snapshot} connected showReasoning={false}
+    requestedMessageTs={1} historyStatus={ready ? 'ready' : 'loading'} rememberPosition embedded />;
+  act(() => { renderer = create(show(false), { createNodeMock: nodeMock }); });
+  resize(content); paint();
+  expect(target.scrollIntoView).not.toHaveBeenCalled();
+  expect(outer.scrollTop).toBe(0);
+  act(() => renderer!.update(show(true)));
+  resize(content); paint();
+  expect(target.scrollIntoView).toHaveBeenCalledOnce();
+  expect(outer.scrollTop).toBe(260);
+  expect(target.dataset.searchHit).toBe('true');
+  outer.scrollHeight = 1200;
+  act(() => renderer!.update(show(true, [...events, { type: 'ui.argus', text: 'New content', ts: 2 }])));
+  resize(content); paint();
+  expect(target.scrollIntoView).toHaveBeenCalledOnce();
+  expect(outer.scrollTop).toBe(260);
+});
+
+it('clears a consumed search without restoring again, and can locate the same row on a later search', () => {
+  const target = { dataset: {}, closest: () => null, scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
+  content = { querySelector: () => target, querySelectorAll: () => [] };
+  const located = vi.fn();
+  const show = (requestedMessageTs?: number) => <EventStream events={[]} connected showReasoning={false}
+    requestedMessageTs={requestedMessageTs} onMessageLocated={located} />;
+  act(() => { renderer = create(show(1), { createNodeMock: nodeMock }); });
+  expect(located).toHaveBeenCalledOnce();
+  act(() => renderer!.update(show()));
+  resize(content); paint();
+  expect(outer.scrollTop).toBe(260);
+  scrollConversation(180);
+  act(() => renderer!.update(show(1)));
+  expect(target.scrollIntoView).toHaveBeenCalledTimes(2);
+  expect(located).toHaveBeenCalledTimes(2);
+  expect(outer.scrollTop).toBe(260);
+});
+
+it('loads older conversation pages until the requested visible row exists and opens a folded brief', () => {
+  const load = vi.fn();
+  const brief = { open: false };
+  const target = { dataset: {}, closest: () => brief, scrollIntoView: vi.fn() };
+  let found = false;
+  content = { querySelector: () => found ? target : null, querySelectorAll: () => [] };
+  const show = (loadingOlder: boolean) => <EventStream events={[]} connected showReasoning={false}
+    requestedMessageTs={1} hasOlder loadingOlder={loadingOlder} onLoadOlder={load} />;
+  act(() => { renderer = create(show(false), { createNodeMock: nodeMock }); });
+  expect(load).toHaveBeenCalledOnce();
+  act(() => renderer!.update(show(true)));
+  expect(target.scrollIntoView).not.toHaveBeenCalled();
+  found = true;
+  act(() => renderer!.update(show(false)));
+  expect(brief.open).toBe(true);
+  expect(target.scrollIntoView).toHaveBeenCalledOnce();
+});
+
+it('uses the bottom only once when history becomes ready without a search or a saved position', () => {
+  const events: EventMsg[] = [{ type: 'ui.argus', text: 'Completed result', ts: 1 }];
+  const show = (ready: boolean) => <EventStream events={events} connected showReasoning={false} historyStatus={ready ? 'ready' : 'loading'} />;
+  act(() => { renderer = create(show(false), { createNodeMock: nodeMock }); });
+  resize(content); paint();
+  expect(outer.scrollTop).toBe(0);
+  act(() => renderer!.update(show(true)));
+  expect(outer.scrollTop).toBe(600);
+  scrollConversation(160);
+  act(() => renderer!.update(show(false)));
+  act(() => renderer!.update(show(true)));
+  resize(content); paint();
+  expect(outer.scrollTop).toBe(160);
+});
+
 it('preserves a recorded reply and its copy action, including runtime-like research text', () => {
   const text = '\nResult: dimension 6.\nInfo: Operation cancelled by user\nMILESTONE_STATUS=literal research sample\n';
   mount([{ type: 'ui.argus', text, ts: 1 }]);
@@ -328,7 +404,9 @@ describe('server conversation rows and role channel', () => {
     act(() => { renderer = create(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
     expect(visibleText(renderer!.root)).toContain('Engineer asks about “Research task A”: Which option?');
     expect(streamOrder()).toEqual(['thread', 'task task-a']);
-    expect(visibleText(renderer!.root.findByProps({ 'data-task-work': 'task-a' }))).toBe('Done: Research task A');
+    expect(visibleText(renderer!.root.findByProps({ 'data-task-work': 'task-a' }))).toBe('Ended: Research task A');
+    expect(visibleText(work())).not.toContain('This round only');
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
     expect(visibleText(work())).toContain('This round only');
   });
 
@@ -337,10 +415,12 @@ describe('server conversation rows and role channel', () => {
     const events: EventMsg[] = [{ type: 'ui.operator', text: 'New request', ts: 3 }];
     const show = (snapshot: Snapshot) => <EventStream events={events} snapshot={snapshot} connected showReasoning={false} />;
     act(() => { renderer = create(show(before), { createNodeMock: nodeMock }); });
+    act(() => roleGroup().findAllByType('button')[0].props.onClick());
     expect(visibleText(work())).toContain('Old finding');
     act(() => renderer!.update(show(roleSnapshot([{ ...progress(4, 'Current answer'), event_id: 4, agent_layer: 'manager' }]))));
     expect(visibleText(work())).not.toContain('Old finding');
     expect(renderer!.root.findAllByProps({ 'data-role': 'engineer' })).toHaveLength(0);
+    act(() => renderer!.root.findByProps({ 'data-role': 'manager' }).findAllByType('button')[0].props.onClick());
     expect(visibleText(work())).toContain('Current answer');
   });
 
@@ -364,7 +444,7 @@ describe('project work progress in plain words', () => {
   const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]).trim();
   const toggles = (role: string) => renderer!.root.findByProps({ 'data-role': role }).findAll(node => node.type === 'button' && node.props['data-command-toggle']);
 
-  it('heads a role with what it said and folds its commands, without the stray shell quote, until asked', () => {
+  it('keeps the role header free of duplicate progress and folds readable process records', () => {
     // Trial s-7d7b7d22: the Reviewer's header read `"python - <<'PY'` and its last message ended in a bare "continue".
     const heredoc = `/usr/bin/bash -lc "python - <<'PY'\nfrom pathlib import Path`;
     mount([
@@ -372,7 +452,7 @@ describe('project work progress in plain words', () => {
       reviewer('command_execution', heredoc),
       reviewer('command_execution', "/usr/bin/bash -lc 'cat research-plan.md'"),
     ]);
-    expect(header('reviewer')).toBe('ReviewerLast: The survey covers every requirement; one record still names the wrong source.');
+    expect(header('reviewer')).toBe('Reviewer');
     const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
     expect(visibleText(group)).not.toMatch(/python|research-plan|continue/);
     act(() => group.findAllByType('button')[0].props.onClick());
@@ -385,15 +465,15 @@ describe('project work progress in plain words', () => {
     const commandRow = group.find(node => node.props.title === heredoc);
     expect(visibleText(commandRow)).toBe("python - <<'PY'");
     expect(visibleText(group)).toContain('cat research-plan.md');
-    // The header still says what the role concluded, never the command it ran last.
+    // Expanding the process does not add a second progress summary.
     expect(header('reviewer')).not.toMatch(/python|cat /);
   });
 
   it('groups tool steps and repeated commands once the commands are shown', () => {
     const view = (path: string) => engineer('tool_use', `view: ${JSON.stringify({ path })}`, { tool_name: 'view', status: 'running' });
     mount([view('a.py'), view('b.py'), view('c.py'), engineer('command_execution', 'pytest -q'), engineer('command_execution', 'pytest -q')]);
-    // A role that said nothing yet is headed by its newest tool step in words.
-    expect(header('engineer')).toBe('EngineerLast: Read c.py');
+    // A collapsed role shows only its name; its process is available inside.
+    expect(header('engineer')).toBe('Engineer');
     act(() => roleGroup().findAllByType('button')[0].props.onClick());
     act(() => toggles('engineer')[0].props.onClick());
     const group = renderer!.root.findByProps({ 'data-feed-group': 'read' });
@@ -414,7 +494,7 @@ describe('project work progress in plain words', () => {
     act(() => group.findAllByType('button')[0].props.onClick());
     expect(visibleText(group)).toContain('This path is making no new progress, so the team is trying a different approach.');
     expect(visibleText(group)).not.toMatch(/replan_requested|\bcontinue\b/);
-    expect(header('reviewer')).toBe('ReviewerLast: The content passed; one internal record still needs a fix.');
+    expect(header('reviewer')).toBe('Reviewer');
     expect(group.findAllByProps({ 'data-full-text': true })).toHaveLength(0);
     const fullToggles = group.findAll(node => node.type === 'button' && node.props['data-full-toggle']);
     act(() => fullToggles[fullToggles.length - 1].props.onClick());
@@ -488,7 +568,7 @@ it('keeps raw commands out of a running role header and its task headings until 
   });
   act(() => { renderer = create(<EventStream events={[]} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
   expect(roleGroup().props['data-active']).toBe('true');
-  expect(visibleText(roleGroup())).toContain('Running a command');
+  expect(visibleText(roleGroup())).toBe('Engineer');
   expect(JSON.stringify(renderer!.toJSON())).not.toContain(command);
   act(() => roleGroup().findAllByType('button')[0].props.onClick());
   expect(JSON.stringify(renderer!.toJSON())).not.toContain(command);

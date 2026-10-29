@@ -101,7 +101,7 @@ describe('A3 snapshot-only session context', () => {
 
   it.each(['en', 'zh-CN'] as const)('describes the IDE view in %s', locale => {
     const html = markup(<IdePage {...props} />, locale);
-    expect(html).toContain(locale === 'en' ? 'Code workspace' : '代码工作区');
+    expect(html).not.toContain('<h1>');
     expect(html).toContain(locale === 'en' ? 'This view is read-only' : '此视图只读');
     expect(html).not.toMatch(/Server code workspace|服务器代码工作区|Read-only safe mode|只读安全模式/);
     expect(fetch).not.toHaveBeenCalled();

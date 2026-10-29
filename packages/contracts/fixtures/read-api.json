@@ -1,6 +1,6 @@
 {
   "meta": {
-    "service": "argus-skill-webapi",
+    "service": "argus-webapi",
     "protocol": {
       "name": "argus.webapi",
       "major": 1,
@@ -35,17 +35,10 @@
     "runtime": {
       "package_version": "0.1.8",
       "source_root": "/fixture/argus",
-      "configured_source_root": null,
-      "source_root_matches_config": null,
-      "revision": null,
       "pid": 123,
-      "python_version": "3.11.0",
       "executable": "/fixture/python",
       "started_at": "2026-09-22T00:00:00Z",
-      "release_id": "fixture-release",
-      "manifest_source_digest": null,
-      "runtime_source_digest": null,
-      "release_matches_source": null
+      "release_id": "fixture-release"
     }
   },
   "projects": {
