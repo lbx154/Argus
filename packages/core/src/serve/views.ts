@@ -1,5 +1,5 @@
 // What the web cockpit reads of a project, computed on each request from project.json,
-// events.jsonl and usage.jsonl: nothing here is stored and nothing here writes.
+// events.jsonl and usage.jsonl: readings may continue in memory; nothing here writes to disk.
 
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -291,27 +291,44 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
   };
 }
 
+/** How far each record has been read for the map, and what the map keeps of it: when each task
+ * was added and closed, its latest step or letter, the files its latest letter handed over (once it
+ * has closed, its result), and the letters written about tasks, by line. */
+interface MapReading {
+  end: number;
+  line: number;
+  added: Map<string, number>;
+  closed: Map<string, number>;
+  actions: Map<string, BacklogItem['latest_action']>;
+  opened: Map<string, string[]>;
+  letters: { line: number; letter: Record<string, unknown> }[];
+}
+const maps = new Map<string, MapReading>();
+
 /** The progress map: a card per task, and on it a step per letter written about it; the letter
  * that opened a task is its objective. A letter's id is its line, and the lines read are the
- * cursor: a page that holds one is sent only the letters after it. */
+ * cursor: a page that holds one is sent only the letters after it. Like the live event stream,
+ * each reading continues at the last complete line; only map fields are retained in memory. */
 export function progressMap(store: Store, project: Project, after: number) {
-  const added = new Map<string, number>();
-  const closed = new Map<string, number>();
-  const actions = new Map<string, BacklogItem['latest_action']>();
-  /** The files each task's latest letter handed over: once it has closed, its result. */
-  const opened = new Map<string, string[]>();
-  const letters: Record<string, unknown>[] = [];
-  const events = readEvents(store, project.id);
-  events.forEach((event, line) => {
+  const path = join(store.dir(project.id), 'events.jsonl');
+  const reading: MapReading = maps.get(path) ?? {
+    end: 0, line: 0, added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [],
+  };
+  const { added, closed, actions, opened, letters } = reading;
+  const { rows, end } = jsonLines(path, reading.end);
+  for (const event of rows as unknown as Recorded[]) {
+    const line = reading.line++;
     if (event.type === 'task.added') added.set(event.task.id, seconds(event.ts));
     else if (event.type === 'task.closed') closed.set(event.task, seconds(event.ts));
     else if (event.type === 'step' && event.task) actions.set(event.task, { role: event.role, kind: event.kind, text: event.text, ts: seconds(event.ts) });
     else if (event.type === 'handoff' && event.task) {
       opened.set(event.task, event.open ?? []);
       actions.set(event.task, { role: event.role, kind: 'message', text: event.letter, ts: seconds(event.ts) });
-      if (line >= after) letters.push({ id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter });
+      letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter } });
     }
-  });
+  }
+  reading.end = end;
+  maps.set(path, reading);
   const tasks = backlog(project).map((item, index) => {
     const question = asked(project, item.id);
     return {
@@ -320,7 +337,8 @@ export function progressMap(store: Store, project: Project, after: number) {
       ...(question ? { pending_question: question.question } : {}),
     };
   });
-  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks, events: letters, cursor: String(events.length) };
+  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks,
+    events: letters.flatMap(({ line, letter }) => line >= after ? [letter] : []), cursor: String(reading.line) };
 }
 
 type CallEnd = Extract<Recorded, { type: 'call.end' }>;
