@@ -557,7 +557,7 @@ export function ResearchCanvas({
           {loading && <p role="status" className="text-sm text-ink-faint">{t('common.loading')}</p>}
           {previewArtifacts.map(file => <button type="button" key={file.path} onClick={() => selectPreviewPath(file.path)}>
             <FileText size={20} className="shrink-0 text-blue" aria-hidden="true" />
-            <span className="min-w-0"><strong>{artifactLabel(file)}</strong><small>{file.kind} · {formatBytes(file.size)}{file.source === 'delivery' ? (locale === 'zh-CN' ? ' · 交付文件' : ' · Delivered file') : ''}</small></span>
+            <span className="min-w-0"><strong>{artifactLabel(file)}</strong><small>{formatBytes(file.size)}{file.source === 'delivery' ? (locale === 'zh-CN' ? ' · 交付文件' : ' · Delivered file') : ''}</small></span>
           </button>)}
         </div>}
         {showLiveProgress && missionView ? (

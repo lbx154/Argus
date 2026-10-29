@@ -170,7 +170,7 @@ export function ArtifactModal({
               ? (zh ? '阅读问答' : 'Reading question and answer')
               : (zh ? '背景说明 · 不计作研究进展' : 'Background explanation · separate from research progress')
               : progressSnapshot ? (zh ? '保存的进展说明 · 提问来源' : 'Saved progress explanation · question source')
-                : info ? `${info.kind} · ${formatBytes(info.size)} · ${info.mime}` : zh ? '正在读取文件' : 'Loading file'}
+                : info ? formatBytes(info.size) : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 max-sm:order-last max-sm:basis-full">
@@ -210,11 +210,6 @@ export function ArtifactModal({
           <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}
             <button type="button" className="ml-2 underline" onClick={() => void artifactQ.refetch()}>{t('common.retry')}</button></div>
         ) : null}
-        {info?.why && !foundation && !progressSnapshot && !pdfPreview && !delivery ? (
-          <div className="mb-3 rounded-md border border-line bg-surface px-3 py-2 text-xs text-ink-dim">
-            <span className="mr-1 text-ink-faint">Reviewer:</span>{info.why}
-          </div>
-        ) : null}
         {info?.kind === 'text' && !markdownPreview ? (
           <pre className="min-h-52 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-line bg-bg p-4 font-mono text-xs leading-relaxed text-ink-dim scroll-thin">
             {info.preview || t('artifact.empty')}
@@ -250,7 +245,7 @@ export function ArtifactModal({
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50">
-            <img src={previewUrl} alt={info.why || info.name} className="max-h-[62vh] max-w-full object-contain" />
+            <img src={previewUrl} alt={info.name} className="max-h-[62vh] max-w-full object-contain" />
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
