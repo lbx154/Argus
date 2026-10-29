@@ -268,7 +268,7 @@ it('opens an intake on the map, submits its typed choice once, and retains the d
     await new Promise(resolve => setTimeout(resolve, 0));
   });
   expect(taskSession.pendingReplyOpen).toBe(true);
-  expect(taskSession.pendingReplyError).toBe('Temporary failure');
+  expect(taskSession.pendingReplyError).toBe('No reply was received. Your message has been kept; check the backend settings and retry.');
   expect(renderer!.root.findByType('textarea').props.value).toBe('Include sources');
   act(() => renderer!.unmount());
 });

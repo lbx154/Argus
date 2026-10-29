@@ -8,6 +8,7 @@ import { currentWorkStartedAt } from '../lib/workStatus';
 import { AGENT_ROLES, CALL_KINDS, activityTitle, agentIsActive, agentWork, latestAgentTool, liveStaleness, cleanActivityText } from './agentActivityModel';
 import { api } from '../api';
 import { CopyButton } from './CopyButton';
+import { ErrorMessage } from './ErrorMessage';
 import './agentActivity.css';
 
 export function WorkRecordDetail({ sid, record, expanded = false, zh }: {
@@ -51,7 +52,7 @@ export function AgentActivity({ sid, view, roles = [], events = [], taskId, paus
   const [choice, setChoice] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(24);
   const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState('');
+  const [exportError, setExportError] = useState<unknown>(null);
   const [now, setNow] = useState(Date.now);
   const role = selectedRole || choice || roles.find((r) => r.active)?.role || view?.active_role || 'manager';
   const active = agentIsActive(view, roles, role, paused, taskId);
@@ -68,7 +69,7 @@ export function AgentActivity({ sid, view, roles = [], events = [], taskId, paus
     }
     return detail === record.detail ? record : { ...record, detail };
   });
-  useEffect(() => { setVisibleCount(24); setExportError(''); }, [sid, role, taskId]);
+  useEffect(() => { setVisibleCount(24); setExportError(null); }, [sid, role, taskId]);
   // The work log keeps every attempt. Only the selected current task's card
   // uses its attempt boundary; an unfiltered role can span multiple tasks.
   const started = taskId ? currentWorkStartedAt(undefined, view, taskId) : 0;
@@ -134,10 +135,10 @@ export function AgentActivity({ sid, view, roles = [], events = [], taskId, paus
     <div className="agent-records-footer">
       {visibleCount < records.length && <button type="button" onClick={() => setVisibleCount(value => value + 24)}>{zh ? `加载更早记录（还剩 ${records.length - visibleCount} 条）` : `Load earlier records (${records.length - visibleCount} remaining)`}</button>}
       {sid && <button type="button" disabled={exporting} onClick={() => {
-        setExporting(true); setExportError('');
-        void api.downloadWorkLog(sid, role, taskId).catch(reason => setExportError(reason instanceof Error ? reason.message : String(reason))).finally(() => setExporting(false));
+        setExporting(true); setExportError(null);
+        void api.downloadWorkLog(sid, role, taskId).catch(reason => setExportError(reason)).finally(() => setExporting(false));
       }}>{exporting ? (zh ? '正在准备完整记录…' : 'Preparing full log…') : (zh ? '下载完整工作记录（含更早历史）' : 'Download full work log (including earlier history)')}</button>}
-      {exportError && <small role="alert">{exportError}</small>}
+      {!!exportError && <div role="alert" className="w-full text-xs text-err"><ErrorMessage error={exportError} code="work_log_download_failed" /></div>}
     </div>
   </section>;
 }

@@ -1,6 +1,7 @@
+import { translate } from '../i18n';
 import { describe, it, expect } from "vitest";
 import { buildMap, connectMap, type MapTask } from "../map/model";
-import { attentionReason, mergeMapCopy, needsCardCopy, projectBrief, referenceText, requestsFor, splitDraft, type MapCopy } from "../map/presentation";
+import { attentionReason, attentionSummary, mergeMapCopy, needsCardCopy, projectBrief, referenceText, requestsFor, splitDraft, type MapCopy } from "../map/presentation";
 import { buildSubmap } from "../map/submap";
 import type { Dataset, MapEvent } from "../map/model";
 
@@ -46,7 +47,7 @@ describe('card freshness without generation-time source snapshots', () => {
   });
 });
 
-it("shows the recorded question or most recent explicit failure, never an unrelated summary", () => {
+it("localizes a failed task and keeps its most recent explicit failure as detail", () => {
   const task: MapTask = { id: "a", title: "Routing", objective: "", status: "failed", deps: [] };
   const event: MapEvent = { id: "old", item_id: "a", ts: 1, type: "life.mission.failed", text: "Old failure" };
   const events = [
@@ -55,18 +56,20 @@ it("shows the recorded question or most recent explicit failure, never an unrela
     { ...event, id: "other", ts: 4, item_id: "b", reason: "Another task" },
     { ...event, id: "progress", ts: 5, type: "round.start", text: "Inspecting files" },
   ];
-  expect(attentionReason(task, events, false)).toBe("Route cost differs from the baseline");
+  expect(attentionReason(task, events, false)).toBe(translate('error.agent_failed', {}, 'en'));
   expect(attentionReason({ ...task, pending_question: "Choose a route" }, events, false)).toBe("Choose a route");
-  expect(attentionReason(task, [event], false)).toBe("Old failure");
-  expect(attentionReason(task, [], false)).toBe("This task did not finish, and the record does not say why.");
+  expect(attentionSummary(task, events, false).detail).toBe('Route cost differs from the baseline');
+  expect(attentionSummary(task, [event], false).detail).toBe('Old failure');
+  expect(attentionSummary(task, [], false).detail).toBe('');
 });
 
 it("explains a held or failed task from its recorded error when no failure event carries a reason", () => {
   const task: MapTask = { id: "a", title: "Experiment", objective: "", status: "failed", deps: [],
     last_error: "manager stage hold: Previous simulated data was invalidated; rerun on real traces" };
   const settled: MapEvent = { id: "s", item_id: "a", ts: 2, type: "life.mission.completed", text: "", success: false };
-  expect(attentionReason(task, [settled], false)).toBe("Previous simulated data was invalidated; rerun on real traces");
-  expect(attentionReason({ ...task, last_error: "disk full" }, [], false)).toBe("disk full");
+  expect(attentionReason(task, [settled], false)).toBe(translate('error.agent_failed', {}, 'en'));
+  expect(attentionSummary(task, [settled], false).detail).toBe('Previous simulated data was invalidated; rerun on real traces');
+  expect(attentionSummary({ ...task, last_error: "disk full" }, [], false).detail).toBe('disk full');
 });
 
 it("keeps new model settings when an earlier generation finishes", () => {

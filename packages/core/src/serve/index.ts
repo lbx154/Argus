@@ -49,7 +49,7 @@ const STARTED = new Date().toISOString();
 const BODY_LIMIT = 1 << 20;
 
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  constructor(readonly status: number, message: string, readonly code = '') { super(message); }
 }
 
 export interface Context {
@@ -135,15 +135,15 @@ export async function serve(options: ServeOptions): Promise<Served> {
   /** The operator's answer to one of the open questions, in their own words. */
   const answer = async (id: string, card: string, note: string): Promise<void> => {
     const question = project(id).questions.find(question => questionId(question) === card);
-    if (!question) throw new HttpError(409, 'This question is no longer open.');
-    if (!note.trim()) throw new HttpError(400, 'empty answer');
+    if (!question) throw new HttpError(409, 'This question is no longer open.', 'question_closed');
+    if (!note.trim()) throw new HttpError(400, 'empty answer', 'input_required');
     // Answered by another request meanwhile, while the work under way stopped.
-    await runs.answer(id, question, note.trim()).catch(() => { throw new HttpError(409, 'This question is no longer open.'); });
+    await runs.answer(id, question, note.trim()).catch(() => { throw new HttpError(409, 'This question is no longer open.', 'question_closed'); });
   };
   /** The message a request carries, checked before any reply is under way. */
   const message = async ({ params: [id], body }: Context): Promise<(send: (frame: Frame) => void) => Promise<Frame>> => {
     const { text, request_id: request, attachments: files } = await body();
-    if (typeof text !== 'string' || !text.trim()) throw new HttpError(400, 'empty message');
+    if (typeof text !== 'string' || !text.trim()) throw new HttpError(400, 'empty message', 'input_required');
     const work = project(id!);
     const said = text + attached(work, files);
     return send => runs.message(work.id, said, typeof request === 'string' && request ? request : randomUUID(), send);
@@ -214,7 +214,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // draft as it was, and says why.
     ['POST', /^\/api\/projects\/([^/]+)\/prompt\/rewrite$/, async ({ params: [id], body }) => {
       const original = String((await body()).text ?? '').trim();
-      if (!original) throw new HttpError(400, 'empty prompt');
+      if (!original) throw new HttpError(400, 'empty prompt', 'input_required');
       const { id: sid, backend, workdir, model, effort } = project(id!);
       const dir = store.dir(sid);
       const { handoff, error } = await options.callAgent({
@@ -223,7 +223,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
       }).catch((thrown: unknown) => ({ handoff: null, error: thrown instanceof Error ? thrown.message : String(thrown) }));
       // Nothing goes on from the letter, whoever it is to: it is the rewrite.
       const rewritten = handoff?.letters.join('\n\n') ?? '';
-      return { original, rewritten: rewritten || original, changes: [], questions: [], error: rewritten ? '' : error || 'The Manager wrote no rewrite.' };
+      return { original, rewritten: rewritten || original, changes: [], questions: [], error: rewritten ? '' : error || 'The Manager wrote no rewrite.',
+        ...rewritten ? {} : { error_code: 'rewrite_failed' } };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/cancel$/, async ({ params: [id], body }) => {
       const requested = runs.cancel(project(id!).id, String((await body()).request_id ?? ''));
@@ -309,7 +310,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
     handle(request, response).catch((error: unknown) => {
       const status = error instanceof HttpError ? error.status : 500;
       if (status === 500) process.stderr.write(`${request.method} ${request.url}: ${error instanceof Error ? error.stack : String(error)}\n`);
-      if (!response.headersSent) json(response, status, { detail: error instanceof Error ? error.message : String(error) });
+      if (!response.headersSent) json(response, status, { detail: error instanceof Error ? error.message : String(error),
+        code: error instanceof HttpError ? error.code || 'request_failed' : 'internal_error' });
       else response.end();
     });
   });
@@ -342,11 +344,11 @@ async function readBody(request: IncomingMessage): Promise<Record<string, unknow
   let text = '';
   for await (const chunk of request) {
     text += String(chunk);
-    if (text.length > BODY_LIMIT) throw new HttpError(413, 'request body too large');
+    if (text.length > BODY_LIMIT) throw new HttpError(413, 'request body too large', 'tooLarge');
   }
   try {
     const body: unknown = text ? JSON.parse(text) : {};
     if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;
   } catch { /* answered below */ }
-  throw new HttpError(400, 'the request body must be a JSON object');
+  throw new HttpError(400, 'the request body must be a JSON object', 'invalid_request');
 }

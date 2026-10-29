@@ -1,3 +1,4 @@
+import { errorText } from '../lib/format';
 import { useState } from 'react';
 import { api } from '../api';
 import './delivery.css';
@@ -23,7 +24,7 @@ export function DeliveryChanges({ sid, change, zh }: { sid: string; change: { pa
       ...s, loading: false, truncated: view.truncated,
       diff: view.available ? view.diff : '',
       error: view.available ? (view.diff ? '' : (zh ? '内容没有变化' : 'No content changes')) : (zh ? '上一版已不再保存，无法对比' : 'The previous version is no longer kept'),
-    }))).catch((err: unknown) => setState((s) => ({ ...s, loading: false, error: err instanceof Error ? err.message : String(err) })));
+    }))).catch((err: unknown) => setState((s) => ({ ...s, loading: false, error: errorText(err, zh ? "zh-CN" : "en") })));
   };
   return (
     <div className="delivery-changes">

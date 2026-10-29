@@ -12,7 +12,7 @@ interface UsePendingReplySessionOptions {
    * banner and node highlight, so it opts out; false never opens uninvited. */
   autoOpen?: boolean;
   backlog: BacklogItem[] | undefined;
-  notify: (tone: NoticeTone, message: string) => void;
+  notify: (tone: NoticeTone, message: string, details?: unknown) => void;
   pendingQuestions: Array<Record<string, unknown>> | undefined;
   refetchSnapshot: () => Promise<unknown>;
 }
@@ -112,7 +112,8 @@ export function usePendingReplySession({
           note,
         );
       if (result.resolved === false || ('kind' in result && ['error', 'cancelled'].includes(String(result.kind)))) {
-        setPendingReplyError(String(result.reply || t('pending.notSent')));
+        setPendingReplyError(errorText(result.reply, undefined, 'message_failed'));
+        notify('error', errorText(result.reply, undefined, 'message_failed'), result.reply);
         await refetchSnapshot();
         return;
       }
@@ -120,13 +121,13 @@ export function usePendingReplySession({
       setOpenedReply(current => current === openedReply ? null : current);
       await refetchSnapshot();
       if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
-        notify('error', t('pending.notStarted', { error: result.daemon.error || t('pending.needsYou') }));
+        notify('error', t('pending.notStarted', { error: result.daemon.error ? errorText(result.daemon.error, undefined, 'command_failed') : t('pending.needsYou') }));
       } else if (pendingReply.kind !== 'domain_intake') {
         notify('success', String(result.reply || t('pending.delivered')));
       }
     } catch (error) {
       setPendingReplyError(errorText(error));
-      notify('error', t('pending.notSentBecause', { error: errorText(error) }));
+      notify('error', t('pending.notSentBecause', { error: errorText(error) }), error);
       await refetchSnapshot();
     } finally {
       submitting.current = false;

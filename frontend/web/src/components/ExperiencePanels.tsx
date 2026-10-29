@@ -8,6 +8,7 @@ import { Modal, ModalHeader } from './Modal';
 import { MarkdownContent } from './MarkdownContent';
 import { DiffLines } from './DeliveryChanges';
 import { Button } from './primitives';
+import { ErrorDetails } from './ErrorMessage';
 import './experience.css';
 
 export function HistorySearch({ open, onClose, onChoose }: {
@@ -39,7 +40,7 @@ export function HistorySearch({ open, onClose, onChoose }: {
       {query && results.isFetching && <p role="status">{zh ? '正在搜索…' : 'Searching…'}</p>}
       {results.isError && <p role="alert" className="text-err">{errorText(results.error)}</p>}
       {results.data?.partial && <p role="status" className="text-warn">{zh ? '已达到本次搜索的结果或读取上限；请增加关键词缩小范围。较大文件请打开后查找。' : 'Result or read limit reached. Narrow the query; open large files to search them.'}</p>}
-      {results.data?.errors.length ? <p role="alert" className="text-warn">{zh ? '部分记录无法读取：' : 'Some records could not be read: '}{results.data.errors.join(' · ')}</p> : null}
+      {results.data?.errors.length ? <div role="alert" className="text-warn">{zh ? '部分记录无法读取。已读取的内容仍可搜索，请查看详情后重试。' : 'Some records could not be read. You can still search loaded content; check the details and retry.'}<ErrorDetails error={results.data.errors.join('\n')} /></div> : null}
       {query && results.isSuccess && !results.data.results.length && <div className="experience-empty" role="status">
         <strong>{zh ? '没有找到匹配内容' : 'No matching content'}</strong>
         <p>{zh ? '试试更短的关键词，或换一种说法。' : 'Try a shorter keyword or a different phrase.'}</p>

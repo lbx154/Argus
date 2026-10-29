@@ -11,6 +11,7 @@ import { jointControl, modelFormat, sweepValue, type JointControl } from '../../
 import { JointPanel } from './JointPanel';
 import { loadModel, MISSING_FILE, type LoadedModel } from './loadModel';
 import { disposeObject, ModelStage } from './ModelStage';
+import { ErrorMessage, ErrorDetails } from '../ErrorMessage';
 import './model.css';
 
 export interface ModelViewerProps {
@@ -66,17 +67,19 @@ function ErrorCard({ message, failures, zh, compact }: { message: string; failur
   return <div className="model-error" role="alert">
     <TriangleAlert size={20} aria-hidden="true" />
     <h3>{zh ? '这个模型无法显示' : 'This model could not be shown'}</h3>
-    {message ? <p>{zh ? '读取失败：' : 'Reading failed: '}<code>{message}</code></p> : null}
+    {message ? <div><ErrorMessage error={message} code="preview_failed" /></div> : null}
     {failures.length ? <>
       <p>{zh ? `模型引用的 ${failures.length} 个文件没能加载：` : `${failures.length} file(s) the model references could not be loaded:`}</p>
-      <ul>{failures.map((failure) => <li key={failure.ref}><code>{failure.ref}</code><span>{failureText(failure.reason, zh)}</span></li>)}</ul>
+      <ul>{failures.map((failure) => <li key={failure.ref}><code>{failure.ref}</code><span>{failureText(failure.reason, zh)}</span><ErrorDetails error={failure.reason} /></li>)}</ul>
     </> : null}
     {!message && !failures.length ? <p>{zh ? '模型里没有可显示的几何体。' : 'The model contains no geometry to show.'}</p> : null}
     {failures.length ? <p className="model-error-hint">{zh ? '网格文件需要放在模型文件旁边（相对路径或 package:// 路径），并且在项目工作区内。' : 'Mesh files must sit beside the model (relative or package:// paths) inside the project workspace.'}</p> : null}
   </div>;
 }
 
-const failureText = (reason: string, zh: boolean) => zh && reason === MISSING_FILE ? '模型旁边没有这个文件' : reason;
+const failureText = (reason: string, zh: boolean) => reason === MISSING_FILE
+  ? (zh ? '模型旁边没有这个文件，请检查引用路径。' : 'This file is missing beside the model. Check its reference path.')
+  : (zh ? '文件没能加载。请检查文件内容和引用路径。' : 'The file could not be loaded. Check its contents and reference path.');
 
 function formatSize(meters: number) {
   return meters >= 1 ? `${meters.toFixed(2)} m` : `${Math.round(meters * 1000)} mm`;
@@ -229,7 +232,7 @@ export default function ModelViewer({ sid, path, mode = 'full', constraintFiles 
         {model.failures.length && notice ? <div className="model-notice" role="status">
           <TriangleAlert size={14} aria-hidden="true" />
           <div><strong>{zh ? `有 ${model.failures.length} 个网格没能加载，画面不完整：` : `${model.failures.length} mesh(es) failed to load; the view is incomplete:`}</strong>
-            <ul>{model.failures.slice(0, 6).map((failure) => <li key={failure.ref}><code>{failure.ref}</code> — {failureText(failure.reason, zh)}</li>)}</ul></div>
+            <ul>{model.failures.slice(0, 6).map((failure) => <li key={failure.ref}><code>{failure.ref}</code> — {failureText(failure.reason, zh)}<ErrorDetails error={failure.reason} /></li>)}</ul></div>
           <button type="button" onClick={() => setNotice(false)} aria-label={zh ? '关闭提示' : 'Dismiss'}>×</button>
         </div> : null}
         {hover ? <div className="model-hover" style={{ left: hover.x, top: hover.y }}>{hover.name}</div> : null}

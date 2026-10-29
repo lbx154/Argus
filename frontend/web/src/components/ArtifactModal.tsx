@@ -1,3 +1,4 @@
+import { ErrorMessage } from './ErrorMessage';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { deliveryFiles, previousDeliveryVersion } from './deliveryPresentation';
 import { DeliveryChanges } from './DeliveryChanges';
@@ -13,7 +14,6 @@ import { MarkdownContent } from './MarkdownContent';
 import { Modal } from './Modal';
 import { Spinner } from './primitives';
 import { useI18n } from '../i18n';
-import { errorText } from '../lib/format';
 import { deliveryHeadingKey, isStagePackage } from '../lib/deliveryKind';
 import { PdfPreview } from './PdfPreview';
 import { ModelPreview } from './ModelPreview';
@@ -61,7 +61,7 @@ export function ArtifactModal({
   const progressSnapshot = info?.source === 'progress_snapshot';
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState('');
+  const [previewError, setPreviewError] = useState<unknown>(null);
   const [downloading, setDownloading] = useState(false);
   const [bundling, setBundling] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -80,7 +80,7 @@ export function ArtifactModal({
   useEffect(() => {
     setPdfOrientation('portrait');
     setPreviewUrl(null);
-    setPreviewError('');
+    setPreviewError(null);
     if (!sid || !path || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
     if (info.kind === 'pdf') {
       setPreviewUrl(api.artifactRawUrl(sid, path));
@@ -95,7 +95,7 @@ export function ArtifactModal({
         objectUrl = URL.createObjectURL(blob);
         setPreviewUrl(objectUrl);
       },
-      (error: Error) => alive && setPreviewError(error.message),
+      (error: Error) => alive && setPreviewError(error),
     );
     return () => {
       alive = false;
@@ -107,12 +107,12 @@ export function ArtifactModal({
   const download = async (bundle = false) => {
     if (!sid || !path || !info) return;
     setDownloading(true);
-    setPreviewError('');
+    setPreviewError(null);
     try {
       const blob = bundle ? await api.artifactBundle(sid, path) : await api.artifactBlob(sid, path, true);
       downloadBlob(blob, bundle ? `${info.name.replace(/\.html?$/i, '')}-website.zip` : info.name);
     } catch (error) {
-      setPreviewError((error as Error).message);
+      setPreviewError(error);
     } finally {
       setDownloading(false);
     }
@@ -121,12 +121,12 @@ export function ArtifactModal({
   const downloadAll = async () => {
     if (!sid || !delivery || !files.length) return;
     setBundling(true);
-    setPreviewError('');
+    setPreviewError(null);
     try {
       const summary = delivery.summary ? `# ${delivery.title}\n\n${delivery.summary}` : '';
       downloadBlob(await api.artifactsBundle(sid, files.map((file) => file.path), delivery.title, summary), `${delivery.title || 'argus-results'}.zip`);
     } catch (error) {
-      setPreviewError(errorText(error));
+      setPreviewError(error);
     } finally {
       setBundling(false);
     }
@@ -205,7 +205,7 @@ export function ArtifactModal({
         {delivery && sid && (() => { const change = previousDeliveryVersion(delivery, deliveries, path); return change ? <DeliveryChanges key={`${change.before}:${change.after}`} sid={sid} change={change} zh={zh} /> : null; })()}
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
-          <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · {(artifactQ.error as Error).message}
+          <div className="m-auto text-sm text-err">{t('artifact.unavailable')} · <ErrorMessage error={artifactQ.error} />
             <button type="button" className="ml-2 underline" onClick={() => void artifactQ.refetch()}>{t('common.retry')}</button></div>
         ) : null}
         {info?.kind === 'text' && !markdownPreview ? (
@@ -279,7 +279,7 @@ export function ArtifactModal({
             <p className="mt-1 text-xs text-ink-faint">{t('artifact.downloadHint')}</p>
           </div>
         ) : null}
-        {previewError ? <div className="mt-3 text-center text-xs text-err">{previewError}</div> : null}
+        {previewError ? <div className="mt-3 text-center text-xs text-err"><ErrorMessage error={previewError} /></div> : null}
       </div>
     </Modal>
   );

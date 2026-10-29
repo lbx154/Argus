@@ -4,6 +4,8 @@ import { cleanDeliverySummary } from '../components/deliveryPresentation';
 import { isReaderBrief, READER_BRIEF_VERSION } from '../research-brief/model';
 import { ReaderExplanation } from '../research-brief/ReaderExplanation';
 import { TaskTrace } from '../components/TaskTrace';
+import { ErrorMessage } from '../components/ErrorMessage';
+import { errorText } from '../lib/format';
 import { ACTIVE, type MapTask } from './model';
 import type { CardCopy, CardRequest } from './presentation';
 import { PendingQuestion } from '../research-brief/PendingQuestion';
@@ -34,8 +36,9 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
     // words, file changes and tool calls, with commands folded.
     return <div className="font-sans" data-reader-card={cardKey} data-reader-task-id={taskId}>
       <PendingQuestion task={task} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
+      {task.status === 'failed' && task.last_error ? <ErrorMessage error={task.last_error} code="agent_failed" /> : null}
       <TaskTrace sessionId={sessionId} taskId={taskId} zh={zh} running={ACTIVE.has(task.status)}
-        conclusion={plainConclusion(task, zh)} />
+        conclusion={task.status === 'failed' && task.last_error ? undefined : plainConclusion(task, zh)} />
       {card?.detail ? <details className="mt-3 text-sm"><summary>{zh ? '已保存的说明' : 'Saved explanation'}</summary>
         <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card.detail)}</MarkdownContent></div>
       </details> : null}
@@ -59,6 +62,6 @@ function plainConclusion(task: MapTask, zh: boolean): string {
   if (task.status === 'superseded')
     return (zh ? '已被新计划替代' : 'Replaced by a new plan') + (task.superseded_reason ? (zh ? '：' : ': ') + task.superseded_reason : '');
   if (ACTIVE.has(task.status)) return zh ? '还在进行中。' : 'Still in progress.';
-  if (task.status === 'failed') return task.last_error || (zh ? '没有完成。' : 'It did not finish.');
+  if (task.status === 'failed') return errorText(task.last_error, zh ? 'zh-CN' : 'en', 'agent_failed');
   return task.title;
 }

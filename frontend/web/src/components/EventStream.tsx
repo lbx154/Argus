@@ -49,6 +49,7 @@ import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { resumableTaskIds } from '../lib/resumable';
+import { ErrorDetails } from './ErrorMessage';
 
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
@@ -168,6 +169,7 @@ function EventRow({
         <div className={`mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 ${r.tone === 'dim' ? 'text-ink-dim' : 'text-ink'} ${r.reasoning ? 'italic' : ''}`} title={tooltip || undefined}>
           <RowWords {...plain} />
         </div>
+        {ev.type === 'life.status' && ev.operator_alert === true ? <ErrorDetails error={ev.text} /> : null}
         {plain.full ? <>
           <button type="button" data-full-toggle aria-expanded={fullOpen} onClick={() => setFullOpen(current => !current)}
             className="mt-1 rounded text-xs text-ink-faint hover:text-ink-dim">

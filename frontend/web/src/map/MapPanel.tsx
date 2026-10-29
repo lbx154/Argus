@@ -1,3 +1,4 @@
+import { errorText } from '../lib/format';
 import { MapConversation } from './MapConversation';
 import { mapStatusSentence } from './status';
 import { PendingBanner } from '../components/PendingBanner';
@@ -900,7 +901,7 @@ export function MapCanvas({
   const [dropping, setDropping] = useState(false);
   const failed = useCallback((error: unknown) => {
     setCanvasNotice((zh ? "画布没有保存：" : "The canvas was not saved: ") +
-      (error instanceof Error ? error.message : String(error)));
+      errorText(error, zh ? "zh-CN" : "en"));
   }, [zh]);
   const commitCard = useCallback((id: string, text: string) => {
     setEditingCard(null);
@@ -1444,9 +1445,7 @@ export function MapCanvas({
             return <div tabIndex={0}>
               <p>{summary.reason}</p>
               <p>{summary.next}</p>
-              {summary.detail && (summary.showDetail
-                ? <blockquote className="map-attention-quote"><strong>{zh ? "暂停原因原文" : "Recorded reason"}</strong>{" "}{summary.detail}</blockquote>
-                : <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>)}
+              {summary.detail && <details><summary>{zh ? "原始记录" : "Recorded words"}</summary><p>{summary.detail}</p></details>}
             </div>;
           })()}
         </div>
@@ -2371,7 +2370,7 @@ export const MapPanel = memo(function MapPanel({
       {(source === "live" ? live.isError : dataset.isError) && !data ? (
         <div className="map-empty">
           <h3>{zh ? "地图暂时无法读取" : "Map unavailable"}</h3>
-          <p>{String(source === "live" ? live.error : dataset.error)}</p>
+          <p>{errorText(source === "live" ? live.error : dataset.error, zh ? "zh-CN" : "en")}</p>
           <button
             onClick={() =>
               void (source === "live" ? live.refetch() : dataset.refetch())

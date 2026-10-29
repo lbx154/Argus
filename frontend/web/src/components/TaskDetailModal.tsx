@@ -1,3 +1,4 @@
+import { ErrorMessage } from './ErrorMessage';
 import { useBacklogItem } from '../hooks';
 import { currentOutcome } from '../../../core/src/backlog';
 import { MarkdownContent } from './MarkdownContent';
@@ -57,7 +58,7 @@ export function TaskDetailModal({
         {query.isLoading ? <div className="flex justify-center py-12"><Spinner /></div> : null}
         {query.isError ? (
           <div className="rounded-md border border-err/40 bg-err/5 p-3 text-xs text-err">
-            {(query.error as Error).message}
+            <ErrorMessage error={query.error} />
           </div>
         ) : null}
         {item ? (
@@ -101,7 +102,7 @@ export function TaskDetailModal({
             {item.last_error && !replaced ? (
               <section className="rounded-lg border border-err/30 bg-err/5 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-err">{t('task.lastError')}</div>
-                <p className="mt-1 whitespace-pre-wrap font-mono text-xs leading-relaxed text-ink-dim">{item.last_error}</p>
+                <div className="mt-1 text-xs leading-relaxed text-ink-dim"><ErrorMessage error={item.last_error} code="agent_failed" /></div>
               </section>
             ) : null}
             {item.notes ? (

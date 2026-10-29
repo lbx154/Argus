@@ -28,7 +28,7 @@ export function trash(store: Store, runs: Runs, project: (id: string) => Project
       const { id: sid, workdir } = project(id!);
       runs.stop(sid, true);
       // The call it interrupts still records how it ended, into the project's directory.
-      if (runs.live(sid).since !== null) throw new HttpError(409, 'The work is stopping; delete the project once it has stopped.');
+      if (runs.live(sid).since !== null) throw new HttpError(409, 'The work is stopping; delete the project once it has stopped.', 'work_stopping');
       const to = join('trash', `${sid}-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}`);
       mkdirSync(bin, { recursive: true });
       renameSync(store.dir(sid), join(store.home, to));
@@ -44,7 +44,7 @@ export function trash(store: Store, runs: Runs, project: (id: string) => Project
     ['POST', /^\/api\/trash\/([^/]+)\/restore$/, ({ params: [name] }) => {
       const entry = trashed().find(entry => entry.trash_id === name);
       if (!entry || !PROJECT_ID.test(entry.sid)) throw new HttpError(404, 'unknown trash entry');
-      if (statSync(store.dir(entry.sid), { throwIfNoEntry: false })) throw new HttpError(409, 'a project with this id already exists');
+      if (statSync(store.dir(entry.sid), { throwIfNoEntry: false })) throw new HttpError(409, 'a project with this id already exists', 'project_exists');
       renameSync(join(bin, name!), store.dir(entry.sid));
       runs.changed(entry.sid);
       return { ok: true, sid: entry.sid };

@@ -8,6 +8,8 @@ import { EFFORTS, choiceWrites, formatLatency, formatRate, type Effort } from '.
 import { requestFailureText } from '../lib/requestFailure';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner } from './primitives';
+import { ErrorMessage } from './ErrorMessage';
+import { rawErrorText } from '../lib/format';
 import './modelPicker.css';
 
 type Probe = 'running' | ModelProbeResult | { ok: false; error: string };
@@ -35,12 +37,12 @@ function ModelRow({ name, model, meta, selected, current, onSelect, action, chil
     <div role="radio" aria-checked={selected} tabIndex={0} data-model-row={model}
       className={`model-row${selected ? ' is-selected' : ''}`} onClick={onSelect} onKeyDown={keyDown}>
       <span className="model-row-dot" aria-hidden="true" />
-      <span className="model-row-text">
+      <div className="model-row-text">
         <span className={`model-row-name${model ? '' : ' is-auto'}`}>{name}</span>
         {current && <span className="model-row-tag">{t('models.current')}</span>}
         {meta && <span className="model-row-meta" data-meta>{meta}</span>}
         {children}
-      </span>
+      </div>
       {action}
     </div>
   );
@@ -96,7 +98,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
       const result = await api.probeModel(sid, model);
       setProbes(previous => ({ ...previous, [model]: result }));
     } catch (error) {
-      setProbes(previous => ({ ...previous, [model]: { ok: false, error: requestFailureText(error, t).text } }));
+      setProbes(previous => ({ ...previous, [model]: { ok: false, error: rawErrorText(error) } }));
     }
   };
   const apply = async () => {
@@ -154,11 +156,11 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
                     {result === 'running' ? t('models.testing') : t('models.test')}
                   </button>}>
                   {result && result !== 'running' && (
-                    <span className={`model-probe-result ${result.ok ? 'text-ok' : 'text-err'}`} role="status" data-probe-result>
+                    <div className={`model-probe-result ${result.ok ? 'text-ok' : 'text-err'}`} role="status" data-probe-result onClick={event => event.stopPropagation()}>
                       {result.ok && 'duration_ms' in result
                         ? t('models.testOk', { time: formatLatency(result.duration_ms, locale) })
-                        : t('models.testFailed', { reason: result.error || '—' })}
-                    </span>
+                        : <ErrorMessage error={result.error} code="model_probe_failed" />}
+                    </div>
                   )}
                 </ModelRow>
               );

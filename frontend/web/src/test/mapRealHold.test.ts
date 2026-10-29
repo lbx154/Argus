@@ -31,9 +31,6 @@ describe("real stage-hold project", () => {
     expect(zh.reason).toMatch(/工作已暂停/);
     expect(zh.reason).not.toMatch(/Previous simulated|invalidated/);
     expect(zh.detail).toMatch(/^Previous simulated data was invalidated/);
-    // Without a reader-language account the Manager's words are the only
-    // reason there is, so they are shown rather than folded away.
-    expect(zh.showDetail).toBe(true);
     const en = attentionSummary(held, payload.events, false);
     expect(en.reason).toMatch(/work paused/i);
   });
@@ -51,7 +48,6 @@ describe("real stage-hold project", () => {
     const written = "早先的模拟数据已作废，论文还没写，方法还要在真实轨迹上和真实基线比。";
     const zh = attentionSummary(held, payload.events, true, written);
     expect(zh.reason).toBe(`工作已暂停：${written}`);
-    expect(zh.showDetail).toBe(false);
     expect(zh.detail).toMatch(/^Previous simulated/);
   });
 

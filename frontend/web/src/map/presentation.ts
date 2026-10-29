@@ -3,25 +3,22 @@ import { ACTIVE, attentionTasks, isStageHold, latestCertifiedTask, latestMission
 import type { SubmapStep } from "./submap";
 import { humanizeHarnessNote, readableRecord } from "./submap";
 import { shortWorkText } from "../lib/taskLanguage";
+import { errorText } from '../lib/format';
 
-/** Why a task waits on the reader: its open question, or the reason its last
- * attempt failed, said the way the cards say it. A record that is only a
- * technical receipt becomes the colleague's sentence for it; a record that
- * says nothing is reported as exactly that. */
-export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean): string {
-  if (task.pending_question) return task.pending_question;
+/** The newest explicit failure, with the task's own record when no event names one. */
+function failureDetail(task: MapTask, events: MapEvent[]): string {
   const failure = events.filter((event) => event.item_id === task.id &&
     (event.status === "failed" || event.success === false || event.type.endsWith(".failed")))
     .sort((a, b) => b.ts - a.ts)[0];
-  // A stage hold or a settled failure often records its reason only on the
-  // backlog row; the Manager's own sentence follows the harness prefix.
-  const recorded = (task.last_error || "").replace(/^manager stage (?:hold|rollback):\s*/i, "");
-  const raw = failure?.reason || failure?.text || recorded;
+  return failure?.reason || failure?.text || recordedDetail(task);
+}
+
+/** The failure summary is interface copy; the original reason stays in detail. */
+export function attentionReason(task: MapTask, events: MapEvent[], zh: boolean): string {
+  if (task.pending_question) return task.pending_question;
+  const raw = failureDetail(task, events);
   const note = humanizeHarnessNote(raw, zh);
-  const cut = note.receipt ? raw.lastIndexOf(note.receipt) : -1;
-  const prose = readableRecord(cut >= 0 ? raw.slice(0, cut) : raw);
-  return note.summary || prose ||
-    (zh ? "这项任务没有完成，记录里没有写明原因。" : "This task did not finish, and the record does not say why.");
+  return note.summary || errorText(raw, zh ? 'zh-CN' : 'en', 'agent_failed');
 }
 
 /** The recorded words, stripped of the harness prefix; shown as detail. */
@@ -36,16 +33,14 @@ function recordedDetail(task: MapTask): string {
  *
  * ``written`` is the plain-language account of this task's outcome that the
  * writer already produced in the reader's language, when one is cached. A
- * stage hold's reason is the Manager's free-form judgement, so the only
- * faithful reader-language reason is a written one; without it the Manager's
- * own words are the reason and are shown, not hidden (``showDetail``). */
+ * stage hold's reason is the Manager's free-form judgement; without a saved
+ * account in the reader's language, its words stay in the expandable detail. */
 export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean, written = ""):
-  { reason: string; next: string; detail: string; showDetail: boolean } {
+  { reason: string; next: string; detail: string } {
   if (task.pending_question) return {
     reason: task.pending_question,
     next: zh ? "回答这个问题，团队才会继续。" : "Answer this question so the team can continue.",
     detail: "",
-    showDetail: false,
   };
   if (isStageHold(task)) {
     const detail = recordedDetail(task);
@@ -64,16 +59,14 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
         ? "工作不会自动继续。请看暂停原因，再在对话里告诉我接下来做什么。"
         : "Work will not resume on its own. Read the reason, then tell me what to do next in the conversation.",
       detail,
-      showDetail: Boolean(detail) && !said,
     };
   }
   const reason = attentionReason(task, events, zh);
-  const detail = recordedDetail(task);
+  const detail = failureDetail(task, events);
   return {
     reason: zh ? `执行失败：${reason}` : `Execution failed: ${reason}`,
     next: zh ? "查看原因后重试，或在对话里调整任务。" : "Check the reason, then retry or adjust the task in the conversation.",
     detail: detail && !reason.includes(detail) ? detail : "",
-    showDetail: false,
   };
 }
 

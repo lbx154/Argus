@@ -1,3 +1,4 @@
+import { errorText } from '../lib/format';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, ArrowLeft, ArrowRight, Check, Database, Download, ExternalLink, FileJson, History, Menu, RefreshCw, Search, Users, X } from 'lucide-react';
@@ -165,7 +166,7 @@ export default function AdminDataApp() {
   };
   const errorMessage = (error: unknown) => error instanceof AdminAPIError && error.status === 401
     ? text('数据后台登录已过期，请重新登录。', 'Your administrator session expired. Sign in again.')
-    : error instanceof Error ? error.message : text('暂时无法读取数据。', 'Data is temporarily unavailable.');
+    : errorText(error, locale);
 
   return <WorkspaceShell className="admin-data-workspace h-full" style={{ '--sidebar-width': '292px' } as CSSProperties}>
     {sidebarOpen ? <button type="button" className="admin-data-scrim lg:hidden" aria-label={text('关闭项目列表', 'Close projects')} onClick={() => setSidebarOpen(false)} /> : null}

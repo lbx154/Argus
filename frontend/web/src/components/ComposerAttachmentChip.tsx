@@ -4,6 +4,7 @@ import { useI18n } from '../i18n';
 import { attachmentMime, isImageAttachment } from '../lib/attachments';
 import { uploadPercent, useDraftUploadView } from '../lib/draftUploads';
 import { errorText, formatBytes } from '../lib/format';
+import { ErrorDetails } from './ErrorMessage';
 
 /** One draft attachment: what it is, and how far its upload has got. */
 export function ComposerAttachmentChip({
@@ -71,6 +72,7 @@ export function ComposerAttachmentChip({
           {phase === 'uploading' || phase === 'retrying' ? progress
             : [formatBytes(size), progress || (file ? attachmentMime(file) : uploaded?.mime), failure].filter(Boolean).join(' · ')}
         </div>
+        {phase === 'failed' ? <ErrorDetails error={status?.error} /> : null}
       </div>
       {phase === 'failed' && file ? (
         <button type="button" onClick={() => uploads?.retry(file)} disabled={disabled}

@@ -8,7 +8,7 @@ describe('manager stream failure notices', () => {
 
     expect(managerStreamFailureMessage(error, true)).toContain('partial response');
     expect(managerStreamFailureMessage(error, false)).toContain(
-      'before a response was received',
+      'No reply was received',
     );
   });
 });

@@ -32,7 +32,7 @@ export function attached({ workdir }: Project, refs: unknown): string {
   const paths = refs.map(ref => {
     const id = String((ref as { attachment_id?: unknown } | null)?.attachment_id ?? '');
     const name = ID.test(id) ? listed(folder(workdir, id)).find(name => name !== PART) : undefined;
-    if (!name) throw new HttpError(400, `no attachment ${id} has been uploaded to this project`);
+    if (!name) throw new HttpError(400, `no attachment ${id} has been uploaded to this project`, 'attachment_missing');
     return `- .argus/attachments/${id}/${name}`;
   });
   return `\n\nAttached, in the workdir:\n${paths.join('\n')}`;
@@ -42,7 +42,7 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
   /** The uploads begun here, by id. */
   const uploads = new Map<string, Upload>();
   const declare = (work: Project, name: string, mime: string, size: number): Upload => {
-    if (size > LIMITS.max_bytes_per_file) throw new HttpError(413, `${name} is larger than ${LIMITS.max_bytes_per_file} bytes`);
+    if (size > LIMITS.max_bytes_per_file) throw new HttpError(413, `${name} is larger than ${LIMITS.max_bytes_per_file} bytes`, 'upload_limit');
     const id = `att-${randomBytes(6).toString('hex')}`;
     // The name as given, as one every file system keeps as it is (Windows drops a trailing dot)
     // and never hidden.
@@ -60,7 +60,7 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
   };
   const upload = (id: string, attachment: string): Upload => {
     const found = uploads.get(attachment);
-    if (!found || found.sid !== project(id).id) throw new HttpError(404, 'upload not found for this project');
+    if (!found || found.sid !== project(id).id) throw new HttpError(404, 'upload not found for this project', 'attachment_missing');
     return found;
   };
   /** How much of an upload has come; once all of it, its file. */
@@ -76,9 +76,9 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
     ['POST', /^\/api\/projects\/([^/]+)\/attachments$/, async ({ params: [id], request }) => {
       const work = project(id!);
       const form = await new Response(await bytes(request, ONE_REQUEST), { headers: { 'content-type': request.headers['content-type'] ?? '' } })
-        .formData().catch(() => { throw new HttpError(400, 'files are sent as multipart/form-data'); });
+        .formData().catch(() => { throw new HttpError(400, 'files are sent as multipart/form-data', 'invalid_request'); });
       const files = form.getAll('files').filter(file => typeof file !== 'string');
-      if (!files.length || files.length > LIMITS.max_count) throw new HttpError(400, `send 1 to ${LIMITS.max_count} files`);
+      if (!files.length || files.length > LIMITS.max_count) throw new HttpError(400, `send 1 to ${LIMITS.max_count} files`, 'upload_limit');
       const declared = files.map(file => declare(work, file.name, file.type, file.size));
       for (const [index, file] of files.entries()) keep(declared[index]!, declared[index]!.attachment.stored_name, Buffer.from(await file.arrayBuffer()));
       return { attachments: declared.map(({ attachment }) => attachment), limits: LIMITS };
@@ -86,7 +86,7 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
     ['POST', /^\/api\/projects\/([^/]+)\/attachments\/uploads$/, async ({ params: [id], body }) => {
       const { name, mime, size_bytes: size } = await body();
       if (typeof name !== 'string' || !name || typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) {
-        throw new HttpError(400, 'an upload begins with { name, mime, size_bytes }');
+        throw new HttpError(400, 'an upload begins with { name, mime, size_bytes }', 'invalid_request');
       }
       return state(keep(declare(project(id!), name, String(mime ?? ''), size), PART, ''));
     }],
@@ -95,9 +95,9 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
       const found = upload(id!, at!);
       const content = await bytes(request, LIMITS.chunk_bytes);
       const { offset, size_bytes, complete } = state(found);
-      if (complete) throw new HttpError(409, 'upload is already complete');
-      if (Number(url.searchParams.get('offset')) !== offset) throw new HttpError(409, `upload offset conflict; expected ${offset}`);
-      if (!content.length || offset + content.length > size_bytes) throw new HttpError(413, 'chunk exceeds the declared file size');
+      if (complete) throw new HttpError(409, 'upload is already complete', 'upload_conflict');
+      if (Number(url.searchParams.get('offset')) !== offset) throw new HttpError(409, `upload offset conflict; expected ${offset}`, 'upload_conflict');
+      if (!content.length || offset + content.length > size_bytes) throw new HttpError(413, 'chunk exceeds the declared file size', 'upload_limit');
       appendFileSync(join(found.dir, PART), content);
       return state(found);
     }],
@@ -105,7 +105,7 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
       const found = upload(id!, at!);
       const { offset, size_bytes, complete } = state(found);
       if (complete) return state(found);
-      if (offset !== size_bytes) throw new HttpError(409, `upload is incomplete; received ${offset} bytes`);
+      if (offset !== size_bytes) throw new HttpError(409, `upload is incomplete; received ${offset} bytes`, 'upload_incomplete');
       renameSync(join(found.dir, PART), join(found.dir, found.attachment.stored_name));
       return state(found);
     }],
@@ -116,7 +116,7 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
     }],
     // A file the operator took out of the draft before sending it.
     ['DELETE', /^\/api\/projects\/([^/]+)\/attachments\/([^/]+)$/, ({ params: [id, at] }) => {
-      if (!ID.test(at!)) throw new HttpError(400, `invalid attachment_id: ${at}`);
+      if (!ID.test(at!)) throw new HttpError(400, `invalid attachment_id: ${at}`, 'invalid_request');
       rmSync(folder(project(id!).workdir, at!), { recursive: true, force: true });
       uploads.delete(at!);
       return { discarded: true, attachment_id: at };
@@ -128,7 +128,7 @@ async function bytes(request: IncomingMessage, limit: number): Promise<Buffer<Ar
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request as AsyncIterable<Buffer>) {
-    if ((size += chunk.length) > limit) throw new HttpError(413, 'request body too large');
+    if ((size += chunk.length) > limit) throw new HttpError(413, 'request body too large', 'tooLarge');
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);

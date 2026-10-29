@@ -19,7 +19,7 @@ export function records(store: Store, project: (id: string) => Project): [string
       const work = project(id!);
       const role = url.searchParams.get('role') ?? '';
       const task = url.searchParams.get('task_id');
-      if (!ROLES.includes(role as Role)) throw new HttpError(400, `unknown role: ${role}`);
+      if (!ROLES.includes(role as Role)) throw new HttpError(400, `unknown role: ${role}`, 'invalid_request');
       const letters = readEvents(store, work.id).flatMap(event => event.type === 'handoff' && event.role === role && (!task || event.task === task)
         ? [`## ${event.ts}, to the ${named(event.to)}${event.task ? ` on ${event.task}` : ''}\n\n${event.letter}\n`] : []);
       response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': 'attachment; filename="work-records.md"' })
@@ -47,7 +47,7 @@ function detail(store: Store, project: Project, id: string) {
  * the team's letters. A project whose record cannot be read is named in `errors`. */
 function search(store: Store, query: string) {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) throw new HttpError(422, 'Enter at least one search term');
+  if (!terms.length) throw new HttpError(422, 'Enter at least one search term', 'search_required');
   const results: Record<string, unknown>[] = [];
   const errors: string[] = [];
   let partial = false;

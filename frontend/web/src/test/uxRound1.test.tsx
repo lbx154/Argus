@@ -75,12 +75,12 @@ describe('attention signals', () => {
 
 describe('plain error messages', () => {
   it('turns HTTP failures into sentences instead of request lines', () => {
-    expect(errorText(new ApiError('GET /api/projects/s → 404', 404, 'GET', '/api/projects/s'))).toBe('要找的内容已不存在，可能被删除或移动了。');
+    expect(errorText(new ApiError('GET /api/projects/s → 404', 404, 'GET', '/api/projects/s'))).toBe('要找的内容已不存在，可能被删除或移动了。请刷新列表后重新选择。');
     expect(errorText(new ApiError('POST /x → 409: Nothing is waiting to start.', 409, 'POST', '/x', '', 'Nothing is waiting to start.')))
-      .toBe('Nothing is waiting to start.');
+      .toBe('当前状态还不能执行这个操作。请刷新页面，确认项目状态后再试。');
     expect(errorText(new ApiError('GET /x → 401', 401, 'GET', '/x'))).toContain('重新打开试用链接');
     expect(errorText(new ApiError('GET /x → 500', 500, 'GET', '/x'))).toBe('Argus 服务出了点问题，请稍后重试。');
-    expect(errorText(new Error('plain'))).toBe('plain');
+    expect(errorText(new Error('plain'))).toBe('操作未能完成。请重试；如果仍然失败，请查看错误详情并联系维护者。');
   });
 });
 

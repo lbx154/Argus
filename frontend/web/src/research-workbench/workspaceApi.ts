@@ -1,4 +1,5 @@
 import { authHeaders } from '../api';
+import { ensureResponseOk } from '../../../core/src/http';
 
 export interface WorkspaceProfile {
   id: string;
@@ -59,10 +60,7 @@ export interface WorkspaceGit {
 async function get<T>(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
   const query = new URLSearchParams(params);
   const response = await fetch(`${path}?${query}`, { headers: authHeaders(), signal, cache: 'no-store' });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({})) as { error?: string; detail?: string };
-    throw new Error(payload.detail || payload.error || `${path} failed (${response.status})`);
-  }
+  await ensureResponseOk(response, 'GET', path);
   return response.json() as Promise<T>;
 }
 
@@ -82,18 +80,12 @@ export const workspaceApi = {
   /** Any regular workspace file as a download (credential-like names are refused). */
   downloadBlob: async (sid: string, workspaceId: string, path: string, signal?: AbortSignal) => {
     const response = await fetch(`/api/v2/workspace/download?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: authHeaders(), signal, cache: 'no-store' });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({})) as { detail?: string };
-      throw new Error(payload.detail || `download failed (${response.status})`);
-    }
+    await ensureResponseOk(response, 'GET', '/api/v2/workspace/download');
     return response.blob();
   },
   rawBlob: async (sid: string, workspaceId: string, path: string, signal?: AbortSignal) => {
     const response = await fetch(`/api/v2/workspace/raw?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: authHeaders(), signal, cache: 'no-store' });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({})) as { detail?: string };
-      throw new Error(payload.detail || `raw preview failed (${response.status})`);
-    }
+    await ensureResponseOk(response, 'GET', '/api/v2/workspace/raw');
     return response.blob();
   },
 };

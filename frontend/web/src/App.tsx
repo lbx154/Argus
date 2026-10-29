@@ -254,8 +254,8 @@ export default function App() {
   const cancelDeliveryNavigationRef = useRef<() => void>(() => undefined);
   const [notice, setNotice] = useState<UiNotice | null>(null);
   const dismissNotice = useCallback(() => setNotice(null), []);
-  const notify = useCallback((tone: NoticeTone, message: string) => {
-    setNotice({ id: ++noticeSequence, tone, message });
+  const notify = useCallback((tone: NoticeTone, message: string, details?: unknown) => {
+    setNotice({ id: ++noticeSequence, tone, message, details });
   }, []);
 
   const cancelActiveMessage = useCallback(() => {
@@ -390,18 +390,16 @@ export default function App() {
     if (!body || !sid) return;
     const operation = beginRewrite(sid);
     if (!operation) return;
-    const zh = locale === 'zh-CN';
-    /** The draft stays as it was; the notice says why, as the server or the network put it. */
-    const failed = (reason: string) => {
+    const failed = (reason: unknown, code?: string) => {
       if (!finishRewrite(operation) || sidRef.current !== sid) return;
-      notify('error', `${zh ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged."}${reason ? `${zh ? '原因：' : ' Reason: '}${reason}` : ''}`);
+      notify('error', errorText(reason, locale, code || 'rewrite_failed'), reason);
     };
     void api.rewritePrompt(sid, body).then(
       (result) => {
-        if (result.error || !result.rewritten.trim()) return failed(result.error);
+        if (result.error || !result.rewritten.trim()) return failed(result.error, result.error_code);
         if (finishRewrite(operation, result.rewritten) && sidRef.current === sid) setComposerFocus((x) => x + 1);
       },
-      (error) => failed(errorText(error)),
+      (error) => failed(error),
     );
   }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
@@ -865,10 +863,10 @@ export default function App() {
       if (daemon?.admission_required) {
         notify(
           'error',
-          reply || (locale === 'zh-CN' ? '记下了。现在同时在做的事已满，空出来就开始。' : 'Got it. Everything that can run at once is busy; this starts as soon as a slot frees up.'),
+          t('error.busy'), reply,
         );
       } else if (daemon && Number(daemon.rc ?? 0) !== 0) {
-        notify('error', reply || (locale === 'zh-CN' ? '记下了，但没能开始工作；可以在“启动详情”里看原因，或稍后再试。' : "Saved, but the work couldn't start; see the startup details for why, or try again later."));
+        notify('error', t('error.command_failed'), reply);
       } else if (reply && !observe) {
         notify('success', reply);
       }
@@ -880,7 +878,7 @@ export default function App() {
       void queryClient.invalidateQueries({ queryKey: ['artifacts', requestSid] });
       finishManagerMessage(result, {
         dispatchTask,
-        notifyError: (error) => notify('error', error),
+        notifyError: (error) => notify('error', errorText(error, locale, 'message_failed'), error),
         refetchTranscript: () => {
           void transcriptQ.refetch();
         },
@@ -956,7 +954,7 @@ export default function App() {
               setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
                 current, requestSid, requestId, steps, Date.now(), false, result.kind === 'error' ? 'failed' : 'completed',
               ));
-              showManagerText(result.reply, '', 'snapshot');
+              if (result.kind !== 'error') showManagerText(result.reply, '', 'snapshot');
               finishMessage(result);
               if (revision && result.kind !== 'error' && typeof result.reply === 'string' && result.reply.trim()) {
                 void api.saveEdition(requestSid, 'conversation', {
@@ -988,7 +986,7 @@ export default function App() {
           // Retrying the POST automatically can execute a task twice when the
           // server accepted the first request but the SSE connection broke.
           // Keep any partial reply visible and let the operator choose retry.
-          notify('error', managerStreamFailureMessage(streamErr, gotDelta));
+          notify('error', managerStreamFailureMessage(streamErr, gotDelta), streamErr);
           observe?.({ type: 'settled', outcome: 'error' });
         }
       } finally {
@@ -1376,7 +1374,7 @@ export default function App() {
                         start: () => actions.startDaemon.mutateAsync().catch(() => null),
                         stop: drain => actions.stopDaemon.mutateAsync(drain).catch(() => null),
                         busy: actions.startDaemon.isPending || actions.stopDaemon.isPending,
-                        error: [actions.startDaemon.error, actions.stopDaemon.error].filter(Boolean).map(errorText)[0] ?? '',
+                        error: [actions.startDaemon.error, actions.stopDaemon.error].filter(Boolean).map(error => errorText(error))[0] ?? '',
                       }}
                       onCompose={() => { setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1); }}
                       onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />

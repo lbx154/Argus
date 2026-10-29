@@ -107,31 +107,30 @@ export function clockOf(ev: Record<string, unknown>): string {
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** Best-effort human-readable message for a thrown value of unknown shape.
- * HTTP failures read as what happened, not as a request line and status code. */
-export function errorText(error: unknown): string {
-  if (error instanceof ApiError) return apiErrorText(error);
-  return error instanceof Error ? error.message : String(error || 'Unknown error');
+/** The UI owns error copy. Service/model prose belongs only in raw details;
+ * unknown codes still get a sentence in the selected language. */
+export function errorText(error: unknown, locale?: Locale, code = error instanceof ApiError ? error.code : ''): string {
+  if (code) {
+    const key = `error.${code}`;
+    const text = translate(key, {}, locale);
+    if (text !== key) return text;
+  }
+  let key = 'unknown';
+  if (error instanceof ApiError) {
+    const status = error.status;
+    key = !status ? 'network' : status === 401 ? 'unauthorized' : status === 403 ? 'forbidden'
+      : status === 404 ? 'notFound' : status === 413 ? 'tooLarge' : status === 429 || status === 503 ? 'busy'
+      : status >= 500 ? 'server' : 'rejected';
+  }
+  return translate(`error.${key}`, {}, locale);
 }
 
-function apiErrorText(error: ApiError): string {
-  const detail = error.detail.trim();
-  const status = error.status;
-  if (!status) return translate('error.network');
-  if (status === 401) return translate('error.unauthorized');
-  if (status === 403) return detail || translate('error.forbidden');
-  if (status === 404) return translate('error.notFound');
-  if (status === 413) return translate('error.tooLarge');
-  if (status === 429 || status === 503) return detail ? `${translate('error.busy')}（${detail}）` : translate('error.busy');
-  if (status >= 500) return detail ? `${translate('error.server')}（${detail}）` : translate('error.server');
-  return detail || translate('error.rejected');
+export function rawErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error ?? '');
 }
 
 export function managerStreamFailureMessage(error: unknown, gotDelta: boolean): string {
-  const detail = errorText(error);
-  return gotDelta
-    ? `Reply interrupted after a partial response: ${detail}`
-    : `Message failed before a response was received: ${detail}`;
+  return errorText(error, undefined, gotDelta ? 'reply_interrupted' : 'message_failed');
 }
 
 /** A Ctrl/⌘ shortcut as this platform writes it: "⌘K" on Apple devices, "Ctrl+K" elsewhere. */

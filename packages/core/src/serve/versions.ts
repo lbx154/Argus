@@ -25,9 +25,9 @@ export function versions(store: Store, project: (id: string) => Project): [strin
   const original = (work: Project, path: string): string => {
     const found = under(work.workdir, path);
     if (!found) throw new HttpError(404, 'no such result');
-    if (found.stat.size > TEXT_LIMIT) throw new HttpError(413, 'This document is too large for the inline editor; download it to edit.');
+    if (found.stat.size > TEXT_LIMIT) throw new HttpError(413, 'This document is too large for the inline editor; download it to edit.', 'editor_too_large');
     const text = textOf(found.file);
-    if (text === null) throw new HttpError(422, 'Only text results can be edited; other files can still be revised in conversation.');
+    if (text === null) throw new HttpError(422, 'Only text results can be edited; other files can still be revised in conversation.', 'text_only');
     return text;
   };
   const editions = (id: string, kind: string, source: string): Edition[] =>
@@ -41,11 +41,11 @@ export function versions(store: Store, project: (id: string) => Project): [strin
     ['POST', EDITIONS, async ({ params: [id, kind], body }) => {
       const work = project(id!);
       const { source, content, note = '', base_version: base, original: given = '' } = await body();
-      if (typeof source !== 'string' || !source || typeof content !== 'string') throw new HttpError(400, 'an edition is the content of a source');
+      if (typeof source !== 'string' || !source || typeof content !== 'string') throw new HttpError(400, 'an edition is the content of a source', 'invalid_request');
       const first = kind === 'artifact' ? original(work, source) : String(given);
       // A save names the version it follows, and is refused after one it never saw.
       const latest = editions(work.id, kind!, source).at(-1)?.version ?? 0;
-      if (base !== latest) throw new HttpError(409, 'A newer version exists. Reload versions before saving.');
+      if (base !== latest) throw new HttpError(409, 'A newer version exists. Reload versions before saving.', 'version_conflict');
       const line = (version: number, content: string, note: string): string =>
         `${JSON.stringify({ kind, source, version, content, note, created: Date.now() / 1000 })}\n`;
       appendFileSync(join(store.dir(work.id), 'editions.jsonl'), (latest ? '' : line(0, first, '')) + line(latest + 1, content, String(note)));
@@ -53,7 +53,7 @@ export function versions(store: Store, project: (id: string) => Project): [strin
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/editions\/artifact\/diff$/, async ({ params: [id], body }) => {
       const { source, content } = await body();
-      if (typeof source !== 'string' || typeof content !== 'string') throw new HttpError(400, 'a diff is from a source to a content');
+      if (typeof source !== 'string' || typeof content !== 'string') throw new HttpError(400, 'a diff is from a source to a content', 'invalid_request');
       const diff = unified(source, original(project(id!), source), content);
       return { diff: diff.slice(0, DIFF_CHARS), truncated: diff.length > DIFF_CHARS };
     }],

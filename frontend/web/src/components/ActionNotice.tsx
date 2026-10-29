@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useI18n } from '../i18n';
+import { ErrorDetails } from './ErrorMessage';
 
 export type NoticeTone = 'success' | 'error' | 'info';
 
@@ -7,6 +8,7 @@ export interface UiNotice {
   id: number;
   tone: NoticeTone;
   message: string;
+  details?: unknown;
 }
 
 /** Short, accessible feedback for actions that otherwise change state silently; below the
@@ -41,9 +43,10 @@ export function ActionNotice({
       <span aria-hidden="true" className="mt-px shrink-0">
         {notice.tone === 'error' ? '!' : notice.tone === 'success' ? '✓' : 'i'}
       </span>
-      <span className="min-w-0 flex-1 break-words text-xs leading-relaxed text-ink-dim">
+      <div className="min-w-0 flex-1 break-words text-xs leading-relaxed text-ink-dim">
         {notice.message}
-      </span>
+        {notice.details ? <ErrorDetails error={notice.details} /> : null}
+      </div>
       <button
         type="button"
         aria-label={locale === 'zh-CN' ? '关闭提示' : 'Dismiss notification'}

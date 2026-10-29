@@ -26,7 +26,7 @@ export function preview(project: (id: string) => Project, grant: (response: Serv
     const { workdir } = project(id!);
     const found = under(workdir, url.searchParams.get('path') ?? '');
     if (!found || typeOf(found.path)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
-    if (found.stat.size > PAGE_BYTES) throw new HttpError(413, 'This page is too large to preview; download it instead.');
+    if (found.stat.size > PAGE_BYTES) throw new HttpError(413, 'This page is too large to preview; download it instead.', 'preview_too_large');
     return { found, ...page(workdir, found.path, readFileSync(found.file, 'utf8')) };
   };
   return [
@@ -55,7 +55,7 @@ export function preview(project: (id: string) => Project, grant: (response: Serv
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/artifacts\/bundle$/, async ({ params: [id], body, response }) => {
       const { paths, name, summary } = await body();
-      if (!Array.isArray(paths) || !paths.length) throw new HttpError(400, 'no results named');
+      if (!Array.isArray(paths) || !paths.length) throw new HttpError(400, 'no results named', 'input_required');
       const { workdir } = project(id!);
       const entries = new Map<string, string | Buffer>();
       const missing: string[] = [];
@@ -63,7 +63,7 @@ export function preview(project: (id: string) => Project, grant: (response: Serv
       for (const path of new Set(paths.map(path => String(path).trim()).filter(Boolean))) {
         const found = under(workdir, path);
         if (!found) missing.push(path);
-        else if ((bytes += found.stat.size) > BUNDLE_BYTES) throw new HttpError(413, 'These results are too large for one archive; download them one by one.');
+        else if ((bytes += found.stat.size) > BUNDLE_BYTES) throw new HttpError(413, 'These results are too large for one archive; download them one by one.', 'archive_too_large');
         else entries.set(found.path, found.file);
       }
       if (!entries.size) throw new HttpError(404, 'None of these results are available any more.');

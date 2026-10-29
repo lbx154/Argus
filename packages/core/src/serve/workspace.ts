@@ -39,9 +39,9 @@ export function workspace(project: (id: string) => Project): [string, RegExp, Ha
     ['GET', /^\/api\/v2\/workspace\/tree$/, ({ url }) => tree(named(url).workdir)],
     ['GET', /^\/api\/v2\/workspace\/file$/, ({ url }) => {
       const { work, found } = file(url);
-      if (found.stat.size > TEXT_BYTES) throw new HttpError(413, `file exceeds the ${TEXT_BYTES} byte preview limit`);
+      if (found.stat.size > TEXT_BYTES) throw new HttpError(413, `file exceeds the ${TEXT_BYTES} byte preview limit`, 'preview_too_large');
       const content = textOf(found.file);
-      if (content === null) throw new HttpError(415, 'binary file preview is blocked');
+      if (content === null) throw new HttpError(415, 'binary file preview is blocked', 'preview_binary');
       return {
         root: work.workdir, workspace_id: `project:${work.id}`, path: found.path, content,
         size: found.stat.size, mtime: found.stat.mtimeMs / 1000, extension: extname(found.path).toLowerCase(),

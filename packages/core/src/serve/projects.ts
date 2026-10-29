@@ -23,7 +23,7 @@ export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project
 const SETTINGS: Record<string, (work: Project, value: string) => void> = {
   // A backend session is the backend's own: every role starts afresh on another.
   ARGUS_SKILL_RUNNER_BACKEND: (work, backend) => {
-    if (!BACKENDS.includes(backend as Backend)) throw new HttpError(400, `the backend must be one of ${BACKENDS.join(', ')}`);
+    if (!BACKENDS.includes(backend as Backend)) throw new HttpError(400, `the backend must be one of ${BACKENDS.join(', ')}`, 'invalid_backend');
     if (backend !== work.backend) Object.assign(work, { backend, sessions: {} });
   },
   ARGUS_SKILL_MODEL: (work, model) => { work.model = model || null; },
@@ -39,7 +39,7 @@ export function directory(asked: string): string {
   try {
     if (path) mkdirSync(path, { recursive: true });
   } catch (error) {
-    throw new HttpError(400, `${path} cannot be the working directory: ${error instanceof Error ? error.message : String(error)}`);
+    throw new HttpError(400, `${path} cannot be the working directory: ${error instanceof Error ? error.message : String(error)}`, 'invalid_workdir');
   }
   return path;
 }
@@ -49,7 +49,7 @@ const MARKS = ['pinned', 'archived', 'followup'];
 export function projectRoutes(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
   const edit = (id: string, change: (work: Project) => void, idle = false): void => {
     const { id: sid } = project(id);
-    if (idle && runs.live(sid).since !== null) throw new HttpError(409, 'Work is under way on this project: stop it first.');
+    if (idle && runs.live(sid).since !== null) throw new HttpError(409, 'Work is under way on this project: stop it first.', 'work_in_progress');
     runs.edit(sid, change);
   };
   const browserState = join(store.home, 'browser-state.json');
@@ -60,7 +60,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
   return [
     ['POST', /^\/api\/projects\/([^/]+)\/workdir$/, async ({ params: [id], body }) => {
       const workdir = directory(String((await body()).workdir ?? ''));
-      if (!workdir) throw new HttpError(400, 'workdir must be an existing directory');
+      if (!workdir) throw new HttpError(400, 'workdir must be an existing directory', 'invalid_workdir');
       // A backend session belongs to the directory it worked in: every role starts afresh in the new one.
       edit(id!, work => { if (work.workdir !== workdir) Object.assign(work, { workdir, sessions: {} }); }, true);
       return { ok: true, workdir };
@@ -99,11 +99,11 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
     ['POST', /^\/api\/projects\/([^/]+)\/config\/set$/, async ({ params: [id], body }) => {
       const { name, value } = await body();
       const set = SETTINGS[String(name ?? '').trim().toUpperCase()];
-      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend, model and effort, for every role`);
+      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend, model and effort, for every role`, 'invalid_setting');
       const given = String(value ?? '').trim();
       const word = /^(auto|default)?$/i.test(given) ? '' : given;
       // Given to the backend's command line as one argument: never an option of its own.
-      if (word && !/^\w[\w.:/@+[\]-]*$/.test(word)) throw new HttpError(400, `not a name a backend takes: ${given}`);
+      if (word && !/^\w[\w.:/@+[\]-]*$/.test(word)) throw new HttpError(400, `not a name a backend takes: ${given}`, 'invalid_model');
       edit(id!, work => set(work, word), set === SETTINGS.ARGUS_SKILL_RUNNER_BACKEND);
       return { name, value: word };
     }],
@@ -139,7 +139,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
     ['POST', /^\/api\/browser-state\/organization$/, async ({ body }) => {
       const { sid, field, value } = await body();
       const { id } = project(String(sid));
-      if (!MARKS.includes(String(field)) || typeof value !== 'boolean') throw new HttpError(400, `a mark is one of ${MARKS.join(', ')}, true or false`);
+      if (!MARKS.includes(String(field)) || typeof value !== 'boolean') throw new HttpError(400, `a mark is one of ${MARKS.join(', ')}, true or false`, 'invalid_request');
       const state = kept();
       const { value: marks, revision } = state.organization ?? { value: {}, revision: 0 };
       marks[id] = { pinned: false, archived: false, followup: false, ...marks[id], [String(field)]: value };

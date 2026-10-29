@@ -1,0 +1,18 @@
+{
+  "directory": {
+    "status": 400,
+    "body": {
+      "detail": "workdir is not a directory: /no-such-argus-workdir"
+    }
+  },
+  "rewrite": {
+    "status": 200,
+    "body": {
+      "original": "请把这句话改写清楚",
+      "rewritten": "请把这句话改写清楚",
+      "changes": [],
+      "questions": [],
+      "error": "The Manager wrote no rewrite."
+    }
+  }
+}

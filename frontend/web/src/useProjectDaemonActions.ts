@@ -32,7 +32,7 @@ interface UseProjectDaemonActionsOptions {
   activeSid: string | null;
   clearProjectSelection: (mode?: ProjectHistoryMode) => void;
   continuous: ContinuousSetting | null | undefined;
-  notify: (tone: NoticeTone, message: string) => void;
+  notify: (tone: NoticeTone, message: string, details?: unknown) => void;
   refetchProjects: () => Promise<RefetchedProjects>;
   selectProject: (id: string, mode?: ProjectHistoryMode) => void;
   setDaemonManageOpen: (open: boolean) => void;
@@ -64,7 +64,7 @@ export function useProjectDaemonActions({
 
   const actionFeedback = useCallback((success: string) => ({
     onSuccess: () => notify('success', success),
-    onError: (error: Error) => notify('error', errorText(error)),
+    onError: (error: Error) => notify('error', errorText(error), error),
   }), [notify]);
 
   const requestStartDaemon = useCallback(() =>
@@ -83,7 +83,7 @@ export function useProjectDaemonActions({
   const requestPauseDaemon = useCallback(() =>
     actions.pauseDaemon.mutate(undefined, {
       onSuccess: (result) => notify('success', (result as { draining?: boolean } | undefined)?.draining ? t('daemon.pauseRequested') : t('daemon.pausedNow')),
-      onError: (error: Error) => notify('error', errorText(error)),
+      onError: (error: Error) => notify('error', errorText(error), error),
     }),
   [actions.pauseDaemon, notify, t]);
 
@@ -93,7 +93,7 @@ export function useProjectDaemonActions({
       notify('success', t('daemon.resumed'));
       return true;
     } catch (error) {
-      notify('error', errorText(error));
+      notify('error', errorText(error), error);
       return false;
     }
   }, [manageActions.startDaemon, notify, t]);
@@ -105,7 +105,7 @@ export function useProjectDaemonActions({
       notify('success', t('daemon.stoppedDeletable'));
       return true;
     } catch (error) {
-      notify('error', errorText(error));
+      notify('error', errorText(error), error);
       return false;
     }
   }, [manageActions.forceStopDaemon, notify, refetchProjects, t]);
@@ -117,7 +117,7 @@ export function useProjectDaemonActions({
       notify('success', t('project.renamed'));
       return true;
     } catch (error) {
-      notify('error', errorText(error));
+      notify('error', errorText(error), error);
       return false;
     }
   }, [manageActions.updateProject, manageTargetSid, notify, t]);
@@ -143,7 +143,7 @@ export function useProjectDaemonActions({
       );
       return true;
     } catch (error) {
-      notify('error', errorText(error));
+      notify('error', errorText(error), error);
       return false;
     }
   }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, refetchProjects, selectProject, setDaemonManageOpen, setManageTargetSid, t]);

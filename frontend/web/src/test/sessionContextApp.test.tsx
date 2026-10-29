@@ -299,8 +299,11 @@ describe('App session composer ownership', () => {
     await act(async () => props().onRewrite!('draft'));
     expect(props().value).toBe('draft');
     const notice = JSON.stringify(renderer.toJSON());
-    expect(notice).toContain("Couldn't rewrite it this time; your text is unchanged.");
+    expect(notice).toContain("The rewrite failed; your text is unchanged.");
     expect(notice).toContain(reason);
+    const details = renderer.root.findAllByType('details').find(detail => detail.findAllByType('pre').some(pre => pre.children.join('') === reason))!;
+    expect(details.props.open).not.toBe(true);
+    expect(JSON.stringify(details.findByType('pre').children)).toContain(reason);
   });
 
   it('keeps the same draft on map/activity changes and resets only the existing route override on project changes', async () => {

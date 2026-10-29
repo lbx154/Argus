@@ -110,5 +110,8 @@ it('tests a model only when asked, without choosing it', async () => {
   await act(async () => { row('gpt-6-astra').findByProps({ 'data-probe': 'gpt-6-astra' }).props.onClick({ stopPropagation() {} }); });
   expect(probe).toHaveBeenCalledWith('one', 'gpt-6-astra');
   expect(row('gpt-6-astra').props['aria-checked']).toBe(false);
-  expect(textOf(row('gpt-6-astra').findByProps({ 'data-probe-result': true }) as never)).toBe('Test failed: 503 quota exceeded');
+  const details = row('gpt-6-astra').findByType('details');
+  expect(details.props.open).not.toBe(true);
+  expect(textOf(details as never)).toContain('503 quota exceeded');
+  expect(textOf(row('gpt-6-astra').findByProps({ 'data-probe-result': true }) as never)).toContain('The model test failed. Check the model name and backend sign-in, then test again.');
 });

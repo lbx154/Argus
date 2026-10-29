@@ -54,7 +54,9 @@ describe('progress health', () => {
     const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1" onPause={() => undefined} onAdjust={() => undefined}
       health={{ problem: 'repeated_failures', key: 'failures:d', failures: 3, hoursWithoutAccepted: 0, latestFailure: { title: '训练', reason: 'OOM' } }} />);
     expect(html).toContain('最近 3 个任务都没有完成');
-    expect(html).toContain('最近一次：训练——OOM');
+    expect(html).toContain('最近一次：训练');
+    expect(html).toContain('<details');
+    expect(html).toMatch(/<pre[^>]*>OOM<\/pre>/);
     expect(html).toContain('当前任务完成后暂停');
     expect(html).toContain('知道了');
   });

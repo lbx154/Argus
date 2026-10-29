@@ -254,6 +254,7 @@ export interface PromptRewrite {
   changes: string[];
   questions: string[];
   error: string;
+  error_code?: string;
 }
 export interface UploadedAttachment {
   attachment_id: string;

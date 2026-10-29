@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Boxes, Diamond, ArrowUpRight, X, Ellipsis } from 'lucide-react';
 import { authHeaders } from '../api';
+import { ensureResponseOk } from '../../../core/src/http';
+import { ErrorMessage } from './ErrorMessage';
 
 export interface Plugin {
   id: string;
@@ -50,7 +52,7 @@ export function PluginCard({ plugin, running, onLaunch }: { plugin: Plugin; runn
       <div className="min-w-0 flex-1"><div className="flex items-baseline gap-2"><h3 className="font-medium">{plugin.name}</h3><span className="text-xs text-ink-faint">{plugin.version}</span></div>
         <p className="mt-1 text-sm leading-relaxed text-ink-faint">{plugin.description}</p></div>
     </div>
-    {plugin.reason ? <p className="mt-3 text-xs leading-5 text-ink-dim">{plugin.reason}</p>
+    {plugin.reason ? <div className="mt-3 text-xs leading-5 text-ink-dim"><ErrorMessage error={plugin.reason} code="plugin_unavailable" /></div>
       : <button className={`${control} mt-3`} disabled={running || !plugin.url} onClick={onLaunch}>{zh ? '打开工作台' : 'Open workbench'}<ArrowUpRight size={14}/></button>}
   </article>;
 }
@@ -60,20 +62,20 @@ export function PluginLauncher({ compact = false }: { compact?: boolean }) {
   const zh = locale === 'zh-CN';
   const [open, setOpen] = useState(false);
   const [plugins, setPlugins] = useState<Plugin[]>([]);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const close = useRef<HTMLButtonElement>(null);
   async function refresh(signal?: AbortSignal) {
     const response = await fetch('/api/plugins', { headers: authHeaders(), signal });
-    if (!response.ok) throw new Error(zh ? '无法读取插件列表' : 'Could not load plugins');
+    await ensureResponseOk(response, 'GET', '/api/plugins');
     const value = await response.json();
     if (!signal?.aborted) setPlugins(value.plugins);
   }
   useEffect(() => {
     const controller = new AbortController();
     if (open) { close.current?.focus(); setLoading(true); }
-    void refresh(controller.signal).catch(e => { if (!controller.signal.aborted) setError(e.message); })
+    void refresh(controller.signal).catch(e => { if (!controller.signal.aborted) setError(e); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
     if (open) window.addEventListener('keydown', key);
@@ -83,10 +85,10 @@ export function PluginLauncher({ compact = false }: { compact?: boolean }) {
     setPending(plugin.id); setError('');
     try {
       const response = await fetch(`/api/plugins/${encodeURIComponent(plugin.id)}/launch`, { method: 'POST', headers: authHeaders() });
+      await ensureResponseOk(response, 'POST', '/api/plugins/launch');
       const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || (zh ? '插件操作未完成' : 'Could not open plugin'));
       window.location.assign(result.url);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); setOpen(true); }
+    } catch (e) { setError(e); setOpen(true); }
     finally { setPending(null); }
   }
   return <>
@@ -97,10 +99,10 @@ export function PluginLauncher({ compact = false }: { compact?: boolean }) {
         <div className="flex items-center justify-between"><h2 id="plugin-title" className="text-lg font-semibold">{zh ? '插件' : 'Plugins'}</h2>
           <button ref={close} type="button" aria-label={zh ? '关闭插件列表' : 'Close plugins'} className="icon-control p-1.5" onClick={() => setOpen(false)}><X size={18}/></button></div>
         <p className="mb-6 mt-2 text-sm text-ink-faint">{zh ? '打开已部署的研究工具。' : 'Open deployed research tools.'}</p>
-        {error && <p role="alert" className="mb-4 text-sm text-ink-dim">{error}</p>}
+        {!!error && <div role="alert" className="mb-4 text-sm text-ink-dim"><ErrorMessage error={error} /></div>}
         {loading && <p className="text-sm text-ink-faint">{zh ? '正在读取插件…' : 'Loading plugins…'}</p>}
         {!loading && !error && !plugins.length && <p className="text-sm text-ink-faint">{zh ? '暂无可用插件' : 'No plugins available'}</p>}
-        {error && <button type="button" className={`${control} mb-3`} onClick={() => { setLoading(true); void refresh().then(() => setError('')).catch(e => setError(e instanceof Error ? e.message : String(e))).finally(() => setLoading(false)); }}>{zh ? '重新读取' : 'Retry loading'}</button>}
+        {!!error && <button type="button" className={`${control} mb-3`} onClick={() => { setLoading(true); void refresh().then(() => setError(null)).catch(e => setError(e)).finally(() => setLoading(false)); }}>{zh ? '重新读取' : 'Retry loading'}</button>}
         {plugins.map(plugin => <PluginCard key={plugin.id} plugin={plugin} running={pending === plugin.id} onLaunch={() => void launch(plugin)} />)}
       </section>
     </div>, document.body)}

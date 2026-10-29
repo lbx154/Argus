@@ -1,3 +1,4 @@
+import { ErrorMessage } from './ErrorMessage';
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
@@ -152,7 +153,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
           {skill && guide && <SkillReadingGuide item={skill} guide={guide} />}
           <div className="mt-5 border-t border-line/60 pt-5 text-sm text-ink">
               {document.isPending && <p>{zh ? '正在加载全文…' : 'Loading document…'}</p>}
-              {document.isError && <p role="alert" className="text-err">{document.error.message} <button className="underline" onClick={() => void document.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
+              {document.isError && <div role="alert" className="text-err"><ErrorMessage error={document.error} /> <button className="underline" onClick={() => void document.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
               {document.data && (guide ? <details><summary className="cursor-pointer py-2 text-blue">{zh ? '查看原始技能文档' : 'Read the original skill'}</summary>
                 <MarkdownContent>{document.data.content}</MarkdownContent></details> : <MarkdownContent>{document.data.content}</MarkdownContent>)}
           </div>

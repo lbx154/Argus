@@ -52,7 +52,7 @@ export function library(store: Store): [string, RegExp, Handler][] {
     ['POST', /^\/api\/plugins\/([^/]+)\/launch$/, ({ params: [id] }) => {
       const found = plugins().find(plugin => plugin.id === id);
       if (!found) throw new HttpError(404, `no plugin ${id}`);
-      if (!found.url) throw new HttpError(400, found.reason);
+      if (!found.url) throw new HttpError(400, found.reason, 'plugin_unavailable');
       return { url: found.url };
     }],
   ];

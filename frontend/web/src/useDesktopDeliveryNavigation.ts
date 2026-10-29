@@ -19,7 +19,7 @@ interface Options {
   openDelivery: (receipt: DeliveryReceipt, path?: string | null) => void;
   focusPath: (path: string) => void;
   noPath: () => void;
-  notify: (tone: NoticeTone, text: string) => void;
+  notify: (tone: NoticeTone, text: string, details?: unknown) => void;
 }
 interface Intent {
   payload: DesktopDeliveryNotification;
@@ -56,7 +56,7 @@ export function useDesktopDeliveryNavigation(options: Options): () => void {
   const fail = useCallback((intent: Intent, error: unknown) => {
     if (pending.current !== intent) return;
     cancel();
-    latest.current.notify('error', `Cannot open notification: ${errorText(error)}.`);
+    latest.current.notify('error', errorText(error, undefined, 'notification_failed'), error);
   }, [cancel]);
 
   useEffect(() => {
@@ -68,7 +68,7 @@ export function useDesktopDeliveryNavigation(options: Options): () => void {
         return;
       }
       if (!isDesktopSessionId(target)) {
-        latest.current.notify('error', 'Cannot open notification: invalid session identity.');
+        latest.current.notify('error', errorText(null, undefined, 'notification_failed'));
         return;
       }
       const intent: Intent = { payload, target: null, phase: 'resolving', controller: new AbortController() };

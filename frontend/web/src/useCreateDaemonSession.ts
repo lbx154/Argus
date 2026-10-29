@@ -7,7 +7,7 @@ import { errorText } from './lib/format';
 
 interface UseCreateDaemonSessionOptions {
   localCwd: string;
-  notify: (tone: NoticeTone, message: string) => void;
+  notify: (tone: NoticeTone, message: string, details?: unknown) => void;
   onFocusComposer: () => void;
   queryClient: QueryClient;
   refetchProjects: () => Promise<unknown>;
@@ -90,12 +90,13 @@ export function useCreateDaemonSession({
               translate
                 ? translate('new.campaignFailed', { error: errorText(error) })
                 : `The project was created, but its work could not start: ${errorText(error)}`,
+              error,
             );
           });
       }
       return true;
     } catch (error) {
-      notify('error', translate ? translate('new.createFailed', { error: errorText(error) }) : `Could not create the project: ${errorText(error)}`);
+      notify('error', translate ? translate('new.createFailed', { error: errorText(error) }) : `Could not create the project: ${errorText(error)}`, error);
       return false;
     } finally {
       creatingDaemonRef.current = false;

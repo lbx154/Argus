@@ -595,7 +595,7 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
     [['bench', 'Bench', 'http://127.0.0.1:9100/'], ['sketch', 'Sketch', '']]);
   assert.deepEqual(await (await post('/api/plugins/bench/launch', {})).json(), { url: 'http://127.0.0.1:9100/' });
   const unready = await post('/api/plugins/sketch/launch', {});
-  assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no http(s) url to open.` }]);
+  assert.deepEqual([unready.status, await unready.json()], [400, { detail: `${join(own, 'sketch', 'plugin.json')} names no http(s) url to open.`, code: 'plugin_unavailable' }]);
   assert.equal((await post('/api/plugins/quant/launch', {})).status, 404);
   // A skill whose SKILL.md is a link, or not a file, is no skill: it brings in nothing from elsewhere.
   await writeFile(join(home, 'secret'), 'token=hunter2\n');
@@ -638,7 +638,7 @@ test('the Manager rewrites a draft in a turn of its own, and a failed rewrite le
   assert.ok(asked!.prompt.endsWith('## Draft\ndata.csv 求和 写 report'));
   assert.equal(asked!.usageFile, join(store.dir(sid), 'usage.jsonl'));
   assert.deepEqual(await rewrite({ text: 'data.csv 求和' }),
-    { original: 'data.csv 求和', rewritten: 'data.csv 求和', changes: [], questions: [], error: 'The turn ended without the hand-off form.' });
+    { original: 'data.csv 求和', rewritten: 'data.csv 求和', changes: [], questions: [], error: 'The turn ended without the hand-off form.', error_code: 'rewrite_failed' });
   // An empty draft has nothing to rewrite, and does not call the Manager.
   assert.equal((await post(`${P}/prompt/rewrite`, { text: ' ' })).status, 400);
   assert.equal(requests.length, 2);
@@ -854,4 +854,16 @@ test('a result the Manager hands the operator shows as its result card, its file
     snapshots,
   });
   assert.equal(plain!.delivery, undefined);
+});
+
+test('validation errors identify the reason without making the browser parse English', async t => {
+  const { home, post } = await setup(t, []);
+  const file = join(home, 'web', 'index.html');
+  const response = await post('/api/daemons', { workdir: file });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json() as { code: string }).code, 'invalid_workdir');
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const empty = await post(`/api/projects/${sid}/prompt/rewrite`, { text: '' });
+  assert.equal(empty.status, 400);
+  assert.deepEqual(await empty.json(), { code: 'input_required', detail: 'empty prompt' });
 });

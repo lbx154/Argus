@@ -6,6 +6,7 @@ import { plainToolLabel } from './feedSteps';
 import { plainDetail, type PlainDetail } from './plainStatus';
 import { splitHarnessRecord } from './harnessNotes';
 import { STATUS_TAIL } from '../../../core/src/plainWords';
+import { errorText } from './format';
 
 /**
  * The project work progress feed in the words of the person who asked for the
@@ -72,6 +73,9 @@ function taskRound(ev: EventMsg, locale: Locale, title: string): string | null {
  */
 export function plainRowText(ev: EventMsg, r: RenderedLine, locale: Locale, taskTitle: (id: string) => string = () => ''): ProgressText {
   const type = String(ev.type || '');
+  if (type === 'life.status' && ev.operator_alert === true) {
+    return { text: errorText(ev.text, locale, 'agent_failed'), technical: String(ev.text || '') };
+  }
   if (ROUND_MARKERS.has(type)) {
     const label = taskRound(ev, locale, taskTitle(String(ev.item_id || ev.mission_id || '')));
     if (label) return { text: label, technical: '' };

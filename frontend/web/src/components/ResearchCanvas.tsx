@@ -1,3 +1,4 @@
+import { ErrorMessage } from './ErrorMessage';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
@@ -399,7 +400,7 @@ export function ResearchCanvas({
   const info = artifactQ.data;
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewError, setPreviewError] = useState('');
+  const [previewError, setPreviewError] = useState<unknown>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
   const liveStatus = useMemo(
@@ -409,7 +410,7 @@ export function ResearchCanvas({
 
   useEffect(() => {
     setPreviewUrl(null);
-    setPreviewError('');
+    setPreviewError(null);
     if (!sid || !selected || !info || !['image', 'pdf', 'audio', 'video'].includes(info.kind)) return;
     if (info.kind === 'pdf') {
       setPreviewUrl(api.artifactRawUrl(sid, selected.path));
@@ -424,7 +425,7 @@ export function ResearchCanvas({
         objectUrl = URL.createObjectURL(blob);
         setPreviewUrl(objectUrl);
       },
-      (loadError: Error) => alive && setPreviewError(loadError.message),
+      (loadError: Error) => alive && setPreviewError(loadError),
     );
     return () => {
       alive = false;
@@ -590,7 +591,7 @@ export function ResearchCanvas({
         {selected?.exists && artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {selected?.exists && artifactQ.isError ? (
           <div className="m-auto px-6 text-center text-sm text-err">
-            {t('artifact.unavailable')} · {(artifactQ.error as Error).message}
+            {t('artifact.unavailable')} · <ErrorMessage error={artifactQ.error} />
           </div>
         ) : null}
         {info?.kind === 'text' && !markdownPreview ? (
@@ -647,13 +648,13 @@ export function ResearchCanvas({
         {info && ['image', 'pdf', 'audio', 'video'].includes(info.kind) && !previewUrl && !previewError ? (
           <div className="m-auto"><Spinner /></div>
         ) : null}
-        {previewError ? <div className="m-auto px-6 text-center text-sm text-err">{previewError}</div> : null}
+        {previewError ? <div className="m-auto px-6 text-center text-sm text-err"><ErrorMessage error={previewError} /></div> : null}
       </div>
 
       {!showLiveProgress && info ? (
         <footer className="flex h-9 items-center gap-2 border-t border-line px-4 font-mono text-xs text-ink-faint">
           <span className="min-w-0 flex-1 truncate" title={info.storage_path || info.path}>{info.path}</span>
-          {downloadError ? <span className="ml-auto truncate text-err" title={downloadError}>{t('research.downloadFailed')}</span> : null}
+          {downloadError ? <span className="ml-auto truncate text-err" title={t('research.downloadFailed')}>{t('research.downloadFailed')}</span> : null}
           <span className="shrink-0">{formatBytes(info.size)}</span>
         </footer>
       ) : null}

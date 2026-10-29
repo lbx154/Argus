@@ -6,7 +6,7 @@ import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { errorText } from './lib/format';
 import { Capabilities } from './lib/capabilities';
 import { APPLICATION_WORKFLOWS } from '../../core/src/applicationWorkflows';
-import { I18nProvider, useI18n } from './i18n';
+import { I18nProvider, useI18n, translate } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
@@ -96,5 +96,12 @@ void (isAdminData ? Promise.resolve() : loadApplicationBrand()).then(() => React
 )).catch((error: unknown) => {
   const root = document.getElementById('root')!;
   root.setAttribute('role', 'alert');
-  root.textContent = `Cannot open workbench: ${error instanceof Error ? error.message : String(error)}`;
+  root.textContent = translate('error.workbench_failed');
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = translate('error.details');
+  const raw = document.createElement('pre');
+  raw.textContent = error instanceof Error ? error.message : String(error);
+  details.append(summary, raw);
+  root.append(details);
 });

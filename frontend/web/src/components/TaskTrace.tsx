@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
+import { ErrorMessage } from './ErrorMessage';
 
 /** One thing a role did in a model call, as the runner recorded it. */
 export type TraceEntry =
@@ -79,10 +80,12 @@ function EntryView({ entry, zh }: { entry: Exclude<TraceEntry, { kind: 'command'
     return <p className="task-trace-files text-xs text-ink-dim">
       {zh ? '改动文件：' : 'Changed: '}{entry.paths.map((p) => p.path).join('、')}
     </p>;
-  return <p className="task-trace-tool text-xs text-ink-dim">
+  return <div className="task-trace-tool text-xs text-ink-dim">
     {zh ? '调用工具：' : 'Tool: '}{entry.tool}{entry.query ? ` · ${entry.query}` : ''}
-    {entry.status && entry.status !== 'completed' ? ` · ${entry.status}` : ''}{entry.error ? ` · ${entry.error}` : ''}
-  </p>;
+    {entry.error || entry.status === 'failed' || entry.status === 'error'
+      ? <ErrorMessage error={entry.error || entry.status} locale={zh ? 'zh-CN' : 'en'} />
+      : entry.status && entry.status !== 'completed' ? <span>{zh ? ' · 调用未完成' : ' · Tool call incomplete'}</span> : null}
+  </div>;
 }
 
 function CommandsView({ commands, zh }: { commands: Extract<TraceEntry, { kind: 'command' }>[]; zh: boolean }) {

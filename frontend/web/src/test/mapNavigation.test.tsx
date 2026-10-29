@@ -311,7 +311,7 @@ it("cycles all attention tasks and displays their actual question or failure rea
   expect(renderer.root.findByProps({ className: "map-attention-detail" }).findAllByType("p")[0].children).toEqual(["Which bridge?"]);
   jump();
   expect(focused()).toBe("failed");
-  expect(renderer.root.findByProps({ className: "map-attention-detail" }).findAllByType("p")[0].children.join("")).toBe("Execution failed: The path is disconnected.");
+  expect(renderer.root.findByProps({ className: "map-attention-detail" }).findAllByType("p")[0].children.join("")).toBe("Execution failed: This model call did not complete. Check the error details, backend sign-in and model settings, then resume the work.");
   jump();
   expect(focused()).toBe("question");
 });
