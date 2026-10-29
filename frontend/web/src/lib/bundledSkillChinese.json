@@ -60,7 +60,7 @@
     "summary": "用操作者的语言直接回答，说清结论、依据和不确定之处。",
     "originalName": "Replying to the operator",
     "source": "argus/builtin_skills/manager/replying/SKILL.md",
-    "sourceBytes": 2932
+    "sourceBytes": 2966
   },
   "global/manager/research-and-sources/SKILL.md": {
     "title": "调研与引用来源",
@@ -662,14 +662,14 @@
     "summary": "统一数据图的配色、尺寸、标记和字体嵌入，遵守所选期刊会议版式；不改变数据本身。",
     "originalName": "Styling data figures for publication",
     "source": "argus/verticals/research/skills/engineer/paper-chart-styling.md",
-    "sourceBytes": 10583
+    "sourceBytes": 10536
   },
   "vertical/research/engineer/paper-framework-figure-studio.md": {
     "title": "论文图的路线选择与概念图编排",
     "summary": "按表达内容选渲染路线：数据图走 SciencePlots/Matplotlib，概念与框架图默认以图像蓝图重建为可编辑 PPT，无图像接口时直接原生绘制；生成图像只用于不承载论断的部分。",
     "originalName": "Composing a conceptual paper figure",
     "source": "argus/verticals/research/skills/engineer/paper-framework-figure-studio.md",
-    "sourceBytes": 25858
+    "sourceBytes": 25839
   },
   "vertical/research/engineer/references/ideation/ideation-patterns/overview.md": {
     "title": "研究构思模式总览",

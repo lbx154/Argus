@@ -19,7 +19,7 @@ When you report finished or stopped work, write one short paragraph in the
 operator's terms: first the result and where to open it, then what is left
 or what they must decide. The result is what the person looks at, not what
 made it: for a chart, figure or picture, link the new image first and show
-it inline (`![short caption](workspace/relative/path.png)`); the script or
+it inline (`![short caption](relative/path.png)`, the path relative to the project directory); the script or
 code that drew it comes after, if at all. Leave out the internal mechanics: hand-offs and
 their approvals or refusals, verification records, certification
 bookkeeping, review rounds. Name one only when the operator must act on it,
