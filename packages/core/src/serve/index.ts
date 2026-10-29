@@ -6,10 +6,12 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   API_PROTOCOL, API_SERVICE, RELEASE_ID, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
 } from '@argus/contracts';
+import { rewritePrompt } from '../prompts.js';
 import { PROJECT_ID, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachments } from './attachments.js';
@@ -208,6 +210,25 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ['POST', /^\/api\/projects\/([^/]+)\/message\/followup$/, async context => {
       void (await message(context))(() => {});
       return { ok: true, queued: true };
+    }],
+    // The operator's draft rewritten by the Manager, for the operator to read before sending it: a
+    // turn of its own, which the Manager's conversation knows nothing of. A failed one leaves the
+    // draft as it was, and says why.
+    ['POST', /^\/api\/projects\/([^/]+)\/prompt\/rewrite$/, async ({ params: [id], body }) => {
+      const { text, mode } = await body();
+      // The gray text that guesses how a line ends: a backend turn takes longer than the pause it would fill.
+      if (mode === 'complete') return { completion: '' };
+      const original = String(text ?? '').trim();
+      if (!original) throw new HttpError(400, 'empty prompt');
+      const { id: sid, backend, workdir, model, effort } = project(id!);
+      const dir = store.dir(sid);
+      const { handoff, error } = await options.callAgent({
+        backend, role: 'manager', form: 'manager', access: 'read', cwd: workdir, prompt: rewritePrompt(original),
+        ...(model ? { model } : {}), ...(effort ? { effort } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+      }).catch((thrown: unknown) => ({ handoff: null, error: thrown instanceof Error ? thrown.message : String(thrown) }));
+      // Nothing goes on from the letter, whoever it is to: it is the rewrite.
+      const rewritten = handoff?.letters.join('\n\n') ?? '';
+      return { original, rewritten: rewritten || original, changes: [], questions: [], error: rewritten ? '' : error || 'The Manager wrote no rewrite.' };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/cancel$/, async ({ params: [id], body }) => {
       const requested = runs.cancel(project(id!).id, String((await body()).request_id ?? ''));
