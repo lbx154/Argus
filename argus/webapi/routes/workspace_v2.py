@@ -22,10 +22,7 @@ from typing import Any, Iterator
 
 from fastapi import Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-from starlette.concurrency import run_in_threadpool
 
-from .. import mission_items
 from ..attachments import _windows_guard_directory_chain, _windows_guard_path
 from .context import ServerContext
 
@@ -61,15 +58,6 @@ def _download_blocked(path: str) -> bool:
 _CACHE_LOCK = threading.Lock()
 _TREE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _LITERATURE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-
-
-class FinalReviewIn(BaseModel):
-    venue: str = Field(min_length=2, max_length=200)
-    venue_type: str = Field(pattern="^(conference|journal|workshop)$")
-    strictness: str = Field(pattern="^(preflight|standard|strict|red-team)$")
-    manuscript_path: str = Field(default="", max_length=1_000)
-    emphasis: list[str] = Field(default_factory=list, max_length=20)
-    scope: str = Field(min_length=1, max_length=8_000)
 
 
 def _allowed_bases() -> list[Path]:
@@ -769,21 +757,6 @@ def _literature(root: Path) -> dict[str, Any]:
     return result
 
 
-def _latest_manuscript(root: Path) -> str:
-    candidates = [
-        entry for entry in _scan_tree(root)["entries"]
-        if entry["type"] == "file"
-        and entry["extension"] in {".tex", ".md", ".pdf"}
-        and any(part in {"paper", "manuscript", "technical_report"} for part in PurePosixPath(entry["path"]).parts)
-        and "evidence" not in PurePosixPath(entry["path"]).parts
-    ]
-    def rank(entry: dict[str, Any]) -> tuple[int, float]:
-        name = str(entry["name"]).casefold()
-        priority = 0 if name in {"main.tex", "paper.pdf", "manuscript.pdf", "argus-technical-report.pdf"} else 1 if entry["extension"] in {".pdf", ".tex"} else 2
-        return priority, -float(entry["mtime"])
-    return str(sorted(candidates, key=rank)[0]["path"]) if candidates else ""
-
-
 def register_workspace_v2_routes(app, ctx: ServerContext) -> None:
     dependencies = [Depends(ctx.require_auth)]
 
@@ -915,97 +888,3 @@ def register_workspace_v2_routes(app, ctx: ServerContext) -> None:
     @app.get("/api/v2/workspace/literature", dependencies=dependencies)
     def workspace_literature(sid: str = Query(...), workspace_id: str = Query(...)) -> dict[str, Any]:
         return _literature(approved(sid, workspace_id))
-
-    @app.post("/api/projects/{sid}/reviews/final", dependencies=dependencies)
-    async def request_final_review(sid: str, body: FinalReviewIn) -> dict[str, Any]:
-        if body.manuscript_path and PurePosixPath(body.manuscript_path).suffix.lower() not in {".tex", ".md", ".pdf"}:
-            raise HTTPException(status_code=415, detail="final manuscript must be TeX, Markdown, or PDF")
-        profiles = _workspace_profiles(ctx, sid)
-        canonical = next((row for row in profiles if row["canonical"]), None)
-        if canonical is None:
-            raise HTTPException(status_code=409, detail="project has no canonical approved workspace")
-        workspace = _resolved_directory(str(canonical["path"]))
-        manuscript_path = body.manuscript_path or _latest_manuscript(workspace)
-        if not manuscript_path:
-            raise HTTPException(status_code=409, detail="no final manuscript was found in the approved project workspace")
-        suffix = PurePosixPath(manuscript_path).suffix.lower()
-        if suffix not in {".tex", ".md", ".pdf"}:
-            raise HTTPException(status_code=415, detail="final manuscript must be TeX, Markdown, or PDF")
-        fd, _info = _open_confined_file(workspace, manuscript_path)
-        os.close(fd)
-        created_at = time.time()
-        request_id = f"fr-{time.time_ns()}"
-        report_path = f"reviews/final_review_{request_id}.md"
-        manifest = {
-            "schema_version": 1,
-            "review_kind": "final",
-            "status": "queued",
-            "sid": sid,
-            "venue": body.venue.strip(),
-            "venue_type": body.venue_type,
-            "strictness": body.strictness,
-            "request_id": request_id,
-            "manuscript_path": manuscript_path,
-            "emphasis": list(dict.fromkeys(item.strip() for item in body.emphasis if item.strip())),
-            "scope": body.scope.strip(),
-            "created_at": created_at,
-            "report_path": report_path,
-        }
-        manifest_name = f"final_review_request_{request_id}.json"
-        manifest_relative = _atomic_write_confined(workspace, "reviews", manifest_name, (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
-        task_text = (
-            "[FINAL_REVIEW]\n"
-            + json.dumps(manifest, ensure_ascii=False, indent=2)
-            + "\n\nExecute an independent completion-stage simulated review. Read the selected final manuscript, "
-            "literature, experiments, negative results, and process-review history. Do not fabricate evidence. "
-            f"Write the report to exactly {report_path} with desk/scope checks, summary, strengths, fatal "
-            "issues, repairable issues, emphasized dimensions, missing baselines/ablations/statistics, author "
-            "questions, score/confidence, and a prioritized revision checklist. Do not submit or publish."
-        )
-        project_root = ctx.project_root_or_404(sid)
-        try:
-            dispatch = await run_in_threadpool(
-                mission_items.enqueue_task_command,
-                sid,
-                task_text,
-                autostart_daemon=True,
-                global_root=project_root,
-                lifecycle_root=ctx.roots[0],
-                start_daemon=ctx.daemon_services.start,
-            )
-        except Exception:
-            manifest["status"] = "dispatch_failed"
-            _atomic_write_confined(workspace, "reviews", manifest_name, (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
-            raise
-        return {"ok": True, "request_id": request_id, "manifest_path": manifest_relative, "report_path": report_path, "manifest": manifest, "dispatch": dispatch}
-
-    @app.get("/api/projects/{sid}/reviews/final/{request_id}", dependencies=dependencies)
-    def final_review_status(sid: str, request_id: str) -> dict[str, Any]:
-        if not request_id.startswith("fr-") or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-" for char in request_id):
-            raise HTTPException(status_code=400, detail="invalid final review request id")
-        canonical = next((row for row in _workspace_profiles(ctx, sid) if row["canonical"]), None)
-        if canonical is None:
-            raise HTTPException(status_code=404, detail="project workspace unavailable")
-        workspace = _resolved_directory(str(canonical["path"]))
-        manifest_path = f"reviews/final_review_request_{request_id}.json"
-        try:
-            manifest = json.loads(_read_confined_bytes(workspace, manifest_path, 512 * 1024).decode("utf-8"))
-        except HTTPException as exc:
-            raise HTTPException(status_code=404, detail="final review request not found") from exc
-        report_path = str(manifest.get("report_path") or "")
-        report_exists = False
-        if report_path:
-            try:
-                fd, _info = _open_confined_file(workspace, report_path)
-            except HTTPException:
-                pass
-            else:
-                os.close(fd)
-                report_exists = True
-        return {
-            "request_id": request_id,
-            "status": "completed" if report_exists else str(manifest.get("status") or "queued"),
-            "manifest": manifest,
-            "report_path": report_path,
-            "report_exists": report_exists,
-        }
