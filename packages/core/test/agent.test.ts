@@ -52,6 +52,9 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   const report = { to: 'operator', letter: 'The report is done.', open: ['report/index.html', 'figures/a.png'] };
   assert.deepEqual(judge('manager', formSchema('manager'), report), { form: 'manager', to: 'operator', letters: ['The report is done.'], open: report.open });
   assert.deepEqual(judge('manager', formSchema('manager'), { ...report, open: [] }), { form: 'manager', to: 'operator', letters: ['The report is done.'] });
+  // Only letters to the Engineer are for tasks: the Planner's question naming one is for none, so its answer finds it.
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'operator', letters: [{ letter: 'Which dataset should t1 use?', task: 't1', after: [] }] }),
+    { form: 'plan', to: 'operator', letters: ['Which dataset should t1 use?'] });
   assert.deepEqual(judge('review', formSchema('review', 'planner'), { ...report, to: 'planner' }),
     { form: 'review', to: 'planner', letters: ['The report is done.'], open: report.open });
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [], task: '' }], open: [] }, formSchema('plan')), ['open is not allowed']);

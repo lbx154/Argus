@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { taskTrace } from '../src/serve/views.js';
+import { progressMap, taskTrace } from '../src/serve/views.js';
 import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
@@ -737,4 +737,35 @@ test('the first line of a task title is retained beyond 100 characters', async t
   const title = '检查长标题中的所有要求'.repeat(16) + '标题结束';
   const { flow, id } = await setup(t, [{ role: 'manager', to: 'engineer', letter: `${title}\n完整任务说明。` }, { role: 'engineer', to: 'operator', letter: '请确认输入。' }]);
   assert.equal((await say(flow, id, '检查完整标题')).tasks[0]?.title, title);
+});
+
+/** The card of the operator's message on the map. */
+const qa = (store: Store, project: ReturnType<Store['load']>) => progressMap(store, project, 0).tasks.find(task => 'turn_kind' in task)!;
+
+// Backend review reproductions: a message handed to the team was marked answered too soon.
+test('a message handed to the Planner is not answered while the Planner waits for the operator', async t => {
+  const { flow, id, store } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: 'Plan the study.' },
+    { role: 'planner', to: 'operator', letter: 'Which dataset?' },
+  ]);
+  const project = await say(flow, id, 'Study X');
+  assert.deepEqual([project.status, qa(store, project).status], ['asking', 'in_progress']);
+});
+
+test('a message whose tasks wait on each other is answered once the last of them closes', async t => {
+  const training = gate();
+  const { flow, id, store, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: 'Plan the study.' },
+    { role: 'planner', to: 'engineer', letters: ['Collect data', 'Train on it'], tasks: [{ task: '', after: [] }, { task: '', after: ['t1'] }] },
+    { role: 'engineer', to: 'planner', letter: 'Data collected.' },
+    { role: 'engineer', to: 'planner', letter: 'Trained.', waits: training.shut },
+    { role: 'planner', to: 'planner', letter: 'Waiting for training.' },
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ]);
+  void flow.say(id, 'Study X');
+  while (requests.length < 4) await tick();
+  assert.deepEqual([store.load(id).tasks.map(task => task.status), qa(store, store.load(id)).status], [['closed', 'open'], 'in_progress']);
+  training.open();
+  assert.equal(qa(store, await flow.settled(id)).status, 'done');
 });

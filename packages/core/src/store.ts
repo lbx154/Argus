@@ -154,16 +154,10 @@ export class Store {
     replace(`${path}.${process.pid}.tmp`, path);
   }
 
-  /** The records this process has written to. */
-  private readonly written = new Set<string>();
-
   append(id: string, event: FlowEvent): void {
     const path = join(this.dir(id), 'events.jsonl');
-    // A line a crash cut short is ended before the first this process writes, so it alone is lost,
-    // not the line written after it.
-    const cut = !this.written.has(path) && !endsLine(path);
-    this.written.add(path);
-    appendFileSync(path, `${cut ? '\n' : ''}${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
+    // A line cut short (a crash, a full disk) is ended first, so it alone is lost, not the line after it.
+    appendFileSync(path, `${endsLine(path) ? '' : '\n'}${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`);
   }
 
   list(): Project[] {

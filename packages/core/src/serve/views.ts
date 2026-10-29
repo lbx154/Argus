@@ -335,16 +335,19 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
       text: '', live: status === 'running' || status === 'waiting', status });
   }
   const rows = [...projected.values()];
-  const items = mapProjection(reading, project, Infinity).tasks;
+  const items = backlog(project);
+  const { actions, opened, closed } = reading.map;
   for (const [id, task] of reading.tasks) {
     const item = items.find(item => item.id === id);
     const role = live.calls.find(call => call.task === id)?.role;
+    // What was last said on it, unless it waits for an answer, and once it has closed, its result.
+    const action = asked(project, id) ? undefined : actions.get(id);
     const state = item?.status === 'done' ? 'done' : item?.status === 'blocked' ? 'asking'
       : item?.status === 'failed' ? 'failed' : project.status === 'stopped' ? 'paused'
       : item?.status === 'pending' ? 'queued' : live.since !== null ? 'running' : 'paused';
     rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: task.title, state, role,
-      progress: item?.latest_action ? firstLine(item.latest_action.text) : '', result_paths: item?.result_paths ?? [],
-      ts: task.ts, event_id: Math.max(task.line, reading.map.actions.get(id)?.line ?? 0), order: task.line + 0.2 });
+      progress: action ? firstLine(action.text) : '', result_paths: closed.has(id) ? opened.get(id) ?? [] : [],
+      ts: task.ts, event_id: Math.max(task.line, actions.get(id)?.line ?? 0), order: task.line + 0.2 });
   }
   return rows.sort((a, b) => Number(a.order) - Number(b.order));
 }
@@ -478,7 +481,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
   else if (event.type === 'task.added') {
     added.set(event.task.id, ts);
     const follow = event.task.from === 'manager' ? reading.answered : reading.briefed;
-    if (!event.task.after?.length && follow) follows.set(event.task.id, follow);
+    if (follow) follows.set(event.task.id, follow);
   }
   else if (event.type === 'task.closed') closed.set(event.task, ts);
   else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts, line });
@@ -513,7 +516,7 @@ function mapProjection(record: Reading, project: Project, after: number) {
   // of its own, once the team has no work going.
   const done = (card: MapCard): number | null => {
     const own = [...follows].flatMap(([task, follow]) => follow === card.id ? [task] : []);
-    if (own.length ? own.some(task => !closed.has(task)) : project.status === 'working' || project.inbox.length > 0) return null;
+    if (own.length ? own.some(task => !closed.has(task)) : project.status !== 'idle') return null;
     return Math.max(card.ts ?? 0, ...own.map(task => closed.get(task)!));
   };
   const action = (id: string) => {

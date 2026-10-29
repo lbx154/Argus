@@ -823,7 +823,10 @@ test('a reading that goes on where it stopped folds the record as one whole read
   const restarted = new Store(store.home);
   restarted.append(crashed.id, { type: 'status', status: 'idle' });
   restarted.append(crashed.id, { type: 'status', status: 'stopped' });
-  assert.deepEqual(readEvents(store, crashed.id).map(event => event.type === 'status' && event.status), ['idle', 'stopped']);
+  // As does the same process after a write it made was cut short (a full disk).
+  await appendFile(join(store.dir(crashed.id), 'events.jsonl'), '{"ts":"2026-10-28T00:00:01.000Z","type":"st');
+  restarted.append(crashed.id, { type: 'status', status: 'working' });
+  assert.deepEqual(readEvents(store, crashed.id).map(event => event.type === 'status' && event.status), ['idle', 'stopped', 'working']);
 });
 
 test("the page is sent each project's state as it changes: the question a turn asks with the letter that asks it", { timeout: 20_000 }, async t => {

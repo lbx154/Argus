@@ -189,7 +189,9 @@ export class Flow {
       const letter = read(handoff);
       if (handoff.to === 'engineer') this.open(project, 'manager', letter);
       else project.inbox.push(handedTo('manager', null, letter));
-      // New work wakes a resting team; a stopped one only when the operator asked for it.
+      // New work wakes a resting team; a stopped one only when the operator asked for it, which resumes
+      // what the stop interrupted too.
+      if (operator && project.status === 'stopped') this.retry(project);
       if (project.status !== 'failed' && (operator || project.status !== 'stopped')) this.status(project, 'working');
     }
     this.run(project);

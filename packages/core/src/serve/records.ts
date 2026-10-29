@@ -4,7 +4,7 @@
 import { NAMES } from '../prompts.js';
 import type { Note, Project, Store } from '../store.js';
 import { HttpError, type Handler } from './index.js';
-import { named as projectName, progressMap, readEvents, projectRecord, conversationRows } from './views.js';
+import { named as projectName, progressMap, readEvents, webEvents } from './views.js';
 
 const RESULTS = 50;
 const EXCERPT = 32_000;
@@ -76,8 +76,7 @@ function search(store: Store, query: string) {
     };
     try {
       const events = readEvents(store, project.id);
-      // Folded once here, not kept: a search reads every project, and the open ones are kept already.
-      const dialogue = conversationRows(projectRecord(events), project, { since: null, calls: [], requests: [] }).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus');
+      const dialogue = webEvents(events).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus');
       // The request is the first operator message, also kept on project.json. Prefer its
       // conversation entry so opening the hit can locate that message. Independent messages
       // (even identical words), and the same words from another speaker, remain separate.

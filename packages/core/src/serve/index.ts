@@ -68,13 +68,15 @@ export async function serve(options: ServeOptions): Promise<Served> {
   // Whoever reaches the cockpit can run work on this machine.
   if (!token && !/^(localhost|127(\.\d+){3}|::1)$/.test(host)) throw new Error(`Serving on ${host} needs ARGUS_WEB_TOKEN.`);
   /** The streams following each project's record, and those following every project's state. */
-  const listeners = new Map<string, Set<() => void>>();
+  const listeners = new Map<string, Set<(moved: boolean) => void>>();
   const watchers = new Set<(frame: Record<string, unknown>) => void>();
   /** Projects whose state is to be sent, once what changed it has run on to its next wait: a
    * question is added just after the letter that asks it is recorded. */
   const due = new Set<string>();
   const runs = new Runs(store, options.callAgent, (id, event) => {
-    for (const wake of listeners.get(id) ?? []) wake();
+    // A command or an edit moves no row, only its role's log; a message on a task is its progress.
+    const moved = event?.type !== 'step' || event.kind === 'message' && event.task !== undefined;
+    for (const wake of listeners.get(id) ?? []) wake(moved);
     // A step changes nothing but the record.
     if (event?.type === 'step' || !watchers.size || due.has(id)) return;
     due.add(id);
@@ -187,15 +189,15 @@ export async function serve(options: ServeOptions): Promise<Served> {
         let roleCursor = -1;
         const wake = listeners.get(id!) ?? new Set();
         listeners.set(id!, wake);
-        const flush = () => {
+        const flush = (moved = true) => {
           let now: Project;
           // A project deleted meanwhile ends its stream.
           try { now = store.load(work.id); } catch { wake.delete(flush); response.end(); return; }
           const reading = readRecord(store, work.id);
-          const rows = conversationRows(reading, now, runs.live(work.id));
+          const rows = moved ? conversationRows(reading, now, runs.live(work.id)) : [];
           const changed = rows.filter(row => previous.size
             ? previous.get(String(row.row_id)) !== JSON.stringify(row) : Number(row.event_id) > cursor);
-          previous = new Map(rows.map(row => [String(row.row_id), JSON.stringify(row)]));
+          if (moved) previous = new Map(rows.map(row => [String(row.row_id), JSON.stringify(row)]));
           cursor = reading.fold.line - 1;
           send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round,
             role_events: reading.roleEvents.filter(event => Number(event.event_id) > roleCursor) });

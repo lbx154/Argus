@@ -152,3 +152,23 @@ test('a message to a stopped project is answered on its own; the one the stop in
   assert.deepEqual([asked.map(request => request.prompt.includes('Answer in one word')), project.status, texts(project.forManager)],
     [[true], 'stopped', ['Run sleep 30']]);
 });
+
+// Backend review reproduction: the message that woke a stopped project left the one the stop
+// interrupted "replying" for ever.
+test('a message that sets a stopped team working again resumes what the stop interrupted too', async t => {
+  const controller = new AbortController();
+  const { flow, id, store, requests } = await setup(t, [aborted], controller);
+  void flow.say(id, 'A: analyse it');
+  await until(() => requests.length === 1);
+  flow.stop(id);
+  controller.abort();
+  await flow.settled(id);
+  const respond: Turn = async request => request.role === 'engineer' ? { to: 'manager', letters: ['X done'] }
+    : request.prompt.includes('B: do X') ? { to: 'engineer', letters: ['Do X'] } : { to: 'operator', letters: ['Reply'] };
+  const { callAgent, requests: asked } = agent(Array.from({ length: 6 }, () => respond));
+  const later = new Flow(store, callAgent);
+  await later.say(id, 'B: do X instead');
+  const project = await later.settled(id);
+  assert.deepEqual([project.status, texts(project.forManager)], ['idle', []]);
+  assert.ok(asked.some(request => request.role === 'manager' && request.prompt.includes('A: analyse it')));
+});

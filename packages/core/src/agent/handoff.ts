@@ -84,8 +84,10 @@ export function judge(form: Form, schema: PayloadSchema, payload: unknown): stri
   const items = Array.isArray(payload.letters) ? payload.letters.filter(isJsonObject) : [payload];
   const tasks = items.map(item => ({ task: String(item.task ?? '').trim(), after: Array.isArray(item.after) ? item.after.map(String) : [] }));
   const open = Array.isArray(payload.open) ? payload.open.map(String) : [];
+  const to = String(payload.to);
+  // Only letters to the Engineer are for tasks: one to anyone else opens none and is for none.
   return {
-    form, to: String(payload.to), letters: items.map(item => String(item.letter).trim()),
-    ...tasks.some(({ task, after }) => task || after.length) ? { tasks } : {}, ...open.length ? { open } : {},
+    form, to, letters: items.map(item => String(item.letter).trim()),
+    ...to === 'engineer' && tasks.some(({ task, after }) => task || after.length) ? { tasks } : {}, ...open.length ? { open } : {},
   };
 }
