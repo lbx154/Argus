@@ -1,24 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choiceWrites, formatLatency, formatRate, formatUsd, modelTiers } from '../lib/modelChoice';
-
-const priced = (model: string, output: number | null) => ({
-  model,
-  price: output == null ? null : { input: output / 5, cached_input: output / 50, output },
-});
-
-describe('model price bands', () => {
-  it('ranks by the price table: the dearest is best, a quarter or less is economy, unpriced has no band', () => {
-    expect(modelTiers([
-      priced('luna', 1.2), priced('mini', 2), priced('sol-6.1', 10), priced('gpt-5.5', 10),
-      priced('sol-5.6', 30), priced('astra', null),
-    ])).toEqual({ luna: 'economy', mini: 'economy', 'sol-6.1': 'balanced', 'gpt-5.5': 'balanced', 'sol-5.6': 'best' });
-  });
-
-  it('has nothing to compare with a single price', () => {
-    expect(modelTiers([priced('a', 10), priced('b', 10)])).toEqual({ a: 'balanced', b: 'balanced' });
-    expect(modelTiers([priced('a', null)])).toEqual({});
-  });
-});
+import { choiceWrites, formatLatency, formatRate, formatUsd } from '../lib/modelChoice';
 
 describe('model figures', () => {
   it('formats rates, small amounts and call times', () => {

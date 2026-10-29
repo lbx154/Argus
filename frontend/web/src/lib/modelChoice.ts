@@ -1,28 +1,3 @@
-import type { ModelChoice } from '../api';
-
-export type ModelTier = 'economy' | 'balanced' | 'best';
-
-/**
- * A neutral price band for each priced model, from the price table only (no
- * benchmark): the most expensive output rate is "best", a rate at most a
- * quarter of it is "economy", everything between is "balanced". Unpriced
- * models get no band. With one price there is nothing to compare: balanced.
- */
-export function modelTiers(rows: Pick<ModelChoice, 'model' | 'price'>[]): Record<string, ModelTier> {
-  const priced = rows.filter(row => row.price && row.price.output > 0);
-  const top = Math.max(0, ...priced.map(row => row.price!.output));
-  const distinct = new Set(priced.map(row => row.price!.output)).size;
-  const tiers: Record<string, ModelTier> = {};
-  for (const row of priced) {
-    const output = row.price!.output;
-    tiers[row.model] = distinct < 2 ? 'balanced'
-      : output >= top ? 'best'
-        : output <= top / 4 ? 'economy'
-          : 'balanced';
-  }
-  return tiers;
-}
-
 /** "$2", "$1.25", "$0.2" — a per-million rate without trailing zeros. */
 export function formatRate(usd: number): string {
   return `$${Number(usd.toFixed(2))}`;

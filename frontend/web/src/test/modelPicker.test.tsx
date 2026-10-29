@@ -50,19 +50,20 @@ async function mount() {
 
 const card = (model: string) => renderer!.root.findByProps({ 'data-model-card': model });
 
-it('shows each model with its band, price, speed and availability, and never calls a model on open', async () => {
+it('shows each model with the price, speed and availability on record, and never calls a model on open', async () => {
   const probe = vi.spyOn(api, 'probeModel');
   await mount();
   expect(probe).not.toHaveBeenCalled();
   expect(card('gpt-6.1-sol').props['aria-checked']).toBe(true);
-  expect(card('gpt-5.6-luna').findByProps({ 'data-tier': 'economy' })).toBeTruthy();
-  expect(card('gpt-5.6-sol').findByProps({ 'data-tier': 'best' })).toBeTruthy();
-  expect(card('gpt-6-astra').findAllByProps({ 'data-tier': 'economy' })).toHaveLength(0);
+  // No band guessed from the price table.
+  expect(renderer!.root.findAll(node => node.props['data-tier'] !== undefined)).toHaveLength(0);
   expect(textOf(card('gpt-6.1-sol').findByProps({ 'data-price': true }) as never)).toBe('$2 in · $10 out per 1M tokens');
   expect(textOf(card('gpt-6.1-sol').findByProps({ 'data-task-estimate': true }) as never)).toBe('about $0.040');
   expect(textOf(card('gpt-6.1-sol').findByProps({ 'data-speed': true }) as never)).toBe('median call 20 s (3 calls)');
-  expect(textOf(card('gpt-5.6-luna').findByProps({ 'data-speed': true }) as never)).toBe('no data yet');
-  expect(textOf(card('gpt-6-astra').findByProps({ 'data-price': true }) as never)).toBe('Price unknown');
+  // A figure with no data is left out, not told as unknown.
+  expect(card('gpt-5.6-luna').findAllByProps({ 'data-speed': true })).toHaveLength(0);
+  expect(card('gpt-6-astra').findAllByProps({ 'data-price': true })).toHaveLength(0);
+  expect(card('gpt-5.6-luna').findAllByProps({ 'data-availability': 'unknown' })).toHaveLength(0);
   expect(card('gpt-6-astra').findAllByProps({ 'data-task-estimate': true })).toHaveLength(0);
   expect(textOf(card('gpt-6-astra').findByProps({ 'data-availability': 'failed' }) as never)).toContain('503 quota exceeded');
   // Nothing chosen yet: the confirm bar has nothing to save.

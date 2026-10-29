@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { api, type ModelChoice, type ModelChoices, type ModelProbeResult } from '../api';
 import { useConfig, useModelChoices } from '../hooks';
 import { useI18n } from '../i18n';
@@ -10,9 +10,7 @@ import {
   formatLatency,
   formatRate,
   formatUsd,
-  modelTiers,
   type Effort,
-  type ModelTier,
 } from '../lib/modelChoice';
 import { requestFailureText } from '../lib/requestFailure';
 import { Modal, ModalHeader } from './Modal';
@@ -24,19 +22,19 @@ type Probe = 'running' | ModelProbeResult | { ok: false; error: string };
 
 const unset = (model: string | undefined) => !model || ['auto', 'inherit', 'default'].includes(model.toLowerCase());
 
+/** The price as the price table has it; '' when it has none. */
 function priceText(choice: ModelChoice, choices: ModelChoices, t: Translate): string {
   if (choices.billing === 'premium_request' && choices.premium_request_usd != null) {
     return t('models.pricePerRequest', { price: formatUsd(choices.premium_request_usd) });
   }
-  if (!choice.price) return t('models.priceUnknown');
-  return t('models.price', { input: formatRate(choice.price.input), output: formatRate(choice.price.output) });
+  return choice.price ? t('models.price', { input: formatRate(choice.price.input), output: formatRate(choice.price.output) }) : '';
 }
 
-function ModelCard({ choice, choices, backend, tier, selected, current, probe, onSelect, onProbe, t, locale }: {
+// A card says only what was recorded: a figure with no data is left out, not told as unknown.
+function ModelCard({ choice, choices, backend, selected, current, probe, onSelect, onProbe, t, locale }: {
   choice: ModelChoice;
   choices: ModelChoices;
   backend: string;
-  tier?: ModelTier;
   selected: boolean;
   current: boolean;
   probe?: Probe;
@@ -52,6 +50,7 @@ function ModelCard({ choice, choices, backend, tier, selected, current, probe, o
     onSelect();
   };
   const probeDone = probe && probe !== 'running' ? probe : undefined;
+  const price = priceText(choice, choices, t);
   return (
     <div
       role="radio"
@@ -64,7 +63,6 @@ function ModelCard({ choice, choices, backend, tier, selected, current, probe, o
     >
       <div className="model-card-head">
         <span className="model-card-name">{choice.model}</span>
-        {tier && <span className={`model-tier model-tier--${tier}`} title={t('models.tierHint')} data-tier={tier}>{t(`models.tier.${tier}`)}</span>}
         {selected && <span className="model-card-check" aria-hidden="true">
           <svg viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7" /></svg>
         </span>}
@@ -75,22 +73,19 @@ function ModelCard({ choice, choices, backend, tier, selected, current, probe, o
         {choice.default && <> · {t('models.default')}</>}
         {choice.invalid && <> · <span className="text-err">{t('models.notListed')}</span></>}
       </div>
-      <dl className="model-card-facts">
-        <div><dt>{t('models.priceLabel')}</dt><dd data-price>{priceText(choice, choices, t)}</dd></div>
+      {price || choice.task_estimate_usd != null || choice.latency_ms != null ? <dl className="model-card-facts">
+        {price && <div><dt>{t('models.priceLabel')}</dt><dd data-price>{price}</dd></div>}
         {choice.task_estimate_usd != null && (
           <div><dt>{t('models.taskLabel')}</dt><dd data-task-estimate>{t('models.taskEstimate', { price: formatUsd(choice.task_estimate_usd) })}</dd></div>
         )}
-        <div><dt>{t('models.speedLabel')}</dt><dd data-speed>{choice.latency_ms != null
-          ? t('models.speed', { time: formatLatency(choice.latency_ms, locale), count: choice.latency_samples })
-          : t('models.speedUnknown')}</dd></div>
-      </dl>
+        {choice.latency_ms != null && <div><dt>{t('models.speedLabel')}</dt><dd data-speed>
+          {t('models.speed', { time: formatLatency(choice.latency_ms, locale), count: choice.latency_samples })}</dd></div>}
+      </dl> : null}
       <div className="model-card-foot">
-        <span className={`model-status model-status--${availability.state}`} data-availability={availability.state} title={availability.reason || undefined}>
+        {availability.state === 'unknown' ? null : <span className={`model-status model-status--${availability.state}`} data-availability={availability.state} title={availability.reason || undefined}>
           <span className="model-status-dot" aria-hidden="true" />
-          {availability.state === 'ok' ? t('models.available')
-            : availability.state === 'failed' ? t('models.failed', { reason: availability.reason })
-              : t('models.unknown')}
-        </span>
+          {availability.state === 'ok' ? t('models.available') : t('models.failed', { reason: availability.reason })}
+        </span>}
         <button
           type="button"
           className="model-probe"
@@ -152,7 +147,6 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
 
   const choices = choicesQuery.data;
   const options = choices?.options ?? [];
-  const tiers = useMemo(() => modelTiers(options), [options]);
   const writes = choiceWrites({ model, effort }, current);
 
   const select = (chosen: string) => {
@@ -225,7 +219,6 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
                   choice={choice}
                   choices={choices}
                   backend={backendLabel(choices.backend, config.data)}
-                  tier={tiers[choice.model]}
                   selected={model === choice.model}
                   current={current.model === choice.model}
                   probe={probes[choice.model]}
