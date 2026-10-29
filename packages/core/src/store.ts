@@ -6,6 +6,7 @@ import { appendFileSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSyn
 import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import type { DeliverySnapshot } from '@argus/contracts';
 import type { Backend, Role, Step, Usage } from './types.js';
 
 /** `idle`: no letter is waiting for anyone but the operator; `asking`: nothing goes on but what
@@ -75,6 +76,8 @@ export interface Project {
   forManager?: string[];
   /** Backend session per role: manager, planner, <task>.engineer, <task>.reviewer. */
   sessions: Record<string, string>;
+  /** The versions kept of each file a result was delivered with, oldest first: copies in delivered/. */
+  delivered?: Record<string, string[]>;
 }
 
 export type FlowEvent =
@@ -83,7 +86,8 @@ export type FlowEvent =
   | { type: 'call.start'; role: Role; task?: string }
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }
-  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[] }
+  /** A delivered result's files (`open`), each as it was then (`snapshots`). */
+  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[] }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
   | ({ type: 'step'; role: Role; task?: string } & Step)

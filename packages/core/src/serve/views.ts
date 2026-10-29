@@ -36,18 +36,19 @@ const firstLine = (text: string): string => text.split('\n')
   .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it. */
-function delivered(letter: string, open: string[], ts: number, line: number): DeliveryReceipt {
+function delivered({ letter, open = [], snapshots, ts }: Extract<Recorded, { type: 'handoff' }>, line: number): DeliveryReceipt {
   const targets = open.map(path => ({ path, label: basename(path), source: 'manager', why: '' }));
   return {
     schema_version: 1, delivery_id: `d${line}`, kind: 'task_completed', item_id: '', title: firstLine(letter),
-    summary: letter, status: 'done', review_status: '', delivered_at: ts, primary_target: targets[0] ?? null, targets,
+    summary: letter, status: 'done', review_status: '', delivered_at: seconds(ts), primary_target: targets[0] ?? null, targets,
+    ...snapshots ? { snapshots } : {},
   };
 }
 
 /** The JSON lines of a file from byte `from` on, and the byte after the last of them, where the
  * next read starts: a line not yet ended waits for it. A line cut short (a full disk, a killed
  * process) is left out rather than failing every read. */
-function jsonLines(path: string, from = 0): { rows: Record<string, unknown>[]; end: number } {
+export function jsonLines(path: string, from = 0): { rows: Record<string, unknown>[]; end: number } {
   let bytes: Buffer;
   try {
     const file = openSync(path, 'r');
@@ -103,7 +104,7 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
         if (event.role === 'manager') {
           row('ui.argus', {
             agent_layer: 'manager', text: event.letter, message_id: `m${fold.asked ?? line}-argus`,
-            ...event.open ? { delivery: delivered(event.letter, event.open, seconds(event.ts), line) } : {},
+            ...event.open ? { delivery: delivered(event, line) } : {},
           });
           fold.asked = null;
         } else if (event.role === 'planner') {

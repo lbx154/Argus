@@ -31,10 +31,12 @@ A project is a directory `$ARGUS_HOME/projects/<id>/` with:
 
 | File | Holds | Written |
 |---|---|---|
-| `project.json` | the current state: workdir, request, the operator's name for it, backend, model and effort, tasks, letters waiting for the Planner and for the Manager, role sessions, the open questions, status | replaced atomically (write temp, rename) |
-| `events.jsonl` | what happened, in order: messages, hand-offs, calls and their steps (what a role says, the commands it runs, the files it changes, as its turn goes on), task changes | appended |
+| `project.json` | the current state: workdir, request, the operator's name for it, backend, model and effort, tasks, letters waiting for the Planner and for the Manager, role sessions, the open questions, status, the versions kept of each delivered file | replaced atomically (write temp, rename) |
+| `events.jsonl` | what happened, in order: messages, hand-offs (a delivered result's with its files and their versions), calls and their steps (what a role says, the commands it runs, the files it changes, as its turn goes on), task changes | appended |
 | `usage.jsonl` | one record per backend call: tokens, cost | appended |
 | `calls/<call>.prompt.md`, `calls/<call>.jsonl` | the prompt as sent, and the backend's raw output: a turn can be read and replayed | written by the call |
+| `delivered/<version>` | a text file of a delivered result, up to 512 KB, as it was then; a file's last ten copies are kept | written on delivery |
+| `editions.jsonl` | the operator's editions of a text result or of an answer, the first with what it was made from | appended |
 
 `project.json` is the only place a fact lives; events record changes and are never folded
 back into state. The work itself stays in the workdir.
@@ -165,9 +167,14 @@ its last call; a role's letters download as Markdown; the search reads each proj
 conversation and letters as they are, with no index. The machine's CPUs and memory (from Node)
 and NVIDIA GPUs (from `nvidia-smi`) are read when the page asks, never polled.
 
+A text result is edited in the page as editions saved beside it, never over it, each save
+refused after one it never saw; an answer's revisions are kept the same way. Each text file of a
+result the Manager delivers is copied as it was, so the same file delivered again shows, as a
+unified diff of its lines, what changed since.
+
 The page offers only what the server declares in `/api/meta`. The core declares the required
 capabilities, `project.attachments.v1`, `system.resources.v1`, `project.workdir.v1`,
-`project.config.v1` and `project.cost-feed.v1`; the page hides the slash commands, the doctor among
+`project.config.v1`, `project.cost-feed.v1` and `project.editions.v1`; the page hides the slash commands, the doctor among
 them (`composer.commands.v1`), and in the settings the advisor (`advisor.config.v1`) and the light
 model, which the core's settings do not list. The Python server declares every capability.
 

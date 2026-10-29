@@ -7,7 +7,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
 import { Store, type Task } from '../src/store.js';
+import { keep } from '../src/serve/files.js';
 import { serve } from '../src/serve/index.js';
+import { unified } from '../src/serve/versions.js';
 
 /** A server over one project made by hand, with these files in its workdir; no call is made. */
 async function setup(t: TestContext, files: Record<string, string> = {}, token?: string) {
@@ -186,6 +188,66 @@ test('with a token, the preview grants a cookie that its page alone takes, as a 
   assert.equal(shown.status, 200);
   assert.match(await shown.text(), /<p>hi<\/p>$/);
   assert.equal((await call(`${P}/artifact/preview?path=index.html`, { headers: { authorization: '', cookie: 'argus_preview_access=secret' } })).status, 401);
+});
+
+test("a result's editions are saved beside it, never over it, and a result delivered again shows what changed", async t => {
+  const report = '# Sales\n\nNorth 10\n';
+  const { store, project, call, get } = await setup(t, { 'report.md': report, 'plot.png': 'PNG\0', 'big.md': 'x'.repeat(512 * 1024 + 1) });
+  const P = `/api/projects/${project.id}`;
+  type Editions = { original: string; versions: { version: number; content: string; note: string }[] };
+  const editions = (kind: string, source: string) => get<Editions>(`${P}/editions/${kind}?${new URLSearchParams({ source })}`);
+  const save = (kind: string, body: unknown) =>
+    call(`${P}/editions/${kind}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const saved = (versions: Editions['versions']) => versions.map(({ version, content, note }) => [version, content, note]);
+
+  assert.deepEqual(await editions('artifact', 'report.md'), { original: report, versions: [] });
+  assert.deepEqual(await (await save('artifact', { source: 'report.md', content: '# Sales\n\nNorth 12\n', base_version: 0 })).json(),
+    { version: 1, content: '# Sales\n\nNorth 12\n' });
+  // A save after a version it never saw is refused.
+  assert.equal((await save('artifact', { source: 'report.md', content: 'stale', base_version: 0 })).status, 409);
+  assert.equal((await save('artifact', { source: 'report.md', content: '# Sales\n', note: 'shorter', base_version: 1 })).status, 200);
+  // The first edition was saved with the file as it was, as version 0, and the file is still as it was.
+  const { original, versions } = await editions('artifact', 'report.md');
+  assert.equal(original, report);
+  assert.deepEqual(saved(versions), [[0, report, ''], [1, '# Sales\n\nNorth 12\n', ''], [2, '# Sales\n', 'shorter']]);
+  // Only a text result of the workdir, small enough to edit in the page, has editions.
+  for (const [source, status] of [['plot.png', 422], ['big.md', 413], ['missing.md', 404], [join(store.dir(project.id), 'project.json'), 404]] as const) {
+    assert.equal((await call(`${P}/editions/artifact?${new URLSearchParams({ source })}`)).status, status, source);
+  }
+  // An answer's revisions start from the answer as recorded.
+  await save('conversation', { source: 'm0-operator', content: 'Another answer', note: 'Ask it again', original: 'The answer', base_version: 0 });
+  assert.deepEqual(saved((await editions('conversation', 'm0-operator')).versions), [[0, 'The answer', ''], [1, 'Another answer', 'Ask it again']]);
+  assert.deepEqual(await editions('conversation', 'm2-operator'), { original: '', versions: [] });
+
+  const dir = store.dir(project.id);
+  const [first] = keep(project, dir, ['report.md']);
+  await writeFile(join(project.workdir, 'report.md'), '# Sales\n\nNorth 12\nSouth 7\n');
+  const [second] = keep(project, dir, ['report.md']);
+  const diff = (before: string, after: string) => get(`${P}/delivery-diff?${new URLSearchParams({ path: 'report.md', before, after })}`);
+  assert.deepEqual(await diff(first!.version, second!.version), {
+    path: 'report.md', available: true, truncated: false,
+    diff: '--- a/report.md\n+++ b/report.md\n@@ -1,3 +1,4 @@\n # Sales\n \n-North 10\n+North 12\n+South 7\n',
+  });
+  // A file keeps its last ten copies: an older one, or anything but a copy, is no longer there to compare.
+  for (let n = 0; n < 9; n++) {
+    await writeFile(join(project.workdir, 'report.md'), `# Sales\n\nNorth ${n}\n`);
+    keep(project, dir, ['report.md']);
+  }
+  assert.equal(project.delivered?.['report.md']?.length, 10);
+  for (const before of [first!.version, '../project.json']) {
+    assert.deepEqual(await diff(before, second!.version), { path: 'report.md', available: false, diff: '', truncated: false });
+  }
+});
+
+test('what changed between two deliveries reads as a unified diff, changes far apart in hunks of their own', () => {
+  const lines = (line: (n: number) => string) => `${Array.from({ length: 20 }, (_, n) => line(n)).join('\n')}\n`;
+  assert.equal(unified('a.txt', lines(String), lines(n => n === 2 || n === 15 ? `${n}!` : String(n))), '--- a/a.txt\n+++ b/a.txt\n'
+    + '@@ -1,6 +1,6 @@\n 0\n 1\n-2\n+2!\n 3\n 4\n 5\n@@ -13,7 +13,7 @@\n 12\n 13\n 14\n-15\n+15!\n 16\n 17\n 18\n');
+  assert.equal(unified('a.txt', 'same\n', 'same\n'), '');
+  // A change too long to match line by line reads as all removed, then all added.
+  const many = (mark: string) => Array.from({ length: 5000 }, (_, n) => `${mark}${n}`).join('\n');
+  const rows = unified('big.txt', many('a'), many('b')).split('\n');
+  assert.deepEqual([rows[2], rows[3], rows[5003], rows.length], ['@@ -1,5000 +1,5000 @@', '-a0', '+b0', 10004]);
 });
 
 test('a task in full, a role\'s letters to download, and a search of every project\'s record', async t => {

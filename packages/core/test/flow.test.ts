@@ -92,10 +92,27 @@ test("the project's request is the message that first set the team working, not 
   assert.equal((await say(flow, id, 'Also export a PDF')).request, 'Make me a CSV summary tool');
 });
 
-test('a result the Manager hands the operator keeps its files in the record, beside its letter', async t => {
-  const { flow, id, events } = await setup(t, [{ ...report, open: ['summary.py'] }]);
+test('a result the Manager hands the operator keeps its files in the record, beside its letter, each as it was', async t => {
+  const open = ['summary.py', 'plot.png', 'missing.md'];
+  const { home, store, flow, id, events } = await setup(t, [{ ...report, open }, { ...report, open }, { ...report, open }]);
+  writeFileSync(join(home, 'summary.py'), 'print(1)\n');
+  writeFileSync(join(home, 'plot.png'), 'PNG\0');
   await say(flow, id, 'Make me a CSV summary tool');
-  assert.deepEqual(events().flatMap(event => event.type === 'handoff' ? [[event.letter, event.open]] : []), [[report.letter, ['summary.py']]]);
+  await say(flow, id, 'Send it again');
+  writeFileSync(join(home, 'summary.py'), 'print(2)\n');
+  const project = await say(flow, id, 'Print the totals instead');
+  const handoffs = events().flatMap(event => event.type === 'handoff' ? [event] : []);
+  assert.deepEqual(handoffs.map(event => [event.letter, event.open]), [[report.letter, open], [report.letter, open], [report.letter, open]]);
+  // A text file is copied as delivered; a binary one is named by its size and time; a missing one is left out.
+  const [first, again, changed] = handoffs.map(event => event.snapshots ?? []);
+  assert.deepEqual(first?.map(({ path, size, stored }) => [path, size, stored]), [['summary.py', 9, true], ['plot.png', 4, false]]);
+  // A file the same as its last copy keeps its version; a changed one has a new copy.
+  assert.deepEqual(again, first);
+  const versions = [first![0]!.version, changed![0]!.version];
+  assert.match(versions[1]!, /^[0-9a-f]{32}$/);
+  assert.notEqual(versions[1], versions[0]);
+  assert.deepEqual(project.delivered, { 'summary.py': versions });
+  assert.deepEqual(versions.map(version => readFileSync(join(store.dir(id), 'delivered', version), 'utf8')), ['print(1)\n', 'print(2)\n']);
 });
 
 test('the Manager answers directly', async t => {

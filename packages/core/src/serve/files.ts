@@ -1,10 +1,13 @@
 // Files over HTTP: the web cockpit's own build, and a project's results. A result is a file of
-// the workdir the work created or changed; nothing is read out of what a role wrote in prose.
+// the workdir the work created or changed; nothing is read out of what a role wrote in prose. A
+// result the Manager delivers is kept as it was then, its text files copied into the project's
+// delivered/, so that what a later delivery changed can be shown.
 
-import { createReadStream, readdirSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { createReadStream, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, extname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
-import type { ArtifactInfo, ArtifactKind } from '@argus/contracts';
+import type { ArtifactInfo, ArtifactKind, DeliverySnapshot } from '@argus/contracts';
 import type { Project } from '../store.js';
 
 const TYPES: Record<string, [ArtifactKind, string]> = {
@@ -25,6 +28,10 @@ const TYPES: Record<string, [ArtifactKind, string]> = {
 const TEXT = new Set(['.txt', '.log', '.py', '.ts', '.tsx', '.sh', '.yaml', '.yml', '.toml', '.tex', '.bib', '.ipynb', '.r', '.sql', '.xml']);
 const PREVIEW_BYTES = 128 * 1024;
 const LISTED = 200;
+/** The most a text result holds to be edited in the page, or copied as delivered. */
+export const TEXT_LIMIT = 512 * 1024;
+/** The copies kept of each delivered file, the newest. */
+const COPIES = 10;
 
 export function typeOf(path: string): [ArtifactKind, string] {
   const ext = extname(path).toLowerCase();
@@ -64,6 +71,44 @@ export function under(root: string, path: string): { file: string; path: string;
   if (!inside || inside.startsWith('..') || isAbsolute(inside) || inside.split(sep).some(part => part.startsWith('.'))) return null;
   const stat = statSync(file);
   return stat.isFile() ? { file, path: inside.split(sep).join('/'), stat } : null;
+}
+
+/** A file's text; null when it cannot be read, is not UTF-8, or holds a NUL, as binary files do. */
+export function textOf(file: string): string | null {
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(file));
+    return text.includes('\0') ? null : text;
+  } catch { return null; }
+}
+
+/** The copy kept of a delivered file by its version; null when there is none. */
+export const kept = (dir: string, version: string): string | null =>
+  /^[0-9a-f]{32}$/.test(version) ? textOf(join(dir, 'delivered', version)) : null;
+
+/** Each file of a result the Manager delivers, as it is now. A text file is copied into `dir`'s
+ * delivered/ under a new version, unless it is the same as its last copy, whose version it keeps;
+ * past ten copies of a file, the oldest is deleted. A file too large or not text is named by its
+ * size and time and not copied; a path that names no result is left out. */
+export function keep(project: Project, dir: string, paths: string[]): DeliverySnapshot[] {
+  return paths.flatMap((path): DeliverySnapshot[] => {
+    try {
+      const found = under(project.workdir, path);
+      if (!found) return [];
+      const { size, mtimeMs } = found.stat;
+      const text = size <= TEXT_LIMIT ? textOf(found.file) : null;
+      if (text === null) return [{ path, version: `${size}:${mtimeMs}`, size, stored: false }];
+      const versions = (project.delivered ??= {})[path] ??= [];
+      let version = versions.at(-1);
+      if (version === undefined || kept(dir, version) !== text) {
+        version = randomUUID().replaceAll('-', '');
+        mkdirSync(join(dir, 'delivered'), { recursive: true });
+        writeFileSync(join(dir, 'delivered', version), text);
+        versions.push(version);
+        for (const old of versions.splice(0, versions.length - COPIES)) rmSync(join(dir, 'delivered', old), { force: true });
+      }
+      return [{ path, version, size, stored: true }];
+    } catch { return []; }
+  });
 }
 
 export function artifactInfo(project: Project, found: { file: string; path: string; stat: Stats }, preview = false): ArtifactInfo {

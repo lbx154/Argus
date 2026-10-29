@@ -15,7 +15,7 @@ import type { Runs } from './runs.js';
 import { daemon, projectRow } from './views.js';
 
 /** The optional API capabilities these routes give the page. */
-export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.cost-feed.v1'];
+export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.cost-feed.v1', 'project.editions.v1'];
 
 /** The settings the page writes, by the Python runtime's names for them: a project has one
  * backend, model and effort, which every role uses. A model or effort is the backend's own word
