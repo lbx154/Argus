@@ -1,8 +1,8 @@
 # Counterexample Lab setup
 
 > **Outdated (checked 2026-10-22, RL-4):** the workbench page for the Counterexample Lab was
-> removed from the Web UI (`948cbb4d`); only the read-only `GET /api/projects/{sid}/counterexamples`
-> projection described below remains. For the current workbench see
+> removed from the Web UI (`948cbb4d`), and the read-only `GET /api/projects/{sid}/counterexamples`
+> projection described below was removed in the TS-reference cleanup (step 1, B4). For the current workbench see
 > [web-control-responsiveness.md](web-control-responsiveness.md).
 
 The integration adds two independent capabilities without including any

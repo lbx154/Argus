@@ -1,7 +1,7 @@
 # 反例实验室配置
 
 > **已过时（2026-10-22 核对，RL-4）：**反例实验室的工作台页面已从网页版删除（`948cbb4d`），
-> 只剩下文所述的只读接口 `GET /api/projects/{sid}/counterexamples`。当前工作台见
+> 下文所述的只读接口 `GET /api/projects/{sid}/counterexamples` 也已在 TS 对照精简第一步（B4）中删除。当前工作台见
 > [web-control-responsiveness.md](web-control-responsiveness.md)。
 
 这套集成包含两项

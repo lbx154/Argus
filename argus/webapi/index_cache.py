@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import asyncio
 import math
-import os
 import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -38,9 +37,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 DEFAULT_TTL_SECONDS = 2.0
-TTL_ENV_VAR = "ARGUS_WEB_INDEX_CACHE_TTL"
 DEFAULT_SNAPSHOT_TTL_SECONDS = 5.0
-SNAPSHOT_TTL_ENV_VAR = "ARGUS_WEB_SNAPSHOT_CACHE_TTL"
 
 # A timed-out reader leaves the shared scan running rather than duplicating it.
 _LEADER_WAIT_TIMEOUT_SECONDS = 30.0
@@ -162,28 +159,6 @@ def _finite_ttl(value: str | float) -> float:
     return ttl if math.isfinite(ttl) and ttl > 0.0 else 0.0
 
 
-def resolve_ttl_seconds(environ: dict[str, str] | None = None) -> float:
-    """Read the cache TTL from the environment.
-
-    A non-positive or unparseable value disables caching, which restores the
-    uncoalesced behavior for anyone who needs to rule the cache out.
-    """
-    env = os.environ if environ is None else environ
-    raw = str(env.get(TTL_ENV_VAR, "") or "").strip()
-    if not raw:
-        return DEFAULT_TTL_SECONDS
-    return _finite_ttl(raw)
-
-
-def resolve_snapshot_ttl_seconds(environ: dict[str, str] | None = None) -> float:
-    """Read the per-project snapshot TTL from the environment."""
-    env = os.environ if environ is None else environ
-    raw = str(env.get(SNAPSHOT_TTL_ENV_VAR, "") or "").strip()
-    if not raw:
-        return DEFAULT_SNAPSHOT_TTL_SECONDS
-    return _finite_ttl(raw)
-
-
 class _Entry:
     __slots__ = ("value", "expires_at", "done", "error", "in_flight", "result")
 
@@ -200,7 +175,7 @@ class IndexCache:
     """Single-flight + short-TTL cache shared by one ``create_app`` instance."""
 
     def __init__(self, *, ttl_seconds: float | None = None) -> None:
-        self.ttl_seconds = resolve_ttl_seconds() if ttl_seconds is None else _finite_ttl(ttl_seconds)
+        self.ttl_seconds = DEFAULT_TTL_SECONDS if ttl_seconds is None else _finite_ttl(ttl_seconds)
         self._lock = threading.Lock()
         self._entries: dict[Any, _Entry] = {}
 

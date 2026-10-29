@@ -11,10 +11,9 @@ This package was split out of a single ~1.5k-line module. It is organized as:
 - ``_wording``: every sentence shown to a person, keyed by the stable code
   (``kind``) the reducers stamp on roles and timeline rows, in the session's
   language.
-- ``_reduce_manager`` / ``_reduce_mission`` / ``_reduce_research`` /
-  ``_reduce_skill`` / ``_reduce_wiki``: one module per mission-view
-  event family, each exposing a small ``reduce_<family>_event(view, event,
-  *, event_type, ts, mission)`` function.
+- ``_reduce_manager`` / ``_reduce_mission`` / ``_reduce_research``: one
+  module per mission-view event family, each exposing a small
+  ``reduce_<family>_event(view, event, *, event_type, ts, mission)`` function.
 - ``_dispatch``: the stable ``event_type -> family reducer`` table and the
   public ``reduce_mission_view_event``.
 - ``_replay``: the view computed from the event log. Nothing is written; each

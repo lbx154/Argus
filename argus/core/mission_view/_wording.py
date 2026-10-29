@@ -730,39 +730,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "已完成自己的部分，工作交给下一个角色。",
     ),
     "waiting": ("Waiting", "等待中"),
-    # Capabilities and knowledge Argus keeps.
-    "capability_learned": (
-        "Argus learned a new capability.",
-        "Argus 学会了一项新能力。",
-    ),
-    "capability_improved": (
-        "Argus improved a capability it already had.",
-        "Argus 改进了一项已有能力。",
-    ),
-    "capability_shared": (
-        "A capability was promoted for use across projects.",
-        "一项能力被提升为跨项目可用。",
-    ),
-    "knowledge_captured": (
-        "A new knowledge page was written.",
-        "新写了一页知识记录。",
-    ),
-    "knowledge_refined": (
-        "A knowledge page was revised.",
-        "修订了一页知识记录。",
-    ),
-    "knowledge_retired": (
-        "A knowledge page was retired.",
-        "一页知识记录已退役。",
-    ),
-    "knowledge_promoted": (
-        "A knowledge page was promoted.",
-        "一页知识记录被提升。",
-    ),
-    "knowledge_demoted": (
-        "A knowledge page was demoted.",
-        "一页知识记录被降级。",
-    ),
 }
 
 # Stage identifiers are machine codes; readers of a Chinese session get the

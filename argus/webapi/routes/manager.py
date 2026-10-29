@@ -616,7 +616,7 @@ def register_manager_routes(app, ctx: ServerContext) -> None:
         def _gen():
             for item in server._iter_manager_stream_items(
                 q,
-                heartbeat_s=server._manager_stream_heartbeat_seconds(),
+                heartbeat_s=server.MANAGER_STREAM_HEARTBEAT_S,
             ):
                 if stream_closed.is_set():
                     break

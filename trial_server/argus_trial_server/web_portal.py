@@ -129,7 +129,7 @@ PROJECT_WRITES = re.compile(
     r"^/api/projects/[^/]+/(?:attachments|message(?:/stream|/cancel)?|advisor/config|tasks|nudge|note|"
     r"plan|prompt/rewrite|reset|continuous|daemon/(?:start|stop)|mission/abort|"
     r"backlog/[^/]+/(?:answer|dispose|stop)|decisions/[^/]+/resolve|"
-    r"reviews/final|map-notes|reader-foundation(?:/[^/]+/question)?|"
+    r"map-notes|reader-foundation(?:/[^/]+/question)?|"
     r"browser-draft|editions/(?:artifact|conversation))$"
 )
 # The research map's canvas (argus/webapi/routes/canvas.py): the cards a

@@ -151,37 +151,6 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         status="done",
         reason="Official benchmark evidence verified.",
     )
-    skill_path = tmp_path / "skills" / "fused-epilogue-playbook.md"
-    skill_path.parent.mkdir()
-    skill_path.write_text(
-        "---\nname: fused-epilogue-playbook\ndescription: Reuse the fused epilogue.\n"
-        "---\n\n# Fused epilogue\n\nKeep the measured memory-traffic evidence.\n",
-        encoding="utf-8",
-    )
-    emit(
-        tmp_path,
-        "skill.evolution.completed",
-        9.5,
-        ops_proposed=0,
-        created=0,
-        updated=0,
-        archived=0,
-        rejected=0,
-        project_skill_dir=str(tmp_path / "skills"),
-        global_skill_dir=str(tmp_path / "global-skills"),
-        project_skill_count=1,
-        global_skill_count=0,
-    )
-    emit(
-        tmp_path,
-        "skill.created",
-        10,
-        skill_id="skill-1",
-        name="fused-epilogue-playbook",
-        version=1,
-        scope="engineer",
-        path=str(skill_path),
-    )
     completed = emit(
         tmp_path,
         "life.mission.completed",
@@ -217,7 +186,6 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
     assert view["round"] == {"current": 7, "max": 24}
     assert view["achievement"]["title"] == "Kernel gain certified"
     assert view["achievement"]["evidence"] == ["experiments/run-v7/result.json"]
-    assert view["achievement"]["skills_learned"] == 1
     assert view["achievement"]["artifacts"] == 1
     assert {row["role"] for row in view["role_work"]} >= {
         "manager",
@@ -231,75 +199,8 @@ def test_structured_events_build_reviewer_certified_achievement(tmp_path: Path) 
         for row in view["role_work"]
     )
     assert not any(row["kind"] == "reasoning" for row in view["role_work"])
-    assert view["learned_skills"][0]["mission_id"] == "task-1"
-    assert "# Fused epilogue" in view["learned_skills"][0]["content"]
     persisted = load_mission_view(tmp_path)
     assert persisted["achievement"] == view["achievement"]
-    assert "content" not in persisted["learned_skills"][0]
-
-
-def test_snapshot_discovers_project_skill_and_attributes_mission(
-    tmp_path: Path,
-) -> None:
-    skill_path = tmp_path / "skills" / "measured-repair.md"
-    skill_path.parent.mkdir()
-    skill_path.write_text(
-        "---\nname: Measured repair\ndescription: Preserve measured repair evidence.\n"
-        "---\n\n# Measured repair\n\nReuse the verified repair sequence.\n",
-        encoding="utf-8",
-    )
-    modified = skill_path.stat().st_mtime
-
-    view = snapshot_mission_view(
-        tmp_path,
-        session={"objective": "Repair the evaluator"},
-        daemon={},
-        roles=[],
-        backlog=[{
-            "id": "mission-repair",
-            "title": "Repair evaluator",
-            "objective": "Repair the evaluator",
-            "status": "done",
-            "started_ts": modified - 10,
-            "finished_ts": modified + 10,
-        }],
-        continuous={},
-    )
-
-    assert view["learned_skills"] == [{
-        "id": "measured-repair",
-        "name": "measured-repair",
-        "scope": "project",
-        "path": str(skill_path),
-        "status": "active",
-        "updated_at": modified,
-        "mission_id": "mission-repair",
-        "mission_title": "Repair evaluator",
-        "content": skill_path.read_text(encoding="utf-8"),
-        "content_truncated": False,
-    }]
-    assert load_mission_view(tmp_path)["learned_skills"] == []
-
-
-def test_snapshot_discovers_the_workspace_agent_skills(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    skill_path = workspace / ".agents" / "skills" / "measured-repair" / "SKILL.md"
-    skill_path.parent.mkdir(parents=True)
-    skill_path.write_text(
-        "---\nname: measured-repair\ndescription: Preserve measured repair evidence.\n---\n",
-        encoding="utf-8",
-    )
-    (skill_path.parent / "repair.py").write_text("print('ok')\n", encoding="utf-8")
-    state = tmp_path / "state"
-    state.mkdir()
-
-    view = snapshot_mission_view(
-        state, session={"workdir": str(workspace)}, daemon={}, roles=[], backlog=[], continuous={},
-    )
-
-    (skill,) = view["learned_skills"]
-    assert (skill["id"], skill["path"]) == ("measured-repair", str(skill_path))
-    assert skill["content"] == skill_path.read_text(encoding="utf-8")
 
 
 def test_engineer_self_review_is_not_presented_as_independent_review(
@@ -396,113 +297,6 @@ def test_snapshot_bootstraps_from_existing_event_log(tmp_path: Path) -> None:
     assert view["mission"]["title"] == "Existing mission"
     assert view["round"] == {"current": 3, "max": 9}
     assert view["stage"]["id"] == "optimize"
-
-
-def test_evolution_events_project_skill_and_wiki_storage(tmp_path: Path) -> None:
-    emit(
-        tmp_path,
-        "skill.evolution.completed",
-        1,
-        ops_proposed=1,
-        created=1,
-        updated=0,
-        archived=0,
-        rejected=0,
-        project_skill_dir="/state/project/skills",
-        global_skill_dir="/state/global/skills",
-        project_skill_count=3,
-        global_skill_count=20,
-    )
-    view = emit(
-        tmp_path,
-        "wiki.evolution.completed",
-        2,
-        wiki_count=1,
-        ops_proposed=1,
-        paths=["/workspace/.autors/demo/wiki"],
-    )
-    emit(
-        tmp_path,
-        "wiki.created",
-        3,
-        page_id="retry-pattern",
-        card_type="pattern",
-        title="Bounded retry pattern",
-        status="scratch",
-        path="/workspace/.autors/demo/wiki/pages/patterns/retry-pattern.md",
-    )
-    view = emit(
-        tmp_path,
-        "wiki.promotion.promoted",
-        4,
-        page_id="retry-pattern",
-        card_type="patterns",
-        from_status="scratch",
-        to_status="candidate",
-    )
-    emit(
-        tmp_path,
-        "skill.history.compressed",
-        5,
-        count=3,
-        keep_hot=20,
-        bytes_saved=1000,
-    )
-    view = emit(
-        tmp_path,
-        "wiki.retired.compressed",
-        6,
-        count=2,
-        keep_hot=20,
-        bytes_saved=500,
-    )
-
-    assert view["storage"] == {
-        "project_skill_dir": "/state/project/skills",
-        "global_skill_dir": "/state/global/skills",
-        "project_skill_count": 3,
-        "global_skill_count": 20,
-        "skill_history_compressed": 3,
-        "wiki_retired_compressed": 2,
-        "skill_history_bytes_saved": 1000,
-        "wiki_retired_bytes_saved": 500,
-        "wiki_paths": ["/workspace/.autors/demo/wiki"],
-    }
-    assert view["learned_wiki_pages"][0]["title"] == "Bounded retry pattern"
-    assert view["learned_wiki_pages"][0]["status"] == "candidate"
-    assert view["timeline"][-1]["kind"] == "knowledge_promoted"
-    assert view["timeline"][-1]["title"] == "A knowledge page was promoted."
-
-
-def test_skill_source_promotion_updates_capability_projection(tmp_path: Path) -> None:
-    emit(
-        tmp_path,
-        "skill.created",
-        1,
-        skill_id="s1",
-        name="bounded retry",
-        version=1,
-        path="/state/project/skills/bounded-retry.md",
-    )
-    view = emit(
-        tmp_path,
-        "skill.tidied",
-        2,
-        name="bounded retry",
-        placement="vertical",
-        vertical="kernelbench",
-        path="/source/verticals/kernelbench/skills/bounded-retry.md",
-        text="promoted",
-    )
-
-    skill = view["learned_skills"][0]
-    assert skill["source_placement"] == "vertical"
-    assert skill["source_vertical"] == "kernelbench"
-    assert skill["source_path"].endswith("bounded-retry.md")
-    assert view["timeline"][-1]["kind"] == "capability_shared"
-    assert view["timeline"][-1]["title"] == (
-        "A capability was promoted for use across projects."
-    )
 
 
 def test_an_answered_task_shows_the_operator_their_request_at_the_top(tmp_path: Path) -> None:

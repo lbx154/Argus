@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from argus.webapi import daemon_lifecycle, server
+from argus.webapi import server
 from argus.webapi.routes.workspace_v2 import _git, _open_confined_file
 
 
@@ -85,19 +85,6 @@ def test_workspace_v2_profiles_tree_file_literature_and_confinement(tmp_path: Pa
     traversal = client.get("/api/v2/workspace/file", params={**context, "path": "../../etc/passwd"})
     assert traversal.status_code == 400
 
-    invalid_review = client.post(
-        f"/api/projects/{sid}/reviews/final",
-        json={
-            "venue": "ICLR",
-            "venue_type": "conference",
-            "strictness": "strict",
-            "manuscript_path": "paper/malware.exe",
-            "emphasis": ["Novelty"],
-            "scope": "Check novelty",
-        },
-    )
-    assert invalid_review.status_code == 415
-
 
 @pytest.mark.parametrize(
     ("payload", "exit_code", "max_bytes", "expected"),
@@ -150,51 +137,6 @@ def test_workspace_git_portable_pipe_reads_are_bounded_and_reaped(
     assert processes[0].returncode is not None
     assert processes[0].stdout is not None
     assert processes[0].stdout.closed
-
-
-def test_final_review_uses_existing_request_id_without_content_hashes(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    workspace = tmp_path / "project"
-    manuscript = workspace / "paper" / "main.md"
-    manuscript.parent.mkdir(parents=True)
-    manuscript.write_text("# Manuscript\n", encoding="utf-8")
-    state = tmp_path / "state"
-    created = daemon_lifecycle.create_daemon(workdir=str(workspace), global_root=state)
-    sid = created["sid"]
-    monkeypatch.setattr(
-        "argus.webapi.mission_items.enqueue_task_command",
-        lambda *args, **kwargs: {"ok": True},
-    )
-    client = TestClient(server.create_app(global_root=state))
-
-    response = client.post(
-        f"/api/projects/{sid}/reviews/final",
-        json={
-            "venue": "ICLR",
-            "venue_type": "conference",
-            "strictness": "standard",
-            "manuscript_path": "paper/main.md",
-            "emphasis": ["Novelty"],
-            "scope": "Review the final manuscript.",
-        },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    request_id = payload["request_id"]
-    assert request_id.startswith("fr-")
-    assert "manuscript_sha256" not in payload["manifest"]
-
-    report = workspace / payload["report_path"]
-    report.parent.mkdir(exist_ok=True)
-    report.write_text("# Final review\n", encoding="utf-8")
-    status = client.get(f"/api/projects/{sid}/reviews/final/{request_id}")
-
-    assert status.status_code == 200
-    assert status.json()["status"] == "completed"
-    assert "report_sha256" not in status.json()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows junction security test")

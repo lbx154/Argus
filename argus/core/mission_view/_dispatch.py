@@ -20,8 +20,6 @@ from ..event_catalog import EventType, canonical_event_type
 from ._reduce_manager import reduce_manager_event, reduce_planner_event
 from ._reduce_mission import reduce_mission_lifecycle_event, reduce_round_event
 from ._reduce_research import reduce_achievement_event
-from ._reduce_skill import reduce_skill_event
-from ._reduce_wiki import reduce_wiki_event
 
 _FamilyReducer = Callable[..., None]
 
@@ -70,26 +68,6 @@ _EVENT_HANDLERS: dict[str, _FamilyReducer] = {
     **_handlers_for(
         reduce_achievement_event,
         EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
-    ),
-    **_handlers_for(
-        reduce_skill_event,
-        EventType.SKILL_CREATED,
-        EventType.SKILL_UPDATED,
-        EventType.SKILL_ARCHIVED,
-        EventType.SKILL_TIDIED,
-        EventType.SKILL_EVOLUTION_COMPLETED,
-        EventType.SKILL_HISTORY_COMPRESSED,
-    ),
-    **_handlers_for(
-        reduce_wiki_event,
-        EventType.WIKI_INITIALIZED,
-        EventType.WIKI_EVOLUTION_COMPLETED,
-        EventType.WIKI_RETIRED_COMPRESSED,
-        EventType.WIKI_CREATED,
-        EventType.WIKI_UPDATED,
-        EventType.WIKI_RETIRED,
-        EventType.WIKI_PROMOTION_PROMOTED,
-        EventType.WIKI_PROMOTION_DEMOTED,
     ),
 }
 

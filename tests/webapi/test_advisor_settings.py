@@ -35,7 +35,6 @@ def test_settings_persist_for_one_project_without_selecting_the_main_model(clien
     assert updated.json()["config"]["model"] == "provider/advisor"
     assert load_advisor_config(root / "projects/one", env={}).model == "provider/advisor"
     assert web.get("/api/projects/two/advisor/config").json()["config"]["enabled"] is False
-    assert web.get("/api/projects/one/advisor/consultations").json() == {"consultations": []}
     assert not (root / "projects/one/advisor/receipts.sqlite3").exists()
 
 

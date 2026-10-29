@@ -29,11 +29,7 @@ import time
 from argus.webapi.index_cache import (
     DEFAULT_SNAPSHOT_TTL_SECONDS,
     DEFAULT_TTL_SECONDS,
-    SNAPSHOT_TTL_ENV_VAR,
-    TTL_ENV_VAR,
     IndexCache,
-    resolve_snapshot_ttl_seconds,
-    resolve_ttl_seconds,
 )
 
 
@@ -78,14 +74,10 @@ def test_a_zero_ttl_disables_caching_entirely() -> None:
     assert scan.calls == 2
 
 
-def test_the_ttl_is_configurable_and_a_bad_value_disables_rather_than_raises() -> None:
-    assert resolve_ttl_seconds({}) == DEFAULT_TTL_SECONDS
-    assert resolve_ttl_seconds({TTL_ENV_VAR: "0.5"}) == 0.5
-    assert resolve_ttl_seconds({TTL_ENV_VAR: "0"}) == 0.0
-    assert resolve_ttl_seconds({TTL_ENV_VAR: "not-a-number"}) == 0.0
-    assert resolve_snapshot_ttl_seconds({}) == DEFAULT_SNAPSHOT_TTL_SECONDS
-    assert resolve_snapshot_ttl_seconds({SNAPSHOT_TTL_ENV_VAR: "3.5"}) == 3.5
-    assert resolve_snapshot_ttl_seconds({SNAPSHOT_TTL_ENV_VAR: "bad"}) == 0.0
+def test_the_default_ttls_and_a_bad_value_disables_rather_than_raises() -> None:
+    assert IndexCache().ttl_seconds == DEFAULT_TTL_SECONDS
+    assert IndexCache(ttl_seconds=DEFAULT_SNAPSHOT_TTL_SECONDS).ttl_seconds == DEFAULT_SNAPSHOT_TTL_SECONDS
+    assert IndexCache(ttl_seconds=float("nan")).ttl_seconds == 0.0
 
 
 def test_the_key_table_stays_bounded() -> None:

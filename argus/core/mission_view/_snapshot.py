@@ -3,8 +3,7 @@
 ``snapshot_mission_view`` is the read path used by the webapi/cockpit: it
 takes the view computed from the event log, merges
 in live, non-event-sourced session/daemon/backlog state that
-does not go through the event log, and enriches learned-skill rows with
-their current file content for display.
+does not go through the event log.
 """
 from __future__ import annotations
 
@@ -13,12 +12,10 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from ..paths import NATIVE_SKILLS_DIR
-from ._reduce_helpers import _number, _upsert
+from ._reduce_helpers import _upsert
 from ._view_state import (
     _PIPELINE_ROLE_NAMES,
     _ROLE_NAMES,
-    MISSION_SKILL_CONTENT_MAX_BYTES,
     load_mission_view,
 )
 from ._wording import say, session_is_chinese, stage_label
@@ -332,124 +329,8 @@ def _apply_manuscript_review_freshness(
         delivery["summary"] = message
 
 
-def _mission_for_timestamp(
-    backlog: list[Mapping[str, Any]],
-    timestamp: float,
-) -> tuple[str, str]:
-    candidates: list[Mapping[str, Any]] = []
-    for item in backlog:
-        started = _number(item, "started_ts")
-        finished = _number(item, "finished_ts")
-        if started is None or timestamp < started:
-            continue
-        if finished is not None and timestamp > finished + 5.0:
-            continue
-        candidates.append(item)
-    if not candidates:
-        return "", ""
-    selected = max(
-        candidates,
-        key=lambda item: float(item.get("started_ts") or 0.0),
-    )
-    return (
-        str(selected.get("id") or ""),
-        str(selected.get("title") or "")[:240],
-    )
-
-
-def _discover_project_skills(
-    native: Path,
-    state: Path,
-    view: dict[str, Any],
-    backlog: list[Mapping[str, Any]],
-) -> None:
-    """Project Skills: the workspace's Agent Skills, then the role Skills of
-    the project state (where older projects also kept Engineer procedures)."""
-    rows = view.setdefault("learned_skills", [])
-    known_paths = {
-        str(row.get("path") or "")
-        for row in rows
-        if isinstance(row, dict)
-    }
-    found = [(path, path.parent.name) for path in sorted(native.glob("*/SKILL.md"))]
-    found += [(path, path.relative_to(state).with_suffix("").as_posix()) for path in sorted(state.rglob("*.md"))]
-    for path, semantic_name in found:
-        if "_history" in path.parts or path.name.startswith("."):
-            continue
-        try:
-            modified = path.stat().st_mtime
-        except OSError:
-            continue
-        if str(path) in known_paths:
-            continue
-        mission_id, mission_title = _mission_for_timestamp(backlog, modified)
-        rows.append({
-            "id": semantic_name,
-            "name": semantic_name,
-            "scope": "project",
-            "path": str(path),
-            "status": "active",
-            "updated_at": modified,
-            "mission_id": mission_id,
-            "mission_title": mission_title,
-        })
-
-
-def _enrich_skill_content(
-    root: Path,
-    view: dict[str, Any],
-    backlog: list[Mapping[str, Any]],
-    workdir: str,
-) -> None:
-    native, state = Path(workdir or root) / NATIVE_SKILLS_DIR, root / "skills"
-    _discover_project_skills(native, state, view, backlog)
-    allowed_roots = [native.resolve(), state.resolve()]
-    if root.parent.name == "projects":
-        allowed_roots.append((root.parent.parent / "skills").resolve())
-    for skill in view.setdefault("learned_skills", []):
-        raw_path = str(skill.get("path") or skill.get("source_path") or "").strip()
-        if not raw_path:
-            continue
-        candidates = [Path(raw_path).expanduser()]
-        if not Path(raw_path).is_absolute():
-            candidates.extend(base / raw_path for base in allowed_roots)
-            candidates.append(root / raw_path)
-        selected: Path | None = None
-        for candidate in candidates:
-            try:
-                resolved = candidate.resolve()
-            except OSError:
-                continue
-            if not any(
-                resolved == base or base in resolved.parents
-                for base in allowed_roots
-            ):
-                continue
-            if resolved.is_file() and resolved.suffix.lower() == ".md":
-                selected = resolved
-                break
-        if selected is None:
-            continue
-        try:
-            data = selected.read_bytes()
-        except OSError:
-            continue
-        truncated = len(data) > MISSION_SKILL_CONTENT_MAX_BYTES
-        content = data[:MISSION_SKILL_CONTENT_MAX_BYTES].decode(
-            "utf-8",
-            errors="replace",
-        )
-        # API snapshots are protocol data, not a byte-for-byte file download.
-        # Canonical LF keeps the response stable across Windows and POSIX and
-        # matches Python's normal text-file reading semantics.
-        skill["content"] = content.replace("\r\n", "\n").replace("\r", "\n")
-        skill["content_truncated"] = truncated
-
-
 def snapshot_mission_view(
     root: Path | str,
-    *,
-    enrich_skill_content: bool = True,
     **kwargs: Any,
 ) -> dict[str, Any]:
     path = Path(root).expanduser()
@@ -467,11 +348,4 @@ def snapshot_mission_view(
         response,
         kwargs.get("session") or {},
     )
-    if enrich_skill_content:
-        _enrich_skill_content(
-            path,
-            response,
-            list(kwargs.get("backlog") or []),
-            _session_workdir(kwargs.get("session") or {}),
-        )
     return response

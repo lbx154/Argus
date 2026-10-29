@@ -13,7 +13,6 @@ from ..event_catalog import EventType, canonical_event_type
 MISSION_VIEW_SCHEMA_VERSION = 7
 MISSION_TIMELINE_LIMIT = 120
 MISSION_ROLE_WORK_LIMIT_PER_ROLE = 40
-MISSION_SKILL_CONTENT_MAX_BYTES = 128 * 1024
 
 _ROLE_NAMES = ("manager", "planner", "engineer", "reviewer")
 _PIPELINE_ROLE_NAMES = frozenset({"planner", "engineer", "reviewer"})
@@ -121,20 +120,6 @@ _PROJECTED_EVENT_TYPES = frozenset({
     EventType.VENUE_RESEARCH_STARTED,
     EventType.VENUE_RESEARCH_COMPLETED,
     EventType.RESEARCH_ACHIEVEMENT_CERTIFIED,
-    EventType.SKILL_CREATED,
-    EventType.SKILL_UPDATED,
-    EventType.SKILL_ARCHIVED,
-    EventType.SKILL_TIDIED,
-    EventType.SKILL_EVOLUTION_COMPLETED,
-    EventType.SKILL_HISTORY_COMPRESSED,
-    EventType.WIKI_INITIALIZED,
-    EventType.WIKI_EVOLUTION_COMPLETED,
-    EventType.WIKI_CREATED,
-    EventType.WIKI_UPDATED,
-    EventType.WIKI_RETIRED,
-    EventType.WIKI_PROMOTION_PROMOTED,
-    EventType.WIKI_PROMOTION_DEMOTED,
-    EventType.WIKI_RETIRED_COMPRESSED,
 })
 
 
