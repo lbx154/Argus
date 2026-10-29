@@ -213,30 +213,35 @@ const asked = (project: Project, task: string): Question | undefined => project.
 
 const lastActive = (store: Store, id: string): number => statSync(join(store.dir(id), 'project.json')).mtimeMs / 1000;
 
-type Said = Partial<Record<Role, { text: string; ts: number }>>;
-const readings = new Map<string, { end: number; said: Said }>();
-/** What each role last said or wrote in the record, its newest message or letter, read on from where
- * the last reading stopped. */
-function lastWords(store: Store, id: string): Said {
+/** What the record holds that the snapshot shows: each role's last words, its newest message or
+ * letter, and the calls the project made, those the record ends. A model tried or a draft rewritten
+ * is a call of its own, which the record knows nothing of. */
+interface Reading { end: number; said: Partial<Record<Role, { text: string; ts: number }>>; calls: Set<string> }
+const readings = new Map<string, Reading>();
+/** The record read on from where the last reading of it stopped. */
+function readRecord(store: Store, id: string): Reading {
   const path = join(store.dir(id), 'events.jsonl');
-  const reading = readings.get(path) ?? { end: 0, said: {} };
+  const reading = readings.get(path) ?? { end: 0, said: {}, calls: new Set() };
   const { rows, end } = jsonLines(path, reading.end);
   for (const event of rows as unknown as Recorded[]) {
+    if (event.type === 'call.end') reading.calls.add(event.callId);
     const line = firstLine(event.type === 'handoff' ? event.letter : event.type === 'step' && event.kind === 'message' ? event.text : '');
     if (line && 'role' in event) reading.said[event.role] = { text: line.slice(0, 300), ts: seconds(event.ts) };
   }
-  readings.set(path, { end, said: reading.said });
-  return reading.said;
+  readings.set(path, { ...reading, end });
+  return reading;
 }
 
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   const { id, workdir, backend } = project;
-  const calls = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
-  const summary = usage(calls);
+  // What was spent counts every call; what the project runs on, only its own.
+  const spent = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
+  const summary = usage(spent);
+  const { said, calls: made } = readRecord(store, id);
+  const calls = spent.filter(call => made.has(String(call.callId)));
   // The model each role's last call ran on: with none chosen, the backend's own default.
   const ran = (role?: Role) => calls.filter(call => !role || call.role === role).at(-1);
   const last = ran();
-  const said = lastWords(store, id);
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     session: {

@@ -43,9 +43,10 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] 
     const handoff: HandOff | null = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: [step.letter ?? `${step.role} to ${step.to}`] };
     const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
-    await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, role: request.role, backend: request.backend, model: 'fake-model', tokens, cost_usd: 0.01 })}\n`);
+    const callId = `call-${requests.length}`;
+    await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: request.model ?? 'fake-model', tokens, cost_usd: 0.01 })}\n`);
     return {
-      callId: `call-${requests.length}`, threadId: `${request.role}-${requests.length}`, completed: true,
+      callId, threadId: `${request.role}-${requests.length}`, completed: true,
       error: handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
     };
   };
@@ -566,6 +567,24 @@ test('the Manager rewrites a draft in a turn of its own, and a failed rewrite le
   assert.equal(requests.length, 2);
   // Neither the record nor the Manager's session knows of it.
   assert.deepEqual([readEvents(store, sid), store.load(sid).sessions], [[], {}]);
+});
+
+test('a model tried or a draft rewritten counts in what was spent, but not as what the project runs on', async t => {
+  const { post, get } = await setup(t, [
+    { role: 'manager', to: 'operator', letter: 'Hello.' },
+    { role: 'manager', to: 'operator', letter: 'ok' },
+    { role: 'manager', to: 'operator', letter: 'Rewritten.' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await (await post(`${P}/message`, { text: 'Hi' })).json();
+  const ran = await get<Snapshot>(`${P}/snapshot`);
+  assert.equal((await (await post(`${P}/model-choices/probe`, { model: 'gpt-probe' })).json() as { ok: boolean }).ok, true);
+  assert.equal((await (await post(`${P}/prompt/rewrite`, { text: 'draft' })).json() as { rewritten: string }).rewritten, 'Rewritten.');
+  const after = await get<Snapshot>(`${P}/snapshot`);
+  assert.deepEqual([after.usage_summary?.call_count, after.spend_usd], [3, 0.03]);
+  assert.deepEqual(after.last_call, ran.last_call);
+  assert.deepEqual([after.last_call?.model, after.roles.find(role => role.role === 'manager')?.model], ['fake-model', 'fake-model']);
 });
 
 test('deleting a project stops its work and moves its directory to the trash, its workdir left as it is', async t => {
