@@ -7,9 +7,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
-import { Store, type FlowEvent } from '../src/store.js';
+import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { refusedPrompt, SKILLS } from '../src/prompts.js';
+import { SKILLS } from '../src/prompts.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
@@ -28,8 +28,6 @@ interface Step {
   interrupt?: boolean;
   /** The agent layer throws this instead of returning. */
   throws?: string;
-  /** The turn's result arrives a moment after its form was checked, as the raw output is written. */
-  slow?: boolean;
 }
 
 function agent(steps: Step[], controller?: AbortController): { callAgent: CallAgent; requests: AgentRequest[] } {
@@ -47,7 +45,6 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     const handoff = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`] };
     if (handoff) assert.equal(request.check?.(handoff) ?? null, null);
-    if (step.slow) await new Promise(resolve => setImmediate(resolve));
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
@@ -69,7 +66,7 @@ async function setup(t: TestContext, steps: Step[], controller?: AbortController
 
 /** The operator's message or answer, and the project once the work it set going rests. */
 const say = async (flow: Flow, id: string, text: string) => { await flow.say(id, text); return flow.settled(id); };
-const answer = (flow: Flow, id: string, text: string) => { flow.answer(id, text); return flow.settled(id); };
+const answer = (flow: Flow, id: string, question: Question, text: string) => { flow.answer(id, question, text); return flow.settled(id); };
 
 const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.';
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
@@ -156,23 +153,23 @@ test('a review returns the work once, and both roles continue their sessions', a
   assert.match(reviewer?.prompt ?? '', /^The Engineer has worked on the task since your last judgment\.[\s\S]*\n\n## From the Engineer\nv2 counts the last row$/);
 });
 
-test("the Engineer's question stops the work until the operator answers", async t => {
+test("the Engineer's question holds up its task until the operator answers", async t => {
   const question = 'Round the totals, or reject the bad rows?';
   const steps: Step[] = [toEngineer, { role: 'engineer', to: 'operator', letter: question }];
   const { store, flow, id, requests } = await setup(t, steps);
   const asking = await say(flow, id, 'Make me a CSV summary tool');
   assert.equal(asking.status, 'asking');
-  assert.deepEqual(asking.question, { role: 'engineer', task: 't1', question });
+  assert.deepEqual(asking.questions, [{ role: 'engineer', task: 't1', question }]);
   // The operator may talk to the Manager meanwhile.
   steps.push({ role: 'manager', to: 'operator', letter: 'The team needs your choice first.' });
   assert.equal((await say(flow, id, 'Also export a PDF')).status, 'asking');
   assert.equal(requests.length, 3);
   steps.push({ role: 'engineer', to: 'reviewer', letter: 'rounded' }, { role: 'reviewer', to: 'manager', letter: 'ok' }, report);
-  const rested = await answer(flow, id, 'round');
-  assert.deepEqual([rested.status, rested.question], ['idle', null]);
+  const rested = await answer(flow, id, asking.questions[0]!, 'round');
+  assert.deepEqual([rested.status, rested.questions], ['idle', []]);
   assert.equal(requests[3]?.resume, 'engineer-2');
   assert.equal(requests[3]?.prompt, `## From the operator\nYou asked the operator: ${question}\nThey answered: round`);
-  assert.throws(() => flow.answer(id, 'again'), /no open question/);
+  assert.throws(() => flow.answer(id, asking.questions[0]!, 'again'), /no such open question/);
   assert.equal(store.load(id).status, 'idle');
 });
 
@@ -233,26 +230,33 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
   assert.deepEqual(project.inbox, []);
 });
 
-test('tasks the Planner opens together run side by side, and it reads their letters together', async t => {
+test("tasks the Planner opens together run side by side; one's question holds up only that one", async t => {
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
   const steps: Step[] = [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
     { role: 'engineer', to: 'operator', letter: 'Which delimiter?' },
-    // The operator answers one question at a time.
-    { role: 'engineer', later: true, to: 'reviewer', letter: 'parsed 2', refuse: ['operator'] },
+    { role: 'engineer', waits: held, to: 'reviewer', letter: 'parsed 2' },
+    { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' },
   ];
   const { flow, id, requests } = await setup(t, steps);
-  const asking = await say(flow, id, 'Summarise data.csv and data2.csv');
-  assert.deepEqual([asking.status, asking.tasks.map(task => task.holder)], ['asking', ['engineer', 'reviewer']]);
+  await flow.say(id, 'Summarise data.csv and data2.csv');
+  while (!flow.store.load(id).questions.length) await new Promise(resolve => setImmediate(resolve));
+  // t1 waits for the answer while t2 goes on.
+  assert.equal(flow.store.load(id).status, 'working');
+  release();
+  // The Planner reads t2's letter once t1 has ended too.
+  const asking = await flow.settled(id);
+  assert.deepEqual([asking.status, asking.tasks.map(task => task.status), asking.inbox.length], ['asking', ['open', 'closed'], 1]);
   assert.match(requests[3]?.prompt ?? '', /## Running beside it, in the same workspace\n- t1 Parse data\.csv\n\n## Task t2, from the Planner\nParse data2\.csv$/);
   steps.push(
     { role: 'engineer', to: 'reviewer', letter: 'parsed 1' },
-    { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' },
     { role: 'reviewer', to: 'planner', letter: 'Accepted 1.' },
     { role: 'planner', to: 'manager', letter: 'Both files are parsed.' },
     report,
   );
-  assert.equal((await answer(flow, id, 'comma')).status, 'idle');
+  assert.equal((await answer(flow, id, asking.questions[0]!, 'comma')).status, 'idle');
   assert.equal(requests[7]?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n- t2 [closed] Parse data2.csv\n\n## Since your last turn\n'
     + 'From the Reviewer, on task t2 (Parse data2.csv):\nAccepted 2.\n\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted 1.');
 });
@@ -348,18 +352,22 @@ test('a failed call stays failed when a letter from the team reaches the Manager
   assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'engineer', 'manager']);
 });
 
-test('a second question that arrives as the first is asked goes back to its writer', async t => {
-  const { flow, id, requests } = await setup(t, [
+test('questions wait side by side, and each answer goes to its own asker', async t => {
+  const steps: Step[] = [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
-    { role: 'engineer', to: 'operator', letter: 'Which delimiter?', slow: true },
-    { role: 'engineer', to: 'operator', letter: 'Which encoding?', slow: true },
-    { role: 'engineer', to: 'reviewer', letter: 'UTF-8, as the file says' },
-  ]);
-  const project = await say(flow, id, 'Summarise data.csv and data2.csv');
-  assert.deepEqual([project.status, project.question], ['asking', { role: 'engineer', task: 't1', question: 'Which delimiter?' }]);
-  assert.equal(requests.at(-1)?.prompt, refusedPrompt('The operator has yet to answer another question: carry on without them, or write to someone else.'));
-  assert.equal(project.tasks[1]?.holder, 'reviewer');
+    { role: 'engineer', to: 'operator', letter: 'Which delimiter?' },
+    { role: 'engineer', to: 'operator', letter: 'Which encoding?' },
+  ];
+  const { flow, id, requests } = await setup(t, steps);
+  const asking = await say(flow, id, 'Summarise data.csv and data2.csv');
+  assert.deepEqual([asking.status, asking.questions], ['asking', [
+    { role: 'engineer', task: 't1', question: 'Which delimiter?' }, { role: 'engineer', task: 't2', question: 'Which encoding?' },
+  ]]);
+  steps.push({ role: 'engineer', to: 'reviewer', letter: 'parsed 2' }, { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' });
+  const one = await answer(flow, id, asking.questions[1]!, 'UTF-8');
+  assert.deepEqual([one.status, one.questions.map(question => question.task)], ['asking', ['t1']]);
+  assert.equal(requests[4]?.prompt, '## From the operator\nYou asked the operator: Which encoding?\nThey answered: UTF-8');
 });
 
 test("the Planner hears only of its own tasks: a letter on the Manager's goes back to its writer", async t => {

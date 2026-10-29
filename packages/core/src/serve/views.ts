@@ -138,23 +138,25 @@ export function daemon(project: Project, live: Live): Daemon {
 function backlog(project: Project): BacklogItem[] {
   return project.tasks.map(task => ({
     id: task.id, title: task.title, objective: task.objective, priority: 0, deps: [],
-    status: task.status === 'closed' ? 'done' : project.question?.task === task.id ? 'blocked' : 'in_progress',
+    status: task.status === 'closed' ? 'done' : asked(project, task.id) ? 'blocked' : 'in_progress',
   }));
 }
 
-/** The open question as the cockpit's decision card, answered in the operator's own words. */
+/** Each open question as a decision card of the cockpit, answered in the operator's own words. */
 function questions(project: Project): Record<string, unknown>[] {
-  const { question } = project;
-  if (!question) return [];
-  const task = project.tasks.find(task => task.id === question.task);
-  const title = task?.title ?? `The ${NAMES[question.role]} asks`;
-  const card: OperatorDecisionCard = {
-    id: questionId(question), item_id: task?.id ?? '', revision: 1, status: 'pending', title, reason: '',
-    question: question.question, evidence: [], options_source: 'agent', selected_option: '', note: '',
-    options: [],
-  };
-  return [{ id: task?.id ?? question.role, title, status: 'blocked', operator_decision: card }];
+  return project.questions.map(question => {
+    const task = project.tasks.find(task => task.id === question.task);
+    const title = task?.title ?? `The ${NAMES[question.role]} asks`;
+    const card: OperatorDecisionCard = {
+      id: questionId(question), item_id: task?.id ?? '', revision: 1, status: 'pending', title, reason: '',
+      question: question.question, evidence: [], options_source: 'agent', selected_option: '', note: '',
+      options: [],
+    };
+    return { id: task?.id ?? question.role, title, status: 'blocked', operator_decision: card };
+  });
 }
+
+const asked = (project: Project, task: string): Question | undefined => project.questions.find(question => question.task === task);
 
 const lastActive = (store: Store, id: string): number => statSync(join(store.dir(id), 'project.json')).mtimeMs / 1000;
 
@@ -219,11 +221,13 @@ export function progressMap(store: Store, project: Project, after: number) {
       letters.push({ id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter });
     }
   });
-  const { question } = project;
-  const tasks = backlog(project).map((item, index) => ({
-    ...item, ts: added.get(item.id), started_ts: added.get(item.id), finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
-    ...(question?.task === item.id ? { pending_question: question.question } : {}),
-  }));
+  const tasks = backlog(project).map((item, index) => {
+    const question = asked(project, item.id);
+    return {
+      ...item, ts: added.get(item.id), started_ts: added.get(item.id), finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
+      ...(question ? { pending_question: question.question } : {}),
+    };
+  });
   const cursor = String(events.length);
   return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks, events: letters, cursor, history_cursor: cursor };
 }

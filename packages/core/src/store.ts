@@ -8,7 +8,8 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Backend, Role, Usage } from './types.js';
 
-/** `idle`: no letter is waiting for anyone but the operator. */
+/** `idle`: no letter is waiting for anyone but the operator; `asking`: nothing goes on but what
+ * waits for the operator's answers. */
 export type Status = 'working' | 'asking' | 'failed' | 'idle';
 /** A task opens with a letter to the Engineer and closes with a letter from it, or from its
  * Reviewer, to anyone but the two of them. */
@@ -29,6 +30,7 @@ export interface Task {
   note: Note | null;
 }
 
+/** A question to the operator: its asker, the task's holder or the Planner, waits for the answer. */
 export interface Question {
   role: Role;
   task: string | null;
@@ -50,8 +52,8 @@ export interface Project {
   status: Status;
   /** Why the last call failed, with status 'failed'. */
   error: string | null;
-  /** The open question, with status 'asking'. */
-  question: Question | null;
+  /** The operator's open questions, one per asker at most; the rest of the work goes on. */
+  questions: Question[];
   tasks: Task[];
   /** Letters to the Planner; it is called when no task is open and one is waiting. */
   inbox: string[];
@@ -70,7 +72,7 @@ export type FlowEvent =
   | { type: 'handoff'; role: Role; task?: string; to: string; letter: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
-  | { type: 'status'; status: Status; error?: string; question?: Question };
+  | { type: 'status'; status: Status; error?: string };
 
 /** A project's id, and the name of its directory: `p-` and hex. */
 export const PROJECT_ID = /^p-[0-9a-f]+$/;
@@ -105,7 +107,7 @@ export class Store {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),
-      status: 'working', error: null, question: null, tasks: [], inbox: [], sessions: {},
+      status: 'working', error: null, questions: [], tasks: [], inbox: [], sessions: {},
     };
     mkdirSync(project.workdir, { recursive: true });
     mkdirSync(join(this.dir(id), 'calls'), { recursive: true });
@@ -114,7 +116,9 @@ export class Store {
   }
 
   load(id: string): Project {
-    return JSON.parse(readFileSync(join(this.dir(id), 'project.json'), 'utf8')) as Project;
+    const { question, ...project } = JSON.parse(readFileSync(join(this.dir(id), 'project.json'), 'utf8')) as Project & { question?: Question | null };
+    // A record from before there could be several questions holds its one as `question`.
+    return { ...project, questions: project.questions ?? (question ? [question] : []) };
   }
 
   save(project: Project): void {

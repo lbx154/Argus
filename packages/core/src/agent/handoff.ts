@@ -8,7 +8,7 @@ import { isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts
 import type { AgentRequest, Form, HandOff } from '../types.js';
 
 const STUCK = 'the work is stuck and needs the Manager to get it going';
-const OPERATOR = 'only for what the operator alone can decide: the letter is your question, and the work waits for the answer';
+const OPERATOR = 'only for what the operator alone can decide: the letter is your question, and you wait for the answer while the rest of the work goes on';
 
 /** Whom each role can write to, and what such a letter is for. Every addressee is someone who
  * acts on it: the work is never sent to a state such as done. */

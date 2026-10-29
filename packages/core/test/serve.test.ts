@@ -192,6 +192,33 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   }
 });
 
+test('each open question is a card of its own, and its answer reaches only its asker', async t => {
+  const { get, post, requests } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: 'Total the columns of data.csv' },
+    { role: 'engineer', to: 'operator', letter: 'Which delimiter?' },
+    { role: 'manager', to: 'engineer', letter: 'Total the columns of data2.csv' },
+    { role: 'engineer', to: 'operator', letter: 'Which encoding?' },
+    { role: 'engineer', to: 'reviewer', letter: 'data2.csv totalled' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    { role: 'manager', to: 'operator', letter: 'data2.csv is totalled; data.csv waits for your answer.' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  type Card = { operator_decision: { id: string; question: string } };
+  const asked = (count: number) => eventually(() => get<Snapshot>(`${P}/snapshot`),
+    snapshot => snapshot.pending_questions?.length === count && !snapshot.daemon.alive);
+  await frames(await post(`${P}/message/stream`, { text: 'Total data.csv', request_id: 'r1' }));
+  await asked(1);
+  await frames(await post(`${P}/message/stream`, { text: 'Total data2.csv too', request_id: 'r2' }));
+  const cards = ((await asked(2)).pending_questions as Card[]).map(card => card.operator_decision);
+  assert.deepEqual(cards.map(card => card.question), ['Which delimiter?', 'Which encoding?']);
+  await post(`${P}/decisions/${cards[1]!.id}/resolve`, { option_id: 'custom', note: 'UTF-8' });
+  const rest = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[1]?.status === 'done' && !snapshot.daemon.alive);
+  assert.deepEqual([rest.backlog[0]?.status, (rest.pending_questions as Card[]).map(card => card.operator_decision.id)], ['blocked', [cards[0]!.id]]);
+  assert.equal(requests[4]?.prompt, '## From the operator\nYou asked the operator: Which encoding?\nThey answered: UTF-8');
+  assert.equal((await post(`${P}/decisions/${cards[1]!.id}/resolve`, { option_id: 'custom', note: 'again' })).status, 409);
+});
+
 test('a refused form goes back to the Manager within the same message', async t => {
   const { post } = await setup(t, [{ role: 'manager' }, { role: 'manager', to: 'operator', letter: 'Hello.' }]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };

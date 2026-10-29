@@ -98,13 +98,13 @@ export async function serve(options: ServeOptions): Promise<Served> {
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' }).flushHeaders();
     return frame => { if (!response.destroyed) response.write(`data: ${JSON.stringify(frame)}\n\n`); };
   };
-  /** The operator's answer to the open question, in their own words. */
+  /** The operator's answer to one of the open questions, in their own words. */
   const answer = async (id: string, card: string, note: string): Promise<void> => {
-    const { question } = project(id);
-    if (!question || questionId(question) !== card) throw new HttpError(409, 'This question is no longer open.');
+    const question = project(id).questions.find(question => questionId(question) === card);
+    if (!question) throw new HttpError(409, 'This question is no longer open.');
     if (!note.trim()) throw new HttpError(400, 'empty answer');
     // Answered by another request meanwhile, while the work under way stopped.
-    await runs.answer(id, note.trim()).catch(() => { throw new HttpError(409, 'This question is no longer open.'); });
+    await runs.answer(id, question, note.trim()).catch(() => { throw new HttpError(409, 'This question is no longer open.'); });
   };
   /** The message a request carries, checked before any reply is under way. */
   const message = async ({ params: [id], body }: Context): Promise<(send: (frame: Frame) => void) => Promise<Frame>> => {

@@ -4,12 +4,13 @@
 // to anyone else closes it. Open tasks run side by side. The Planner reads its letters when no
 // task is open, and may open several at once. Nothing is done or finished: the work rests when no
 // letter waits for anyone but the operator. Where work goes is the addressee and nothing else; the
-// letter is passed on as written. A failed turn is recorded and the work stops, without a retry;
-// a hand-off Argus refuses goes back to its writer once.
+// letter is passed on as written. A question to the operator holds up only its asker: the task, or
+// the Planner, waits for the answer while the rest of the work goes on. A failed turn is recorded
+// and the work stops, without a retry; a hand-off Argus refuses goes back to its writer once.
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
-import type { FlowEvent, Project, Status, Store, Task } from './store.js';
+import type { FlowEvent, Project, Question, Status, Store, Task } from './store.js';
 import { answered, handedTo, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
@@ -46,13 +47,14 @@ export class Flow {
     return this.writeToManager(project, text, { signal, operator: true });
   }
 
-  /** The operator's answer to the open question goes to whoever asked it. */
-  answer(id: string, text: string): void {
+  /** The operator's answer to one of the open questions goes to whoever asked it. */
+  answer(id: string, asked: Question, text: string): void {
     const project = this.project(id);
-    const question = project.question;
-    if (!question) throw new Error(`${id} has no open question`);
+    const at = project.questions.findIndex(({ task, question }) => task === asked.task && question === asked.question);
+    if (at < 0) throw new Error(`${id} has no such open question`);
+    const [question] = project.questions.splice(at, 1) as [Question];
     this.record(project, { type: 'message', from: 'operator', text, to: question.role });
-    project.question = null;
+    this.retry(project);
     this.status(project, 'working');
     const note = answered(question.question, text);
     if (question.role === 'planner') project.inbox.push(note);
@@ -112,20 +114,21 @@ export class Flow {
     work.done = this.carryOn(project, work).finally(() => this.works.delete(project.id));
   }
 
-  /** Every open task goes on in its own turns, one opened meanwhile at once; with none open, the
-   * Planner reads its letters. */
+  /** Every open task goes on in its own turns, one opened meanwhile at once, but for one waiting for
+   * the operator's answer. With none open, the Planner reads its letters, unless it waits too. */
   private async carryOn(project: Project, work: { wake: () => void }): Promise<void> {
     const running = new Map<Task, Promise<void>>();
     for (;;) {
       if (this.going(project)) {
         for (const task of openTasks(project)) {
-          if (!running.has(task)) running.set(task, this.carry(project, task).finally(() => running.delete(task)));
+          if (!running.has(task) && !waits(project, task)) running.set(task, this.carry(project, task).finally(() => running.delete(task)));
         }
       }
       if (running.size) await Promise.race([...running.values(), new Promise<void>(resolve => { work.wake = resolve; })]);
       else if (!this.going(project)) break;
-      else if (project.inbox.length) await this.plan(project);
-      else this.status(project, 'idle');
+      // With none under way, every task still open waits for an answer.
+      else if (project.inbox.length && !project.questions.length) await this.plan(project);
+      else this.status(project, project.questions.length ? 'asking' : 'idle');
     }
     this.store.save(project);
   }
@@ -135,7 +138,7 @@ export class Flow {
   }
 
   private async carry(project: Project, task: Task): Promise<void> {
-    while (task.status === 'open' && this.going(project)) await this.work(project, task);
+    while (task.status === 'open' && !waits(project, task) && this.going(project)) await this.work(project, task);
   }
 
   /** The Manager's turns on a project come one after another, in the order their letters came. */
@@ -159,16 +162,16 @@ export class Flow {
       const letter = read(handoff);
       if (handoff.to === 'engineer') this.open(project, 'manager', letter);
       else project.inbox.push(handedTo('manager', null, letter));
-      if (project.status === 'idle') this.status(project, 'working');
+      if (project.status !== 'failed') this.status(project, 'working');
     }
     this.run(project);
     return handoff;
   }
 
-  private async work(project: Project, task: Task, refused?: string): Promise<void> {
+  private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
     const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store, task, resumed),
-      { check: taskRules(project, task), ...(refused ? { refused } : {}) }))?.handoff;
+      { check: taskRules(task) }))?.handoff;
     if (!handoff) return;
     const { to } = handoff;
     const letter = read(handoff);
@@ -185,8 +188,6 @@ export class Flow {
         await this.writeToManager(project, handedTo(role, task, letter));
         break;
       case 'operator':
-        // Another task's question may have come in as this turn ended: this one goes back.
-        if (project.question) return this.work(project, task, ANOTHER_QUESTION);
         this.ask(project, role, task, letter);
     }
   }
@@ -285,17 +286,16 @@ export class Flow {
     this.record(project, { type: 'task.closed', task: task.id });
   }
 
+  /** The question's letter is in the record already; its asker waits for the answer. */
   private ask(project: Project, role: Role, task: Task | null, question: string): void {
-    project.question = { role, task: task?.id ?? null, question };
-    this.status(project, 'asking');
+    project.questions.push({ role, task: task?.id ?? null, question });
+    this.store.save(project);
   }
 
   private status(project: Project, status: Status, error: string | null = null): void {
     if (project.status === status && project.error === error) return;
     Object.assign(project, { status, error });
-    this.record(project, {
-      type: 'status', status, ...(error ? { error } : {}), ...(status === 'asking' && project.question ? { question: project.question } : {}),
-    });
+    this.record(project, { type: 'status', status, ...(error ? { error } : {}) });
   }
 
   private task(project: Project, id: string | null): Task {
@@ -321,10 +321,10 @@ type Check = (handoff: HandOff) => string | null;
 /** A Manager turn on the operator's message, which `signal` withdraws, or on a letter from the team. */
 type ManagerTurn = { signal?: AbortSignal | undefined; operator?: boolean };
 
-/** The rules a task's form cannot say: the operator answers one question at a time, and the
- * Planner hears only of the tasks it gave. A returned string refuses the hand-off, and its writer
- * corrects it in one more turn of its session. */
-const taskRules = (project: Project, task: Task): Check => ({ to }) =>
-  to === 'operator' && project.question ? ANOTHER_QUESTION : to === 'planner' && task.from === 'manager' ? NOT_THE_PLANNERS : null;
-const ANOTHER_QUESTION = 'The operator has yet to answer another question: carry on without them, or write to someone else.';
+/** The rule a task's form cannot say: the Planner hears only of the tasks it gave. A returned
+ * string refuses the hand-off, and its writer corrects it in one more turn of its session. */
+const taskRules = (task: Task): Check => ({ to }) => to === 'planner' && task.from === 'manager' ? NOT_THE_PLANNERS : null;
 const NOT_THE_PLANNERS = 'The Manager gave this task, not the Planner: write to the Manager about it.';
+
+/** Whether the task waits for the operator's answer to its question. */
+const waits = (project: Project, task: Task): boolean => project.questions.some(question => question.task === task.id);

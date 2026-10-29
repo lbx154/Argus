@@ -3,7 +3,7 @@
 // call under way on it, and its work stays where it was, to be resumed.
 
 import { Flow } from '../flow.js';
-import type { Project, Store } from '../store.js';
+import type { Project, Question, Store } from '../store.js';
 import type { CallAgent, Role } from '../types.js';
 import { readEvents, webEvents, type Live } from './views.js';
 
@@ -30,7 +30,7 @@ export class Runs {
   }
 
   /** The answer goes to whoever asked; it throws when the question was answered meanwhile. */
-  answer(id: string, text: string): Promise<void> { return this.start(id, flow => flow.answer(id, text)); }
+  answer(id: string, question: Question, text: string): Promise<void> { return this.start(id, flow => flow.answer(id, question, text)); }
 
   resume(id: string): void { this.start(id, flow => flow.resume(id)).catch(error => log(id, error)); }
 

@@ -116,8 +116,8 @@ argus --host 0.0.0.0
    to open it.
 4. **Keep talking.** You can write to the Manager at any time, also while the team works;
    it answers in its next turn and the team carries on. When a role needs something only
-   you can decide, it writes to you and the work waits for your answer. You are asked one
-   question at a time.
+   you can decide, it writes to you, and its task waits for your answer while the rest of
+   the work goes on. Each open question is a card of its own.
 
 For scale: in the core's first real run, Codex took one sentence to a reviewed delivery in
 3 calls, 5.7 minutes and $0.42.
@@ -205,7 +205,7 @@ signing and the update channel.
 |---|---|
 | `~/.argus/` | the state directory (`ARGUS_HOME` overrides it) |
 | `~/.argus/owner.json` | the pid of the `argus` process that owns the directory |
-| `~/.argus/projects/<id>/project.json` | a project's current state: directory, request, name, backend and model, tasks, role sessions, the open question |
+| `~/.argus/projects/<id>/project.json` | a project's current state: directory, request, name, backend and model, tasks, role sessions, the open questions |
 | `~/.argus/projects/<id>/events.jsonl` | what happened, in order: messages, letters, calls, task changes |
 | `~/.argus/projects/<id>/usage.jsonl` | one record per backend call: tokens and cost |
 | `~/.argus/projects/<id>/calls/` | each call's raw output from the backend |

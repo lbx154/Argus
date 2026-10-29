@@ -146,8 +146,13 @@ test('a task in full, a role\'s letters to download, and a search of every proje
   store.append(id, { type: 'task.closed', task: 't1' });
   store.append(id, { type: 'task.added', task: years });
   end('engineer', 't2', 'codex exited with code 1');
+  const { questions, ...record } = store.load(id);
+  // A record from before there could be several questions holds its one as `question`.
   const question = { role: 'engineer' as const, task: 't2', question: 'Which years?' };
-  store.save({ ...store.load(id), status: 'asking', question, tasks: [{ ...chart, status: 'closed', note: { from: 'reviewer', text: 'The chart matches the data.' } }, years] });
+  await writeFile(join(store.dir(id), 'project.json'), JSON.stringify({
+    ...record, status: 'asking', question, tasks: [{ ...chart, status: 'closed', note: { from: 'reviewer', text: 'The chart matches the data.' } }, years],
+  }));
+  assert.deepEqual([questions, store.load(id).questions], [[], [question]]);
   const P = `/api/projects/${id}`;
 
   const { item: done } = await get<{ item: Record<string, unknown> }>(`${P}/backlog/t1`);
