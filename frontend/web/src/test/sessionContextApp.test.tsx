@@ -39,7 +39,7 @@ vi.mock('../hooks', async importOriginal => ({
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
   useTranscript: () => ({ ...fixture.idle, data: fixture.turns }),
-  useEventStream: () => ({ events: fixture.events, connected: true }),
+  useEventStream: () => ({ events: fixture.events, connected: true, seeded: true }),
   useProjectActions: () => fixture.actions,
 }));
 // Keep App's actual selection, composer controller, command dispatch and delivery

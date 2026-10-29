@@ -673,7 +673,8 @@ export default function App() {
   }, [artifactsQ.data, setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
   const deliveryCenter = useDeliveryCenter(
     loadedSid,
-    Boolean(snap) && !transcriptQ.isPending,
+    // A result is new only once the record it may already be in has been read.
+    Boolean(snap) && eventsSeeded && !transcriptQ.isPending,
     delivery,
     // Intermediate files stay quiet while downstream work runs; a stage package is
     // announced precisely because the rest of the goal is still running.
