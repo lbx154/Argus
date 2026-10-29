@@ -53,9 +53,7 @@
 @media (max-width: 640px), (pointer: coarse) {
   .draft-status button, .sidebar-project-filters button { min-height: 44px; }
   .sidebar-project-search input { min-height: 44px; }
-  .project-manage, .project-resume { min-width: 44px; min-height: 44px; top: 6px; }
-  .project-resume { right: 48px; }
+  .project-manage { min-width: 44px; min-height: 44px; top: 6px; }
   .session-card > button:first-of-type { padding-right: 52px; }
-  .session-card:has(.project-resume) > button:first-of-type { padding-right: 100px; }
 }
 @media (prefers-reduced-motion: reduce) { .starter-card { transition: none; } }

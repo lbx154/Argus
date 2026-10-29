@@ -11,7 +11,7 @@ import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
-import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, LogOut } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 
@@ -66,8 +66,6 @@ export function Sidebar({
   onSelect,
   onPrefetch,
   onManage,
-  onResume,
-  resumingId,
   onOpenPanel,
   onOpenLearning,
   onOpenResults,
@@ -92,8 +90,6 @@ export function Sidebar({
   onSelect: (id: string) => void;
   onPrefetch?: (id: string) => void;
   onManage: (id: string) => void;
-  onResume?: (id: string) => void;
-  resumingId?: string | null;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onOpenLearning?: (scope: LearningScope) => void;
   /** Opens the current project's delivered results. */
@@ -369,7 +365,6 @@ export function Sidebar({
                   const updateAvailable = incompatible
                     && project.daemon_protocol_error === 'daemon release is incompatible with WebAPI release';
                   const updateRequired = incompatible && !updateAvailable;
-                  const resumable = !project.daemon_alive && project.last_active > 0 && Boolean(project.workdir?.trim());
                   return (
                     <div
                       key={project.id}
@@ -390,7 +385,7 @@ export function Sidebar({
                         }}
                         aria-current={active ? 'page' : undefined}
                         title={project.display_name?.trim() ? name : `${name} · ${project.id}`}
-                        className={`flex h-14 w-full min-w-0 flex-col justify-center px-2.5 text-left ${resumable ? 'pr-[4.75rem]' : 'pr-10'}`}
+                        className="flex h-14 w-full min-w-0 flex-col justify-center px-2.5 pr-10 text-left"
                       >
                         <div className="flex min-w-0 items-center gap-2">
                           <StatusDot
@@ -422,21 +417,6 @@ export function Sidebar({
                           )}
                         </div>
                       </button>
-                      {resumable && onResume ? (
-                        <button
-                          type="button"
-                          disabled={resumingId != null}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onResume(project.id);
-                          }}
-                          aria-label={t('sidebar.resume')}
-                          title={t('sidebar.resumeHint', { workdir: project.workdir ?? '' })}
-                          className="project-resume absolute right-9 top-3 flex h-8 w-8 items-center justify-center rounded-md text-blue opacity-100 hover:bg-blue/10 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
-                        >
-                          {resumingId === project.id ? '…' : <Play size={14} />}
-                        </button>
-                      ) : null}
                       <button
                         type="button"
                         onClick={(event) => {

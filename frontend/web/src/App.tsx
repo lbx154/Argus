@@ -258,7 +258,6 @@ export default function App() {
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
   const [manageTargetSid, setManageTargetSid] = useState<string | null>(null);
-  const [resumingSid, setResumingSid] = useState<string | null>(null);
   const messageSubmitLockRef = useRef(false);
   const messageRequestRef = useRef<ActiveMessageRequest | null>(null);
   const messageEpochRef = useRef(0);
@@ -798,18 +797,6 @@ export default function App() {
     manageTargetSid,
     manageSnapQ.data?.daemon_commands?.revision,
   );
-  const resumeSession = useCallback(async (sid: string) => {
-    setResumingSid(sid);
-    try {
-      await api.startDaemon(sid);
-      await projectsQ.refetch();
-      notify('success', t('sidebar.resumeSuccess'));
-    } catch (error) {
-      notify('error', t('sidebar.resumeFailed', { error: errorText(error) }));
-    } finally {
-      setResumingSid(null);
-    }
-  }, [notify, projectsQ, t]);
   const {
     daemonBusy,
     manageDeleteProject,
@@ -1354,8 +1341,6 @@ export default function App() {
           }}
           onPrefetch={prefetchProject}
           onManage={requestManageSession}
-          onResume={(sid) => void resumeSession(sid)}
-          resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenLearning={openLearningLibrary}
           onOpenResults={() => {

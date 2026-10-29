@@ -52,7 +52,6 @@ function sidebarMarkup(
       localCwd: '/workspace/test',
       onSelect: () => undefined,
       onManage: () => undefined,
-      onResume: () => undefined,
       onOpenPanel: () => undefined,
       onNew: () => undefined,
       loading: false,
@@ -80,7 +79,6 @@ describe('Sidebar session identity and health', () => {
     expect(markup).toMatch(/title="[^"]*· session-2"/);
     expect(markup).not.toContain('>session-1</span>');
     expect(markup).not.toContain('>session-2</span>');
-    expect(markup).toContain('aria-label="Resume"');
     expect(markup).not.toContain('Codex · gpt-5');
   });
 
@@ -101,7 +99,6 @@ describe('Sidebar session identity and health', () => {
     expect(markup).toContain('Update required');
     expect(markup).not.toContain('title="The team is working"');
     expect(markup).not.toContain('Working · 2m');
-    expect(markup).not.toContain('aria-label="Resume"');
   });
 
   it('shows a live older release as running with an optional update', () => {
@@ -117,7 +114,6 @@ describe('Sidebar session identity and health', () => {
     expect(markup).toContain('Working · 2m');
     expect(markup).toContain('Update available');
     expect(markup).not.toContain('Update required');
-    expect(markup).not.toContain('aria-label="Resume"');
   });
 
   it('does not show an old release as running after the executor stops', () => {
@@ -152,7 +148,6 @@ describe('Sidebar session identity and health', () => {
     expect(markup).toContain('data-session-work-state="paused"');
     expect(markup).toContain('Working · 2m');
     expect(markup).not.toContain('running · 2m');
-    expect(markup).not.toContain('aria-label="Resume"');
     const switching = sidebarMarkup(projects, { ...activeWork, sessionId: 'remote' });
     expect(switching).not.toContain('A question is waiting for your answer');
     expect(switching).not.toContain('data-session-work-state=');
