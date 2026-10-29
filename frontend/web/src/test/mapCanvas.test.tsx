@@ -52,7 +52,7 @@ const props: ComponentProps<typeof MapCanvas> = {
     roles: [], backlog: [], recent_events: [],
   },
   composer: {
-    value: "", onChange: () => {}, onSend: async () => false, pending: false, onCancel: () => {},
+    value: "", onChange: () => {}, onSend: async () => false, pending: false, 
     attachments: [], onAttachmentsChange: () => {}, focusSignal: 0, sessionName: "Canvas", historical: false, zh: true,
   },
   actions: {

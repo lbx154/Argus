@@ -1,4 +1,3 @@
-import { renderToStaticMarkup } from "react-dom/server";
 import { act, create } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
 import type { Snapshot } from "../../../core/src/types";
@@ -8,8 +7,7 @@ import { projectOverview } from "../map/overview";
 import { attentionTasks, type MapTask } from "../map/model";
 import { emptyMissionView } from "../../../core/src/missionView";
 import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
-import { teamPhase, teamPhaseLabel } from "../components/TeamControls";
-import { TeamPauseButton } from "../components/TeamControls";
+import { teamPhase } from "../components/TeamControls";
 
 vi.mock("@xyflow/react", async (original) => ({
   ...(await original<typeof import("@xyflow/react")>()),
@@ -59,14 +57,14 @@ describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
   it("keeps the header from saying 已完成 beside a step that did not finish, whatever files it owned", () => {
     const snapshot = (owns: string[]): Snapshot => ({
       session: { id: "s-7d7b7d22", display_name: "", objective: "", cwd: "/w", last_active: 1 },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null }, roles: [], recent_events: [],
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, resumable: true }, roles: [], recent_events: [],
       backlog: [{ id: "last", title: "收尾", objective: "", status: "failed", priority: 1, owns_paths: owns } as Snapshot["backlog"][number]],
     }) as Snapshot;
     const view = emptyMissionView();
     Object.assign(view.mission, { id: "last", status: "failed" });
     for (const owns of [[".argus/maintenance/review-progress-repair"], ["report.md"]]) {
       const failed = currentWorkStatus(snapshot(owns), view, [], 10);
-      expect([teamPhaseLabel(teamPhase(failed), "zh-CN"), workStatusLabel(failed, "zh-CN")]).toEqual(["已暂停", "当前任务未在运行"]);
+      expect([teamPhase(failed), workStatusLabel(failed, "zh-CN")]).toEqual(["paused", "当前任务未在运行"]);
     }
   });
 });
@@ -85,17 +83,4 @@ describe("MapOverview", () => {
   });
 
 
-});
-
-describe("canvas pause controls", () => {
-  it("offers 暂停团队 while the team runs and 继续 when it stopped with work queued", () => {
-    const snapshot = (alive: boolean) => ({
-      daemon: { alive, pid: null, uptime_seconds: null, backend: null },
-      backlog: [{ id: "a", status: "pending" }],
-    }) as unknown as Snapshot;
-    const pause = renderToStaticMarkup(<TeamPauseButton snapshot={snapshot(true)} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
-    expect(pause).toContain("暂停团队");
-    const resume = renderToStaticMarkup(<TeamPauseButton snapshot={snapshot(false)} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
-    expect(resume).toContain("继续");
-  });
 });

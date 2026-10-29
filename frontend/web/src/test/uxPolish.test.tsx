@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import type { Snapshot } from '../../../core/src/types';
 
@@ -10,11 +11,10 @@ vi.mock('../i18n', async (importOriginal) => {
   };
 });
 
-const { TeamPauseButton, teamPhase, teamPhaseLabel } = await import('../components/TeamControls');
-const { translate } = await import('../i18n');
+const { RunControl, teamPhase } = await import('../components/TeamControls');
 const { ContinuousSwitch } = await import('../components/ContinuousSwitch');
 
-const snap = (alive: boolean, backlog: Array<{ status: string }> = [], extra: Partial<Snapshot['daemon']> = {}) => ({
+const snap = (alive: boolean, backlog: Array<{ status: string; title?: string }> = [], extra: Partial<Snapshot['daemon']> = {}) => ({
   daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: null, ...extra },
   backlog: backlog.map((item, index) => ({ id: `t${index}`, title: '', objective: '', priority: 1, ...item })),
 }) as unknown as Snapshot;
@@ -26,23 +26,29 @@ describe('team status and controls', () => {
     expect(teamPhase(status('paused', 'operator_input'))).toBe('waiting_you');
     expect(teamPhase(status('paused', 'not_running'))).toBe('paused');
     expect(teamPhase(status('idle'))).toBe('done');
-    expect(['running', 'waiting_you', 'paused', 'done'].map((phase) => teamPhaseLabel(phase as never, 'zh-CN')))
-      .toEqual(['运行中', '等你回复', '已暂停', '已完成']);
   });
 
-  it('offers pause for a live team and resume for a stopped team with unfinished work', () => {
-    const pause = renderToStaticMarkup(<TeamPauseButton snapshot={snap(true)} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
-    expect(pause).toContain('暂停团队');
-    const resume = renderToStaticMarkup(<TeamPauseButton snapshot={snap(false, [{ status: 'paused' }])} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
-    expect(resume).toContain('继续');
-    expect(renderToStaticMarkup(<TeamPauseButton snapshot={snap(false, [{ status: 'done' }])} locale="zh-CN" onResume={() => {}} />)).toBe('');
-    expect(renderToStaticMarkup(<TeamPauseButton snapshot={snap(true, [], { draining: true })} locale="zh-CN" onPause={() => {}} />)).toContain('disabled');
+  it('stops with one control that first says what it interrupts, and keeps what was written', () => {
+    const working = { ...snap(true, [{ status: 'in_progress', title: '写综述' }]), roles: [
+      { role: 'manager', active: false, tasks: [] }, { role: 'engineer', active: true, tasks: ['t0'] },
+    ] } as unknown as Snapshot;
+    const onStop = vi.fn();
+    let renderer!: ReactTestRenderer;
+    act(() => { renderer = create(<RunControl snapshot={working} pending onStop={onStop} onResume={() => {}} />); });
+    act(() => renderer.root.findByProps({ 'data-stop-work': true }).props.onClick());
+    const explains = renderer.root.findByProps({ 'data-stop-explains': true });
+    expect(explains.findAllByType('li').map(item => item.children.join(''))).toEqual(['经理正在写的回复', '工程师在「写综述」上的工作']);
+    expect(explains.findAllByType('p').map(line => line.children.join('')).join('')).toContain('已经写好的文件和记录都会保留');
+    expect(onStop).not.toHaveBeenCalled();
+    act(() => renderer.root.findByProps({ 'data-stop-confirm': true }).props.onClick());
+    expect(onStop).toHaveBeenCalledOnce();
   });
 
-  it('keeps "stop this reply" apart from pausing the team', () => {
-    expect(translate('chat.stopWaiting', undefined, 'zh-CN')).toBe('停止本次回复');
-    expect(translate('topbar.pauseTeam', undefined, 'zh-CN')).toBe('暂停团队');
-    expect(translate('topbar.resumeTeam', undefined, 'zh-CN')).toBe('继续');
+  it('offers Resume only for work the server says stopped short, and nothing on finished work', () => {
+    const resume = renderToStaticMarkup(<RunControl snapshot={snap(false, [{ status: 'in_progress' }], { resumable: true })} onStop={() => {}} onResume={() => {}} />);
+    expect(resume).toContain('data-resume-work');
+    expect(resume).not.toContain('data-stop-work');
+    expect(renderToStaticMarkup(<RunControl snapshot={snap(false, [{ status: 'in_progress' }])} onStop={() => {}} onResume={() => {}} />)).toBe('');
   });
 });
 

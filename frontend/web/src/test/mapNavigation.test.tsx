@@ -70,7 +70,7 @@ const props: ComponentProps<typeof MapCanvas> = {
     roles: [], backlog: [], recent_events: [],
   },
   composer: {
-    value: "", onChange: () => {}, onSend: async () => false, pending: false, onCancel: () => {},
+    value: "", onChange: () => {}, onSend: async () => false, pending: false, 
     attachments: [], onAttachmentsChange: () => {}, focusSignal: 0, sessionName: "Navigation", historical: false, zh: false,
   },
   actions: {

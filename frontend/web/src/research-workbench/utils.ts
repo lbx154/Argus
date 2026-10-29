@@ -6,17 +6,6 @@ export function cx(...values: Array<string | false | null | undefined>): string 
   return values.filter(Boolean).join(' ');
 }
 
-export function formatDuration(value: number | null | undefined): string {
-  const total = Math.max(0, Math.floor(Number(value ?? 0)));
-  if (total < 60) return `${total}s`;
-  const days = Math.floor(total / 86_400);
-  const hours = Math.floor((total % 86_400) / 3_600);
-  const minutes = Math.floor((total % 3_600) / 60);
-  if (days) return `${days}d ${hours}h`;
-  if (hours) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-}
-
 export function formatClock(ts: number | null | undefined, locale: 'en' | 'zh-CN'): string {
   if (!ts) return '—';
   return new Date(ts * 1_000).toLocaleTimeString(locale, {
@@ -28,16 +17,6 @@ export function formatClock(ts: number | null | undefined, locale: 'en' | 'zh-CN
 }
 
 export type Tone = 'neutral' | 'info' | 'success' | 'warn' | 'danger' | 'live';
-
-export function statusTone(status: string | null | undefined): Tone {
-  const value = String(status ?? '').toLowerCase();
-  if (/failed|error|blocked|rejected|stalled|dead|abort/.test(value)) return 'danger';
-  if (/warn|waiting|paused|hold|queued|pending|continue/.test(value)) return 'warn';
-  if (/done|complete|completed|accepted|healthy|success|passed/.test(value)) return 'success';
-  if (/run|active|work|claimed|progress|live/.test(value)) return 'live';
-  if (/research|plan|info|ready/.test(value)) return 'info';
-  return 'neutral';
-}
 
 export function eventRole(event: EventMsg): string {
   const role = String(event.agent_layer ?? event.actor ?? '').toLowerCase();

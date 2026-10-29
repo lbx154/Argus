@@ -8,7 +8,7 @@ import {
   type Snapshot, type UsageSummary,
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
-import { openTasks } from '../flow.js';
+import { firstLine, openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
@@ -37,10 +37,6 @@ const seconds = (iso: string): number => Date.parse(iso) / 1000;
 /** A project's name: the operator's, else the title the Manager gave its first task, else its request's first line. */
 export const named = (project: Project): string =>
   project.name || project.tasks.find(task => task.from === 'manager')?.title || project.request.split('\n')[0]!.slice(0, 80);
-
-/** A letter's first line as a heading reads it: a link as its words, without markup. */
-const firstLine = (text: string): string => text.split('\n')
-  .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it, named as
  * it was when delivered (a record from before then, by the letter's first line). */
@@ -154,9 +150,8 @@ export function follow(store: Store, id: string): () => EventMsg[] {
   };
 }
 
-/** The conversation, as the transcript endpoint returns it. */
-export const turns = (events: EventMsg[]) => events.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus')
-  .map(event => ({ ts: event.ts, role: event.type === 'ui.operator' ? 'operator' : 'argus', text: event.text, message_id: event.message_id }));
+/** The conversation, as the transcript endpoint returns it: its rows as the stream sends them. */
+export const turns = (events: EventMsg[]) => events.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus');
 
 /** A question's id names who asked it and its words, so a new question is a new card. */
 export function questionId({ role, task, question }: Question): string {
@@ -177,13 +172,18 @@ function usage(rows: Record<string, unknown>[]): UsageSummary {
   }));
 }
 
+/** Whether Resume has work to take up: letters to the Manager no turn took, failed turns, or the
+ * open work and the Planner's letters the operator stopped. */
+const resumable = (project: Project): boolean => Boolean(project.forManager?.length) || project.status === 'failed'
+  || project.status === 'stopped' && (openTasks(project).length > 0 || project.inbox.length > 0);
+
 export function daemon(project: Project, live: Live): Daemon {
   const { since } = live;
   return {
     // Stopped with calls under way: they end, and no other starts.
-    alive: since !== null, draining: since !== null && project.status === 'stopped', pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
+    alive: since !== null, draining: since !== null && project.status === 'stopped', resumable: since === null && resumable(project), pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
-    backend_label: BACKEND_LABELS[project.backend], control_available: true,
+    backend_label: BACKEND_LABELS[project.backend],
     read_status: 'ok', read_error: '', protocol_compatible: true, protocol_error: '',
   };
 }
@@ -263,10 +263,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     last_call: last ? {
       backend: String(last.backend), model: String(last.model ?? ''), effort: project.effort ?? '', run_label: String(last.role), role: String(last.role), ts: Number(last.ts),
     } : null,
-    // Letters left for the Manager when the work stopped are work Resume takes up, as a task cut off is.
-    backlog: [...backlog(project), ...live.since === null ? (project.forManager ?? []).map((letter, index) => ({
-      id: `manager-${index + 1}`, title: letter.split('\n')[0]!.slice(0, 100), objective: letter, priority: 0, deps: [], status: 'in_progress' as const,
-    })) : []],
+    backlog: backlog(project),
     recent_events: [],
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<Snapshot['spend_status']>, usage_summary: summary,
     daemon_commands: null, observability: null, mission_view: null,
@@ -293,10 +290,13 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
   };
 }
 
+type MapCard = BacklogItem & { role: string };
+
 /** How far each record has been read for the map, and what the map keeps of it: when each task
  * was added and closed, the latest thing said on it (a message or a letter, not a command), the
- * files its latest letter handed over (once it has closed, its result), and the letters written
- * about tasks, by line. */
+ * files its latest letter handed over (once it has closed, its result), the letters written about
+ * tasks, by line, and the results the Manager handed the operator, with when its turn began and
+ * the tasks closed since the operator last wrote. */
 interface MapReading {
   end: number;
   line: number;
@@ -305,41 +305,61 @@ interface MapReading {
   actions: Map<string, BacklogItem['latest_action']>;
   opened: Map<string, string[]>;
   letters: { line: number; letter: Record<string, unknown> }[];
+  delivered: MapCard[];
+  began: number;
+  since: string[];
 }
 const maps = new Map<string, MapReading>();
 
 /** The progress map: a card per task, and on it a step per letter written about it; the letter
- * that opened a task is its objective. A letter's id is its line, and the lines read are the
- * cursor: a page that holds one is sent only the letters after it. Like the live event stream,
- * each reading continues at the last complete line; only map fields are retained in memory. */
+ * that opened a task is its objective. A result the Manager hands the operator is a card of its own,
+ * done, after the tasks it reports on, named as its delivery is (`d` and its line), its letter the
+ * one step on it. A letter's id is its line, and the lines read are the cursor: a page that holds
+ * one is sent only the letters after it. Like the live event stream, each reading continues at the
+ * last complete line; only map fields are retained in memory. */
 export function progressMap(store: Store, project: Project, after: number) {
   const path = join(store.dir(project.id), 'events.jsonl');
   const reading: MapReading = maps.get(path) ?? {
-    end: 0, line: 0, added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [],
+    end: 0, line: 0, added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], delivered: [], began: 0, since: [],
   };
-  const { added, closed, actions, opened, letters } = reading;
+  const { added, closed, actions, opened, letters, delivered, since } = reading;
   const { rows, end } = jsonLines(path, reading.end);
   for (const event of rows as unknown as Recorded[]) {
     const line = reading.line++;
-    if (event.type === 'task.added') added.set(event.task.id, seconds(event.ts));
-    else if (event.type === 'task.closed') closed.set(event.task, seconds(event.ts));
-    else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts: seconds(event.ts) });
-    else if (event.type === 'handoff' && event.task) {
-      opened.set(event.task, event.open ?? []);
-      actions.set(event.task, { role: event.role, text: event.letter, ts: seconds(event.ts) });
-      letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter } });
+    const ts = seconds(event.ts);
+    if (event.type === 'message' && !event.to) since.length = 0;
+    else if (event.type === 'call.start' && event.role === 'manager') reading.began = ts;
+    else if (event.type === 'task.added') added.set(event.task.id, ts);
+    else if (event.type === 'task.closed') {
+      closed.set(event.task, ts);
+      since.push(event.task);
+    }
+    else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts });
+    else if (event.type === 'handoff' && (event.task || event.role === 'manager' && event.open)) {
+      const id = event.task ?? `d${line}`;
+      if (event.task) opened.set(event.task, event.open ?? []);
+      else {
+        // It follows the tasks closed since the operator last wrote that no other of them waited for.
+        const deps = since.filter(task => !since.some(other => project.tasks.find(({ id }) => id === other)?.after?.includes(task)));
+        delivered.push({
+          id, title: event.title ?? firstLine(event.letter), objective: event.letter, priority: 0, deps, status: 'done', role: 'manager',
+          ts: reading.began, started_ts: reading.began, finished_ts: ts, result_paths: event.open!,
+        });
+      }
+      actions.set(id, { role: event.role, text: event.letter, ts });
+      letters.push({ line, letter: { id: `e${line}`, item_id: id, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
     }
   }
   reading.end = end;
   maps.set(path, reading);
-  const tasks = backlog(project).map((item, index) => {
+  const tasks = [...backlog(project).map((item, index) => {
     const question = asked(project, item.id);
     return {
       ...item, ts: added.get(item.id), started_ts: added.get(item.id), finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
       latest_action: actions.get(item.id), result_paths: closed.has(item.id) ? opened.get(item.id) ?? [] : [],
       ...(question ? { pending_question: question.question } : {}),
     };
-  });
+  }), ...delivered.map(card => ({ ...card, latest_action: actions.get(card.id) }))];
   return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks,
     events: letters.flatMap(({ line, letter }) => line >= after ? [letter] : []), cursor: String(reading.line) };
 }

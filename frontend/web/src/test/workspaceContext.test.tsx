@@ -17,8 +17,7 @@ const snap: Snapshot = {
 };
 const props: ActiveWorkbenchPageProps = {
   sid: 's-A', active: false, snapshot: snap,
-  events: [], connected: false, refresh: vi.fn(),
-  controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' },
+  events: [], refresh: vi.fn(),
 };
 let client: QueryClient;
 const fetch = vi.fn(() => { throw new Error('Context presentation must not fetch'); });
@@ -47,13 +46,15 @@ describe('A3 snapshot-only session context', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('keeps the existing runtime action for actual queued work and an active daemon', () => {
-    expect(markup(topbar({ ...snap, backlog: [{ id: 'queued', title: 'Continue work', objective: 'Continue work', status: 'pending', priority: 1 }] }))).toContain('Resume');
-    expect(markup(topbar({ ...snap, daemon: { ...snap.daemon, alive: true, pid: 1 } }))).toContain('Pause Argus');
+  it('offers Resume only for work the server says Resume takes up, and Stop for a live team', () => {
+    const queued = { ...snap, backlog: [{ id: 'queued', title: 'Continue work', objective: 'Continue work', status: 'pending', priority: 1 }] };
+    expect(markup(topbar(queued))).not.toContain('Resume');
+    expect(markup(topbar({ ...queued, daemon: { ...snap.daemon, resumable: true } }))).toContain('Resume');
+    expect(markup(topbar({ ...snap, daemon: { ...snap.daemon, alive: true, pid: 1 } }))).toContain('data-stop-work');
   });
 
-  it('retains all module IDs in entry order', () => {
-    expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['experiments', 'ide', 'runtime']);
+  it('keeps only what the conversation, the map and the results do not show: the code, then the upkeep', () => {
+    expect(WORKBENCH_MODULES.map(row => row.id)).toEqual(['ide', 'runtime']);
   });
 
   it('falls back to the snapshot cwd and labels missing information as pending', () => {

@@ -2,25 +2,12 @@ import {
   ExternalLink,
   File,
   LoaderCircle,
-  Radio,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import { markdownRemarkPlugins, markdownRehypePlugins } from '../../components/markdownMath';
-import { agentRoleColor } from '../../lib/agentRoles';
-import { plainDetail } from '../../lib/plainStatus';
-import { roleLabel } from '../enumLabels';
-import type { EventMsg } from '../types';
 import { useWorkbenchText } from '../useWorkbenchText';
-import {
-  cx,
-  eventDetail,
-  eventRole,
-  eventTitle,
-  formatClock,
-  statusTone,
-  type Tone,
-} from '../utils';
+import { cx, type Tone } from '../utils';
 
 export function Badge({
   children,
@@ -89,45 +76,6 @@ export function Markdown({ children, className }: { children: string; className?
       >
         {children}
       </ReactMarkdown>
-    </div>
-  );
-}
-
-export function EventTimeline({
-  events,
-  limit = 24,
-  empty,
-  dense = false,
-}: {
-  events: EventMsg[];
-  limit?: number;
-  empty?: string;
-  dense?: boolean;
-}) {
-  const { locale, text } = useWorkbenchText();
-  const rows = events.slice(-limit).reverse();
-  if (!rows.length) return <EmptyState icon={Radio} title={empty || text('还没有可展示的实时动态', 'No activity to show yet')} />;
-  return (
-    <div className={cx('event-list', dense && 'event-list--dense')}>
-      {rows.map((event, index) => {
-        const role = eventRole(event);
-        const title = eventTitle(event, locale);
-        const detail = plainDetail(eventDetail(event, dense ? 180 : 480), locale).text;
-        const tone = statusTone(String(event.status ?? event.kind ?? event.type ?? ''));
-        return (
-          <article className="event-row" key={`${event.type}-${event.ts}-${event.message_id ?? index}`}>
-            <div className={cx('event-row__marker', `event-row__marker--${tone}`)} />
-            <div className="event-row__content">
-              <div className="event-row__meta">
-                <span className="role-label" style={{ color: agentRoleColor(role) }}>{roleLabel(role, text)}</span>
-                <time>{formatClock(event.ts, locale)}</time>
-              </div>
-              <div className="event-row__title">{title}</div>
-              {detail ? <div className="event-row__detail">{detail}</div> : null}
-            </div>
-          </article>
-        );
-      })}
     </div>
   );
 }

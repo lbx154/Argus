@@ -82,7 +82,6 @@ describe('ChatBox still renders', () => {
         value=""
         onChange={() => {}}
         onSend={async () => true}
-        onCancel={() => {}}
         disabled={false}
         pending={false}
         focusSignal={0}

@@ -1,10 +1,9 @@
-import { Fragment, createContext, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
-import { isDraftReply } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
@@ -35,7 +34,7 @@ import { AGENT_ROLES as ROLE_ORDER } from '../lib/agentRoles';
 import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
 import { plainDetail, plainTaskReport } from '../lib/plainStatus';
-import { isCallRow, plainRowText, roleHeadline, type ProgressText } from '../lib/plainProgress';
+import { isCallRow, plainRowText, roleHeadline, roleSaid, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, eventTaskId } from '../lib/workStatus';
 import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
@@ -48,13 +47,12 @@ import type { ConversationHistoryStatus } from '../useConversationHistory';
 import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { resumableTaskIds } from '../lib/resumable';
 import { ErrorDetails } from './ErrorMessage';
 
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
 import type { ConversationRevision } from './ExperiencePanels';
-import { PencilLine, Play } from 'lucide-react';
+import { PencilLine } from 'lucide-react';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 // A thread that project work interrupted continues without its operator row.
@@ -71,8 +69,6 @@ const ConversationActionContext = createContext<((target: ConversationRevision) 
 export const SessionIdContext = createContext<string | null>(null);
 /** A task's title by its id, so a round names the task it belongs to. */
 const TaskTitleContext = createContext<(id: string) => string>(() => '');
-/** Run, offered on a task's newest receipt while that task waits to be resumed. */
-const ResumeTaskContext = createContext<(taskId: string, messageId: string) => (() => void) | undefined>(() => undefined);
 
 type RowText = ProgressText & { prose: boolean };
 
@@ -323,11 +319,8 @@ function ConversationRow({
   const roots = useContext(WorkspaceRootsContext);
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
-  const resumeFor = useContext(ResumeTaskContext);
   const operator = String(ev.type) === 'ui.operator';
   const taskReceipt = !operator && ev.mission_result === true;
-  const resume = taskReceipt && typeof ev.item_id === 'string'
-    ? resumeFor(ev.item_id, String(ev.message_id || ev.event_id || '')) : undefined;
   // Preserve the full recorded message, including research/control-like lines.
   const reportText = taskReceipt ? (typeof ev.text === 'string' ? ev.text : r.text) : r.text;
   const report = taskReceipt ? plainTaskReport(reportText, locale) : null;
@@ -338,10 +331,6 @@ function ConversationRow({
   // A question's numbered options become buttons; typing a free answer still works.
   const asked = !operator && !taskReceipt ? splitReplyOptions(reportText) : null;
   const steps = operator ? [] : turnStepsFrom(ev.steps);
-  const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
-  const responseLatency = !operator && responseLatencyMs >= 100
-    ? ` · ${(responseLatencyMs / 1_000).toFixed(1)}s`
-    : '';
   const revisionLabel = locale === 'zh-CN' ? '改写后重发' : 'Rewrite and resend';
   const rowRef = useRef<HTMLElement>(null);
   useGsapMotion(rowRef, (gsap, reduceMotion) => {
@@ -409,14 +398,10 @@ function ConversationRow({
               >{recordedAt ? recordedAt.toLocaleString(locale, {
                 year: 'numeric', month: '2-digit', day: '2-digit',
                 hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-              }) : clockOf(ev)}{responseLatency}</time></>}
+              }) : clockOf(ev)}</time></>}
             </div>
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
-            {resume ? <button type="button" data-receipt-resume onClick={resume}
-              className="brand-button brand-button-primary mt-3 inline-flex items-center gap-1.5">
-              <Play size={14} aria-hidden="true" />{t('topbar.continueRun')}
-            </button> : null}
-            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText) && !isDraftReply(ev)}
+            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
             {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
@@ -426,7 +411,7 @@ function ConversationRow({
         </div>
       )}
       {!taskReceipt && ev.live !== true && <div className={`conversation-meta ${operator ? 'justify-end' : ''}`}>
-        <time>{clockOf(ev)}{responseLatency}</time>
+        <time>{clockOf(ev)}</time>
         <div className="conversation-tools">
         <CopyButton text={r.text} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
         {/* A question is rewritten and sent again, its new answer kept beside the first;
@@ -444,6 +429,7 @@ function RoleLogGroup({
   open,
   active,
   tasks,
+  round,
   earlier,
   onToggle,
 }: {
@@ -453,6 +439,8 @@ function RoleLogGroup({
   active: boolean;
   /** The tasks it is at work on now. */
   tasks: string[];
+  /** When the operator last wrote: what a role at work does now is what it did since. */
+  round: number;
   /** What the role last said in the whole record, for when its loaded log says nothing. */
   earlier?: string;
   onToggle: () => void;
@@ -469,17 +457,24 @@ function RoleLogGroup({
   const commandCount = useMemo(() => rows.filter(row => isCallRow(row.ev)).length, [rows]);
   const shown = useMemo(() => showCommands ? rows : rows.filter(row => !isCallRow(row.ev)), [rows, showCommands]);
   const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
-  // The collapsed header says what the role is doing or concluded, never a command:
-  // at work, only what it does on the tasks the server says it is on now.
+  // The collapsed header says what the role concluded, or at work what it does now: what it
+  // said since the operator last wrote on the tasks the server says it is on, else its newest step.
   const taskTitle = useContext(TaskTitleContext);
+  const workspace = useContext(WorkspaceContext);
+  const doing = useCallback((on: ActivityRow[]) => {
+    const now = on.filter(row => Number(row.ev.ts) >= round);
+    const step = now.filter(row => isCallRow(row.ev) && row.ev.kind !== 'tool_result').at(-1);
+    return roleSaid(now, locale, taskTitle) || (!step ? '' : step.ev.kind === 'command_execution'
+      ? `${zh ? '运行 ' : 'Running '}${plainCommand(step.r.text, workspace)}` : plainToolLabel(step.ev, locale));
+  }, [round, locale, zh, taskTitle, workspace]);
   const headline = useMemo(() => active
-    ? roleHeadline(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows, locale, taskTitle)
-    : roleHeadline(rows, locale, taskTitle) || earlier || '', [active, tasks, rows, locale, taskTitle, earlier]);
+    ? doing(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows)
+    : roleHeadline(rows, locale, taskTitle) || earlier || '', [active, doing, tasks, rows, locale, taskTitle, earlier]);
   // At work on several tasks at once, it says what it does now on each.
   const several = active && tasks.length > 1;
   const each = useMemo(() => several ? tasks.map(id => ({
-    id, title: taskTitle(id) || id, now: roleHeadline(rows.filter(row => eventTaskId(row.ev) === id), locale, taskTitle),
-  })) : [], [several, tasks, rows, locale, taskTitle]);
+    id, title: taskTitle(id) || id, now: doing(rows.filter(row => eventTaskId(row.ev) === id)),
+  })) : [], [several, tasks, rows, doing, taskTitle]);
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -609,12 +604,13 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active, tasks, earlier, followLatest }: {
+function RoleLogCollection({ rows, active, tasks, round, earlier, followLatest }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
   /** The tasks the role is at work on now. */
   tasks: (role: string) => string[];
+  round: number;
   /** What the role last said in the whole record. */
   earlier?: (role: string) => string | undefined;
   followLatest: boolean;
@@ -640,6 +636,7 @@ function RoleLogCollection({ rows, active, tasks, earlier, followLatest }: {
           open={openRoles.has(role)}
           active={active(role)}
           tasks={tasks(role)}
+          round={round}
           earlier={earlier?.(role)}
           onToggle={() => {
             userToggledRole.current = true;
@@ -1029,7 +1026,6 @@ export function EventStream({
   rememberPosition = false,
   onConversationAction,
   requestedMessageTs,
-  onResumeWork,
 }: {
   events: EventMsg[];
   connected: boolean;
@@ -1051,8 +1047,6 @@ export function EventStream({
   rememberPosition?: boolean;
   onConversationAction?: (target: ConversationRevision) => void;
   requestedMessageTs?: number;
-  /** Run again; offered on the receipt of a task that waits to be resumed. */
-  onResumeWork?: () => void;
 }) {
   const { locale, t } = useI18n();
   const [following, setFollowing] = useState(true);
@@ -1126,23 +1120,12 @@ export function EventStream({
   const timeline = useMemo(() => {
     const blocks = conversationTimeline(rows.list);
     const workRows = rows.list.filter((row) => row.ev.type !== 'ui.operator' && row.ev.type !== 'ui.argus');
-    return { blocks, workRows };
+    const round = Math.max(0, ...rows.list.filter(row => row.ev.type === 'ui.operator').map(row => Number(row.ev.ts)));
+    return { blocks, workRows, round };
   }, [rows.list]);
   // Who works now, as the server knows it: several roles can at once, and none while the run is down.
   const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
     [connected, snapshot?.daemon.alive, snapshot?.roles]);
-  const resumable = useMemo(() => resumableTaskIds(snapshot), [snapshot]);
-  const resumeFor = useMemo(() => {
-    // Only a task's newest receipt offers Run; earlier ones are history.
-    const newest = new Map<string, string>();
-    for (const event of deferredEvents) {
-      if (event.type === 'ui.argus' && event.mission_result === true && typeof event.item_id === 'string') {
-        newest.set(event.item_id, String(event.message_id || event.event_id || ''));
-      }
-    }
-    return (taskId: string, messageId: string) => onResumeWork && resumable.has(taskId) && newest.get(taskId) === messageId
-      ? onResumeWork : undefined;
-  }, [deferredEvents, onResumeWork, resumable]);
   // Where a task stands is the server's word, never a guess from the record.
   const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
@@ -1245,7 +1228,6 @@ export function EventStream({
     <StepProcessContext.Provider value={stepProcess}>
     <WorkspaceContext.Provider value={workspace}>
     <TaskTitleContext.Provider value={taskTitle}>
-    <ResumeTaskContext.Provider value={resumeFor}>
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
@@ -1307,7 +1289,7 @@ export function EventStream({
             {timeline.workRows.length || snapshot?.roles.some(role => role.last) ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
               className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
               <div className="overflow-hidden rounded-lg border border-line/70">
-                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} followLatest
+                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} round={timeline.round} followLatest
                   tasks={role => snapshot?.roles.find(row => row.role === role)?.tasks ?? []}
                   earlier={role => snapshot?.roles.find(row => row.role === role)?.last?.text} />
               </div>
@@ -1327,7 +1309,6 @@ export function EventStream({
         </button>
       )}
     </section>
-    </ResumeTaskContext.Provider>
     </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>
     </StepProcessContext.Provider>

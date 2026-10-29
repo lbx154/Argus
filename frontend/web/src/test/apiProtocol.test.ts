@@ -466,12 +466,12 @@ describe('web API protocol handshake', () => {
     await expect(api.startDaemon('s-test', 1)).rejects.toThrow(
       'stale command revision',
     );
-    await expect(api.stopDaemon('s-test', true, 1)).rejects.toThrow(
+    await expect(api.stopDaemon('s-test', 1)).rejects.toThrow(
       'stale command revision',
     );
   });
 
-  it('sends an explicit force flag for immediate manual daemon stop', async () => {
+  it('stops at once, with nothing but the command and the revision it was asked at', async () => {
     const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => Response.json({
       rc: 0,
       command_status: 'applied',
@@ -479,10 +479,9 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await api.stopDaemon('s-test', false, 7, true);
+    await api.stopDaemon('s-test', 7);
 
-    const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
-    expect(body).toMatchObject({ drain: false, force: true, expected_revision: 7 });
+    expect(Object.keys(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).sort()).toEqual(['command_id', 'expected_revision']);
   });
 
   it('message endpoint returns dispatch ack reply for task results', async () => {
@@ -523,7 +522,7 @@ describe('web API protocol handshake', () => {
 
   it('rejects a stream that closes after a delta without a terminal event', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      'data: {"type":"delta","text":"partial"}\n\n',
+      'data: {"type":"delta","event":{"type":"ui.argus","text":"partial"}}\n\n',
       { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
     )));
     const { api } = await import('../api');
@@ -532,7 +531,7 @@ describe('web API protocol handshake', () => {
     await expect(api.messageStream('s-test', 'do something', { onDelta })).rejects.toThrow(
       'ended before a terminal event',
     );
-    expect(onDelta).toHaveBeenCalledWith('partial', '', 'auto', false);
+    expect(onDelta).toHaveBeenCalledWith({ type: 'ui.argus', text: 'partial' });
   });
 
   it('keeps JSON on streamed chunks and reuses attachment ids in message requests', async () => {

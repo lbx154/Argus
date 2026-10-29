@@ -82,10 +82,9 @@ import "./atlas.css";
 import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
 import { livePollInterval, mapIsPaused, mergeMapProgress } from "./incremental";
-import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
+import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
 import { taskFigures } from "./cardFigure";
 import { MapCardFigureContext } from "./cardContext";
-import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
 import { clearOfChrome, humanFrame, isHumanCardId, LINK_KINDS, resolveLinkTarget, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point, type RouteStep } from "./canvas";
@@ -370,10 +369,6 @@ export function MapCanvas({
       observe({ type: 'settled', outcome: 'error' });
       throw error;
     }
-  };
-  const cancelFromMap = () => {
-    setFlight((current) => current ? { ...current, result: { type: 'settled', outcome: 'cancelled' } } : null);
-    composer.onCancel();
   };
   // The map is fitted when its first cards appear (a map opened before its
   // project has a task fits when the tasks come), and again whenever cards
@@ -1217,8 +1212,7 @@ export function MapCanvas({
   // The writer's reader-language account of a task's outcome, when cached.
   const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
   const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
-  const currentWork = workSummary(status, snapshot.mission_view, events, zh ? 'zh-CN' : 'en', actions.connected,
-    currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId));
+  const currentWork = workStatusLabel(status, zh ? 'zh-CN' : 'en', actions.connected);
   const decisionCards = useMemo(() => operatorDecisionCards(snapshot.pending_questions ?? [],
     snapshot.backlog.map((item) => ({ ...item })), currentTaskId), [snapshot.pending_questions, snapshot.backlog, currentTaskId]);
   const overview = useMemo(() => projectOverview({
@@ -1853,7 +1847,7 @@ export function MapCanvas({
           {!readOnly && (
             <MapComposer {...composer} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
               dispatchStatus={flight?.result?.type === 'task' ? flight.landed || composer.historical ? 'task' : 'launching' : flight?.result?.outcome}
-              onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed} startCompact={immersive} />
+              onSend={submitFromMap} overview={!camera.detailed} startCompact={immersive} />
           )}
           {canvasMenu && editable && (
             <div className="map-context-menu canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }}>
@@ -2060,7 +2054,6 @@ export const MapPanel = memo(function MapPanel({
   attachments: controlledAttachments,
   onAttachmentsChange,
   pending,
-  onCancel,
   focusSignal,
   readOnly = false,
   onOpenSettings,
@@ -2075,11 +2068,11 @@ export const MapPanel = memo(function MapPanel({
   onOpenArtifact,
   onAnswer,
   deliveries,
-  onPauseTeam,
+  onStopWork,
   onResumeTeam,
   teamBusy,
 }: {
-  onPauseTeam?: () => void;
+  onStopWork?: () => void;
   onResumeTeam?: () => void;
   teamBusy?: boolean;
   snapshot: Snapshot;
@@ -2092,7 +2085,6 @@ export const MapPanel = memo(function MapPanel({
   attachments?: File[];
   onAttachmentsChange?: (files: File[]) => void;
   pending: boolean;
-  onCancel: () => void;
   focusSignal: number;
   readOnly?: boolean;
   /** The map fills the window: the header, overview and legend step aside. */
@@ -2253,8 +2245,8 @@ export const MapPanel = memo(function MapPanel({
   // The team line lives at the top of the canvas, beside the overview, so it
   // stays in view when the composer is folded away.
   const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} view={snapshot.mission_view} events={events} connected={connected !== false} compact
-    onPauseTeam={readOnly ? undefined : onPauseTeam} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
-  [snapshot, events, connected, readOnly, onPauseTeam, onResumeTeam, teamBusy]);
+    pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
+  [snapshot, events, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, connected, artifacts, deliveryCount,
              onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,
@@ -2273,16 +2265,15 @@ export const MapPanel = memo(function MapPanel({
       attachments,
       onAttachmentsChange: setAttachments,
       pending,
-      onCancel,
       focusSignal,
       sessionName: snapshot.session.display_name || t("sidebar.unnamedSession"),
       historical: source !== "live",
       zh,
     }),
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
-     pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
+     pending, focusSignal, snapshot.session.display_name, snapshot.session.id,
      source, zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
-     readOnly, onOpenSettings, events, connected, onPauseTeam, onResumeTeam, teamBusy],
+     readOnly, onOpenSettings, events, connected, onStopWork, onResumeTeam, teamBusy],
   );
   // Each task's figure, loaded separately from the map's task projection.
   const workspace = snapshot.session.workdir || snapshot.session.cwd || '';

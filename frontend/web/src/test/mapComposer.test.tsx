@@ -10,7 +10,6 @@ const props: MapComposerProps = {
   attachments: [],
   onAttachmentsChange: () => {},
   pending: false,
-  onCancel: () => {},
   focusSignal: 0,
   sessionName: "Study",
   historical: false,
@@ -57,5 +56,5 @@ it("keeps the selected attachment visible and disables removal while a send is p
   expect(html).toMatch(
     /<button[^>]*disabled=""[^>]*aria-label="remove attachment study.csv"/,
   );
-  expect(html).toContain("Stop this reply");
+  expect(html).not.toContain("Stop");
 });

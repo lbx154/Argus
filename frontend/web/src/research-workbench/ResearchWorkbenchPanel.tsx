@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
 import { EmptyState, Spinner } from './components/Common';
-import { ExperimentsPage } from './pages/ExperimentsPage';
 import { IdePage } from './pages/IdePage';
 import type { ActiveWorkbenchPageProps } from './pages/pageTypes';
 import { RuntimeControlPage } from './pages/RuntimeControlPage';
@@ -10,16 +9,15 @@ import type { PageId, Snapshot } from './types';
 import './styles.css';
 
 /** The project's modules, on the snapshot and the record the page already follows. */
-export function ResearchWorkbenchPanel({ snapshot, failed, runtimeRequest = 0, readOnly = false, onRestored, onCompose, ...data }:
+export function ResearchWorkbenchPanel({ snapshot, failed, runtimeRequest = 0, readOnly = false, onRestored, ...data }:
   Omit<ActiveWorkbenchPageProps, 'snapshot'> & {
     snapshot: Snapshot | undefined; failed: boolean; readOnly?: boolean; runtimeRequest?: number;
     onRestored: (sid: string) => void | Promise<void>;
-    onCompose: () => void;
   }) {
   const { locale } = useI18n();
   const [page, setPage] = useState<PageId>(() => {
     const requested = new URLSearchParams(window.location.search).get('module');
-    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'experiments';
+    return WORKBENCH_MODULES.find((module) => module.id === requested)?.id ?? 'ide';
   });
   const [openedPages, setOpenedPages] = useState(() => new Set<PageId>([page]));
   const navigate = useCallback((next: PageId) => {
@@ -58,9 +56,7 @@ export function ResearchWorkbenchPanel({ snapshot, failed, runtimeRequest = 0, r
         const props = { ...data, snapshot, active: data.active && page === id };
         return (
           <div key={`${data.sid}:${id}`} className={`ros-content workspace-view-surface min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${page === id ? '' : 'hidden'}`} aria-hidden={page !== id}>
-            {id === 'runtime' ? <RuntimeControlPage {...props} readOnly={readOnly} onRestored={onRestored} onCompose={onCompose} />
-              : id === 'experiments' ? <ExperimentsPage {...props} readOnly={readOnly} onCompose={onCompose} />
-              : <IdePage {...props} />}
+            {id === 'runtime' ? <RuntimeControlPage {...props} readOnly={readOnly} onRestored={onRestored} /> : <IdePage {...props} />}
           </div>
         );
       })}

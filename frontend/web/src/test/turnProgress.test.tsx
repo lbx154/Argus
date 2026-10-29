@@ -5,7 +5,7 @@ import { TurnSteps } from '../components/TurnSteps';
 import { ChatBox } from '../components/ChatBox';
 import { EventStream } from '../components/EventStream';
 import { MapConversation } from '../map/MapConversation';
-import { mergeOptimisticManagerDelta, mergeOptimisticManagerSteps, settleOptimisticManagerTurn } from '../lib/conversationEvents';
+import { mergeOptimisticManagerReply, mergeOptimisticManagerSteps, settleOptimisticManagerTurn } from '../lib/conversationEvents';
 import { renderLine } from '../../../core/src/eventRender';
 
 const step = { kind: 'tool_use', label: 'Read report.md', status: 'completed', started_ts: 1, ended_ts: 2 };
@@ -46,14 +46,16 @@ describe('one compact work-progress area', () => {
     expect(renderToStaticMarkup(<TurnSteps steps={[{ ...step, status: 'completed' }]} live={false} status="failed" />)).toContain('An issue occurred');
   });
 
-  it('keeps waiting, streaming and cancellation in the same request row', () => {
+  it('keeps waiting and cancellation in the request row, which the reply replaces', () => {
     const waiting = mergeOptimisticManagerSteps([], 's-A', 1, [], 1000);
     expect(waiting).toHaveLength(1);
     expect(renderLine(waiting[0], { locale: 'en', showReasoning: false, unknownEventPolicy: 'hide', density: 'compact' })).not.toBeNull();
-    const streaming = mergeOptimisticManagerDelta(waiting, 's-A', 1, 'Answer', 'web-1-argus', 2000);
-    expect(streaming).toHaveLength(1);
-    expect(streaming[0]).toMatchObject({ text: 'Answer', live: true });
-    expect(settleOptimisticManagerTurn(streaming, 1, 3000)[0]).toMatchObject({ live: false, status: 'stopped' });
+    expect(settleOptimisticManagerTurn(waiting, 1, 3000)[0]).toMatchObject({ live: false, status: 'stopped' });
+    // The reply takes the row's place as the record has it, and the turn's end leaves it so.
+    const reply = { type: 'ui.argus', text: 'Answer', ts: 2, event_id: 3, message_id: 'm1-argus' };
+    const replied = mergeOptimisticManagerReply(waiting, 1, reply);
+    expect(replied).toEqual([{ ...reply, local_request_id: 1 }]);
+    expect(settleOptimisticManagerTurn(replied, 1, 3000)).toEqual(replied);
   });
 
   it('renders a single waiting area before tools or text, including the map conversation', () => {
@@ -67,12 +69,12 @@ describe('one compact work-progress area', () => {
     expect(map).not.toContain('map-conversation-pending');
   });
 
-  it('does not repeat steps above the input and retains the stop control', () => {
+  it('does not repeat steps above the input, nor a stop of its own', () => {
     const html = renderToStaticMarkup(<ChatBox value="" onChange={() => undefined} onSend={() => true}
-      onCancel={() => undefined} pending disabled={false} attachments={[]} onAttachmentsChange={() => undefined}
+      pending disabled={false} attachments={[]} onAttachmentsChange={() => undefined}
       completionSelection={0} onCompletionSelectionChange={() => undefined} />);
     expect(html).not.toContain('turn-steps');
     expect(html).not.toContain('<ol');
-    expect(html).toContain('aria-label="Stop this reply"');
+    expect(html).not.toContain('Stop');
   });
 });

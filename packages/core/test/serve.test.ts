@@ -147,7 +147,9 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const reply = await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
   assert.deepEqual(reply.map(frame => frame.type), ['phase', 'delta', 'done']);
   // The operator reads the Manager's letter to the team: the brief is its reply.
-  assert.deepEqual(reply[1], { type: 'delta', text: brief, message_id: 'm0-argus', fragment_mode: 'snapshot' });
+  // The reply is its row in the record, as the conversation shows it after a reload: whom it is to, and the message it answers.
+  assert.deepEqual(reply[1], { type: 'delta', event: { type: 'ui.argus', ts: (reply[1]!.event as EventMsg).ts, event_id: 3,
+    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus' } });
   assert.deepEqual(reply[2], { type: 'done', result: { kind: 'task', reply: brief } });
 
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot?compact=true&events_limit=1`),
@@ -176,8 +178,11 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // What the Engineer said as its turn went on is in the feed while it works.
   assert.deepEqual(events.find(event => event.type === 'engineer.progress'), { ...events.find(event => event.type === 'engineer.progress'),
     kind: 'agent_message', agent_layer: 'engineer', text: 'Totalling the columns.', item_id: 't1' });
-  const { turns } = await get<{ turns: { role: string; text: string; message_id: string }[] }>(`${P}/transcript?n=120`);
-  assert.deepEqual(turns.map(turn => [turn.role, turn.message_id]), [['operator', 'm0-operator'], ['argus', 'm0-argus']]);
+  // The transcript is the conversation's rows as the stream sends them.
+  const { turns } = await get<{ turns: EventMsg[] }>(`${P}/transcript?n=120`);
+  assert.deepEqual(turns, events.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus'));
+  assert.deepEqual(turns.map(turn => [turn.type, turn.message_id]), [['ui.operator', 'm0-operator'], ['ui.argus', 'm0-argus']]);
+  assert.deepEqual(turns[1], (reply[1]!.event as EventMsg));
 
   assert.equal((await post(`${P}/decisions/q-stale/resolve`, { option_id: 'custom', note: 'yes' })).status, 409);
   assert.equal((await post(`${P}/decisions/${card.id}/resolve`, { option_id: 'custom', note: ' ' })).status, 400);
@@ -406,14 +411,16 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   const stopped = await (await post(`${P}/daemon/stop`, { command_id: 'c1' })).json() as { rc: number };
   assert.equal(stopped.rc, 0);
   const paused = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
-  assert.deepEqual(paused.backlog.map(item => item.status), ['in_progress']);
+  assert.deepEqual([paused.backlog.map(item => item.status), paused.daemon.resumable], [['in_progress'], true]);
   // Talking to the Manager does not start the stopped team again.
   await frames(await post(`${P}/message/stream`, { text: 'how is it going?', request_id: 'r3' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager']);
 
   assert.equal((await (await post(`${P}/daemon/start`, { command_id: 'c2' })).json() as { rc: number }).rc, 0);
-  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done');
+  // Done, there is nothing for Resume to take up.
+  const done = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
+  assert.equal(done.daemon.resumable, false);
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its backend reported no session to go on in.
   assert.equal(requests[4]!.resume, undefined);
@@ -479,7 +486,7 @@ test('pausing lets the calls under way end and starts no other, until the work r
   // The Engineer's turn ended and its letter was kept; the Reviewer waits for the work to resume.
   assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer']);
   assert.deepEqual(paused.backlog.map(item => item.status), ['in_progress']);
-  assert.equal(paused.daemon.draining, false);
+  assert.deepEqual([paused.daemon.draining, paused.daemon.resumable], [false, true]);
 
   await post(`${P}/daemon/start`, { command_id: 'c2' });
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
@@ -516,13 +523,14 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   const reply = frames(await post(`${P}/message/stream`, { text: 'What is 6 times 7?', request_id: 'r1' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles[0]!.active);
   await post(`${P}/daemon/stop`, { command_id: 'c1' });
-  await reply;
+  // The reply ends as stopped, not as a failure.
+  assert.deepEqual((await reply).at(-1), { type: 'done', result: { kind: 'stopped', reply: null } });
   const stopped = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
-  assert.deepEqual(stopped.backlog.map(item => [item.title, item.status]), [['What is 6 times 7?', 'in_progress']]);
+  assert.equal(stopped.daemon.resumable, true);
   await post(`${P}/daemon/start`, { command_id: 'c2' });
-  const answered = await eventually(() => get<{ turns: { role: string; text: string }[] }>(`${P}/transcript`), ({ turns }) => turns.length === 2);
-  assert.deepEqual(answered.turns.map(turn => [turn.role, turn.text]), [['operator', 'What is 6 times 7?'], ['argus', '42']]);
-  assert.deepEqual((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).backlog, []);
+  const answered = await eventually(() => get<{ turns: EventMsg[] }>(`${P}/transcript`), ({ turns }) => turns.length === 2);
+  assert.deepEqual(answered.turns.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'], ['ui.argus', '42']]);
+  assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
   assert.equal(requests.length, 2);
 });
 
@@ -617,8 +625,8 @@ test('a message typed while a reply is under way is answered after it', async t 
   assert.equal((await post(`${P}/message/followup`, { text: ' ' })).status, 400);
   await post(`${P}/message/cancel`, { request_id: 'r1' });
   await first;
-  const { turns } = await eventually(() => get<{ turns: { role: string; text: string }[] }>(`${P}/transcript`), ({ turns }) => turns.length === 3);
-  assert.deepEqual(turns.map(turn => [turn.role, turn.text]), [['operator', 'first'], ['operator', 'second'], ['argus', 'Both answered.']]);
+  const { turns } = await eventually(() => get<{ turns: EventMsg[] }>(`${P}/transcript`), ({ turns }) => turns.length === 3);
+  assert.deepEqual(turns.map(turn => [turn.type, turn.text]), [['ui.operator', 'first'], ['ui.operator', 'second'], ['ui.argus', 'Both answered.']]);
 });
 
 test('the Manager rewrites a draft in a turn of its own, and a failed rewrite leaves the draft as it was', async t => {

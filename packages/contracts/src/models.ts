@@ -32,7 +32,8 @@ export interface Daemon {
   pid: number | null;
   /** A pause-after-current-task request is still being honoured. */
   draining?: boolean;
-  control_available?: boolean;
+  /** Nothing is under way, and Resume has work to take up. */
+  resumable?: boolean;
   liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
   heartbeat_age_seconds?: number | null;
   uptime_seconds: number | null;

@@ -14,7 +14,7 @@ import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRoo
 import { ChatBox } from './components/ChatBox';
 import { ContinuousSwitch } from './components/ContinuousSwitch';
 import { promptHistory, type PromptSources } from './lib/promptCompletion';
-import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
+import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps } from '../../core/src/phaseTrail';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { ConfigModal } from './components/InfoModals';
@@ -47,7 +47,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { finishManagerMessage } from './lib/messageResult';
 import { EDITIONS_CAPABILITY, POLL_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
-  mergeOptimisticManagerDelta,
+  dropOptimisticManagerReply,
+  mergeOptimisticManagerReply,
   mergeOptimisticManagerSteps,
   optimisticOperatorEvent,
   settleOptimisticManagerTurn,
@@ -269,24 +270,6 @@ export default function App() {
     return cancelled;
   }, []);
 
-  const stopWaiting = useCallback(() => {
-    const request = messageRequestRef.current;
-    if (!request || !cancelActiveMessage()) return;
-    if (request.uploading) {
-      notify('info', locale === 'zh-CN' ? '已取消发送。附件会继续上传，文字和附件都还在输入框里。' : 'Sending cancelled. Uploads continue; your text and files stay in the composer.');
-      return;
-    }
-    const epoch = messageEpochRef.current;
-    notify('info', t('chat.stoppingReply'));
-    // This POST has its own lifetime: aborting the SSE connection must not
-    // abort the cancellation that tells the server to release the Manager.
-    void api.cancelMessage(request.sid, request.serverRequestId).then((receipt) => {
-      if (messageEpochRef.current !== epoch) return;
-      notify('info', t(receipt.requested ? 'chat.stopReplyRequested' : 'chat.replyAlreadyFinished'));
-    }).catch((error: unknown) => {
-      if (messageEpochRef.current === epoch) notify('error', t('chat.stopReplyFailed', { error: errorText(error) }));
-    });
-  }, [cancelActiveMessage, notify, t, locale]);
   const {
     activeSid,
     clearProjectSelection: clearSelectedProject,
@@ -735,11 +718,9 @@ export default function App() {
   const {
     daemonBusy,
     manageDeleteProject,
-    manageStopDaemon,
     manageRenameProject,
     manageStartDaemon,
     requestManageSession,
-    requestPauseDaemon,
     requestStartDaemon,
     requestStopDaemon,
     toggleContinuous,
@@ -757,6 +738,16 @@ export default function App() {
     setDaemonManageOpen,
     t,
   });
+  // The one stop: a send still waiting on its uploads is withdrawn, as nothing of it reached the
+  // server; what is under way there stops, a message cut off waiting for Resume.
+  const stopWork = () => {
+    const request = messageRequestRef.current;
+    if (request?.uploading) {
+      cancelActiveMessage();
+      notify('info', locale === 'zh-CN' ? '已取消发送。附件会继续上传，文字和附件都还在输入框里。' : 'Sending cancelled. Uploads continue; your text and files stay in the composer.');
+    }
+    if (snap?.daemon.alive || (request && !request.uploading)) requestStopDaemon();
+  };
   useGlobalKeyboardShortcuts({
     focusComposer: () => setComposerFocus((value) => value + 1),
     openHelp: () => setOverlay('help'),
@@ -830,25 +821,6 @@ export default function App() {
       ...(sameConversation ? current : []),
       optimisticOperatorEvent(requestSid, requestId, text),
     ], requestSid, requestId, []));
-
-    const showManagerText = (
-      reply: unknown,
-      messageId = '',
-      fragmentMode: 'append' | 'snapshot' | 'auto' = 'auto',
-      inProgress = false,
-    ) => {
-      if (!isCurrent() || typeof reply !== 'string' || !reply.trim()) return;
-      setLocalConversationEvents((current) => mergeOptimisticManagerDelta(
-        current,
-        requestSid,
-        requestId,
-        reply,
-        messageId,
-        Date.now(),
-        fragmentMode,
-        inProgress,
-      ));
-    };
 
     const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
@@ -930,31 +902,18 @@ export default function App() {
                 ));
               }
             },
-            onDelta: (block, messageId, fragmentMode, inProgress) => {
+            onDelta: (reply) => {
               if (!isCurrent()) return;
               gotDelta = true;
-              showManagerText(
-                block,
-                messageId,
-                fragmentMode === 'append' || fragmentMode === 'snapshot'
-                  ? fragmentMode
-                  : 'auto',
-                inProgress,
-              );
+              setLocalConversationEvents((current) => mergeOptimisticManagerReply(current, requestId, reply));
             },
             onDone: (result) => {
               if (!isCurrent()) return;
               if (result.kind !== 'error') setRouteOverride('auto');
               trail = closePhaseTrail(trail);
               setManagerSteps(trail);
-              // Prefer the journaled steps: they carry real end times and
-              // outcomes. The local trail stands in when a turn had none.
-              const journaled = turnStepsFrom(result.steps);
-              const steps = journaled.length ? journaled : trailToTurnSteps(trail, Date.now() / 1000, true);
-              setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
-                current, requestSid, requestId, steps, Date.now(), false, result.kind === 'error' ? 'failed' : 'completed',
-              ));
-              if (result.kind !== 'error') showManagerText(result.reply, '', 'snapshot');
+              // A reply is its row in the record; a turn that ended without one reads as the record does.
+              if (!gotDelta) setLocalConversationEvents((current) => dropOptimisticManagerReply(current, requestId));
               finishMessage(result);
               if (revision && result.kind !== 'error' && typeof result.reply === 'string' && result.reply.trim()) {
                 void api.saveEdition(requestSid, 'conversation', {
@@ -1090,9 +1049,6 @@ export default function App() {
       ? []
       : [
           { id: 'message', label: t('palette.messageArgus'), hint: '/', group: t('palette.action'), run: () => setComposerFocus((x) => x + 1) },
-          ...(messagePending
-            ? [{ id: 'cancel-message', label: t('palette.stopWaiting'), hint: 'Esc', group: t('palette.action'), run: stopWaiting }]
-            : []),
           ...(continuous
             ? [
                 {
@@ -1103,6 +1059,7 @@ export default function App() {
                 },
               ]
             : []),
+          ...(snap?.daemon.resumable ? [{ id: 'start', label: t('palette.startDaemon'), group: t('palette.action'), run: requestStartDaemon }] : []),
         ];
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
@@ -1114,7 +1071,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, kiosk, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
+  }, [projects, snap?.daemon.resumable, kiosk, continuous?.enabled, continuous?.open_ended, setComposerDraft, locale, t]);
 
   const freshFiles = deliveryCenter.fresh ? deliveryFiles(deliveryCenter.fresh) : [];
   return (
@@ -1219,8 +1176,8 @@ export default function App() {
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
-                onStop={requestStopDaemon}
-                onPause={requestPauseDaemon}
+                onStop={stopWork}
+                pending={messagePending}
                 onManage={() => activeSid && requestManageSession(activeSid)}
                 onOpenPalette={() => setOverlay('palette')}
                 busy={daemonBusy}
@@ -1244,12 +1201,12 @@ export default function App() {
                     if (rightPanelOpen) { setRightPanelOpen(false); setMobileView('activity'); }
                     else { setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 })); openPreview(); }
                   }}>
-                  {locale === 'zh-CN' ? '成果与文件' : 'Results & files'}{artifactsQ.data?.length ? ` · ${artifactsQ.data.filter(file => file.exists).length}` : ''}
+                  {locale === 'zh-CN' ? '成果与文件' : 'Results & files'}
                 </button>
               </nav>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} onCancel={stopWaiting} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
-                onPauseTeam={requestPauseDaemon} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} managerSteps={managerSteps} draft={composerDraft} onDraftChange={setComposerDraft} onSend={sendComposerMessage} attachments={composerAttachments} onAttachmentsChange={changeComposerAttachments} pending={messagePending} focusSignal={composerFocus} readOnly={kiosk} onOpenSettings={openSettings}
+                onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 currentTaskId={missionView?.mission.id}
                 routeOverride={routeOverride} onRouteOverrideChange={setRoute}
                 conversationEvents={mapConversationEvents} connected={connected} artifacts={artifactsQ.data ?? []}
@@ -1269,7 +1226,6 @@ export default function App() {
               <div className={`${workspaceView === 'activity' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1 flex-col`}>
                 <GuardianBanner alert={guardianAlert} />
                 <ProgressHealthBanner key={loadedSid || 'none'} sid={snap.session.id} health={health}
-                  onPause={kiosk || !snap.daemon.alive ? undefined : requestPauseDaemon}
                   onAdjust={kiosk ? undefined : () => setComposerFocus((value) => value + 1)} />
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
@@ -1284,7 +1240,6 @@ export default function App() {
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}
-                    onResumeWork={kiosk || daemonBusy ? undefined : requestStartDaemon}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
                     artifacts={artifactsQ.data}
@@ -1317,7 +1272,6 @@ export default function App() {
                       onAttachmentsChange={changeComposerAttachments}
                       onChange={setComposerDraft}
                       onSend={sendComposerMessage}
-                      onCancel={stopWaiting}
                       disabled={!activeSid}
                       pending={messagePending}
                       focusSignal={composerFocus}
@@ -1330,7 +1284,7 @@ export default function App() {
                       routeOverride={routeOverride}
                       onRouteOverrideChange={setRoute}
                       completion={promptSources}
-                      pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送 · 按 Esc 取消发送' : 'Waiting for uploads; sends automatically when they finish · Esc to cancel') : undefined}
+                      pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送' : 'Waiting for uploads; sends automatically when they finish') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={openSettings} /> : undefined}
                       continuousControl={activeSid && continuous ? <ContinuousSwitch enabled={keepsGoing(continuous)} pending={actions.setContinuous.isPending} onToggle={toggleContinuous} /> : undefined}
                     />
@@ -1346,15 +1300,8 @@ export default function App() {
                 <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1`}>
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
                     <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
-                      snapshot={loadedSid ? snap : undefined} failed={snapQ.isError} events={events} connected={connected && !snapQ.isError}
+                      snapshot={loadedSid ? snap : undefined} failed={snapQ.isError} events={events}
                       refresh={() => void snapQ.refetch()}
-                      controls={{
-                        start: () => actions.startDaemon.mutateAsync().catch(() => null),
-                        stop: drain => actions.stopDaemon.mutateAsync(drain).catch(() => null),
-                        busy: actions.startDaemon.isPending || actions.stopDaemon.isPending,
-                        error: [actions.startDaemon.error, actions.stopDaemon.error].filter(Boolean).map(error => errorText(error))[0] ?? '',
-                      }}
-                      onCompose={() => { setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1); }}
                       onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />
                   </Suspense>
                 </div>
@@ -1381,8 +1328,8 @@ export default function App() {
                   snap={snap}
                   streamOk={connected}
                   onStart={requestStartDaemon}
-                  onStop={requestStopDaemon}
-                  onPause={requestPauseDaemon}
+                  onStop={stopWork}
+                  pending={messagePending}
                   onManage={() => activeSid && requestManageSession(activeSid)}
                   onOpenPalette={() => setOverlay('palette')}
                   busy={daemonBusy}
@@ -1516,7 +1463,7 @@ export default function App() {
             || ''}
           alive={manageSnapQ.data?.daemon.alive
             ?? Boolean(projects.find((project) => project.id === manageTargetSid)?.daemon_alive)}
-          controlAvailable={manageSnapQ.data?.daemon.control_available !== false}
+          resumable={manageSnapQ.data?.daemon.resumable === true}
           snapshot={manageSnapQ.data}
           busy={daemonBusy}
           onClose={() => {
@@ -1525,7 +1472,6 @@ export default function App() {
           }}
           onRename={manageRenameProject}
           onStart={manageStartDaemon}
-          onStop={manageStopDaemon}
           onDelete={async () => {
             const deletedSid = manageTargetSid;
             const deleted = await manageDeleteProject();

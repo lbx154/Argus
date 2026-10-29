@@ -504,6 +504,29 @@ describe('project work status and conversation separation', () => {
     expect(visibleText(card('t1'))).toBe('Paused: Write a.py');
   });
 
+  it('says what a role at work does since the operator last wrote: its words, else its newest command', () => {
+    const { snapshot } = runtimeFixture();
+    snapshot.backlog = [];
+    snapshot.roles = [{ ...snapshot.roles[0], role: 'manager' }];
+    const manager = (ts: number, kind: string, text: string): EventMsg => ({ type: 'engineer.progress', kind, agent_layer: 'manager', text, event_id: `m-${ts}`, ts });
+    const round: EventMsg[] = [
+      { type: 'ui.operator', text: 'Make a timer', ts: 1 },
+      manager(2, 'agent_message', 'The page is done.'),
+      { type: 'ui.argus', text: 'Here is timer.html.', ts: 3 },
+      { type: 'ui.operator', text: 'Make it green', ts: 4 },
+      manager(5, 'command_execution', "/usr/bin/bash -lc 'sed -n 1,40p /tmp/timer.html'"),
+    ];
+    const headline = () => visibleText(renderer!.root.findByProps({ 'data-role': 'manager' }).findAllByType('button')[0]).trim();
+    act(() => { renderer = create(<EventStream events={round} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
+    // What it said in the last round is not what it does now.
+    expect(headline()).toBe('ManagerNow: Running sed -n 1,40p timer.html');
+    act(() => renderer!.update(<EventStream events={[...round, manager(6, 'agent_message', 'Switching the background to green.')]} snapshot={snapshot} connected showReasoning={false} />));
+    expect(headline()).toBe('ManagerNow: Switching the background to green.');
+    // At rest, it is what it said last.
+    act(() => renderer!.update(<EventStream events={round} snapshot={{ ...snapshot, roles: [{ ...snapshot.roles[0]!, active: false }] }} connected showReasoning={false} />));
+    expect(headline()).toBe('ManagerLast: The page is done.');
+  });
+
   it('keeps ongoing task A work out of the later question B conversation and preserves the role log reading state', () => {
     const first: EventMsg[] = [
       { type: 'ui.operator', text: 'Start research task A', ts: 1 },
@@ -748,44 +771,6 @@ describe('result cards in the conversation', () => {
   it('lists an image it cannot preview', () => {
     mount(events);
     expect(visibleText(renderer!.root.findByProps({ 'data-delivery-kind': 'task_completed' }))).toContain('figure.png');
-  });
-});
-
-describe('a parked task offers Resume where its receipt says so', () => {
-  function parked(status: string, park: string) {
-    const { snapshot } = runtimeFixture(false);
-    snapshot.backlog = [{ id: 'task-a', title: 'Research task A', objective: '', status, priority: 1,
-      outcome: { execution_status: 'paused', review_status: 'not_assessed', stage_certification: 'not_assessed',
-        resumable: true, park: { reason: park } } } as Snapshot['backlog'][number]];
-    return snapshot;
-  }
-  const receipt = (id: string, ts: number): EventMsg => ({ type: 'ui.argus', ts, mission_result: true, item_id: 'task-a',
-    success: false, message_id: id, text: 'The trial allowance is used up, so the task is paused; all files are kept.' });
-
-  it('puts the Resume button on the newest receipt of the parked task and runs the same start action', () => {
-    const onResumeWork = vi.fn();
-    act(() => { renderer = create(<EventStream snapshot={parked('parked', 'provider_fence')} onResumeWork={onResumeWork}
-      events={[receipt('mission-result-old', 1), receipt('mission-result-new', 2)]}
-      connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    const buttons = renderer!.root.findAllByProps({ 'data-receipt-resume': true });
-    expect(buttons).toHaveLength(1);
-    expect(visibleText(buttons[0])).toBe('Resume');
-    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'mission-result-new' });
-    expect(row.findAllByProps({ 'data-receipt-resume': true })).toHaveLength(1);
-    act(() => buttons[0].props.onClick());
-    expect(onResumeWork).toHaveBeenCalledTimes(1);
-  });
-
-  it('offers nothing while the team runs or when the task waits on an answer instead', () => {
-    for (const snapshot of [{ ...parked('parked', 'provider_fence'), daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'pi' } },
-      parked('parked', 'operator_question')]) {
-      act(() => { renderer = create(<EventStream snapshot={snapshot as Snapshot} onResumeWork={() => {}}
-        events={[receipt('mission-result-new', 2)]} connected showReasoning={false} />,
-      { createNodeMock: nodeMock }); });
-      expect(renderer!.root.findAllByProps({ 'data-receipt-resume': true })).toHaveLength(0);
-      act(() => renderer?.unmount());
-    }
-    renderer = undefined;
   });
 });
 

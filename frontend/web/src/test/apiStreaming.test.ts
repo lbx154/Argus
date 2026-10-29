@@ -369,6 +369,7 @@ it('preserves an HTTP rejection before the stream opens without replaying the PO
 
 it('preserves ordinary JSON messages and Manager phase, delta and done callbacks over HTTP', async () => {
   const result = { kind: 'chat', reply: '完整回答' };
+  const reply = { type: 'ui.argus', agent_layer: 'manager', to: 'operator', text: '完整回答', ts: 2, event_id: 3, message_id: 'm1-argus' };
   const fetch = await serve((response, request) => {
     if (request.path.endsWith('/message')) {
       response.writeHead(200, { 'Content-Type': 'application/json' });
@@ -377,8 +378,7 @@ it('preserves ordinary JSON messages and Manager phase, delta and done callbacks
     }
     response.writeHead(200, { 'Content-Type': 'text/event-stream' });
     response.end(frame({ type: 'phase', label: 'Reviewing', role: 'manager', heartbeat: true, quiet_s: 5 })
-      + frame({ type: 'delta', text: '我先看一下', message_id: 'm1', fragment_mode: 'snapshot', live: true })
-      + frame({ type: 'delta', text: '完整回答', message_id: 'm1', fragment_mode: 'append' })
+      + frame({ type: 'delta', event: reply })
       + frame({ type: 'done', result }));
   });
   const options = { attachments: [{ attachment_id: 'test-attachment' }], routeOverride: 'task' as const };
@@ -391,8 +391,7 @@ it('preserves ordinary JSON messages and Manager phase, delta and done callbacks
   expect(requests.map(request => request.path)).toEqual(['/api/projects/s-research/message', '/api/projects/s-research/message/stream']);
   expect(requests.map(request => request.body)).toEqual([0, 1].map(() => ({ text: 'Explain this', attachments: options.attachments, route_override: 'task' })));
   expect(onPhase).toHaveBeenCalledWith('Reviewing', 'manager', expect.objectContaining({ heartbeat: true, quietS: 5 }));
-  expect(onDelta).toHaveBeenCalledWith('我先看一下', 'm1', 'snapshot', true);
-  expect(onDelta).toHaveBeenCalledWith('完整回答', 'm1', 'append', false);
+  expect(onDelta).toHaveBeenCalledExactlyOnceWith(reply);
   expect(onDone).toHaveBeenCalledExactlyOnceWith(result);
   expect(onError).not.toHaveBeenCalled();
   expect(fetch).toHaveBeenCalledTimes(2);

@@ -10,6 +10,7 @@ import { ChatBox } from '../components/ChatBox';
 import { ComposerRuntime } from '../components/ComposerRuntime';
 import { ContinuousSwitch } from '../components/ContinuousSwitch';
 import { Sidebar } from '../components/Sidebar';
+import { TopBar } from '../components/TopBar';
 import { Landing } from '../components/Landing';
 import { ArtifactModal } from '../components/ArtifactModal';
 import { ResearchCanvas } from '../components/ResearchCanvas';
@@ -26,7 +27,7 @@ const fixture = vi.hoisted(() => {
     idle,
     index: { ...idle, data: { projects: [] as unknown[], local_cwd: '/synthetic' } },
     snapshots: new Map<string, typeof idle & { data?: unknown; error?: Error }>(),
-    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'forceStopDaemon', 'pauseDaemon', 'updateProject', 'deleteProject', 'setContinuous'].map(key => [key, mutation])),
+    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'updateProject', 'deleteProject', 'setContinuous'].map(key => [key, mutation])),
     turns: [] as unknown[],
     events: [],
     artifacts: [],
@@ -115,7 +116,6 @@ beforeEach(async () => {
   vi.stubGlobal('document', Object.assign(new EventTarget(), { referrer: 'http://tauri.localhost/', body: { style: {} } }));
   // Fail closed: no unmocked test request can reach a user backend or provider.
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected request outside the synthetic fixture'); }));
-  vi.spyOn(api, 'cancelMessage').mockResolvedValue({ requested: true, status: 'cancelled' });
   vi.spyOn(api, 'projectIndex').mockImplementation(async () => fixture.index.data as Awaited<ReturnType<typeof api.projectIndex>>);
   vi.spyOn(api, 'artifact').mockImplementation(async (sid, path) => ({ path, name: 'report.md', kind: 'markdown', mime: 'text/markdown', why: 'Synthetic fixture', exists: true, size: 1, mtime: 1, preview: `${sid} ONLY` }));
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -230,7 +230,6 @@ describe('App session composer ownership', () => {
     await act(async () => { upload.reject(new Error('synthetic upload failure')); expect(await sent).toBe(false); });
     expect(props().value).toBe('B untouched');
     expect(stream).not.toHaveBeenCalled();
-    expect(api.cancelMessage).not.toHaveBeenCalled();
     select('s-A');
     expect(props().value).toBe('A upload');
     expect(props().attachments[0]).toBe(file);
@@ -356,10 +355,9 @@ describe('App session composer ownership', () => {
     await act(async () => stream.reject(new Error('SSE disconnected after server acceptance')));
     expect(props().value).toBe('');
     expect(send).toHaveBeenCalledTimes(1);
-    expect(api.cancelMessage).not.toHaveBeenCalled();
   });
 
-  it('retains the explicit stop-waiting request identity and never automatically replays a broken stream', async () => {
+  it('stops the reply it waits on with the one stop, and never automatically replays a broken stream', async () => {
     const stream = deferred<void>();
     const send = vi.spyOn(api, 'messageStream').mockReturnValue(stream.promise);
     type('send once');
@@ -367,8 +365,10 @@ describe('App session composer ownership', () => {
     expect(props().value).toBe('');
     const options = send.mock.calls[0][3] as { requestId: string; signal: AbortSignal };
     expect(options.requestId).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
-    act(() => props().onCancel());
-    expect(api.cancelMessage).toHaveBeenCalledWith('s-A', options.requestId);
+    const { stopDaemon } = fixture.actions as Record<string, { mutate: ReturnType<typeof vi.fn> }>;
+    stopDaemon!.mutate.mockClear();
+    act(() => renderer.root.findByType(TopBar).props.onStop());
+    expect(stopDaemon!.mutate).toHaveBeenCalledOnce();
     await act(async () => stream.reject(new Error('SSE disconnected after acceptance')));
     expect(send).toHaveBeenCalledTimes(1);
   });
@@ -384,7 +384,6 @@ describe('App desktop delivery session navigation', () => {
     fixture.snapshots.set('s-A', { ...fixture.idle, data: snapshot('s-A') });
     await act(async () => { refresh(); });
     expect(api.artifact).toHaveBeenCalledWith('s-A', 'results/report.md', expect.any(AbortSignal));
-    expect(api.cancelMessage).not.toHaveBeenCalled();
     select('s-B'); expect(props().value).toBe('B draft');
   });
 

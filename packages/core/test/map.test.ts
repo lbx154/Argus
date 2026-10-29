@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { Store, type Task } from '../src/store.js';
 import { progressMap } from '../src/serve/views.js';
@@ -66,4 +67,28 @@ test('map polling reads only appended bytes while task state and each reader’s
   assert.equal(done.tasks[0]!.status, 'done');
   assert.deepEqual(done.tasks[0]!.result_paths, ['report.md']);
   assert.equal(done.tasks[0]!.finished_ts, Date.parse(ts) / 1000);
+});
+
+// Real records, which the page's replay test reads too.
+const records = new Store(fileURLToPath(new URL('../../../frontend/web/src/test/fixtures/home', import.meta.url)));
+const at = (iso: string) => Date.parse(iso) / 1000;
+
+test('what the Manager did itself and handed over is a piece of work on the map, done, with its result and when it was done', () => {
+  const project = records.load('p-0444b8d3');
+  const map = progressMap(records, project, 0);
+  assert.deepEqual(map.tasks.map(card => [card.id, card.status, card.role, card.title, card.result_paths, card.deps, card.ts, card.finished_ts]), [
+    ['d22', 'done', 'manager', '25 分钟番茄钟', ['timer.html'], [],
+      at('2026-10-29T12:05:48.023Z'), at('2026-10-29T12:07:48.872Z')],
+    ['d44', 'done', 'manager', map.tasks[1]!.title, ['timer.html'], [], at('2026-10-29T12:13:17.436Z'), at('2026-10-29T12:15:53.902Z')],
+    ['d51', 'done', 'manager', map.tasks[2]!.title, ['README.md', 'check_timer.py'], [], at('2026-10-29T12:17:48.506Z'), at('2026-10-29T12:18:33.492Z')],
+  ]);
+  // Its letter is the step on it, as a task's letters are on the task.
+  assert.deepEqual(map.events.map(letter => [letter.id, letter.item_id]), [['e22', 'd22'], ['e44', 'd44'], ['e51', 'd51']]);
+  assert.equal(map.tasks[2]!.latest_action?.text, map.events[2]!.text);
+});
+
+test("a result the Manager hands over after the team's tasks follows the last of them", () => {
+  const map = progressMap(records, records.load('p-c855623c'), 0);
+  assert.deepEqual(map.tasks.map(card => [card.id, card.status, card.deps]), [['t1', 'done', []], ['t2', 'done', []], ['t3', 'done', ['t1', 't2']], ['d102', 'done', ['t3']]]);
+  assert.deepEqual(map.tasks.at(-1)!.result_paths, ['result.md']);
 });
