@@ -393,18 +393,19 @@ export function MapCanvas({
         camera.restore(saved);
       else {
         camera.fit();
-        // A phone opens on the current task's summary card, not inside it: the
-        // card and the status line above it say where things stand, and one
-        // tap opens the internals.
-        if (data.kind === "live" && canvasRef.current!.clientWidth < 640) {
-          const task = currentTask(data.tasks);
+        // A phone opens on the summary card of the task at work, or of the one
+        // waiting on the reader, not inside it: the card and the status line
+        // above it say where things stand, and one tap opens the internals.
+        // With neither, the whole map is where things stand.
+        if (data.kind === "live" && canvas.clientWidth < 640) {
+          const task = data.tasks.find((task) => ACTIVE.has(task.status)) ?? attention[0];
           if (task) camera.fit(new Set([task.id]));
         }
       }
       setFitted(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, scene.cards, data.history_loading, copyReady, waited]);
+  }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, attention, scene.cards, data.history_loading, copyReady, waited]);
   useEffect(() => {
     if (!fitted || savedView.current?.camera || camera.reducedMotion) return;
     setArriving(true);
