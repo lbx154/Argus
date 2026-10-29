@@ -69,12 +69,12 @@ ending in a result rather than a plan for a later one; those that do not depend 
 it opens together, a letter each, and it reads their letters together when all have ended.
 Letters to the Manager are answered one after another. A question to the operator holds up
 only its asker: its task, or the Planner, waits for the answer while every other task goes on,
-and the page shows each open question as a card of its own. A letter to the Planner on a task
-the Manager gave, which the Planner never had, goes back to its writer. There are no stages: what a
-research project calls its stages is the order of the tasks the Planner writes. The work rests
-when no letter waits for anyone but the operator: `asking` while questions are open, else
-`idle`, which is after the Manager's report; the Manager may also finish a small request in
-its own turn.
+and the page shows each open question as a card of its own. A task's form is made for it: on
+a task the Manager gave, the Planner, which never had it, is not among the addressees. There
+are no stages: what a research project calls its stages is the order of the tasks the Planner
+writes. The work rests when no letter waits for anyone but the operator: `asking` while
+questions are open, else `idle`, which is after the Manager's report; the Manager may also
+finish a small request in its own turn.
 
 ## The skill library
 

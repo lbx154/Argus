@@ -40,7 +40,8 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
   const raw = createWriteStream(`${stem}.jsonl`);
   try {
     const confined = sandboxed();
-    const run = START[request.backend](request, { confined, started, schema: formSchema(request.form), stem });
+    const schema = formSchema(request.form, request.giver);
+    const run = START[request.backend](request, { confined, started, schema, stem });
     const argv = confined ? confine([request.backend, ...run.args], request) : [...launcher(request.backend), ...run.args];
     const stderr: string[] = [];
     let exit: ProcessExit | undefined;
@@ -56,7 +57,7 @@ export async function callAgent(request: AgentRequest): Promise<AgentResult> {
       if (isJsonObject(event)) run.consume(event);
     }
     const { output, ...turn } = run.finish();
-    const verdict = turn.completed ? judge(request.form, output, request.check) : null;
+    const verdict = turn.completed ? judge(request.form, schema, output) : null;
     const result: AgentResult = {
       callId, ...turn, handoff: typeof verdict === 'string' ? null : verdict, ms: Date.now() - started,
       // A refused form says why; a failed turn its cause, in order: a CLI not installed, a stop

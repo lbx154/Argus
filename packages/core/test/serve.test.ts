@@ -39,7 +39,6 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] 
     }
     const handoff: HandOff | null = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: [step.letter ?? `${step.role} to ${step.to}`] };
-    if (handoff) assert.equal(request.check?.(handoff) ?? null, null);
     const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
     await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, role: request.role, tokens, cost_usd: 0.01 })}\n`);
     return {

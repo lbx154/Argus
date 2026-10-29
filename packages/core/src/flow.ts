@@ -170,8 +170,7 @@ export class Flow {
 
   private async work(project: Project, task: Task): Promise<void> {
     const role = task.holder;
-    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store, task, resumed),
-      { check: taskRules(task) }))?.handoff;
+    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, this.store, task, resumed)))?.handoff;
     if (!handoff) return;
     const { to } = handoff;
     const letter = read(handoff);
@@ -230,8 +229,8 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { check?: Check; signal?: AbortSignal | undefined; refused?: string } = {}): Promise<AgentResult | null> {
-    const { check, refused } = turn;
+                     turn: { signal?: AbortSignal | undefined; refused?: string } = {}): Promise<AgentResult | null> {
+    const { refused } = turn;
     const signals = [this.options.signal, turn.signal].filter(signal => signal !== undefined);
     const signal = signals.length ? AbortSignal.any(signals) : undefined;
     if (signal?.aborted) return null;
@@ -248,7 +247,7 @@ export class Flow {
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}),
-        ...(check ? { check } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+        ...(task ? { giver: task.from } : {}), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
       // The call never ran to an end of its own: it is recorded as ended, failed.
@@ -317,14 +316,8 @@ export const openTasks = ({ tasks }: Project): Task[] => tasks.filter(task => ta
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
-type Check = (handoff: HandOff) => string | null;
 /** A Manager turn on the operator's message, which `signal` withdraws, or on a letter from the team. */
 type ManagerTurn = { signal?: AbortSignal | undefined; operator?: boolean };
-
-/** The rule a task's form cannot say: the Planner hears only of the tasks it gave. A returned
- * string refuses the hand-off, and its writer corrects it in one more turn of its session. */
-const taskRules = (task: Task): Check => ({ to }) => to === 'planner' && task.from === 'manager' ? NOT_THE_PLANNERS : null;
-const NOT_THE_PLANNERS = 'The Manager gave this task, not the Planner: write to the Manager about it.';
 
 /** Whether the task waits for the operator's answer to its question. */
 const waits = (project: Project, task: Task): boolean => project.questions.some(question => question.task === task.id);

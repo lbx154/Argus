@@ -47,6 +47,10 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
     'to must be one of ["reviewer","engineer","planner","manager","operator"]', 'letter must have length >= 1', 'extra is not allowed',
   ]);
   assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required']);
+  // A task's form offers its giver: the Planner, which never had a task the Manager gave, is not on its form.
+  for (const form of ['engineer', 'review'] as const) {
+    assert.deepEqual([formSchema(form, 'manager'), formSchema(form, 'planner')].map(({ properties }) => properties!.to!.enum!.includes('planner')), [false, true]);
+  }
   // The Planner's letters to the Engineer open a task each.
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [] }, formSchema('plan')), ['letters must have 1 or more items']);
   // A letter that opens a task names it in its first line, the title the progress map shows.
@@ -121,8 +125,9 @@ for (const backend of BACKENDS) {
   test(`${backend}: a refused form completes the turn with no hand-off and says why`, async () => {
     const missing = await call(backend, { output: { to: 'reviewer' } });
     assert.deepEqual([missing.completed, missing.handoff, missing.error], [true, null, 'letter is required']);
-    const checked = await call(backend, { output: handoff }, { check: given => given.to === 'reviewer' ? 'Not yet.' : null });
-    assert.deepEqual([checked.handoff, checked.error], [null, 'Not yet.']);
+    const misaddressed = await call(backend, { output: { to: 'planner', letter: 'Accepted.' } }, { giver: 'manager' });
+    assert.deepEqual([misaddressed.handoff, misaddressed.error], [null, 'to must be one of ["reviewer","engineer","manager","operator"]']);
+    assert.deepEqual(seen(backend).schema.properties.to?.enum, ['reviewer', 'engineer', 'manager', 'operator']);
   });
 
   test(`${backend}: a turn that ends in prose has no hand-off`, async () => {

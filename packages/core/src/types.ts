@@ -26,8 +26,8 @@ export interface AgentRequest {
   effort?: string;
   /** Continue this backend session instead of starting a new one. */
   resume?: string;
-  /** Checks the form's schema cannot express; a returned string refuses the hand-off with that reason. */
-  check?: (handoff: HandOff) => string | null;
+  /** Who gave the task the turn is on: only the task's giver is offered among those who hear how it ended. */
+  giver?: 'manager' | 'planner';
   /** Where the call's raw output and usage go. */
   callsDir: string;
   usageFile: string;

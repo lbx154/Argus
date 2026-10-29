@@ -22,8 +22,6 @@ interface Step {
   later?: boolean;
   /** The turn ends once this has settled. */
   waits?: Promise<unknown>;
-  /** Addressees the hand-off's check must refuse before the scripted one passes. */
-  refuse?: string[];
   /** The operator interrupts the process during this turn. */
   interrupt?: boolean;
   /** The agent layer throws this instead of returning. */
@@ -39,12 +37,10 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     assert.equal(request.role, step.role);
     if (step.later) await new Promise(resolve => setImmediate(resolve));
     await step.waits;
-    for (const to of step.refuse ?? []) assert.ok(request.check?.({ form: request.form, to, letters: ['l'] }), `to=${to} passed`);
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
     const handoff = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`] };
-    if (handoff) assert.equal(request.check?.(handoff) ?? null, null);
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
@@ -370,15 +366,15 @@ test('questions wait side by side, and each answer goes to its own asker', async
   assert.equal(requests[4]?.prompt, '## From the operator\nYou asked the operator: Which encoding?\nThey answered: UTF-8');
 });
 
-test("the Planner hears only of its own tasks: a letter on the Manager's goes back to its writer", async t => {
-  const { flow, id } = await setup(t, [
+test("a task's turns name its giver, so the Planner hears only of the tasks it gave", async t => {
+  const { flow, id, requests } = await setup(t, [
     toEngineer,
-    { role: 'engineer', to: 'reviewer', letter: 'summary.py added', refuse: ['planner'] },
-    { role: 'reviewer', to: 'manager', letter: 'Accepted.', refuse: ['planner'] },
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
     report,
   ]);
-  const project = await say(flow, id, 'Make me a CSV summary tool');
-  assert.deepEqual([project.status, project.inbox], ['idle', []]);
+  await say(flow, id, 'Make me a CSV summary tool');
+  assert.deepEqual(requests.map(request => request.giver), [undefined, 'manager', 'manager', undefined]);
 });
 
 test('a task that cannot go on as briefed goes back to the Planner, and on to the Manager', async t => {

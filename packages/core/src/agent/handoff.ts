@@ -41,8 +41,9 @@ const TO: Record<Form, Record<string, string>> = {
 const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
 const LETTERS = 'Your letters, each passed on as written: to the Engineer, one for each task; to anyone else, one. Each reader sees the workspace and its letter, not your conversation.';
 
-export function formSchema(form: Form): PayloadSchema {
-  const to = TO[form];
+export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSchema {
+  // The Planner hears only of the tasks it gave: it never had the Manager's.
+  const to = Object.fromEntries(Object.entries(TO[form]).filter(([place]) => place !== 'planner' || giver !== 'manager'));
   const meanings = Object.entries(to).map(([place, meaning]) => `${place}, ${meaning}`).join('; ');
   const letter: PayloadSchema = { type: 'string', minLength: 1, maxLength: 20000 };
   // The Planner may open several tasks at once; every other turn ends in one letter.
@@ -61,11 +62,10 @@ export const handOffTool = (schema: PayloadSchema) => ({
 });
 
 /** The hand-off a turn's final answer records, or the reason Argus refuses it. */
-export function judge(form: Form, payload: unknown, check: AgentRequest['check']): string | HandOff {
+export function judge(form: Form, schema: PayloadSchema, payload: unknown): string | HandOff {
   if (payload === undefined) return 'The turn ended without the hand-off form.';
-  const errors = schemaErrors(payload, formSchema(form));
+  const errors = schemaErrors(payload, schema);
   if (errors.length || !isJsonObject(payload)) return errors.join('; ');
   const letters = Array.isArray(payload.letters) ? payload.letters : [payload.letter];
-  const handoff: HandOff = { form, to: String(payload.to), letters: letters.map(letter => String(letter).trim()) };
-  return check?.(handoff) ?? handoff;
+  return { form, to: String(payload.to), letters: letters.map(letter => String(letter).trim()) };
 }
