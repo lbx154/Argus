@@ -451,7 +451,12 @@ describe('project work status and conversation separation', () => {
       { ...progress(2), item_id: 'task-a' },
       { type: 'ui.argus', text: 'Latest answer', ts: 3 },
     ];
-    mount(events);
+    // The server says the engineer is on task A while the work runs.
+    const { snapshot } = runtimeFixture();
+    snapshot.backlog = [{ ...snapshot.backlog[0], status: 'in_progress' }];
+    snapshot.roles = [{ ...snapshot.roles[0], tasks: ['task-a'] }];
+    const show = (shown: EventMsg[]) => <EventStream events={shown} snapshot={snapshot} connected showReasoning={false} />;
+    act(() => { renderer = create(show(events), { createNodeMock: nodeMock }); });
     paint();
     const sections = timelineSections();
     expect(streamOrder()).toEqual(['thread', 'task task-a']);
@@ -459,15 +464,44 @@ describe('project work status and conversation separation', () => {
     expect(outer.scrollTop).toBe(600);
     const card = renderer!.root.findByProps({ 'data-task-work': 'task-a' });
     expect(card.props['data-state']).toBe('running');
+    expect(visibleText(card)).toBe('Working on: Research task A');
     // What a role said is said once, in the team's progress, which shows without a click; following the newest message continues.
     expect(visibleText(card)).not.toContain('Recorded finding');
     expect(visibleText(work())).toContain('Recorded finding 2');
     outer.scrollHeight = 1200;
-    update([...events, { ...progress(4), item_id: 'task-a' }]);
+    act(() => renderer!.update(show([...events, { ...progress(4), item_id: 'task-a' }])));
     paint();
     expect(outer.scrollTop).toBe(900);
     expect(streamOrder()).toEqual(['thread', 'task task-a']);
     expect(visibleText(work())).toContain('Recorded finding 4');
+  });
+
+  it('says where each task stands as the server does, and puts no card on work that names no task', () => {
+    const { snapshot } = runtimeFixture();
+    snapshot.backlog = [
+      { id: 't1', title: 'Write a.py', objective: '', status: 'in_progress', priority: 0 },
+      { id: 't2', title: 'Write b.py', objective: '', status: 'in_progress', priority: 0 },
+    ];
+    snapshot.roles = [{ ...snapshot.roles[0], tasks: ['t2'] }, { ...snapshot.roles[0], role: 'reviewer', tasks: ['t1'] }];
+    const events: EventMsg[] = [
+      { type: 'ui.operator', text: 'Write a.py and b.py', ts: 1 },
+      { ...progress(2, 'Splitting it in two'), agent_layer: 'planner' },
+      { ...progress(3, 'Writing a.py'), item_id: 't1' },
+      { ...progress(4, 'Writing b.py'), item_id: 't2' },
+      { ...progress(5, 'a.py prints 1'), item_id: 't1' },
+      { ...progress(6, 'Checking a.py'), agent_layer: 'reviewer', item_id: 't1' },
+    ];
+    act(() => { renderer = create(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
+    expect(streamOrder()).toEqual(['thread', 'task t1', 'task t2']);
+    const card = (id: string) => renderer!.root.findByProps({ 'data-task-work': id });
+    expect([card('t1').props['data-state'], visibleText(card('t1'))]).toEqual(['running', 'Checking the result: Write a.py']);
+    expect([card('t2').props['data-state'], visibleText(card('t2'))]).toEqual(['running', 'Working on: Write b.py']);
+    // The Engineer is on b.py now: what it said of a.py is not what it does now.
+    expect(visibleText(renderer!.root.findByProps({ 'data-role': 'engineer' }).findAllByType('button')[0]).trim()).toBe('EngineerNow: Writing b.py');
+    expect(renderer!.root.findByProps({ 'data-role-dot': 'engineer' }).props['data-tone']).toBe('running');
+    // Stopped, an open task is paused.
+    act(() => renderer!.update(<EventStream events={events} snapshot={{ ...snapshot, daemon: { ...snapshot.daemon, alive: false }, roles: [] }} connected showReasoning={false} />));
+    expect(visibleText(card('t1'))).toBe('Paused: Write a.py');
   });
 
   it('keeps ongoing task A work out of the later question B conversation and preserves the role log reading state', () => {
@@ -555,7 +589,8 @@ describe('project work status and conversation separation', () => {
     const csv = renderer!.root.findByProps({ 'data-task-work': 'task-csv' });
     expect(visibleText(csv)).not.toContain('Reviewer checked the CSV tool');
     expect(visibleText(csv)).not.toContain('pytest');
-    expect(renderer!.root.findByProps({ 'data-task-work': 'task-format' }).props['data-state']).toBe('running');
+    // Without the server's word, no task is said to be under way.
+    expect(renderer!.root.findByProps({ 'data-task-work': 'task-format' }).props['data-state']).toBe('idle');
     // The whole process is in the conversation: the team's progress holds every role's work in time order.
     expect(visibleText(work())).toContain('Planner created the CSV task');
     // The question's own process stays attached to it, and the receipt follows its report.
@@ -607,7 +642,8 @@ describe('project work status and conversation separation', () => {
     act(() => { renderer = create(<EventStream {...value} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
     const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]).trim();
     expect(header('manager')).toBe('ManagerLast: Handed the survey to the Engineer');
-    expect(header('planner')).toBe('PlannerNot started');
+    // A role that took no part is not listed.
+    expect(renderer!.root.findAllByProps({ 'data-role': 'planner' })).toHaveLength(0);
   });
 
   it('gates legacy role and provider activity on the live connection too', () => {

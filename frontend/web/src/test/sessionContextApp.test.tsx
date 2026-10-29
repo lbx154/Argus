@@ -39,7 +39,7 @@ vi.mock('../hooks', async importOriginal => ({
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
   useTranscript: () => ({ ...fixture.idle, data: fixture.turns }),
-  useEventStream: () => ({ events: fixture.events, connected: true }),
+  useEventStream: () => ({ events: fixture.events, connected: true, seeded: true }),
   useProjectActions: () => fixture.actions,
 }));
 // Keep App's actual selection, composer controller, command dispatch and delivery
@@ -282,7 +282,12 @@ describe('App session composer ownership', () => {
     expect(props().rewriting).toBe(true);
     await act(async () => b.resolve({ original: 'B original', rewritten: 'B rewritten', changes: [], questions: [], error: '' }));
     expect(props().value).toBe('B rewritten');
+    // Done, the rewrite announces itself by offering the original back, not by a notice over the composer.
+    expect(JSON.stringify(renderer.toJSON())).not.toContain('Rewritten.');
     select('s-A'); expect(props().value).toBe('A rewritten');
+    act(() => props().onUndoRewrite!());
+    expect(props().value).toBe('A original');
+    expect(props().onUndoRewrite).toBeUndefined();
   });
 
   it.each(['new text', 'same text'])('rejects a rewrite after clearing and typing %s', async text => {

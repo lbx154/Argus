@@ -6,7 +6,7 @@ import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
-import { errorText, formatRelativeTime, uptime } from '../lib/format';
+import { errorText, formatRelativeTime, shortcut, uptime } from '../lib/format';
 import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
@@ -228,7 +228,7 @@ export function Sidebar({
         ) : (
           <>
             <Wordmark size={24} />
-            <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.collapse')} title={`${t('sidebar.collapse')} · Ctrl/⌘ B`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
+            <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.collapse')} title={`${t('sidebar.collapse')} · ${shortcut('B')}`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
               <PanelLeftClose size={16} />
             </button>
           </>
@@ -236,7 +236,7 @@ export function Sidebar({
       </div>
       {slim ? (
         <div className="flex h-12 shrink-0 items-center justify-center">
-          <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.expand')} title={`${t('sidebar.expand')} · Ctrl/⌘ B`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
+          <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.expand')} title={`${t('sidebar.expand')} · ${shortcut('B')}`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
             <PanelLeftOpen size={16} />
           </button>
         </div>
@@ -407,7 +407,7 @@ export function Sidebar({
                             {updateRequired
                               ? t('sidebar.updateRequired')
                               : workLabel ?? (project.daemon_alive
-                                ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds) })
+                                ? t('sidebar.runningFor', { uptime: uptime(project.uptime_seconds, locale) })
                                 : project.last_active > 0
                                   ? t('sidebar.lastActive', { time: formatRelativeTime(project.last_active, locale) })
                                   : t('sidebar.stopped'))}

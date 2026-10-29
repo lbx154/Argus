@@ -15,16 +15,17 @@ export function ago(ts: number | null | undefined): string {
   return `${Math.floor(d / 86400)}d ago`;
 }
 
-/** seconds of uptime → "1d 3h" / "4h 12m" / "9m". */
-export function uptime(seconds: number | null | undefined): string {
+/** seconds of uptime → "1d 3h" / "4h 12m" / "9m", or "1 天 3 小时" / "4 小时 12 分钟" / "9 分钟". */
+export function uptime(seconds: number | null | undefined, locale: Locale = 'en'): string {
   if (seconds == null || seconds < 0) return '—';
+  const [day, hour, minute, second] = locale === 'zh-CN' ? [' 天', ' 小时', ' 分钟', ' 秒'] : ['d', 'h', 'm', 's'];
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (d) return `${d}d ${h}h`;
-  if (h) return `${h}h ${m}m`;
-  if (m) return `${m}m`;
-  return `${Math.floor(seconds)}s`;
+  if (d) return `${d}${day} ${h}${hour}`;
+  if (h) return `${h}${hour} ${m}${minute}`;
+  if (m) return `${m}${minute}`;
+  return `${Math.floor(seconds)}${second}`;
 }
 
 export function money(n: number | null | undefined, digits = 2): string {
@@ -132,3 +133,6 @@ export function managerStreamFailureMessage(error: unknown, gotDelta: boolean): 
     ? `Reply interrupted after a partial response: ${detail}`
     : `Message failed before a response was received: ${detail}`;
 }
+
+/** A Ctrl/⌘ shortcut as this platform writes it: "⌘K" on Apple devices, "Ctrl+K" elsewhere. */
+export const shortcut = (key: string): string => /Mac|iPhone|iPad/.test(navigator.platform) ? `⌘${key}` : `Ctrl+${key}`;

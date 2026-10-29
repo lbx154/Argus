@@ -38,6 +38,12 @@ describe('the progress feed in the reader’s words', () => {
     expect(roleHeadline(rows([command, command]), 'zh-CN')).toBe('运行了 2 条命令');
     expect(roleHeadline(rows([command], 'en'), 'en')).toBe('Ran 1 command');
   });
+
+  it('heads a role with what it said, not with its task closing', () => {
+    const said = { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', text: 'b.py 写好了，输出 2。', item_id: 't2', ts: 2 } as EventMsg;
+    const closed = { type: 'life.mission.completed', item_id: 't2', status: 'done', success: true, ts: 3 } as EventMsg;
+    expect(roleHeadline(rows([said, closed]), 'zh-CN')).toBe('b.py 写好了，输出 2。');
+  });
 });
 
 describe('a host record in a role’s line', () => {

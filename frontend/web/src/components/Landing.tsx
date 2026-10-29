@@ -18,6 +18,7 @@ export function Landing({
   canCreate,
   creating = false,
   onSubmit,
+  workdirs = [],
 }: {
   loading: boolean;
   hasProjects: boolean;
@@ -27,12 +28,16 @@ export function Landing({
   onChoose: () => void;
   canCreate: boolean;
   creating?: boolean;
-  onSubmit?: (text: string, files: File[]) => Promise<boolean>;
+  /** The project is made in `workdir`, a directory on the server; empty, in a new one. */
+  onSubmit?: (text: string, files: File[], workdir: string) => Promise<boolean>;
+  /** Directories earlier projects worked in, offered as the operator types. */
+  workdirs?: string[];
 }) {
   const { t, locale } = useI18n();
   const { draft, setText, setAttachments, drop } = useSessionComposer('home');
   const [focus, setFocus] = useState(0);
   const [slashSelection, setSlashSelection] = useState(0);
+  const [workdir, setWorkdir] = useState('');
   return (
     <div className="landing-page">
       <div className="landing-navigation lg:hidden">
@@ -56,7 +61,7 @@ export function Landing({
       {!loading && !error && canCreate && onSubmit && <div className="landing-composer">
         <ChatBox value={draft.text} onChange={setText} attachments={draft.attachments} onAttachmentsChange={setAttachments}
           onSend={async (text, files = []) => {
-            const accepted = await onSubmit(text, files);
+            const accepted = await onSubmit(text, files, workdir.trim());
             if (accepted) drop('home');
             return accepted;
           }} onCancel={() => undefined} disabled={creating} pending={false} focusSignal={focus}
@@ -64,6 +69,13 @@ export function Landing({
         <p className="landing-caption">{locale === 'zh-CN'
           ? '发送后自动建立项目；团队干活时也可以随时说话。'
           : 'Sending creates a project. You can write at any time while the team works.'}</p>
+        <label className="landing-workdir">
+          <span>{locale === 'zh-CN' ? '工作目录' : 'Folder'}</span>
+          <input value={workdir} onChange={event => setWorkdir(event.target.value)} list="landing-workdirs" disabled={creating}
+            spellCheck={false} autoComplete="off"
+            placeholder={locale === 'zh-CN' ? '新建；也可以填服务器上已有的目录' : 'A new one, or a directory on the server'} />
+          <datalist id="landing-workdirs">{workdirs.map(path => <option key={path} value={path} />)}</datalist>
+        </label>
       </div>}
       {!loading && (
         <div className="flex flex-wrap justify-center gap-2">

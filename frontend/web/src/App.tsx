@@ -61,7 +61,7 @@ import {
   settleOptimisticManagerTurn,
 } from './lib/conversationEvents';
 import { mergeProjectCosts } from './lib/projectCosts';
-import { errorText, managerStreamFailureMessage } from './lib/format';
+import { errorText, managerStreamFailureMessage, shortcut } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
 import { keepsGoing, useProjectDaemonActions } from './useProjectDaemonActions';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
@@ -332,7 +332,7 @@ export default function App() {
   const {
     draft: { text: composerDraft, attachments: composerAttachments, missingAttachments = [], uploaded: composerUploaded = [] },
     storageError: draftStorageError, seed: seedDraft, dismissMissingAttachments,
-    rewriting, setText: setComposerDraft, setAttachments: setComposerAttachments,
+    rewriting, undoRewrite, setText: setComposerDraft, setAttachments: setComposerAttachments,
     capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
     beginRewrite, finishRewrite, drop: dropSessionDraft,
     rememberUploaded, removeUploaded,
@@ -402,10 +402,8 @@ export default function App() {
    * Let the Manager restate a short draft before it is sent.
    *
    * The rewrite replaces the composer draft — the operator always reads and
-   * edits it before anything is dispatched. The Manager may propose metrics or
-   * constraints the operator never mentioned, but only as questions surfaced
-   * here — never silently inside the rewritten text. A failed rewrite leaves
-   * the original untouched.
+   * edits it before anything is dispatched, and can put the original back until
+   * they edit it. A failed rewrite leaves the original untouched.
    */
   const rewriteDraft = useCallback((draft: string) => {
     const body = (draft || '').trim();
@@ -422,12 +420,7 @@ export default function App() {
     void api.rewritePrompt(sid, body).then(
       (result) => {
         if (result.error || !result.rewritten.trim()) return failed(result.error);
-        if (!finishRewrite(operation, result.rewritten) || sidRef.current !== sid) return;
-        setComposerFocus((x) => x + 1);
-        const open = result.questions.length
-          ? `${zh ? ' 还想跟你确认：' : ' One thing to check: '}${result.questions.join(' · ')}`
-          : '';
-        notify('success', `${zh ? '改写好了，看一下再发送。' : 'Rewritten. Have a look, then send.'}${open}`);
+        if (finishRewrite(operation, result.rewritten) && sidRef.current === sid) setComposerFocus((x) => x + 1);
       },
       (error) => failed(errorText(error)),
     );
@@ -673,7 +666,8 @@ export default function App() {
   }, [artifactsQ.data, setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
   const deliveryCenter = useDeliveryCenter(
     loadedSid,
-    Boolean(snap) && !transcriptQ.isPending,
+    // A result is new only once the record it may already be in has been read.
+    Boolean(snap) && eventsSeeded && !transcriptQ.isPending,
     delivery,
     // Intermediate files stay quiet while downstream work runs; a stage package is
     // announced precisely because the rest of the goal is still running.
@@ -1250,14 +1244,14 @@ export default function App() {
       {
         id: 'reasoning',
         label: showReasoning ? t('palette.hideReasoning') : t('palette.showReasoning'),
-        hint: '⌘T',
+        hint: shortcut('T'),
         group: t('palette.view'),
         run: () => setShowReasoning((v) => !v),
       },
       {
         id: 'kiosk',
         label: kiosk ? t('palette.exitKiosk') : t('palette.enterKiosk'),
-        hint: '⌘.',
+        hint: shortcut('.'),
         group: t('palette.view'),
         run: () => setKiosk((v) => !v),
       },
@@ -1299,6 +1293,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t, commands]);
 
+  const freshFiles = deliveryCenter.fresh ? deliveryFiles(deliveryCenter.fresh) : [];
   return (
     <DraftUploadContext.Provider value={draftUploadView}>
     <ProgressQuestionsProvider sid={activeSid} readOnly={kiosk}>
@@ -1316,11 +1311,12 @@ export default function App() {
           if (projectCostsQ.isEnabled) void projectCostsQ.refetch();
         }}
       />
-      {deliveryCenter.fresh && !deliveryCenter.selection && <div className="delivery-toast" role="status" aria-live="polite">
-        <span>{t(isStagePackage(deliveryCenter.fresh) ? 'delivery.freshStage' : 'delivery.freshTask')}{deliveryCenter.fresh.title}</span>
+      {freshFiles.length && !deliveryCenter.selection ? <div className="delivery-toast" role="status" aria-live="polite">
+        <strong>{t('delivery.fresh')}</strong>
+        <span>{freshFiles.length > 1 ? t('delivery.freshFiles', { file: freshFiles[0]!.label, count: freshFiles.length, more: freshFiles.length - 1 }) : freshFiles[0]!.label}</span>
         <button type="button" onClick={() => openDelivery(deliveryCenter.fresh!)}>{locale === 'zh-CN' ? '查看' : 'Open'}</button>
         <button type="button" aria-label={locale === 'zh-CN' ? '关闭' : 'Dismiss'} onClick={deliveryCenter.dismissFresh}>×</button>
-      </div>}
+      </div> : null}
       {deliveryCenter.selection && <ArtifactModal
         key={`${deliveryCenter.selection.sid}:${deliveryCenter.selection.receipt.delivery_id}`}
         sid={deliveryCenter.selection.sid} path={deliveryCenter.selection.path}
@@ -1363,7 +1359,7 @@ export default function App() {
             if (selection) { openDelivery(selection.receipt, selection.path); setSidebarOpen(false); }
           }}
           resultsCount={loadedSid ? deliveryHistory.length : 0}
-          onNew={() => startNewSession()}
+          onNew={() => { startNewSession(); setSidebarOpen(false); }}
           onSearch={() => setSearchOpen(true)}
           // The trial portal owns sign-in; a token kept here is this browser's own.
           onSignOut={import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' || !holdsToken() ? undefined : signOut}
@@ -1419,9 +1415,9 @@ export default function App() {
                   <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{locale === 'zh-CN' ? '高级工作台' : 'Advanced workbench'}</button>
                 </div>
                 <button type="button" className="ml-auto flex items-center gap-1.5 px-2 py-1 text-sm text-ink-dim hover:text-ink"
-                  onClick={() => setOverlay('palette')} title={t('topbar.commandsHint')}>
+                  onClick={() => setOverlay('palette')} title={t('topbar.commandsHint', { keys: shortcut('K') })}>
                   {t('topbar.commands')}
-                  <kbd className="rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-faint">{/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd>
+                  <kbd className="rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-faint">{shortcut('K')}</kbd>
                 </button>
                 <button type="button" className="px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
                   onClick={() => {
@@ -1519,6 +1515,7 @@ export default function App() {
                       focusSignal={composerFocus}
                       embedded
                       onRewrite={rewriteDraft}
+                      onUndoRewrite={undoRewrite}
                       rewriting={rewriting}
                       slashSelection={slashSelection}
                       onSlashSelectionChange={setSlashSelection}
@@ -1631,17 +1628,18 @@ export default function App() {
               if (activeSid) void snapQ.refetch();
             }}
             onNew={startNewSession}
-            onSubmit={async (text, files) => {
+            onSubmit={async (text, files, workdir) => {
               if (homeRequest.current) return false;
               homeRequest.current = { text, files };
               setWorkspaceView('activity'); setMobileView('activity');
-              const created = await createDaemon('', '', '', text);
+              const created = await createDaemon('', '', workdir, text);
               if (!created) homeRequest.current = null;
               return created;
             }}
             onChoose={() => setSidebarOpen(true)}
             canCreate={!kiosk}
             creating={creatingDaemon}
+            workdirs={[...new Set(projects.map(project => project.workdir).filter((path): path is string => Boolean(path)))]}
           />
         )}
       </main>

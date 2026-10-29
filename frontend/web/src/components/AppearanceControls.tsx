@@ -11,9 +11,7 @@ export function AppearanceControls({ themeMode, onCycleTheme }: {
   const languageLabel = t('language.switchTo', {
     language: locale === 'zh-CN' ? t('language.english') : t('language.chinese'),
   });
-  const themeLabel = t('sidebar.theme', {
-    current: themeMode, next: themeMode === 'light' ? 'dark' : 'light',
-  });
+  const themeLabel = t(themeMode === 'light' ? 'theme.toDark' : 'theme.toLight');
   const ThemeIcon = themeMode === 'light' ? Sun : Moon;
   return <>
     <button type="button" data-testid="appearance-language" onClick={() => setLocale(locale === 'zh-CN' ? 'en' : 'zh-CN')}

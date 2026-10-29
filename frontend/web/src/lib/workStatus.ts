@@ -97,22 +97,14 @@ export function currentWorkStatus(
   return snapshot.backlog.some(item => item.status !== 'done') ? { ...status, state: 'paused', reason: 'not_running' } : status;
 }
 
-/** "3 分钟前" / "3 min ago", for the last time something moved. */
-export function progressAgeLabel(seconds: number | null, locale: Locale): string {
-  const zh = locale === 'zh-CN';
-  if (seconds === null) return '';
-  if (seconds < 60) return zh ? '刚刚' : 'just now';
-  if (seconds < 3600) return zh ? `${Math.floor(seconds / 60)} 分钟前` : `${Math.floor(seconds / 60)} min ago`;
-  return zh ? `${Math.floor(seconds / 3600)} 小时前` : `${Math.floor(seconds / 3600)} hr ago`;
-}
-
 export function workStatusLabel(status: WorkStatus, locale: Locale, connected = true): string {
   const zh = locale === 'zh-CN';
   if (!connected) return zh ? '实时连接已断开' : 'Live connection lost';
   if (status.reason === 'operator_input') return zh ? '有个问题在等你回答' : 'A question is waiting for your answer';
   if (status.state === 'running') {
     if (status.foreground) return zh ? '正在处理你的请求' : 'Working on your request';
-    if (status.roles.length > 1) {
+    // With several tasks under way none names the work: it says who is at work.
+    if (status.roles.length > 1 || !status.title && ['engineer', 'reviewer'].includes(status.role)) {
       const names = status.roles.map(role => ROLE_NAMES[`role.${role}`]?.[zh ? 1 : 0] ?? role);
       return zh ? `${names.join('、')}正在工作` : `${names.join(', ')} at work`;
     }

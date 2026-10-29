@@ -94,7 +94,7 @@ export function AgentActivity({ sid, view, roles = [], events = [], taskId, paus
     <header className="agent-activity-heading"><span><Activity size={15} />{zh ? '工作详情' : 'Work details'}</span>
       {onClose && <button type="button" onClick={onClose} aria-label={zh ? '关闭工作详情' : 'Close work details'}><X size={17} /></button>}
     </header>
-    {showTabs && <div className="agent-activity-tabs" role="group" aria-label={zh ? '筛选 Agent' : 'Filter agents'}>
+    {showTabs && <div className="agent-activity-tabs" role="group" aria-label={zh ? '筛选角色' : 'Filter roles'}>
       {AGENT_ROLES.map((value) => <button type="button" key={value} data-role={value} aria-pressed={role === value} style={{ '--agent-role-color': agentRoleColor(value) } as CSSProperties}
         onClick={() => { setChoice(value); onSelectRole?.(value); }}>
         <i data-active={agentIsActive(view, roles, value, paused, taskId)} />{name(value)}

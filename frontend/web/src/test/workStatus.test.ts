@@ -58,6 +58,9 @@ describe('work status, as the server says it', () => {
     expect(two).toMatchObject({ state: 'running', roles: ['engineer', 'reviewer'], taskId: '', title: '' });
     expect(workStatusLabel(two, 'zh-CN')).toBe('工程师、审阅者正在工作');
     expect(workStatusLabel(two, 'en')).toBe('Engineer, Reviewer at work');
+    // One role on both tasks is not "the current task".
+    snapshot.roles = [role('engineer', true)];
+    expect(workStatusLabel(currentWorkStatus(snapshot), 'zh-CN')).toBe('工程师正在工作');
   });
 
   it('waits for the operator when a question is open and no role is at work', () => {

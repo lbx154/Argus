@@ -171,6 +171,24 @@ describe('persistent text drafts and in-memory file revisions', () => {
     expect(controller.draft.text).toBe('');
   });
 
+  it('puts the text before a rewrite back, until the rewrite is edited', () => {
+    mount(); act(() => controller.setText('original'));
+    let rewrite!: NonNullable<ReturnType<typeof controller.beginRewrite>>;
+    act(() => { rewrite = controller.beginRewrite('s-A')!; });
+    expect(controller.undoRewrite).toBeUndefined();
+    act(() => { controller.finishRewrite(rewrite, 'rewritten'); });
+    expect(controller.draft.text).toBe('rewritten');
+    act(() => controller.undoRewrite!());
+    expect(controller.draft.text).toBe('original');
+    expect(controller.undoRewrite).toBeUndefined();
+    act(() => { rewrite = controller.beginRewrite('s-A')!; });
+    act(() => { controller.finishRewrite(rewrite, 'rewritten again'); });
+    expect(controller.undoRewrite).toBeDefined();
+    // Once edited, the text is the operator's own.
+    act(() => controller.setText('rewritten again, edited'));
+    expect(controller.undoRewrite).toBeUndefined();
+  });
+
   it('invalidates deleted operations and does not let a previous rewrite finish a new one', () => {
     mount(); act(() => controller.setText('original'));
     let first!: NonNullable<ReturnType<typeof controller.beginRewrite>>;

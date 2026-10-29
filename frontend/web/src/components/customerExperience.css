@@ -4,6 +4,12 @@
 .landing-composer { width: 100%; max-width: 680px; margin-top: 12px; text-align: left; }
 .landing-navigation { position: absolute; top: 12px; right: 16px; }
 .landing-caption { margin-top: 12px; color: rgb(var(--ink-faint)); font-size: 12px; line-height: 20px; text-align: center; }
+/* Where the project works: a new folder unless the operator names one on the server. */
+.landing-workdir { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px; color: rgb(var(--ink-faint)); font-size: 12px; line-height: 20px; }
+.landing-workdir span { flex: none; }
+.landing-workdir input { flex: 0 1 320px; min-width: 0; border: 0; border-bottom: 1px dashed rgb(var(--field-line)); background: transparent; padding: 2px 0; color: rgb(var(--ink)); font: inherit; }
+.landing-workdir input::placeholder { color: rgb(var(--ink-faint)); }
+.landing-workdir input:focus { outline: none; border-bottom-style: solid; border-bottom-color: rgb(var(--accent)); }
 .landing-starters { width: 100%; max-width: 680px; margin-top: 16px; text-align: left; }
 .landing-starters h2 { padding: 0 12px; color: rgb(var(--ink-faint)); font-size: 12px; font-weight: 500; }
 .starter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; margin-top: 8px; }
