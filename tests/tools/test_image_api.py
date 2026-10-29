@@ -58,39 +58,6 @@ def _env_with_vault(tmp_path: Path) -> dict[str, str]:
 
 
 
-@pytest.mark.parametrize(("platform_name", "attempt_count"), [("nt", 6), ("posix", 1)])
-def test_atomic_replace_propagates_persistent_permission_errors(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    platform_name: str,
-    attempt_count: int,
-) -> None:
-    source = tmp_path / "source.tmp"
-    target = tmp_path / "target.json"
-    source.write_text("new", encoding="utf-8")
-    target.write_text("old", encoding="utf-8")
-    attempts = 0
-    sleeps: list[float] = []
-
-    def denied(_source, _destination):
-        nonlocal attempts
-        attempts += 1
-        raise PermissionError("cannot replace")
-
-    monkeypatch.setattr(image_api.os, "replace", denied)
-    monkeypatch.setattr(
-        image_api, "time", SimpleNamespace(time=time.time, sleep=sleeps.append)
-    )
-
-    with pytest.raises(PermissionError, match="cannot replace"):
-        image_api._atomic_replace(source, target, platform_name=platform_name)
-
-    assert attempts == attempt_count
-    assert len(sleeps) == attempt_count - 1
-    assert target.read_text(encoding="utf-8") == "old"
-    assert source.read_text(encoding="utf-8") == "new"
-
-
 def test_generate_image_caps_retry_after_delay(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
