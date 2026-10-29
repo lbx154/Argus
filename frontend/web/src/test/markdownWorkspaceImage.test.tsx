@@ -15,3 +15,11 @@ it('loads a relative image from the workspace before the artifact list lists it'
   act(() => { tree.update(<MarkdownContent sid="s-1" artifacts={[]}>{'![外链](https://example.com/a.png)'}</MarkdownContent>); });
   expect(blob).not.toHaveBeenCalled();
 });
+
+it('reads a "workspace/" citation from the project directory', () => {
+  blob.mockClear();
+  let tree!: ReactTestRenderer;
+  act(() => { tree = create(<MarkdownContent sid="s-1" artifacts={[]}>{'![图](workspace/figures/plot.png)'}</MarkdownContent>); });
+  expect(blob).toHaveBeenCalledWith('s-1', 'figures/plot.png', false, expect.anything());
+  tree.unmount();
+});

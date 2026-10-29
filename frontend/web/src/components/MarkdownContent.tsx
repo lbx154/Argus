@@ -163,7 +163,8 @@ export function MarkdownContent({
     li: ({ children: value }) => <li className="pl-0.5">{value}</li>,
     blockquote: ({ children: value }) => <blockquote className="my-2 border-l border-blue/50 pl-3 text-ink-dim">{value}</blockquote>,
     hr: () => <hr className="my-3 border-line/60" />,
-    a: ({ href, title, children: value }) => {
+    a: ({ href: cited, title, children: value }) => {
+      const href = cited?.replace(/^\.?\/?workspace\//, '');
       const artifactPath = artifactPathFromHref(href, live.current.artifacts, live.current.basePath);
       const artifact = artifactPath
         ? live.current.artifacts.find((item) => item.path === artifactPath)
@@ -243,8 +244,11 @@ export function MarkdownContent({
     img: ({ src, alt }) => {
       // A workspace-relative image the artifact list has not caught up with
       // yet is still a workspace file, not a path on this web server.
-      const path = artifactPathFromHref(src, live.current.artifacts, live.current.basePath)
-        ?? (live.current.sid && src && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(src) ? localFileReference(src) || null : null);
+      // Replies have cited project files as "workspace/<path>" (an older
+      // Manager skill example); the project directory is the root.
+      const cited = src?.replace(/^\.?\/?workspace\//, '');
+      const path = artifactPathFromHref(cited, live.current.artifacts, live.current.basePath)
+        ?? (live.current.sid && cited && !/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(cited) ? localFileReference(cited) || null : null);
       return <WorkspaceImage src={src} alt={alt} sid={live.current.sid} path={path} onOpen={path && live.current.onOpenArtifact ? () => live.current.onOpenArtifact?.(path) : undefined} />;
     },
   }), []);
