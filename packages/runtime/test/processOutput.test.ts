@@ -8,16 +8,16 @@ const cases = [
   { name: 'exact limit and per-line reset', text: '12345678\nabcdefgh\nABCDEFGH', limit: 8,
     lines: ['12345678', 'abcdefgh', 'ABCDEFGH'] },
   { name: 'CRLF at the byte limit', text: '1234567\r\nlast\r', limit: 8, lines: ['1234567', 'last'] },
-  { name: 'CR counts toward the byte limit', text: '12345678\r\n', limit: 8, lines: [], overflow: true },
-  { name: 'terminated overflow', text: '123456789\n', limit: 8, lines: [], overflow: true },
-  { name: 'unterminated overflow', text: '123456789', limit: 8, lines: [], overflow: true },
+  // A line past the limit is dropped and the run goes on.
+  { name: 'CR counts toward the byte limit', text: '12345678\r\n', limit: 8, lines: [] },
+  { name: 'terminated overflow', text: '123456789\n', limit: 8, lines: [] },
+  { name: 'unterminated overflow', text: '123456789', limit: 8, lines: [] },
+  { name: 'the line after an overflow', text: 'ok\n123456789abc\nnext\n', limit: 8, lines: ['ok', 'next'] },
   { name: 'split UTF-8 at exact limit', text: 'A\u20ac\ud83c\udf0d\nA\u20ac\ud83c\udf0d', limit: 8,
     lines: ['A\u20ac\ud83c\udf0d', 'A\u20ac\ud83c\udf0d'] },
-  { name: 'UTF-8 bytes rather than character count', text: 'A\u20ac\ud83c\udf0d', limit: 7,
-    lines: [], overflow: true },
+  { name: 'UTF-8 bytes rather than character count', text: 'A\u20ac\ud83c\udf0d', limit: 7, lines: [] },
   { name: 'decoder EOF replacement at limit', bytes: [0x61, 0xe2, 0x82], limit: 4, lines: ['a\ufffd'] },
-  { name: 'decoder EOF replacement exceeds limit', bytes: [0x61, 0xe2, 0x82], limit: 3,
-    lines: [], overflow: true },
+  { name: 'decoder EOF replacement exceeds limit', bytes: [0x61, 0xe2, 0x82], limit: 3, lines: [] },
 ];
 
 for (const stream of ['stdout', 'stderr'] as const) {
@@ -44,8 +44,8 @@ for (const stream of ['stdout', 'stderr'] as const) {
       }
       assert.deepEqual(lines, scenario.lines);
       assert.ok(result);
-      assert.equal(result.stopKind, scenario.overflow ? 'output_limit' : null);
-      if (!scenario.overflow) assert.equal(result.code, 0);
+      assert.equal(result.stopKind, null);
+      assert.equal(result.code, 0);
     });
   }
 }

@@ -208,6 +208,9 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     const decoder = new StringDecoder('utf8');
     let pending: string[] = [];
     let pendingBytes = 0;
+    // A line past the limit is dropped, not the run: one oversized event (a command's whole
+    // output) costs only itself, and memory stays bounded while the rest of it streams past.
+    let skipping = false;
     const emit = (): void => {
       const line = pending.join('');
       pending = [];
@@ -224,16 +227,17 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
       while (start < text.length) {
         const newline = text.indexOf('\n', start);
         const part = text.slice(start, newline === -1 ? text.length : newline);
-        pendingBytes += Buffer.byteLength(part);
-        if (pendingBytes > lineLimit) {
-          pending = [];
-          pendingBytes = 0;
-          requestStop('output_limit', 'Runner output line exceeded its byte limit.');
-          return;
+        if (!skipping) {
+          pendingBytes += Buffer.byteLength(part);
+          if (pendingBytes > lineLimit) {
+            pending = [];
+            pendingBytes = 0;
+            skipping = true;
+          } else if (part) pending.push(part);
         }
-        if (part) pending.push(part);
         if (newline === -1) return;
-        emit();
+        if (skipping) skipping = false;
+        else emit();
         if (stopKind) return;
         start = newline + 1;
       }

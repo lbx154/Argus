@@ -67,9 +67,6 @@ if (mode.startsWith('structured-')) {
 } else if (mode === 'heartbeat') {
   send({ type: 'ready', pid: process.pid });
   setInterval(() => send({ type: 'heartbeat' }), 20);
-} else if (mode === 'line-limit') {
-  process.stdout.write('x'.repeat(16_384));
-  setInterval(() => {}, 1000);
 } else if (mode === 'queue-limit') {
   process.stdout.write(('x'.repeat(64) + '\n').repeat(2000));
   setInterval(() => {}, 1000);

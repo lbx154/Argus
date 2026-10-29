@@ -131,9 +131,9 @@ test('wall deadline fires even when output keeps arriving', { timeout: 10_000 },
   assert.equal(result.stopKind, 'wall_timeout');
 });
 
-for (const mode of ['line-limit', 'queue-limit', 'text-limit']) {
+for (const mode of ['queue-limit', 'text-limit']) {
   test(`bounds memory for ${mode}`, { timeout: 10_000 }, async () => {
-    const options = mode === 'line-limit' ? { maxLineBytes: 100 } : mode === 'queue-limit' ? { maxBufferedBytes: 1024 } : {};
+    const options = mode === 'queue-limit' ? { maxBufferedBytes: 1024 } : {};
     const { result } = await collect(backend(mode, options), { ...request, maxRetainedTextBytes: 100 });
     assert.equal(result.stopKind, 'output_limit');
     assert.equal(result.turnCompleted, false);
