@@ -20,7 +20,7 @@ import { RouteSegment } from './RouteSegment';
 interface Caret { text: string; at: number; fits: boolean; typed: boolean }
 
 export function ChatBox({
-  value, onChange, onSend, onCancel, disabled, pending, focusSignal,
+  value, onChange, onSend, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, onUndoRewrite, rewriting = false,
   completionSelection, onCompletionSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote,
   completion,
@@ -28,7 +28,6 @@ export function ChatBox({
   value: string;
   onChange: (text: string) => void;
   onSend: (text: string, attachments?: File[], observe?: undefined, options?: { whileRunning?: boolean }) => boolean | Promise<boolean>;
-  onCancel: () => void;
   disabled: boolean;
   pending: boolean;
   focusSignal?: number;
@@ -47,7 +46,7 @@ export function ChatBox({
   footer?: ReactNode;
   /** Always-visible continuous-work switch for the current project. */
   continuousControl?: ReactNode;
-  /** Replaces the reply hint while the send waits on something else, such as uploads. */
+  /** Said while the send waits on something else, such as uploads. */
   pendingNote?: string;
   /** What `@`, `#` and the gray text complete from; only the project conversation has it. */
   completion?: PromptSources;
@@ -192,7 +191,6 @@ export function ChatBox({
     }
     if (ghost && plainTab) { event.preventDefault(); acceptGhost(); }
     else if (ghost && event.key === 'Escape') { event.preventDefault(); setDismissed(whole); }
-    else if (event.key === 'Escape' && pending) { event.preventDefault(); onCancel(); }
     else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void submit(); }
   };
 
@@ -205,7 +203,7 @@ export function ChatBox({
       if (!dataTransferHasFiles(event.dataTransfer)) return;
       event.preventDefault(); setDragDepth(0); addFiles(extractFilesFromDataTransfer(event.dataTransfer));
     }}>
-    {pending ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{pendingNote || (queuedNotice ? t('chat.queuedWhileRunning') : t('chat.stopWaitingHint'))}</div> : null}
+    {pending && (pendingNote || queuedNotice) ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{pendingNote || t('chat.queuedWhileRunning')}</div> : null}
     {completionOpen ? <PromptCompletionMenu items={visibleCompletions} selected={activeCompletion ? bounded : -1} onSelect={applySelected}
       label={t(menu?.kind === '@' ? 'completion.files' : 'completion.tasks')} /> : null}
     {(attachments.length || ready.length || attachmentNotice || dragDepth > 0) ? <div className="px-3 py-2">
@@ -224,7 +222,7 @@ export function ChatBox({
     <ComposerSurface value={value} ghost={ghost} onAcceptGhost={acceptGhost}
       onChange={typed}
       inputRef={taRef} fileInputRef={fileInputRef} onFiles={(event) => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }}
-      onSend={() => void submit()} onCancel={onCancel} pending={pending} disabled={disabled}
+      onSend={() => void submit()} pending={pending} disabled={disabled}
       sendLabel={busyUploads ? (zh ? '附件传完后发送' : 'Send when uploads finish') : undefined}
       inputProps={{
         onPaste: (event) => { const files = extractFilesFromDataTransfer(event.clipboardData); if (files.length) { event.preventDefault(); addFiles(files); } },

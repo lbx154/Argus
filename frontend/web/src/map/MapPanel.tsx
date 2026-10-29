@@ -362,10 +362,6 @@ export function MapCanvas({
       throw error;
     }
   };
-  const cancelFromMap = () => {
-    setFlight((current) => current ? { ...current, result: { type: 'settled', outcome: 'cancelled' } } : null);
-    composer.onCancel();
-  };
   // The opening fit waits for the saved explanations (their relations place
   // cards) and a remembered view for its history, but not for long: on a busy
   // server those reads can take seconds, and an invisible canvas reads as an
@@ -1847,7 +1843,7 @@ export function MapCanvas({
           {!readOnly && (
             <MapComposer {...composer} pendingLabel={pendingLabel} progressVisible={!conversationOpen}
               dispatchStatus={flight?.result?.type === 'task' ? flight.landed || composer.historical ? 'task' : 'launching' : flight?.result?.outcome}
-              onSend={submitFromMap} onCancel={cancelFromMap} overview={!camera.detailed} startCompact={immersive} />
+              onSend={submitFromMap} overview={!camera.detailed} startCompact={immersive} />
           )}
           {canvasMenu && editable && (
             <div className="map-context-menu canvas-menu" role="menu" style={{ left: canvasMenu.x, top: canvasMenu.y }}>
@@ -2054,7 +2050,6 @@ export const MapPanel = memo(function MapPanel({
   attachments: controlledAttachments,
   onAttachmentsChange,
   pending,
-  onCancel,
   focusSignal,
   readOnly = false,
   onOpenSettings,
@@ -2069,11 +2064,11 @@ export const MapPanel = memo(function MapPanel({
   onOpenArtifact,
   onAnswer,
   deliveries,
-  onPauseTeam,
+  onStopWork,
   onResumeTeam,
   teamBusy,
 }: {
-  onPauseTeam?: () => void;
+  onStopWork?: () => void;
   onResumeTeam?: () => void;
   teamBusy?: boolean;
   snapshot: Snapshot;
@@ -2086,7 +2081,6 @@ export const MapPanel = memo(function MapPanel({
   attachments?: File[];
   onAttachmentsChange?: (files: File[]) => void;
   pending: boolean;
-  onCancel: () => void;
   focusSignal: number;
   readOnly?: boolean;
   /** The map fills the window: the header, overview and legend step aside. */
@@ -2247,8 +2241,8 @@ export const MapPanel = memo(function MapPanel({
   // The team line lives at the top of the canvas, beside the overview, so it
   // stays in view when the composer is folded away.
   const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} view={snapshot.mission_view} events={events} connected={connected !== false} compact
-    onPauseTeam={readOnly ? undefined : onPauseTeam} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
-  [snapshot, events, connected, readOnly, onPauseTeam, onResumeTeam, teamBusy]);
+    pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
+  [snapshot, events, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, connected, artifacts, deliveryCount,
              onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,
@@ -2267,16 +2261,15 @@ export const MapPanel = memo(function MapPanel({
       attachments,
       onAttachmentsChange: setAttachments,
       pending,
-      onCancel,
       focusSignal,
       sessionName: snapshot.session.display_name || t("sidebar.unnamedSession"),
       historical: source !== "live",
       zh,
     }),
     [routeOverride, onRouteOverrideChange, draft, onDraftChange, send, attachments,
-     pending, onCancel, focusSignal, snapshot.session.display_name, snapshot.session.id,
+     pending, focusSignal, snapshot.session.display_name, snapshot.session.id,
      source, zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
-     readOnly, onOpenSettings, events, connected, onPauseTeam, onResumeTeam, teamBusy],
+     readOnly, onOpenSettings, events, connected, onStopWork, onResumeTeam, teamBusy],
   );
   // Each task's figure, loaded separately from the map's task projection.
   const workspace = snapshot.session.workdir || snapshot.session.cwd || '';

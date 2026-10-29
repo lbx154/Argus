@@ -186,7 +186,7 @@ export function daemon(project: Project, live: Live): Daemon {
     // Stopped with calls under way: they end, and no other starts.
     alive: since !== null, draining: since !== null && project.status === 'stopped', resumable: since === null && resumable(project), pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
-    backend_label: BACKEND_LABELS[project.backend], control_available: true,
+    backend_label: BACKEND_LABELS[project.backend],
     read_status: 'ok', read_error: '', protocol_compatible: true, protocol_error: '',
   };
 }

@@ -523,7 +523,8 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   const reply = frames(await post(`${P}/message/stream`, { text: 'What is 6 times 7?', request_id: 'r1' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles[0]!.active);
   await post(`${P}/daemon/stop`, { command_id: 'c1' });
-  await reply;
+  // The reply ends as stopped, not as a failure.
+  assert.deepEqual((await reply).at(-1), { type: 'done', result: { kind: 'stopped', reply: null } });
   const stopped = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   assert.equal(stopped.daemon.resumable, true);
   await post(`${P}/daemon/start`, { command_id: 'c2' });

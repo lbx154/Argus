@@ -110,6 +110,12 @@ export function mergeOptimisticManagerReply(localEvents: EventMsg[], requestId: 
   ];
 }
 
+/** The turn ended without a reply (stopped, or failed): the page's row for it goes, and the
+ * conversation reads as the record does, the steps and the failure as the stream sent them. */
+export function dropOptimisticManagerReply(localEvents: EventMsg[], requestId: number): EventMsg[] {
+  return localEvents.filter(event => event.type !== 'ui.argus' || Number(event[LOCAL_REQUEST_FIELD]) !== requestId);
+}
+
 /**
  * The conversation: the record's rows, which the transcript and the live stream
  * both send as the server's one reading of the record makes them, in the

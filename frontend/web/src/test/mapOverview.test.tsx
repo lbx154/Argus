@@ -1,4 +1,3 @@
-import { renderToStaticMarkup } from "react-dom/server";
 import { act, create } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
 import type { Snapshot } from "../../../core/src/types";
@@ -9,7 +8,6 @@ import { attentionTasks, type MapTask } from "../map/model";
 import { emptyMissionView } from "../../../core/src/missionView";
 import { currentWorkStatus, workStatusLabel } from "../lib/workStatus";
 import { teamPhase } from "../components/TeamControls";
-import { TeamPauseButton } from "../components/TeamControls";
 
 vi.mock("@xyflow/react", async (original) => ({
   ...(await original<typeof import("@xyflow/react")>()),
@@ -85,17 +83,4 @@ describe("MapOverview", () => {
   });
 
 
-});
-
-describe("canvas pause controls", () => {
-  it("offers 暂停团队 while the team runs and 继续 when it stopped with work to take up", () => {
-    const snapshot = (alive: boolean) => ({
-      daemon: { alive, pid: null, uptime_seconds: null, backend: null, resumable: !alive },
-      backlog: [{ id: "a", status: "in_progress" }],
-    }) as unknown as Snapshot;
-    const pause = renderToStaticMarkup(<TeamPauseButton snapshot={snapshot(true)} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
-    expect(pause).toContain("暂停团队");
-    const resume = renderToStaticMarkup(<TeamPauseButton snapshot={snapshot(false)} locale="zh-CN" onPause={() => {}} onResume={() => {}} />);
-    expect(resume).toContain("继续");
-  });
 });

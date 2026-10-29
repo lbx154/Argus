@@ -1,7 +1,7 @@
 import type { MessageRouteOverride } from '../api';
 import type { MapSend } from './submission';
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { ArrowUp, Check, ChevronDown, CornerDownLeft, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, CornerDownLeft, Paperclip, X } from "lucide-react";
 import { applicationBrand } from "../applicationBrand";
 import { referenceText, splitDraft } from "./presentation";
 import { useI18n } from "../i18n";
@@ -30,7 +30,6 @@ export interface MapComposerProps {
   pendingLabel?: string;
   progressVisible?: boolean;
   dispatchStatus?: "launching" | "task" | "message" | "error" | "cancelled";
-  onCancel: () => void;
   focusSignal: number;
   sessionName: string;
   historical: boolean;
@@ -61,7 +60,6 @@ export function MapComposer({
   pendingLabel,
   progressVisible = true,
   dispatchStatus,
-  onCancel,
   focusSignal,
   sessionName,
   historical,
@@ -113,7 +111,7 @@ export function MapComposer({
       const target = (event.type === "focusout" ? event.relatedTarget : event.target) as Element | null;
       // Tabbing to the closed island should announce its button, not open it.
       // The brand button also keeps the editor open while picking a file.
-      if (target?.closest?.(".map-island-launch, .map-island-stop, .map-composer-brand")) return;
+      if (target?.closest?.(".map-island-launch, .map-composer-brand")) return;
       if (dock.current?.contains(target)) setExpanded(true);
       else if (!currentDraft.current) setExpanded(false);
     };
@@ -278,7 +276,7 @@ export function MapComposer({
     : sent ? (zh ? `已发送给 ${applicationBrand().name}` : `Sent to ${applicationBrand().name}`) : (zh ? `交给 ${applicationBrand().name}` : `Ask ${applicationBrand().name}`));
   const detail = feedback?.[1] || (pending && queued ? queuedCopy[1] : pending
     ? progressVisible ? pendingLabel || (zh ? "正在处理你的消息…" : "Processing your message…")
-      : (zh ? '可发送后续消息或停止本次回复' : 'Send a follow-up or stop this reply')
+      : (zh ? '可以发送后续消息' : 'Send a follow-up')
     : sent ? (zh ? "点此继续对话" : "Tap to keep the conversation going")
       : hasDraft ? (zh ? "草稿已保留，点此继续" : "Draft saved — tap to continue")
         : (zh ? "描述目标，看它变成成果" : "Turn your next idea into a result"));
@@ -392,13 +390,6 @@ export function MapComposer({
                 ? <Check size={16} /> : <CornerDownLeft size={15} />}
           </span>
         </button>
-        {compact && pending && (
-          <button type="button" className="map-island-stop" onClick={onCancel}
-            aria-label={zh ? "停止本次回复" : "Stop this reply"}
-            title={zh ? "只停止经理这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}>
-            <Square size={13} />
-          </button>
-        )}
         <form
           id={editorId}
           className="map-composer-editor"
@@ -456,25 +447,7 @@ export function MapComposer({
           <div className="map-island-toolbar">
             <button type="button" className="map-island-collapse" tabIndex={compact ? -1 : 0} onClick={collapse} aria-label={zh ? "收起消息输入" : "Collapse message composer"} title={zh ? "收起（草稿会保留）" : "Collapse (draft is kept)"}><ChevronDown size={15} /></button>
             {onRouteOverrideChange && <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={pending} tabIndex={compact ? -1 : 0} />}
-            {pending && (
-              <button
-                key="stop"
-                type="button"
-                onClick={(event) => {
-                  // Keyed apart from Submit so a cancel never lands on it.
-                  event.preventDefault();
-                  onCancel();
-                }}
-                tabIndex={compact ? -1 : 0}
-                aria-label={zh ? "停止本次回复" : "Stop this reply"}
-                title={zh ? "只停止经理这一次回复；后台团队继续工作" : "Stops only this Manager reply; the background team keeps working"}
-                className="map-send is-pending"
-              >
-                <Square size={15} />
-              </button>
-            )}
             <button
-              key="send"
               type="submit"
               tabIndex={compact ? -1 : 0}
               disabled={!text.trim() || tooLong}

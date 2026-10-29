@@ -72,7 +72,6 @@ describe('session rename', () => {
         onClose={() => undefined}
         onRename={async () => true}
         onStart={async () => true}
-        onStop={async () => true}
         onDelete={async () => true}
       />,
     );
@@ -86,7 +85,7 @@ describe('session rename', () => {
     const render = (spend_status: string) => renderToStaticMarkup(
       <DaemonManageModal open sid={sid} name="Original name" alive={false} resumable={false} busy={false}
         onClose={() => undefined} onRename={async () => true} onStart={async () => true}
-        onStop={async () => true} onDelete={async () => true}
+        onDelete={async () => true}
         snapshot={{ ...snapshot(), spend_usd: null, spend_status, usage_summary: { call_count: 40, known_cost_usd: 0 } } as unknown as Snapshot} />,
     );
     for (const [status, label] of [['unpriced', 'Unpriced'], ['partial', 'Unpriced'], ['not_billed', 'Not billed']]) {
@@ -97,7 +96,7 @@ describe('session rename', () => {
     }
   });
 
-  it('offers immediate verified stop and enables deletion once stopped', () => {
+  it('offers Resume only for work stopped short, and deletion once nothing runs', () => {
     const props = {
       open: true,
       sid,
@@ -106,7 +105,6 @@ describe('session rename', () => {
       onClose: () => undefined,
       onRename: async () => true,
       onStart: async () => true,
-      onStop: async () => true,
       onDelete: async () => true,
     };
     const running = renderToStaticMarkup(
@@ -119,9 +117,11 @@ describe('session rename', () => {
       <DaemonManageModal {...props} alive={false} resumable={false} />,
     );
 
-    expect(running).toContain('Stop now');
-    expect(running).toContain('Stop background work now');
+    // Stopping is the header's one Stop; here, a running project cannot be deleted.
+    expect(running).not.toMatch(/Stop now|Resume/);
+    expect(running).toMatch(/<button[^>]*disabled=""[^>]*>Delete…/);
     expect(stopped).toContain('Stopped');
+    expect(stopped).toContain('Resume');
     expect(stopped).toContain('Delete…');
     // With nothing to go on with, there is nothing to resume.
     expect(done).not.toContain('Resume');

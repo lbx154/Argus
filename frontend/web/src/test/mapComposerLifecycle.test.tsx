@@ -14,7 +14,7 @@ let inputNode: {
 const defaults: MapComposerProps = {
   value: "", onChange: () => {}, onSend: async () => false,
   attachments: [], onAttachmentsChange: () => {}, pending: false,
-  onCancel: () => {}, focusSignal: 0, sessionName: "Demo", historical: false, zh: false,
+  focusSignal: 0, sessionName: "Demo", historical: false, zh: false,
 };
 const island = () => renderer!.root.findByProps({ className: "map-composer-dock map-island-dock" });
 const textarea = () => renderer!.root.findByType("textarea");
@@ -89,7 +89,7 @@ it("collapses an accepted send into live status and allows another draft while w
   function Harness() {
     const [value, setValue] = useState("Make a city map");
     const [pending, setPending] = useState(false);
-    return <MapComposer {...defaults} value={value} onChange={setValue} pending={pending} onCancel={() => setPending(false)}
+    return <MapComposer {...defaults} value={value} onChange={setValue} pending={pending}
       pendingLabel="Engineer · building the map" onSend={async () => { setValue(""); setPending(true); return true; }} />;
   }
   act(() => { renderer = create(<Harness />, { createNodeMock: nodeMock }); });
@@ -97,18 +97,15 @@ it("collapses an accepted send into live status and allows another draft while w
   expect(island().props["data-compact"]).toBe(true);
   expect(island().props["data-state"]).toBe("working");
   expect(renderer!.root.findByType("small").children).toEqual(["Engineer · building the map"]);
-  expect(renderer!.root.findByProps({ className: "map-island-stop" })).toBeDefined();
+  // Stopping is the status line's one Stop, not the composer's.
+  expect(renderer!.root.findAll((node) => node.props.className === "map-island-stop")).toHaveLength(0);
 
   act(() => launch().props.onClick());
   act(() => textarea().props.onChange({ target: { value: "Use blue for the river" } }));
   act(() => listeners.get("focusout")?.({ type: "focusout", relatedTarget: null }));
   expect(island().props["data-compact"]).toBe(false);
   expect(textarea().props.value).toBe("Use blue for the river");
-  const preventDefault = vi.fn();
-  act(() => renderer!.root.findByProps({ className: "map-send is-pending" }).props.onClick({ preventDefault }));
-  expect(preventDefault).toHaveBeenCalledOnce();
-  expect(island().props["data-pending"]).toBe(false);
-  expect(textarea().props.value).toBe("Use blue for the river");
+  expect(renderer!.root.findByProps({ type: "submit", "aria-label": "Send while Argus works" })).toBeDefined();
 });
 
 it("does not send IME candidate confirmation or lose the draft on failure", async () => {

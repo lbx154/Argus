@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type ChangeEventHandler, type ReactNode, type RefObject, type TextareaHTMLAttributes } from 'react';
-import { ArrowUp, Paperclip, Square, X } from 'lucide-react';
+import { ArrowUp, Paperclip, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { MESSAGE_ATTACHMENT_ACCEPT, MESSAGE_TEXT_MAX_CHARS } from '../lib/attachments';
 import { isImeComposing } from '../lib/ime';
@@ -11,7 +11,7 @@ const MIRRORED = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterS
 
 /** One visual/input surface for the ordinary conversation and research map. */
 export function ComposerSurface({
-  value, onChange, inputRef, fileInputRef, onFiles, inputProps, onSend, onCancel,
+  value, onChange, inputRef, fileInputRef, onFiles, inputProps, onSend,
   pending, disabled = false, controls, sendLabel, ghost, onAcceptGhost,
 }: {
   value: string;
@@ -21,7 +21,6 @@ export function ComposerSurface({
   onFiles: ChangeEventHandler<HTMLInputElement>;
   inputProps: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange' | 'ref'>;
   onSend: () => void;
-  onCancel: () => void;
   pending: boolean;
   disabled?: boolean;
   controls?: ReactNode;
@@ -70,14 +69,7 @@ export function ComposerSurface({
           {/* Pressing keeps the focus; only a tap, not a scroll or a long press, takes the text. */}
           {ghost ? <div ref={ghostRef} className="composer-ghost" aria-hidden="true">{text}<span onPointerDown={(event) => event.preventDefault()} onClick={onAcceptGhost}>{ghost}</span></div> : null}
         </div>
-        {pending && <button key="stop" type="button" onClick={onCancel} disabled={disabled}
-          aria-label={zh ? '停止本次回复' : 'Stop this reply'}
-          title={zh ? '只停止经理这一次回复；后台团队继续工作' : 'Stops only this Manager reply; the background team keeps working'}
-          className="map-send is-pending">
-          <Square size={15} />
-        </button>}
-        {/* Keyed apart from Stop so a cancel never lands on it. */}
-        <button key="send" type="submit" disabled={disabled || !text.trim() || tooLong}
+        <button type="submit" disabled={disabled || !text.trim() || tooLong}
           aria-label={sendLabel || (pending ? (zh ? '排队发送，这条回复之后处理' : 'Send, answered after this reply') : (zh ? '发送消息' : 'Send message'))}
           title={sendLabel} className="map-send">
           <ArrowUp size={20} />

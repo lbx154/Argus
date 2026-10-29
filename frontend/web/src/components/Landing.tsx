@@ -64,7 +64,7 @@ export function Landing({
             const accepted = await onSubmit(text, files, workdir.trim());
             if (accepted) drop('home');
             return accepted;
-          }} onCancel={() => undefined} disabled={creating} pending={false} focusSignal={focus}
+          }} disabled={creating} pending={false} focusSignal={focus}
           completionSelection={completionSelection} onCompletionSelectionChange={setCompletionSelection} />
         <p className="landing-caption">{locale === 'zh-CN'
           ? '发送后自动建立项目；团队干活时也可以随时说话。'

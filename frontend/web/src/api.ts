@@ -1246,14 +1246,6 @@ export const api = {
       signal,
     );
   },
-  cancelMessage: (sid: string, requestId: string) =>
-    requestWithTimeout(P(sid, '/message/cancel'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ request_id: requestId }),
-    }, 5000, async (response) => {
-      await ensureResponseOk(response, 'POST', P(sid, '/message/cancel'));
-      return await response.json() as { requested: boolean; status: string };
-    }),
   /**
    * Streaming Manager front-door (SSE): ``onPhase`` per real step, ``onDelta``
    * with the reply's row in the record, ``onDone`` with the final classification,
@@ -1365,16 +1357,8 @@ export const api = {
     command_id: commandId(),
     expected_revision: expectedRevision,
   }).then(requireDaemonCommand),
-  stopDaemon: (
-    sid: string,
-    drain = false,
-    expectedRevision?: number,
-    force = false,
-    afterCurrent = false,
-  ) => postJson(P(sid, '/daemon/stop'), {
-    drain,
-    force,
-    ...(afterCurrent ? { after_current: true } : {}),
+  /** Stop the work at once: the calls under way are interrupted. */
+  stopDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/stop'), {
     command_id: commandId(),
     expected_revision: expectedRevision,
   }).then(requireDaemonCommand),

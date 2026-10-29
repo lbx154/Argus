@@ -8,7 +8,7 @@ import { MapComposer } from '../map/MapComposer';
 import { referenceText } from '../map/presentation';
 
 const mainProps = {
-  value: 'Research question', onChange: vi.fn(), onSend: vi.fn(async () => false), onCancel: vi.fn(),
+  value: 'Research question', onChange: vi.fn(), onSend: vi.fn(async () => false), 
   disabled: false, pending: false, completionSelection: 0, onCompletionSelectionChange: vi.fn(),
   attachments: [] as File[], onAttachmentsChange: vi.fn(),
 };
@@ -36,7 +36,7 @@ describe('shared conversation surface', () => {
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(createElement(ComposerSurface, {
       value: 'test', onChange: vi.fn(), inputRef: { current: null }, fileInputRef: { current: null },
-      onFiles: vi.fn(), inputProps: {}, onSend: send, onCancel: vi.fn(), pending: false,
+      onFiles: vi.fn(), inputProps: {}, onSend: send, pending: false,
     })); });
     const key = renderer.root.findByType('textarea').props.onKeyDown;
     const event = (extra = {}) => ({ key: 'Enter', shiftKey: false, defaultPrevented: false,
@@ -68,7 +68,7 @@ describe('shared conversation surface', () => {
     const value = `${referenceText({ source: 'map', task_id: 't1', task_title: 'Study', event_ids: [] })}Compare`;
     const html = renderToStaticMarkup(createElement(ComposerSurface, {
       value, ghost: ' the baselines', onChange: vi.fn(), inputRef: { current: null }, fileInputRef: { current: null },
-      onFiles: vi.fn(), inputProps: {}, onSend: vi.fn(), onCancel: vi.fn(), pending: false,
+      onFiles: vi.fn(), inputProps: {}, onSend: vi.fn(), pending: false,
     }));
     expect(html).toContain('<div class="composer-ghost" aria-hidden="true">Compare<span> the baselines</span></div>');
 
@@ -78,7 +78,7 @@ describe('shared conversation surface', () => {
     const mirror = { style: {} as Record<string, string> };
     const accept = vi.fn();
     const props = { value: 'Compare', onChange: vi.fn(), inputRef: { current: null }, fileInputRef: { current: null },
-      onFiles: vi.fn(), inputProps: {}, onSend: vi.fn(), onCancel: vi.fn(), pending: false, onAcceptGhost: accept };
+      onFiles: vi.fn(), inputProps: {}, onSend: vi.fn(), pending: false, onAcceptGhost: accept };
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(createElement(ComposerSurface, props), {
       createNodeMock: (element) => element.type === 'textarea' ? textareaNode() : element.props.className === 'composer-ghost' ? mirror : null,

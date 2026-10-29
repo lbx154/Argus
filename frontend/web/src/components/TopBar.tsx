@@ -3,9 +3,9 @@ import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot, EventMsg } from '../api';
 import type { MissionView } from '../../../core/src/types';
 import { roleLabel } from '../lib/enumLabels';
-import { PHASE_TONE, teamPhase } from './TeamControls';
+import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPause, faPlay, faStop, faTerminal } from '@fortawesome/free-solid-svg-icons';
+import { faTerminal } from '@fortawesome/free-solid-svg-icons';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
@@ -23,7 +23,7 @@ export function TopBar({
   streamOk,
   onStart,
   onStop,
-  onPause,
+  pending = false,
   onManage,
   onOpenPalette,
   onOpenSessions,
@@ -38,10 +38,10 @@ export function TopBar({
   snap: Snapshot;
   streamOk: boolean;
   onStart: () => void;
-  /** Immediate interruption; asks the operator to confirm first. */
+  /** Stops the work under way at once; the control says first what that interrupts. */
   onStop: () => void;
-  /** Pause once the running task finishes; falls back to onStop when absent. */
-  onPause?: () => void;
+  /** A message sent is waiting for its reply. */
+  pending?: boolean;
   onManage: () => void;
   /** Opens the command palette; shown here on narrow screens, where the workspace tabs are hidden. */
   onOpenPalette?: () => void;
@@ -74,14 +74,6 @@ export function TopBar({
   const untouched = isFreshProject(snap) && phase === 'done' && !events.length && !focus;
   const statusWords = !streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale')
     : untouched ? (locale === 'zh-CN' ? '等你开始' : 'Waiting for you to start') : workStatusLabel(work, locale);
-  const externalDaemon = snap.daemon.alive && snap.daemon.control_available === false;
-  const draining = snap.daemon.alive && snap.daemon.draining === true;
-  // Work stopped short of done with nothing running it: going on is the one thing
-  // to do here, so it is the header's primary action, not a hover control.
-  const resumable = snap.daemon.resumable === true;
-  const stopNow = () => {
-    if (window.confirm(t('daemon.stopConfirm'))) onStop();
-  };
   const healthTitle = degraded
     ? [
         ...(snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`),
@@ -141,38 +133,9 @@ export function TopBar({
       ) : null}
       {!readOnly ? (
         <>
-          {resumable ? <button
-            type="button"
-            data-resume-work
-            disabled={busy}
-            onClick={onStart}
-            title={t('topbar.continueRunHint')}
-            className="brand-button brand-button-primary flex h-8 shrink-0 items-center gap-1.5 px-3 disabled:opacity-40"
-          >
-            <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
-            <span>{t('topbar.continueRun')}</span>
-          </button> : snap.daemon.alive && <button
-            type="button"
-            disabled={busy || externalDaemon || draining}
-            onClick={onPause ?? stopNow}
-            aria-label={externalDaemon ? t('topbar.externallyManaged') : draining ? t('topbar.draining') : t('topbar.pauseTeam')}
-            title={externalDaemon ? t('topbar.externalDaemonHint') : onPause && !draining ? t('topbar.pauseAfterCurrentHint') : undefined}
-            className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 disabled:opacity-40"
-          >
-            <FontAwesomeIcon icon={faPause} className="h-3 w-3" />
-            <span className="hidden sm:inline">{externalDaemon ? t('common.external') : draining ? t('topbar.draining') : t('topbar.pauseTeam')}</span>
-          </button>}
-          {snap.daemon.alive && onPause && !externalDaemon ? <button
-            type="button"
-            disabled={busy}
-            onClick={stopNow}
-            aria-label={t('topbar.stopNow')}
-            title={t('topbar.stopNowHint')}
+          <RunControl snapshot={snap} pending={pending} busy={busy} onStop={onStop} onResume={onStart}
             className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 text-err disabled:opacity-40"
-          >
-            <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
-            <span className="hidden md:inline">{t('topbar.stopNow')}</span>
-          </button> : null}
+            resumeClassName="brand-button brand-button-primary flex h-8 shrink-0 items-center gap-1.5 px-3 disabled:opacity-40" />
           {onOpenPalette ? <button
             type="button"
             onClick={onOpenPalette}

@@ -21,14 +21,13 @@ let node: {
 };
 let changes: string[];
 let send: ReturnType<typeof vi.fn<() => boolean>>;
-let cancel: ReturnType<typeof vi.fn<() => void>>;
 let sources: PromptSources;
 /** The model requests in flight, answered by hand. */
 
 function Harness(props: Partial<ComponentProps<typeof ChatBox>> & { initial?: string }) {
   const [value, setValue] = useState(props.initial ?? '');
   const [selection, setSelection] = useState(0);
-  return <ChatBox value={value} onChange={(next) => { changes.push(next); setValue(next); }} onSend={send} onCancel={cancel}
+  return <ChatBox value={value} onChange={(next) => { changes.push(next); setValue(next); }} onSend={send}
     disabled={false} pending={false} attachments={[]} onAttachmentsChange={() => undefined}
     completionSelection={selection} onCompletionSelectionChange={setSelection} completion={sources} {...props} />;
 }
@@ -81,7 +80,6 @@ beforeEach(() => {
   };
   changes = [];
   send = vi.fn(() => false);
-  cancel = vi.fn<() => void>();
   sources = {
     sid: 's1', history: ['请比较两个基线的结果'], wantFiles: vi.fn(),
     tasks: [{ id: 't2', title: '基线对比', objective: '', status: 'done', priority: 0, ts: 2 }],
@@ -212,23 +210,20 @@ describe('gray text from earlier messages', () => {
     expect(ghost()).toBeUndefined();
   });
 
-  it('dismisses with Esc without stopping anything, and the suggestion stays away as the typing follows it', () => {
+  it('dismisses with Esc, and the suggestion stays away as the typing follows it', () => {
     mount();
     type('请比较');
     expect(press('Escape').preventDefault).toHaveBeenCalled();
     expect(ghost()).toBeUndefined();
-    expect(cancel).not.toHaveBeenCalled();
     type('请比较两');
     expect(ghost()).toBeUndefined();
     expect(status().props.children).toBe('');
   });
 
-  it('stays away while a reply runs, so Esc still stops it', () => {
+  it('stays away while a reply runs', () => {
     mount({ pending: true });
     type('请比较');
     expect(ghost()).toBeUndefined();
-    press('Escape');
-    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('hides once the textarea loses focus, during composition, off the end of the text and when the textarea scrolls', () => {

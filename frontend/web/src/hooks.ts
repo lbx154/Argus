@@ -152,9 +152,7 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
   return {
     addTask: useMutation({ mutationFn: (text: string) => api.addTask(sid!, text), onSuccess: invalidate }),
     startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!, commandRevision), onSuccess: invalidate }),
-    stopDaemon: useMutation({ mutationFn: (drain: boolean) => api.stopDaemon(sid!, drain, commandRevision), onSuccess: invalidate }),
-    forceStopDaemon: useMutation({ mutationFn: () => api.stopDaemon(sid!, false, commandRevision, true), onSuccess: invalidate }),
-    pauseDaemon: useMutation({ mutationFn: () => api.stopDaemon(sid!, false, commandRevision, false, true), onSuccess: invalidate }),
+    stopDaemon: useMutation({ mutationFn: () => api.stopDaemon(sid!, commandRevision), onSuccess: invalidate }),
     updateProject: useMutation({
       mutationFn: (input: { sid: string; name: string }) =>
         api.updateProject(input.sid, input.name),

@@ -69,12 +69,12 @@ describe('one compact work-progress area', () => {
     expect(map).not.toContain('map-conversation-pending');
   });
 
-  it('does not repeat steps above the input and retains the stop control', () => {
+  it('does not repeat steps above the input, nor a stop of its own', () => {
     const html = renderToStaticMarkup(<ChatBox value="" onChange={() => undefined} onSend={() => true}
-      onCancel={() => undefined} pending disabled={false} attachments={[]} onAttachmentsChange={() => undefined}
+      pending disabled={false} attachments={[]} onAttachmentsChange={() => undefined}
       completionSelection={0} onCompletionSelectionChange={() => undefined} />);
     expect(html).not.toContain('turn-steps');
     expect(html).not.toContain('<ol');
-    expect(html).toContain('aria-label="Stop this reply"');
+    expect(html).not.toContain('Stop');
   });
 });

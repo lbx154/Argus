@@ -21,7 +21,7 @@ describe('pm trial fixes', () => {
   });
 
   it("the composer's placeholder says only whom the message goes to", () => {
-    const html = renderToStaticMarkup(<ChatBox value="" onChange={() => undefined} onSend={() => true} onCancel={() => undefined}
+    const html = renderToStaticMarkup(<ChatBox value="" onChange={() => undefined} onSend={() => true}
       disabled={false} pending={false} attachments={[]} onAttachmentsChange={() => undefined} completionSelection={0}
       onCompletionSelectionChange={() => undefined} />);
     expect(html).toContain('placeholder="Tell Argus…"');

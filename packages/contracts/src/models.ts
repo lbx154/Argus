@@ -34,7 +34,6 @@ export interface Daemon {
   draining?: boolean;
   /** Nothing is under way, and Resume has work to take up. */
   resumable?: boolean;
-  control_available?: boolean;
   liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
   heartbeat_age_seconds?: number | null;
   uptime_seconds: number | null;

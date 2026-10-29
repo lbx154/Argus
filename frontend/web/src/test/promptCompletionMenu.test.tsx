@@ -9,7 +9,7 @@ describe('prompt completion menu', () => {
     expect(completionMenu('/task write', null, undefined, (key) => key, 'en')).toBeNull();
     const html = renderToStaticMarkup(
       <ChatBox attachments={[]} onAttachmentsChange={() => {}} value="/task write" onChange={() => undefined}
-        onSend={() => false} onCancel={() => undefined} disabled={false} pending={false}
+        onSend={() => false} disabled={false} pending={false}
         completionSelection={0} onCompletionSelectionChange={() => undefined} />,
     );
     expect(html).not.toContain('role="listbox"');
@@ -18,7 +18,7 @@ describe('prompt completion menu', () => {
 
   it('keeps the file picker when no completion is active', () => {
     const html = renderToStaticMarkup(<ChatBox attachments={[]} onAttachmentsChange={() => {}} value="" onChange={() => undefined}
-      onSend={() => false} onCancel={() => undefined} disabled={false} pending={false} completionSelection={0} onCompletionSelectionChange={() => undefined} />);
+      onSend={() => false} disabled={false} pending={false} completionSelection={0} onCompletionSelectionChange={() => undefined} />);
     expect(html).toContain('type="file"');
     expect(html).toContain(`accept="${MESSAGE_ATTACHMENT_ACCEPT}"`);
     expect(MESSAGE_ATTACHMENT_ACCEPT).toContain('.zip');
@@ -30,7 +30,6 @@ describe('prompt completion menu', () => {
         value="ship it"
         onChange={() => undefined}
         onSend={() => false}
-        onCancel={() => undefined}
         disabled={false}
         pending={false}
         completionSelection={0}
@@ -46,20 +45,19 @@ describe('prompt completion menu', () => {
     expect(html).toMatch(/aria-checked="false"[^>]*>Chat</);
   });
 
-  it('keeps stop control but omits the synthetic quiet-progress row', () => {
+  it('shows no stop of its own, no Esc hint and no synthetic quiet-progress row', () => {
     const html = renderToStaticMarkup(
       <ChatBox attachments={[]} onAttachmentsChange={() => {}}
         value=""
         onChange={() => undefined}
         onSend={() => false}
-        onCancel={() => undefined}
         disabled={false}
         pending
         completionSelection={0}
         onCompletionSelectionChange={() => undefined}
       />,
     );
-    expect(html).toContain('Esc stops this reply');
+    expect(html).not.toMatch(/Esc|Stop/);
     expect(html).not.toContain('Argus is working on your message');
     expect(html).not.toContain('Still working; no new update');
   });

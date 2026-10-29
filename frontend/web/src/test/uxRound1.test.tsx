@@ -84,25 +84,19 @@ describe('plain error messages', () => {
   });
 });
 
-describe('pause lets the current task finish; stop now is separate', () => {
+describe('one Stop, in the header, while anything is under way', () => {
   const running = snapshot({
-    daemon: { alive: true, pid: 1, uptime_seconds: 10, backend: null, control_available: true },
+    daemon: { alive: true, pid: 1, uptime_seconds: 10, backend: null },
     backlog: [{ id: 'a', title: 'one', objective: 'one', status: 'running', priority: 1 }],
   });
 
-  it('offers a graceful pause and a separate stop-now control', () => {
-    const html = renderToStaticMarkup(<TopBar snap={running} streamOk onStart={() => undefined} onStop={() => undefined}
-      onPause={() => undefined} onManage={() => undefined} busy={false} />);
-    expect(html).toContain('aria-label="暂停团队"');
-    expect(html).toContain('aria-label="立即停止"');
-  });
-
-  it('shows the finishing state while a pause is pending', () => {
-    const draining = { ...running, daemon: { ...running.daemon, draining: true } };
-    const html = renderToStaticMarkup(<TopBar snap={draining} streamOk onStart={() => undefined} onStop={() => undefined}
-      onPause={() => undefined} onManage={() => undefined} busy={false} />);
-    expect(html).toContain('正在收尾');
-    expect(html).toContain('aria-label="立即停止"');
+  it('offers Stop while the team works or a reply is awaited, and neither pause nor resume', () => {
+    const header = (snap: Snapshot, pending = false) => renderToStaticMarkup(<TopBar snap={snap} streamOk onStart={() => undefined}
+      onStop={() => undefined} pending={pending} onManage={() => undefined} busy={false} />);
+    for (const html of [header(running), header({ ...running, daemon: { ...running.daemon, alive: false } }, true)]) {
+      expect(html.match(/data-stop-work/g)).toHaveLength(1);
+      expect(html).not.toMatch(/暂停|立即停止|data-resume-work/);
+    }
   });
 });
 

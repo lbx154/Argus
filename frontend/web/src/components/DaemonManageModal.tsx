@@ -10,12 +10,10 @@ export function DaemonManageModal({
   name,
   alive,
   resumable,
-  controlAvailable = true,
   busy,
   onClose,
   onRename,
   onStart,
-  onStop,
   onDelete,
   snapshot,
 }: {
@@ -25,12 +23,10 @@ export function DaemonManageModal({
   alive: boolean;
   /** Nothing is under way, and Resume has work to take up. */
   resumable: boolean;
-  controlAvailable?: boolean;
   busy: boolean;
   onClose: () => void;
   onRename: (name: string) => Promise<boolean>;
   onStart: () => Promise<boolean>;
-  onStop: () => Promise<boolean>;
   onDelete: () => Promise<boolean>;
   /** Run details (cost, calls) live here, out of the top bar. */
   snapshot?: Snapshot | null;
@@ -40,13 +36,13 @@ export function DaemonManageModal({
   const spend = snapshot ? spendEstimateLabel({ spendUsd: typeof snapshot.spend_usd === 'number' ? snapshot.spend_usd : null, spendStatus: snapshot.spend_status }, zh) : '';
   const [draftName, setDraftName] = useState(name);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [stoppedLocally, setStoppedLocally] = useState(false);
+  const [resumed, setResumed] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraftName(name);
       setConfirmDelete(false);
-      setStoppedLocally(false);
+      setResumed(false);
     }
   }, [open, name, sid]);
 
@@ -54,15 +50,6 @@ export function DaemonManageModal({
     event.preventDefault();
     await onRename(draftName.trim());
   };
-  const effectiveAlive = alive && !stoppedLocally;
-  const toggleExecutor = async () => {
-    if (effectiveAlive) {
-      if (await onStop()) setStoppedLocally(true);
-      return;
-    }
-    if (await onStart()) setStoppedLocally(false);
-  };
-
   return (
     <Modal open={open} onClose={() => !busy && onClose()} label={t('manage.daemon')} width="max-w-lg">
       <div className="modal-header">
@@ -98,28 +85,20 @@ export function DaemonManageModal({
         </label>
       </form>
 
-      {effectiveAlive || resumable ? <div className="border-b border-line px-6 py-5">
+      {resumable && !resumed ? <div className="border-b border-line px-6 py-5">
         <div className="text-xs font-medium text-ink-faint">{t('manage.executor')}</div>
         <div className="mt-2 flex items-center justify-between gap-4">
           <div>
-            <div className="text-sm text-ink">{effectiveAlive ? (controlAvailable ? t('manage.running') : t('manage.runningExternally')) : t('manage.paused')}</div>
-            <p className="mt-0.5 text-[11px] text-ink-faint">
-              {effectiveAlive
-                ? controlAvailable
-                  ? t('manage.stopNowHint')
-                  : t('manage.externalHint')
-                : t('manage.resumeHint')}
-            </p>
+            <div className="text-sm text-ink">{t('manage.paused')}</div>
+            <p className="mt-0.5 text-[11px] text-ink-faint">{t('manage.resumeHint')}</p>
           </div>
           <button
             type="button"
-            disabled={busy || !controlAvailable}
-            onClick={() => void toggleExecutor()}
-            className={`rounded border px-3 py-1.5 text-xs disabled:cursor-wait disabled:opacity-50 ${
-              effectiveAlive ? 'border-line text-ink hover:bg-sunken' : 'border-ink bg-ink text-surface hover:bg-ink/85'
-            }`}
+            disabled={busy}
+            onClick={() => void onStart().then(started => setResumed(started))}
+            className="rounded border border-ink bg-ink px-3 py-1.5 text-xs text-surface hover:bg-ink/85 disabled:cursor-wait disabled:opacity-50"
           >
-            {busy ? t('manage.working') : !controlAvailable ? t('common.external') : effectiveAlive ? t('manage.stopNow') : t('manage.resume')}
+            {busy ? t('manage.working') : t('manage.resume')}
           </button>
         </div>
       </div> : null}
@@ -132,7 +111,7 @@ export function DaemonManageModal({
         {!confirmDelete ? (
           <button
             type="button"
-            disabled={busy || effectiveAlive}
+            disabled={busy || alive}
             onClick={() => setConfirmDelete(true)}
             className="mt-3 rounded border border-err/40 px-3 py-1.5 text-xs text-err hover:bg-err/10 disabled:cursor-not-allowed disabled:opacity-40"
           >

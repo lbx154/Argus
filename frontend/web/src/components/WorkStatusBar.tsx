@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import type { EventMsg, MissionView, Snapshot } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
-import { PHASE_TONE, TeamPauseButton, teamPhase } from './TeamControls';
+import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { isFreshProject } from '../lib/workStatus';
 
 /** Shared, factual status for the conversation and its progress panel. */
-export function WorkStatusBar({ snapshot, view, events = [], connected, compact = false, onPauseTeam, onResumeTeam, teamBusy }: {
+export function WorkStatusBar({ snapshot, view, events = [], connected, compact = false, pending, onStopWork, onResumeTeam, teamBusy }: {
   snapshot?: Snapshot; view?: MissionView | null; events?: EventMsg[]; connected: boolean; compact?: boolean;
-  onPauseTeam?: () => void; onResumeTeam?: () => void; teamBusy?: boolean;
+  /** A message sent is waiting for its reply. */
+  pending?: boolean; onStopWork?: () => void; onResumeTeam?: () => void; teamBusy?: boolean;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -48,8 +49,8 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
         {untouched ? (zh ? '等你开始' : 'Waiting for you to start') : label}{compact && status.title && phase === 'running' && !label.includes(shortTitle) ? ` · ${status.title}` : ''}
       </span>
       {age ? <time className="text-ink-faint" dateTime={status.activityAt ? new Date(status.activityAt * 1000).toISOString() : undefined}>{age}</time> : null}
-      {snapshot && (onPauseTeam || onResumeTeam) ? <TeamPauseButton snapshot={snapshot} locale={locale} onPause={onPauseTeam} onResume={onResumeTeam} busy={teamBusy}
-        className="ml-auto rounded-md border border-line px-2 py-0.5 text-ink-dim hover:bg-sunken hover:text-ink disabled:opacity-50" /> : null}
+      {snapshot && onStopWork && onResumeTeam ? <RunControl snapshot={snapshot} pending={pending} onStop={onStopWork} onResume={onResumeTeam} busy={teamBusy}
+        className="ml-auto flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-ink-dim hover:bg-sunken hover:text-ink disabled:opacity-50" /> : null}
     </div>
     {!connected ? <p className="mt-1 pl-[15px] leading-5 text-ink-faint">{zh ? '连接恢复后继续更新。' : 'Updates resume when the connection returns.'}</p>
       : !compact && status.title ? <p className="mt-1 line-clamp-2 pl-[15px] leading-5 text-ink-dim" title={status.title}>{status.title}</p> : null}

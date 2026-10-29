@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { EventMsg } from '../api';
 import {
+  dropOptimisticManagerReply,
   durableMessageId,
   mergeConversationEvents,
   mergeOptimisticManagerReply,
@@ -45,6 +46,13 @@ describe('optimistic Manager conversation', () => {
     expect(mergeConversationEvents([asked, brief], [], replied)).toEqual([asked, brief]);
     // Before the stream has the reply, the page shows it as the record will.
     expect(mergeConversationEvents([asked], [], replied)).toEqual([asked, { ...brief, local_request_id: 1 }]);
+  });
+
+  it('a turn that ended without a reply, stopped or failed, leaves what the record has', () => {
+    const operator = optimisticOperatorEvent('s', 1, '分三个任务做', 9_000);
+    const waiting = mergeOptimisticManagerSteps([operator], 's', 1, [], 9_500, true);
+    expect(dropOptimisticManagerReply(waiting, 1)).toEqual([operator]);
+    expect(mergeConversationEvents([asked], [], dropOptimisticManagerReply(waiting, 1))).toEqual([asked]);
   });
 
   it('does not hide a repeated new greeting behind an old one', () => {

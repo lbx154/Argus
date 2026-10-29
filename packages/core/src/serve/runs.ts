@@ -87,7 +87,11 @@ export class Runs {
     try {
       const handoff = await this.start(id, flow => flow.say(id, text, controller.signal));
       if (controller.signal.aborted) return { type: 'done', result: { kind: 'cancelled', reply: null } };
-      if (!handoff) return { type: 'error', error: this.store.load(id).error ?? 'The Manager did not answer.' };
+      // A turn that failed says why; one the work's stop cut off ends, its message waiting for Resume.
+      if (!handoff) {
+        const { error } = this.store.load(id);
+        return error ? { type: 'error', error } : { type: 'done', result: { kind: 'stopped', reply: null } };
+      }
       // The reply is its row in the record, as the conversation shows it: whom it is to, the message it answers.
       const event = webEvents(readEvents(this.store, id)).filter(row => row.type === 'ui.argus').at(-1);
       send({ type: 'delta', event });
