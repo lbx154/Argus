@@ -469,3 +469,15 @@ def test_a_signed_out_page_returns_to_the_login(config, ledger):
     script = client.get('/trial-quota.js').text
     assert "r.status===401" in script and "location.assign('/login')" in script
     assert client.get('/', follow_redirects=False).headers['location'].endswith('/login')
+
+
+def test_a_tenant_runs_as_many_projects_at_once_as_configured(config, tmp_path):
+    config.update(source=str(tmp_path / 'source'), python_runtime=str(tmp_path / 'python'),
+                  venv=str(tmp_path / 'venv'), node_runtime=str(tmp_path / 'node'),
+                  meter_runtime=str(tmp_path / 'meter'), copilot_package=str(tmp_path / 'public-package'))
+    config['tenants']['alice']['directory'] = str(tmp_path / 'alice')
+    def daemons(cmd):
+        return cmd[cmd.index('ARGUS_SKILL_MAX_ACTIVE_DAEMONS') + 1]
+    assert daemons(sandbox_command(config, 'alice')) == '1'
+    config['limits'] = {'daemons': 3}
+    assert daemons(sandbox_command(config, 'alice')) == '3'

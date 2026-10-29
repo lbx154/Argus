@@ -57,12 +57,14 @@ def sandbox_command(config: dict, tenant: str, command: list[str] | None = None)
         "HTTP_PROXY": "http://127.0.0.1:9012", "HTTPS_PROXY": "http://127.0.0.1:9012",
         "http_proxy": "http://127.0.0.1:9012", "https_proxy": "http://127.0.0.1:9012",
         "NO_PROXY": "localhost,127.0.0.1", "no_proxy": "localhost,127.0.0.1",
-        "ARGUS_SKILL_MAX_ACTIVE_DAEMONS": "1", "ARGUS_SKILL_RESEARCH_BUDGET": "2",
+        "ARGUS_SKILL_RESEARCH_BUDGET": "2",
         "ARGUS_SKILL_MANAGER_WARM_CONTEXT_LIMIT": "2",
         "ARGUS_SKILL_MANAGER_WARM_CONTEXT_IDLE_SECONDS": "180",
     }
     for role in ("ENGINEER", "REVIEWER", "PLANNER", "MANAGER", "LIGHT"):
         env[f"ARGUS_SKILL_{role}_MODEL"] = MODEL
+    # How many of one tenant's projects may run at once (preview.json limits.daemons).
+    env["ARGUS_SKILL_MAX_ACTIVE_DAEMONS"] = str(int((config.get("limits") or {}).get("daemons", 1)))
     for key, value in env.items():
         args.extend(("--setenv", key, value))
     args.extend(("--chdir", "/tenant/workspace", "--"))

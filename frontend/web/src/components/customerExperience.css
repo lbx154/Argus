@@ -39,7 +39,7 @@
 .sidebar-more > summary { list-style: none; cursor: pointer; }
 .sidebar-more > summary::-webkit-details-marker { display: none; }
 .sidebar-more[open] > summary { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
-.sidebar-more-menu { position: absolute; z-index: 60; right: 0; bottom: calc(100% + 6px); display: flex; align-items: center; gap: 2px; padding: 4px; border: 1px solid rgb(var(--line)); border-radius: 10px; background: rgb(var(--panel-raised)); box-shadow: var(--shadow-lift); animation: appear 160ms cubic-bezier(.4, 0, .2, 1); }
+.sidebar-more-menu { position: absolute; z-index: 60; right: 0; bottom: calc(100% + 6px); display: flex; flex-direction: column; align-items: stretch; min-width: 168px; gap: 2px; padding: 4px; border: 1px solid rgb(var(--line)); border-radius: 10px; background: rgb(var(--panel-raised)); box-shadow: var(--shadow-lift); animation: appear 160ms cubic-bezier(.4, 0, .2, 1); }
 .sidebar-settings-hint { flex-basis: 100%; padding: 4px; color: rgb(var(--ink-dim)); font-size: 12px; line-height: 20px; }
 @media (max-width: 600px) {
   .landing-page { justify-content: flex-start; gap: 16px; padding: 76px 20px 32px; }
