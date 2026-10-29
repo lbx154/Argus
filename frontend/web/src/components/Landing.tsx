@@ -1,3 +1,5 @@
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faBars } from '@fortawesome/free-solid-svg-icons';
 import { BackendHandshake } from './BackendHandshake';
 import { Button } from './primitives';
 import { useI18n } from '../i18n';
@@ -41,7 +43,8 @@ export function Landing({
   return (
     <div className="landing-page">
       <div className="landing-navigation lg:hidden">
-        <Button onClick={onChoose}>{t('landing.menu')}</Button>
+        {/* The project list opens from the same mark as on a project's page. */}
+        <Button onClick={onChoose} aria-label={t('topbar.openSessions')} title={t('topbar.openSessions')}><FontAwesomeIcon icon={faBars} className="h-4 w-4" /></Button>
       </div>
       {loading ? <BackendHandshake /> : (
         <>
@@ -73,7 +76,7 @@ export function Landing({
           <span>{locale === 'zh-CN' ? '工作目录' : 'Folder'}</span>
           <input value={workdir} onChange={event => setWorkdir(event.target.value)} list="landing-workdirs" disabled={creating}
             spellCheck={false} autoComplete="off"
-            placeholder={locale === 'zh-CN' ? '新建；也可以填服务器上已有的目录' : 'A new one, or a directory on the server'} />
+            placeholder={locale === 'zh-CN' ? '留空则新建；可填服务器上的路径，没有就创建' : 'Blank for a new folder, or a path on the server, made if missing'} />
           <datalist id="landing-workdirs">{workdirs.map(path => <option key={path} value={path} />)}</datalist>
         </label>
       </div>}
