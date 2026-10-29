@@ -196,7 +196,7 @@ export interface ConversationRevision {
 }
 export function ConversationEditor({ sid, target, onClose, onCompose }: {
   sid: string; target: ConversationRevision; onClose: () => void;
-  onCompose: (text: string, target: ConversationRevision) => void;
+  onCompose: (text: string, target: ConversationRevision, sendNow: boolean) => void;
 }) {
   const zh = useI18n().locale === 'zh-CN';
   const query = useQuery({ queryKey: ['editions', sid, 'conversation', target.source], queryFn: () => api.editions(sid, 'conversation', target.source), refetchOnWindowFocus: false });
@@ -221,10 +221,18 @@ export function ConversationEditor({ sid, target, onClose, onCompose }: {
         <h3>{zh ? '对应回答' : 'Recorded answer'}</h3>
         <MarkdownContent>{edition?.content || target.answer}</MarkdownContent>
       </section>}
-      <Button variant="primary" disabled={!prompt.trim() || query.isPending || query.isError}
-        onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 })}>
-        {target.mode === 'regenerate' ? zh ? '准备重新回答（仅对话）' : 'Prepare another answer (chat only)' : zh ? '放入对话草稿' : 'Put in chat draft'}
-      </Button>
+      {/* The primary action sends: a revision the reader has already edited
+          here should not wait for a second Send in the composer. */}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="primary" disabled={!prompt.trim() || query.isPending || query.isError}
+          onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 }, true)}>
+          {target.mode === 'regenerate' ? zh ? '重新回答（仅对话）' : 'Answer again (chat only)' : zh ? '发送修改后的问题' : 'Send the revised question'}
+        </Button>
+        <Button disabled={!prompt.trim() || query.isPending || query.isError}
+          onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 }, false)}>
+          {zh ? '放进输入框再改' : 'Put in the composer to edit'}
+        </Button>
+      </div>
     </div>
   </Modal>;
 }
