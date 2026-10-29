@@ -26,7 +26,7 @@ const fixture = vi.hoisted(() => {
     idle,
     index: { ...idle, data: { projects: [] as unknown[], local_cwd: '/synthetic' } },
     snapshots: new Map<string, typeof idle & { data?: unknown; error?: Error }>(),
-    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'forceStopDaemon', 'pauseDaemon', 'updateProject', 'deleteProject', 'disposeBacklog', 'stopBacklog', 'setContinuous'].map(key => [key, mutation])),
+    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'forceStopDaemon', 'pauseDaemon', 'updateProject', 'deleteProject', 'setContinuous'].map(key => [key, mutation])),
     turns: [] as unknown[],
     events: [],
     artifacts: [],
@@ -38,7 +38,6 @@ vi.mock('../hooks', async importOriginal => ({
   useProjectCosts: () => fixture.idle,
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
-  useJournal: () => fixture.idle,
   useTranscript: () => ({ ...fixture.idle, data: fixture.turns }),
   useEventStream: () => ({ events: fixture.events, connected: true }),
   useProjectActions: () => fixture.actions,
@@ -296,6 +295,19 @@ describe('App session composer ownership', () => {
     type(''); type(text);
     await act(async () => rewrite.resolve({ original: 'same text', rewritten: 'stale rewrite', changes: [], questions: [], error: '' }));
     expect(props().value).toBe(text);
+  });
+
+  it.each([
+    ['the server', 'The Manager wrote no rewrite.', async () => ({ original: 'draft', rewritten: 'draft', changes: [], questions: [], error: 'The Manager wrote no rewrite.' })],
+    ['the network', 'connection reset', async () => { throw new Error('connection reset'); }],
+  ])('says why a rewrite failed when %s says so, and leaves the draft as it was', async (_, reason, outcome) => {
+    vi.spyOn(api, 'rewritePrompt').mockImplementation(outcome);
+    type('draft');
+    await act(async () => props().onRewrite!('draft'));
+    expect(props().value).toBe('draft');
+    const notice = JSON.stringify(renderer.toJSON());
+    expect(notice).toContain("Couldn't rewrite it this time; your text is unchanged.");
+    expect(notice).toContain(reason);
   });
 
   it('keeps the same draft on map/activity changes and resets only the existing route override on project changes', async () => {

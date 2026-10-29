@@ -415,27 +415,23 @@ export default function App() {
     if (!body || !sid) return;
     const operation = beginRewrite(sid);
     if (!operation) return;
+    const zh = locale === 'zh-CN';
+    /** The draft stays as it was; the notice says why, as the server or the network put it. */
+    const failed = (reason: string) => {
+      if (!finishRewrite(operation) || sidRef.current !== sid) return;
+      notify('error', `${zh ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged."}${reason ? `${zh ? '原因：' : ' Reason: '}${reason}` : ''}`);
+    };
     void api.rewritePrompt(sid, body).then(
       (result) => {
-        if (result.error || !result.rewritten.trim()) {
-          if (finishRewrite(operation) && sidRef.current === sid) {
-            notify('error', locale === 'zh-CN' ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged.");
-          }
-          return;
-        }
+        if (result.error || !result.rewritten.trim()) return failed(result.error);
         if (!finishRewrite(operation, result.rewritten) || sidRef.current !== sid) return;
         setComposerFocus((x) => x + 1);
-        const zh = locale === 'zh-CN';
         const open = result.questions.length
           ? `${zh ? ' 还想跟你确认：' : ' One thing to check: '}${result.questions.join(' · ')}`
           : '';
         notify('success', `${zh ? '改写好了，看一下再发送。' : 'Rewritten. Have a look, then send.'}${open}`);
       },
-      () => {
-        if (finishRewrite(operation) && sidRef.current === sid) {
-          notify('error', locale === 'zh-CN' ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged.");
-        }
-      },
+      (error) => failed(errorText(error)),
     );
   }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
