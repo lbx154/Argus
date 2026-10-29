@@ -1,9 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { ModelPicker } from './ModelPicker';
-import { useConfig, useTranscript } from '../hooks';
+import { useConfig } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
 import { Spinner, EmptyHint } from './primitives';
-import { ago } from '../lib/format';
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
@@ -148,36 +147,5 @@ export function ConfigModal({
     </Modal>
     <ModelPicker sid={sid} open={open && pickerOpen} onClose={() => setPickerOpen(false)} />
     </>
-  );
-}
-
-/** Transcript: recent operator↔argus turns for replay/resume. Reply via the
- *  composer — this pane is read-only history. */
-export function TranscriptModal({ sid, open, onClose }: { sid: string; open: boolean; onClose: () => void }) {
-  const { t } = useI18n();
-  const { data, isLoading } = useTranscript(sid, open);
-  const turns = data ?? [];
-  return (
-    <Modal open={open} onClose={onClose} label={t('transcript.title')} width="max-w-2xl">
-      <ModalHeader title={t('transcript.title')} sub={t('transcript.subtitle')} />
-      <div className="max-h-[64vh] overflow-y-auto scroll-thin p-4">
-        {isLoading && <div className="flex justify-center py-8"><Spinner /></div>}
-        {!isLoading && turns.length === 0 && <EmptyHint>{t('transcript.empty')}</EmptyHint>}
-        {turns.map((turn, i) => {
-          const me = turn.role === 'operator';
-          return (
-            <div key={i} className="grid grid-cols-[72px_minmax(0,1fr)] border-b border-line/50 py-2.5 last:border-b-0">
-              <div>
-                <div className={`font-mono text-[10px] font-semibold uppercase tracking-wide ${me ? 'text-ink-faint' : 'text-blue-sky'}`}>
-                  {me ? t('transcript.operator') : 'argus'}
-                </div>
-                <div className="mt-0.5 text-[9px] text-ink-faint">{ago(turn.ts)}</div>
-              </div>
-              <div className="whitespace-pre-wrap text-sm leading-relaxed text-ink-dim">{turn.text}</div>
-            </div>
-          );
-        })}
-      </div>
-    </Modal>
   );
 }

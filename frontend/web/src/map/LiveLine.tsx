@@ -3,6 +3,7 @@ import { elapsedLabel } from "./alive";
 import { roleActionLabel } from '../lib/taskLanguage';
 import { roleLabel } from '../lib/enumLabels';
 import { useI18n } from '../i18n';
+import { MarkdownExcerpt } from '../components/MarkdownExcerpt';
 import type { MapTask } from './model';
 
 /** One quiet sentence on the card being worked on right now: who is at it and
@@ -27,19 +28,20 @@ export function LiveLine({ role, since, zh }: { role?: string; since?: number | 
   );
 }
 
-/** Who holds the task while it is open, and the latest thing done on it. */
+/** The latest thing said on the task, and who holds it while it is open when
+ * that is someone else. */
 export function CardNow({ task, zh }: { task: MapTask; zh: boolean }) {
   const { t } = useI18n();
-  const action = task.latest_action;
-  const holder = task.status === 'done' ? undefined : task.role;
-  if (!holder && !action) return null;
+  const said = task.latest_action;
+  const holder = task.status === 'done' || task.role === said?.role ? undefined : task.role;
+  if (!holder && !said) return null;
   return (
     <div className="map-card-now" data-testid="map-card-now">
       {holder ? <p className="map-card-said" data-testid="map-card-owner">
         {zh ? '负责人：' : 'Owner: '}{roleLabel(holder, t)}
       </p> : null}
-      {action ? <p className={action.kind === 'command' ? 'map-card-running' : 'map-card-said'} data-testid="map-card-action" title={action.text}>
-        <b>{roleLabel(action.role, t)}：</b>{action.text}
+      {said ? <p className="map-card-said" data-testid="map-card-action" title={said.text}>
+        <b>{roleLabel(said.role, t)}：</b><MarkdownExcerpt>{said.text}</MarkdownExcerpt>
       </p> : null}
     </div>
   );

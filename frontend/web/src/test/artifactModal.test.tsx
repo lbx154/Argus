@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { ArtifactModal } from '../components/ArtifactModal';
+import { Modal } from '../components/Modal';
 import { PdfPreview } from '../components/PdfPreview';
 import { loadPdfEngine } from '../lib/pdfEngine';
 
@@ -36,6 +37,22 @@ it.each([
   } as unknown as DeliveryReceipt;
   act(() => { tree = create(<ArtifactModal sid="s" path={null} delivery={delivery} onClose={() => {}} />); });
   expect(tree!.root.findAllByType('h2').map(node => node.children.join(''))).toContain(heading);
+});
+
+it('takes a full-screen preview back to the dialog on Esc, and closes the dialog on the next', () => {
+  const onClose = vi.fn();
+  const delivery = {
+    schema_version: 1, delivery_id: 'd1', kind: 'task_completed', item_id: '', title: 'Page', status: 'done', review_status: '', delivered_at: 1, summary: '',
+    targets: [{ path: 'index.html', label: 'index.html', source: 'manager', why: '' }], primary_target: null,
+  } as unknown as DeliveryReceipt;
+  act(() => { tree = create(<ArtifactModal sid="s" path="index.html" delivery={delivery} onClose={onClose} />); });
+  act(() => tree!.root.findByProps({ 'aria-label': 'Full screen preview' }).props.onClick());
+  const escape = () => act(() => tree!.root.findByType(Modal).props.onClose());
+  escape();
+  expect(onClose).not.toHaveBeenCalled();
+  expect(tree!.root.findAllByProps({ 'aria-label': 'Full screen preview' })).toHaveLength(1);
+  escape();
+  expect(onClose).toHaveBeenCalledOnce();
 });
 
 it('loads a PDF again when its preview is retried', async () => {

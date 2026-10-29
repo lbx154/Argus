@@ -95,23 +95,21 @@ describe("macro card copy", () => {
     })} />);
     expect(markup).toContain("Paused · the project reached its budget limit");
   });
-  it("does not present the last small edit as the outcome of the whole task", () => {
-    const completed = { ...task, status: "done", objective: "Build a reusable date workflow" };
+  it("says under the title only who holds the task and what was last said, not its objective or a step's summary", () => {
+    const completed = { ...task, status: "done", objective: "Build a reusable date workflow",
+      latest_action: { role: "reviewer", text: "Accepted the workflow.", ts: 1 } };
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([
       step("last-edit", { summary: "Removed a fingerprint from one footnote" }),
     ], { task: completed, part: 2, partCount: 2, live: false })} />);
-    expect(markup).toContain("Build a reusable date workflow");
-    expect(markup).not.toContain('class="map-card-copy"');
+    const summary = markup.slice(0, markup.indexOf('class="macro-detail'));
+    expect(summary).toContain("Accepted the workflow.");
+    expect(summary).not.toContain("Build a reusable date workflow");
+    expect(summary).not.toContain("Removed a fingerprint from one footnote");
     expect(markup).toContain("Removed a fingerprint from one footnote"); // retained inside execution history
-    expect(markup.match(/Build a reusable date workflow/g)).toHaveLength(2); // text plus title tooltip
   });
   it("keeps an explanation that may claim too much off an ended card, and says the state once", () => {
     const ended = { ...task, status: "done", objective: "Implement and execute downstream long-context evaluation" };
     const scope = "This execution ended; the overall goal is not complete yet.";
-    const bare = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], { task: ended, live: false, completionScope: scope })} />);
-    // Nothing written yet: the planner's specification and the scope sentence stand in.
-    expect(bare).toContain('class="map-card-objective"');
-    expect(bare).toContain(scope);
     const written = renderToStaticMarkup(<MacroTaskNode {...propsFor([step("s1")], {
       task: ended, live: false, completionScope: scope,
       // An explanation written before the execution ended may claim more than happened.
@@ -128,24 +126,13 @@ describe("macro card copy", () => {
     })} />);
     expect(markup).toContain("How many lines is the README?");
   });
-  it("keeps yesterday's summary when the status drifted and hints at the refresh", () => {
+  it("leaves a written summary off the card, whose way in reads the same whatever the summary's age", () => {
     const markup = renderToStaticMarkup(
       <MacroTaskNode
         {...propsFor([step("s1")], { copy: copyFor("Yesterday we ruled out the leak.", "done") })}
       />,
     );
-    expect(markup).toContain("Yesterday we ruled out the leak.");
-    expect(markup).not.toContain("Zoom to explore");
-    expect(markup).toContain("Summary updating");
-  });
-  it("shows the plain progress hint when the copy matches the live status", () => {
-    const markup = renderToStaticMarkup(
-      <MacroTaskNode
-        {...propsFor([step("s1")], { copy: copyFor("Fresh summary of the round.", "running") })}
-      />,
-    );
-    expect(markup).toContain("Fresh summary of the round.");
-    expect(markup).not.toContain("Summary updating");
+    expect(markup).not.toContain("Yesterday we ruled out the leak.");
     expect(markup).toContain("View progress");
   });
   it("uses the unified fallback for the step card and the reader", () => {
@@ -171,7 +158,7 @@ describe("macro card copy", () => {
         )}
       />,
     );
-    const body = markup.slice(markup.indexOf("map-card-copy"), markup.indexOf("map-card-stages"));
+    const body = markup.slice(markup.indexOf("map-card-state"), markup.indexOf("map-card-course"));
     expect(body).toContain("Real measured progress.");
     expect(body).not.toContain("Nothing has been written down for this step yet.");
   });

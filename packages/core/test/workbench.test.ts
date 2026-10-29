@@ -127,6 +127,19 @@ test('the results listed are the newest files, however many the workdir has', as
   assert.deepEqual(artifacts.map(row => row.path), newest);
 });
 
+test('the results listed are what the project delivered and changed, not what its repository ignores', async t => {
+  const { store, project, get } = await setup(t, {
+    '.gitignore': 'dist/\nout/\n', 'dist/index.js': 'built', 'src/index.js': 'source', 'out/report.md': '# Report', 'docs/old.md': 'old',
+  });
+  execFileSync('git', ['init', '-q'], { cwd: project.workdir });
+  // docs/old.md predates the project; out/report.md does too, and git ignores it, but it was delivered.
+  const before = Date.parse(project.created) / 1000 - 60;
+  for (const path of ['docs/old.md', 'out/report.md']) await utimes(join(project.workdir, path), before, before);
+  store.save({ ...project, delivered: { 'out/report.md': [] } });
+  const { artifacts } = await get<{ artifacts: { path: string }[] }>(`/api/projects/${project.id}/artifacts`);
+  assert.deepEqual(artifacts.map(row => row.path), ['out/report.md', 'src/index.js']);
+});
+
 test('an HTML result is previewed as one page, its local files inlined, that can reach nothing', async t => {
   const files = {
     'site/index.html': '<!doctype html><html><head><link rel="stylesheet" href="style.css?v=1"><script src="app.js"></script>'
@@ -287,6 +300,7 @@ test('a task in full, a role\'s letters to download, and a search of every proje
   store.append(id, { type: 'handoff', role: 'engineer', task: 't1', to: 'reviewer', letter: 'chart.png drawn from sales.csv' });
   end('reviewer', 't1', null);
   store.append(id, { type: 'handoff', role: 'reviewer', task: 't1', to: 'manager', letter: 'The chart matches the data.' });
+  store.append(id, { type: 'handoff', role: 'planner', to: 'manager', letter: 'Totals:\n\n| region | sales |\n| - | - |\n| north | 4 |\n\nDone.' });
   store.append(id, { type: 'task.closed', task: 't1' });
   store.append(id, { type: 'task.added', task: years });
   end('engineer', 't2', 'codex exited with code 1');
@@ -325,6 +339,10 @@ test('a task in full, a role\'s letters to download, and a search of every proje
     [id, 'project', 'engineer', 'chart.png drawn from sales.csv'],
   ]);
   assert.equal(results[1]!.message_id, 'm0-operator');
+  // A project is named as the project list names it; a match is quoted with the table it is in, whole.
+  assert.equal(results[0]!.title, 'Sales chart');
+  assert.equal((await get<{ results: { snippet: string }[] }>('/api/search?q=north')).results[0]!.snippet,
+    '| region | sales |\n| - | - |\n| north | 4 |');
   assert.equal((await call('/api/search?q=%20')).status, 422);
 });
 

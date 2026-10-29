@@ -18,7 +18,7 @@ const roles: Role[] = [
 
 describe('composer runtime information', () => {
   it('shows the active role backend/model and returns to the manager when stopped', () => {
-    config = { backends };
+    config = { backends, roles: [] };
     const active = renderToStaticMarkup(<ComposerRuntime sid="s-test" roles={roles} running />);
     expect(active).toContain('engineer-model');
     expect(active).toContain('Claude Code');
@@ -45,14 +45,22 @@ describe('composer runtime follows the real calls', () => {
     expect(html).toContain('called-model');
     expect(html).toContain('medium');
     expect(html).not.toContain('engineer-model');
-    expect(html).not.toContain('data-runtime-next');
+    expect(html).not.toContain('data-runtime-earlier');
   });
 
-  it('says what the next call will use right after settings change', () => {
+  it('names the model just chosen at once, and the one a turn under way keeps', () => {
     config = { roles: configRoles('applied-model', 'claude'), backends } as typeof config;
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} />);
-    expect(html).toContain('called-model');
-    expect(html).toMatch(/next call: Claude Code · applied-model/);
+    expect(html).toMatch(/class="composer-model-name">applied-model</);
+    expect(html).toMatch(/this turn: called-model/);
+    expect(renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} lastCall={lastCall} />)).not.toContain('called-model');
+  });
+
+  it('names what Automatic came to from the latest call', () => {
+    config = { roles: configRoles('') } as typeof config;
+    const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} />);
+    expect(html).toMatch(/class="composer-model-name">called-model</);
+    expect(html).not.toContain('data-runtime-earlier');
   });
 
   it('matches the call to the role that made it, not to the manager by default', () => {
@@ -65,7 +73,7 @@ describe('composer runtime follows the real calls', () => {
     const call = { ...lastCall, run_label: 'self-implement', role: 'engineer' };
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={call} />);
     expect(html).toContain('called-model');
-    expect(html).not.toContain('data-runtime-next');
+    expect(html).not.toContain('data-runtime-earlier');
   });
 
   it('does not present a call from days ago as what the project runs on now', () => {
@@ -73,8 +81,8 @@ describe('composer runtime follows the real calls', () => {
     const old = { ...lastCall, backend: 'pi', model: 'old-model', ts: now() - 12 * 86400 };
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running={false} lastCall={old} />);
     expect(html).not.toContain('old-model');
-    expect(html).not.toContain('data-runtime-next');
-    expect(html).toContain('manager-model');
+    expect(html).not.toContain('data-runtime-earlier');
+    expect(html).toContain('applied-model');
   });
 
   it('opens the model chooser when clicked, which leads on to the settings', () => {

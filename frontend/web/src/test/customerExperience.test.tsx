@@ -64,9 +64,10 @@ describe('starting and revisiting work', () => {
   it('lets a narrow-screen search reader return to results without opening a project', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('window', Object.assign(new EventTarget(), { localStorage, setTimeout, clearTimeout }));
-    const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, snippet: 'Needle excerpt', text: 'Full recorded answer' };
+    const result = { sid: 's-A', title: 'Matching project', kind: 'conversation' as const, snippet: 'Needle in `code`', text: 'Full recorded answer' };
+    const request = { ...result, kind: 'project' as const, snippet: 'Find the **Needle**', text: 'Find the Needle' };
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
-    client.setQueryData(['history-search', 'Needle'], { results: [result], partial: false, errors: [] });
+    client.setQueryData(['history-search', 'Needle'], { results: [request, result], partial: false, errors: [] });
     const onChoose = vi.fn();
     const onClose = vi.fn();
     try {
@@ -75,13 +76,17 @@ describe('starting and revisiting work', () => {
         view.root.findByProps({ type: 'search' }).props.onChange({ target: { value: 'Needle' } });
       });
       await act(async () => { await vi.advanceTimersByTimeAsync(350); });
-      act(() => button('Matching project').props.onClick());
+      // The project is named once over its results, which read without Markdown's marks.
+      expect(view.root.findAllByProps({ className: 'search-project' }).map(text)).toEqual(['Matching project']);
+      expect(text(view.root)).toContain('Needle in code');
+      expect(text(view.root)).not.toContain('`');
+      act(() => button('Needle in code').props.onClick());
       expect(text(view.root)).toContain('Full recorded answer');
       act(() => button('返回搜索结果').props.onClick());
       expect(text(view.root)).not.toContain('Full recorded answer');
       expect(onChoose).not.toHaveBeenCalled();
       expect(onClose).not.toHaveBeenCalled();
-      act(() => button('Matching project').props.onClick());
+      act(() => button('Needle in code').props.onClick());
       act(() => button('打开并定位').props.onClick());
       expect(onChoose).toHaveBeenCalledWith(result);
       expect(onClose).toHaveBeenCalledOnce();
@@ -122,6 +127,15 @@ describe('starting and revisiting work', () => {
     expect(view.root.findByType('select').props.value).toBe('report.md');
     act(() => view.update(<ResearchCanvas {...props} sid="s-B" />));
     expect(view.root.findByType('select').props.value).toBe(FILES_PATH);
+  });
+
+  it('names each listed file with the folder it is in, so files of one name tell apart', () => {
+    const file = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop()!, exists: true, kind: 'text', mime: 'text/plain', size: 100, mtime: 1, why: '' });
+    act(() => { view = create(<ResearchCanvas sid="s-A" missionView={emptyMissionView()} onExpand={vi.fn()} filesFirst deliveriesLoaded
+      artifacts={[file('src/index.js'), file('lib/index.js'), file('README.md')]} />); });
+    const rows = view.root.findByProps({ className: 'file-browser' }).findAllByType('button')
+      .map(row => [row.findByType('strong').children.join(''), row.findByType('small').children.join('')]);
+    expect(rows).toEqual([['index.js', 'src · 100 B'], ['index.js', 'lib · 100 B'], ['README.md', '100 B']]);
   });
 
   it('keeps failures visible instead of dismissing them on a timer', () => {

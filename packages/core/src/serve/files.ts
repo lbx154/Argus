@@ -3,6 +3,7 @@
 // result the Manager delivers is kept as it was then, its text files copied into the project's
 // delivered/, so that what a later delivery changed can be shown.
 
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -131,8 +132,14 @@ export function artifactInfo(project: Project, found: { file: string; path: stri
   return { ...info, preview: text, truncated: found.stat.size > PREVIEW_BYTES };
 }
 
+/** Git run outside the sandbox on a repository the roles write: it changes nothing, and runs
+ * none of the programs the repository's own config or attributes name (an fsmonitor, a filter, a
+ * diff driver, a signature check), nor goes into a submodule, whose config is the roles' too. */
+export const SAFE_GIT = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
+
 /** The files under `root` changed since `since` (epoch ms), newest first: the LISTED newest, six
- * folders deep, and none hidden or in node_modules or __pycache__. */
+ * folders deep, and none hidden, in node_modules or __pycache__, or ignored by the git repository
+ * `root` is in, as what a build or a cache writes is. */
 export function changed(root: string, since = 0): { file: string; path: string; stat: Stats }[] {
   const found: { file: string; path: string; stat: Stats }[] = [];
   const walk = (dir: string, depth: number): void => {
@@ -148,12 +155,21 @@ export function changed(root: string, since = 0): { file: string; path: string; 
     }
   };
   walk('', 0);
-  return found.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs).slice(0, LISTED);
+  const ignored = new Set(spawnSync('git', [...SAFE_GIT, 'check-ignore', '--stdin', '-z'], {
+    cwd: root, input: found.map(({ path }) => path).join('\0'), encoding: 'utf8',
+  }).stdout?.split('\0'));
+  return found.filter(({ path }) => !ignored.has(path)).sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs).slice(0, LISTED);
 }
 
-/** The workdir's files created or changed since the project began, newest first. */
-export const artifacts = (project: Project): ArtifactInfo[] =>
-  changed(project.workdir, Date.parse(project.created)).map(found => artifactInfo(project, found));
+/** What the project delivered, then the workdir's other files it created or changed since it
+ * began, newest first. */
+export const artifacts = (project: Project): ArtifactInfo[] => {
+  const delivered = Object.keys(project.delivered ?? {});
+  return [
+    ...delivered.flatMap(path => under(project.workdir, path) ?? []),
+    ...changed(project.workdir, Date.parse(project.created)).filter(({ path }) => !delivered.includes(path)),
+  ].map(found => artifactInfo(project, found));
+};
 
 /** Where a file a model names may be, from the model's folder: a relative path from there; a ROS
  * `package://name/rest` from the nearest enclosing folder named `name`, then `name/rest` or `rest`

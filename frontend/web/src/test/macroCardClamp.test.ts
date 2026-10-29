@@ -19,35 +19,25 @@ describe("atlas overview card text is line-clamped", () => {
     expect(title).toMatch(/overflow:\s*hidden/);
     expect(title).toMatch(/overflow-wrap:\s*anywhere/);
   });
-  it("clamps the summary to three lines", () => {
-    const copy = rule(".macro-summary .map-card-copy");
-    expect(copy).toMatch(/-webkit-line-clamp:\s*3/);
-    expect(copy).toMatch(/overflow:\s*hidden/);
-  });
   it("keeps the final title layout fixed and never squeezes its two lines", () => {
     const title = rule(".argus-map .macro-summary .map-card h3", design);
     expect(title).toMatch(/-webkit-line-clamp:\s*2/);
     expect(title).toMatch(/font-size:\s*16px/);
     expect(title).toMatch(/flex-shrink:\s*0/);
-    expect(rule(".argus-map .macro-summary .map-card-copy", design)).toMatch(/mask-image/);
   });
-  it("keeps the quoted-ask line at two lines despite the generic paragraph rule", () => {
-    const objective = rule(".macro-summary .map-card > p.map-card-objective");
-    expect(objective).toMatch(/-webkit-line-clamp:\s*2/);
-    expect(objective).toMatch(/min-height:\s*0/);
-  });
-  it("keeps the fixed-height overview card from bleeding", () => {
+  it("keeps the fixed-height overview card and its results row from bleeding", () => {
     expect(rule(".argus-map .macro-summary .map-card", design)).toMatch(/overflow:\s*hidden/);
+    expect(rule(".argus-map .macro-summary", design)).toMatch(/height:\s*var\(--summary-height\)/);
   });
   it.each(["map", "atlas", "design", "alive"])("has no zoom-dependent text rules in %s.css", (name) => {
     const css = readFileSync(new URL(`../map/${name}.css`, import.meta.url), "utf8");
     expect(css).not.toMatch(/data-overview-density|data-copy-lines|data-course|--overview-type|--title-lines|--copy-lines/);
   });
-  it("lets only the far view follow the zoom: the title and state grow and the rest fades, from CSS alone", () => {
+  it("lets only the far view follow the zoom: the title and state grow and the rest hides below a floor, from CSS alone", () => {
     // The person asked for a readable title at overview zoom (2026-10-26).
     // It is one rule set on --z and --summary-scale; the markup stays the
     // same at every zoom (macroCardCopy.test.tsx).
-    const scope = rule(".argus-map .macro-summary", design);
+    const scope = design.match(/\.argus-map \.macro-summary \{([^}]*--on-screen[^}]*)\}/)![1];
     expect(scope).toMatch(/--on-screen:\s*calc\(var\(--z/);
     expect(design).toMatch(/font-size:\s*max\(19px,\s*min\(56px,\s*calc\(15px \/ var\(--on-screen\)\),/);
     // Three whole lines always fit the card's height, so the clamp ends on an
@@ -55,8 +45,14 @@ describe("atlas overview card text is line-clamped", () => {
     expect(design).toMatch(/calc\(\(var\(--summary-height, 300px\) - 55px - 1\.5 \* var\(--status-size\)\) \/ 4\.2\)\)\)/);
     // A failed card, or one waiting on the person, says so from afar: the
     // state dot and word stay and grow like the title; only the task number
-    // fades with the rest (overview zoom made every card read as done).
-    expect(design).toMatch(/\.map-card > :not\(h3\):not\(\.map-card-top\),\s*\.argus-map \.macro-summary \.map-card \.map-card-number \{ opacity: var\(--near\); \}/);
+    // hides with the rest (overview zoom made every card read as done).
+    // The rest, text and result links, keeps 10.5 screen px, and is hidden
+    // where it would have to outgrow the card, not shrunk to specks (2026-10-29).
+    expect(scope).toMatch(/--text-size:\s*max\(14px, calc\(10\.5px \/ var\(--on-screen\)\)\)/);
+    expect(scope).toMatch(/--near:\s*round\(down, min\(1, var\(--on-screen\) \/ 0\.6\), 1\)/);
+    expect(design).toMatch(/\.map-card > :not\(h3\):not\(\.map-card-top\),[^{]*\.argus-map \.macro-summary > \.map-history-toggle \{ scale: var\(--near\); \}/);
+    expect(design).toMatch(/\.map-card-number \{ font-size: calc\(var\(--text-size\) \* var\(--near\)\); \}/);
+    expect(rule(".argus-map .macro-summary > .map-card-results", design)).toMatch(/max-height: calc\(var\(--near\) \* 3em\)/);
     expect(scope).toMatch(/--status-size:\s*clamp\(11\.5px, calc\(11px \/ var\(--on-screen\)\)/);
     expect(design).toMatch(/\.macro-summary \.map-status \{[^}]*font-size: var\(--status-size/);
   });

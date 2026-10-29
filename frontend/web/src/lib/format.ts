@@ -3,18 +3,6 @@ import { ApiError } from '../../../core/src/http';
 
 /** Small formatting helpers shared across the web views. */
 
-/** epoch-seconds → "3m ago" / "2h ago" / "just now". */
-export function ago(ts: number | null | undefined): string {
-  if (!ts) return '—';
-  const now = Date.now() / 1000;
-  const d = Math.max(0, now - ts);
-  if (d < 5) return 'just now';
-  if (d < 60) return `${Math.floor(d)}s ago`;
-  if (d < 3600) return `${Math.floor(d / 60)}m ago`;
-  if (d < 86400) return `${Math.floor(d / 3600)}h ago`;
-  return `${Math.floor(d / 86400)}d ago`;
-}
-
 /** seconds of uptime → "1d 3h" / "4h 12m" / "9m", or "1 天 3 小时" / "4 小时 12 分钟" / "9 分钟". */
 export function uptime(seconds: number | null | undefined, locale: Locale = 'en'): string {
   if (seconds == null || seconds < 0) return '—';

@@ -240,8 +240,9 @@ it.each([
     expect(fitCamera).not.toHaveBeenCalled();
   } else {
     expect(restoreCamera).not.toHaveBeenCalled();
-    expect(fitCamera).toHaveBeenCalled();
-    if (width < 640) expect(fitCamera).toHaveBeenLastCalledWith(new Set(['question']));
+    // A phone too opens on the whole map, not on one task's tall card.
+    expect(fitCamera).toHaveBeenCalledOnce();
+    expect(fitCamera.mock.lastCall?.[0]).toBeUndefined();
   }
 });
 

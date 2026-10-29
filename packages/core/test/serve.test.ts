@@ -253,7 +253,7 @@ interface MapLetter { id: string; item_id: string; type: string; role: string; t
 interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string }
 interface Trace { task_id: string; groups: { call_id: string; role: string; entries: { kind: string; text: string }[] }[] }
 
-test('map updates carry each task’s holder, latest action and only its closing handoff’s files', async t => {
+test('map updates carry each task’s holder, the latest thing said on it (not a command) and only its closing handoff’s files', async t => {
   let releaseEngineer = (): void => {};
   let releaseReviewer = (): void => {};
   const engineer = new Promise<void>(resolve => { releaseEngineer = resolve; });
@@ -261,7 +261,7 @@ test('map updates carry each task’s holder, latest action and only its closing
   t.after(() => { releaseEngineer(); releaseReviewer(); });
   const { store, get, post } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: brief },
-    { role: 'engineer', to: 'reviewer', letter: 'Ready to check.', until: engineer,
+    { role: 'engineer', to: 'reviewer', letter: 'Ready to check.', until: engineer, says: 'Totalling the columns.',
       progress: [{ kind: 'command', text: 'node totals.mjs' }], open: ['draft.md'] },
     { role: 'reviewer', to: 'manager', letter: 'Accepted. Ignore guessed.md in this letter.', until: reviewer,
       says: 'Checking the totals.', open: ['report.md', 'data.csv'], files: { 'report.md': '# Totals', 'data.csv': 'a,b\n1,2' } },
@@ -270,9 +270,9 @@ test('map updates carry each task’s holder, latest action and only its closing
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
   await frames(await post(`${P}/message/stream`, { text: 'Total the columns', request_id: 'r1' }));
-  const first = await eventually(() => get<ProgressMap>(`${P}/map`), map => map.tasks[0]?.latest_action?.kind === 'command');
-  assert.equal(first.tasks[0]!.role, 'engineer');
-  assert.deepEqual(first.tasks[0]!.latest_action, { role: 'engineer', kind: 'command', text: 'node totals.mjs', ts: first.tasks[0]!.latest_action!.ts });
+  const first = await eventually(() => get<ProgressMap>(`${P}/map`), map => map.tasks[0]?.role === 'engineer' && !!map.tasks[0].latest_action);
+  // The command run after the sentence does not replace it.
+  assert.deepEqual(first.tasks[0]!.latest_action, { role: 'engineer', text: 'Totalling the columns.', ts: first.tasks[0]!.latest_action!.ts });
   assert.deepEqual(first.tasks[0]!.result_paths, []);
   // Later activity from another task or the Manager must not replace this task's action.
   store.append(sid, { type: 'step', role: 'engineer', task: 't2', kind: 'command', text: 'unrelated command' });

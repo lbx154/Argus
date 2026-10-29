@@ -47,9 +47,9 @@ const image = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop
 let tree: ReactTestRenderer | undefined;
 afterEach(() => { act(() => tree?.unmount()); tree = undefined; artifactBlob.mockClear(); });
 
-describe('the task holder, latest action and results on the map card', () => {
+describe('the task holder, the latest thing said and results on the map card', () => {
   const task: MapTask = { id: 't1', title: 'Totals', objective: '', status: 'in_progress', role: 'engineer',
-    latest_action: { role: 'engineer', kind: 'command', text: 'node totals.mjs', ts: 1 } };
+    latest_action: { role: 'planner', text: 'Total the **columns**.', ts: 1 } };
   const card = (value: MapTask): NodeProps<MacroNode> => ({ id: value.id, data: {
     id: value.id, task: value, ordinal: 1, part: 1, partCount: 1, start: 1, end: 0, totalSteps: 0,
     layout: layoutSubmap(value, [], true, []), frame: { width: 1440, height: 900, scale: 1 },
@@ -57,15 +57,18 @@ describe('the task holder, latest action and results on the map card', () => {
     source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(),
   } as MacroData } as NodeProps<MacroNode>);
 
-  it('refreshes the holder and latest command or message through the existing map merge', () => {
+  it('refreshes the holder and the latest thing said, as text rather than Markdown, through the existing map merge', () => {
     const first: Dataset = { id: 'live:p', kind: 'live', title: '', description: '', read_only: false, tasks: [task], events: [] };
     act(() => { tree = create(<MacroTaskNode {...card(first.tasks[0])} />); });
     expect(tree!.root.findByProps({ 'data-testid': 'map-card-owner' }).children.join('')).toBe('负责人：工程师');
-    expect(tree!.root.findByProps({ 'data-testid': 'map-card-action' }).props.title).toBe('node totals.mjs');
+    const said = tree!.root.findByProps({ 'data-testid': 'map-card-action' });
+    expect(said.props.title).toBe('Total the **columns**.');
+    expect(said.findByType('strong').children).toEqual(['columns']);
     const next = mergeMapProgress(first, { ...first, incremental: true, tasks: [{ ...task, role: 'reviewer',
-      latest_action: { role: 'reviewer', kind: 'message', text: '正在核对总数。', ts: 2 } }] });
+      latest_action: { role: 'reviewer', text: '正在核对总数。', ts: 2 } }] });
     act(() => tree!.update(<MacroTaskNode {...card(next.tasks[0])} />));
-    expect(tree!.root.findByProps({ 'data-testid': 'map-card-owner' }).children.join('')).toBe('负责人：审阅者');
+    // Who said it is who holds it: the holder is not named twice.
+    expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-owner' })).toHaveLength(0);
     expect(tree!.root.findByProps({ 'data-testid': 'map-card-action' }).props.title).toBe('正在核对总数。');
     act(() => tree!.update(<CardNow task={{ id: 't2', title: 'Other', objective: '', status: 'pending' }} zh />));
     expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-now' })).toHaveLength(0);
@@ -85,7 +88,7 @@ describe('the task holder, latest action and results on the map card', () => {
     act(() => tree!.root.findByProps({ title: 'data.csv' }).props.onClick());
     expect(open.mock.calls).toEqual([['report.md'], ['data.csv']]);
     expect(result.parent?.type).toBe('div');
-    act(() => tree!.update(shown({ ...task, status: 'done', latest_action: { role: 'reviewer', kind: 'message', text: 'See report.md', ts: 3 }, result_paths: [] })));
+    act(() => tree!.update(shown({ ...task, status: 'done', latest_action: { role: 'reviewer', text: 'See report.md', ts: 3 }, result_paths: [] })));
     expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('打开结果'))).toHaveLength(0);
   });
 });

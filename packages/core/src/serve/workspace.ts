@@ -7,7 +7,7 @@ import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Project } from '../store.js';
-import { rawHeaders, sendFile, textOf, under } from './files.js';
+import { rawHeaders, SAFE_GIT, sendFile, textOf, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
 
 const run = promisify(execFile);
@@ -81,11 +81,6 @@ function tree(root: string) {
   walk('');
   return { root, entries, truncated: entries.length >= ENTRIES };
 }
-
-/** Git run outside the sandbox on a repository the roles write: it changes nothing, and runs
- * none of the programs the repository's own config or attributes name (an fsmonitor, a filter, a
- * diff driver, a signature check), nor goes into a submodule, whose config is the roles' too. */
-const SAFE_GIT = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
 
 /** What git says of the workdir, read without changing anything; a workdir that is not a
  * repository of its own has nothing to say. */

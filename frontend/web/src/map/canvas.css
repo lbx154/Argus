@@ -147,6 +147,8 @@
 .canvas-hint button { border: 0; background: none; cursor: pointer; color: rgb(var(--ink-faint)); font-size: 14px; line-height: 1; padding: 0 4px; }
 .canvas-upload-status { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
   background: rgb(var(--panel)); border: 1px solid rgb(var(--line)); border-radius: 8px; padding: 4px 12px; font-size: 13px; }
+/* A phone's toolbar spans the top: the notice sits above the composer instead. */
+@media (max-width: 640px) { .canvas-upload-status { top: auto; bottom: 140px; white-space: nowrap; } }
 .canvas-menu-title { display: block; padding: 4px 10px; font-size: 12px; color: rgb(var(--ink-dim)); }
 
 /* ── 必经步骤: a step a person laid for the team (core/waypoints.py) ─────────

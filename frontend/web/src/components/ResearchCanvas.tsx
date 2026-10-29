@@ -86,11 +86,6 @@ export function selectCompletionArtifact(artifacts?: ArtifactInfo[]): ArtifactIn
     ?? null;
 }
 
-function artifactLabel(item: ArtifactInfo): string {
-  const parts = item.path.split('/');
-  return parts[parts.length - 1] || item.path;
-}
-
 export function defaultPreviewPath(
   view?: MissionView | null,
   artifacts?: ArtifactInfo[],
@@ -254,7 +249,7 @@ function LiveProgressPreview({
                 title={item.storage_path || item.path}
                 className="rounded border border-line/70 bg-panel px-2.5 py-1.5 font-mono text-xs text-blue-sky hover:border-blue/60"
               >
-                {artifactLabel(item)} ↗
+                {item.path} ↗
               </button>
             ))}
           </div>
@@ -465,12 +460,13 @@ export function ResearchCanvas({
   return (
     <section className={`glass-panel glass-panel--side flex min-h-0 flex-col overflow-hidden ${embedded ? '' : 'rounded-lg border'} ${className}`} aria-label={t('research.canvas')}>
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line/50 bg-panel px-4">
-        <div className="flex min-w-0 shrink-0 items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${showingDelivery ? 'bg-ok' : liveStatus ? 'animate-pulse bg-blue' : 'bg-ink-faint/60'}`} />
+        {/* With a file's tools beside it the heading gives way, not the file's name. */}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`h-2 w-2 shrink-0 rounded-full ${showingDelivery ? 'bg-ok' : liveStatus ? 'animate-pulse bg-blue' : 'bg-ink-faint/60'}`} />
           <h2 className="max-w-24 truncate text-sm font-semibold text-ink sm:max-w-48">{title}</h2>
         </div>
         {filesFirst || missionView || previewArtifacts.length > 0 ? (
-          <label className="min-w-0 flex-1">
+          <label className="min-w-28 flex-1">
             <span className="sr-only">{t('research.previewArtifact')}</span>
             <select
               value={showFiles ? FILES_PATH : showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? FILES_PATH}
@@ -482,7 +478,7 @@ export function ResearchCanvas({
               {!filesFirst && missionView ? <option value={LIVE_PROGRESS_PATH}>{t('research.liveProgress')}</option> : null}
               {previewArtifacts.map((item) => (
                 <option key={item.path} value={item.path} disabled={!item.exists} title={item.storage_path || item.path}>
-                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{artifactLabel(item)}{item.exists ? '' : ` · ${t('research.optionPending')}`}
+                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{item.path}{item.exists ? '' : ` · ${t('research.optionPending')}`}
                 </option>
               ))}
             </select>
@@ -556,9 +552,10 @@ export function ResearchCanvas({
         {saveFailed && <p role="status" className="p-3 text-xs text-warn">{locale === 'zh-CN' ? '浏览器未能保存阅读位置；刷新后请重新选择文件。' : 'This browser could not save your reading selection. Choose the file again after reloading.'}</p>}
         {showFiles && <div className="file-browser">
           {loading && <p role="status" className="text-sm text-ink-faint">{t('common.loading')}</p>}
+          {/* A file is named with the folder it is in: a repository holds many an index.js. */}
           {previewArtifacts.map(file => <button type="button" key={file.path} onClick={() => selectPreviewPath(file.path)}>
             <FileText size={20} className="shrink-0 text-blue" aria-hidden="true" />
-            <span className="min-w-0"><strong>{artifactLabel(file)}</strong><small>{formatBytes(file.size)}{file.source === 'delivery' ? (locale === 'zh-CN' ? ' · 交付文件' : ' · Delivered file') : ''}</small></span>
+            <span className="min-w-0"><strong>{file.name}</strong><small>{file.path.includes('/') ? `${file.path.slice(0, file.path.lastIndexOf('/'))} · ` : ''}{formatBytes(file.size)}{file.source === 'delivery' ? (locale === 'zh-CN' ? ' · 交付文件' : ' · Delivered file') : ''}</small></span>
           </button>)}
         </div>}
         {showLiveProgress && missionView ? (

@@ -24,7 +24,6 @@ import type { MapCopy, CardReference } from "./presentation";
 import { ACTIVE, plainTitle, replacedNote, requestChip, statusKey } from "./model";
 import {
   STEP_KINDS,
-  humanizeHarnessNote,
   noDetails,
   type StepKind,
   type SubmapLayout,
@@ -234,14 +233,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     data.frame.height / 280,
   );
   const copy = data.copy?.cards || {};
-  // Drifted status makes the generated summary dated, not wrong: keep showing
-  // yesterday's prose and only hint that a refresh is on its way.
-  // Only promise a refresh while the task is still moving: a terminal task
-  // whose copy never regenerates would wear the hint forever.
-  const staleSummary =
-    Boolean(copy[task.id]?.summary) &&
-    copy[task.id]?.task_status !== task.status &&
-    (ACTIVE.has(task.status) || task.status === "pending");
   const stepCopy = (step: SubmapStep) => {
     if (step.completionScope || step.status === "review_unavailable") return undefined;
     return copy[step.id];
@@ -266,21 +257,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           )
           .at(-1)
       : undefined;
-  const objectiveVisible = isLastPart && task.objective && task.objective.trim() !== task.title.trim();
-  // What has been written about this task. An explanation written before the
-  // execution ended short of its goal may claim more than happened, so it does
-  // not stand then.
-  const reviewUnavailable = state === "review_unavailable";
-  const reviewSummary = zh ? "当次审查器未能给出判断，未形成审阅结论。" : "The Reviewer could not return a judgment on this attempt.";
-  const written = reviewUnavailable ? reviewSummary
-    : (data.completionScope ? "" : copy[task.id]?.summary) || "";
-  // A card says one thing under its title: what the task found. That its
-  // execution ended short of the goal is on the state chip; the sentence for
-  // it fills the card only while nothing has been written.
-  const cardSummary = (isLastPart ? task.pending_question : "") || partSummary ||
-    written || data.completionScope || task.pending_question ||
-    humanizeHarnessNote(task.summary || "", zh).summary || task.summary ||
-    (!objectiveVisible ? task.objective : "");
   const scale = Math.min(
     data.frame.width / layout.width,
     data.frame.height / layout.height,
@@ -477,25 +453,13 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </span>
             )}
           </h3>
-          {/* The planner's own specification stands in only while nothing has
-              been written about the task: beside a written sentence it is a
-              second, longer way of saying the title. */}
-          {objectiveVisible && !written && (
-            <p className="map-card-objective" title={task.objective}>{task.objective}</p>
-          )}
-          {cardSummary && cardSummary.trim() !== (objectiveVisible ? task.objective.trim() : "") &&
-            <div className="map-card-copy"><MarkdownExcerpt>{cardSummary}</MarkdownExcerpt></div>}
-          {/* Where the task stands, apart from whether its steps finished:
-              what the review asked for, the round under way. */}
-          {/* Beside it, what the running task is doing now and the figure
-              its work made, when there is one: the result shows itself. */}
+          {/* Under the title only who holds the task and the latest thing said
+              on it (an earlier part of a long task: what that part last
+              recorded), beside the figure its work made, when there is one.
+              What it ran is in the task's details, not here. */}
           <div className="map-card-state">
-            <div className="map-card-state-text">
-              {data.conclusion && (
-                <p className="map-card-conclusion" data-testid="map-card-conclusion" title={data.conclusion}>{data.conclusion}</p>
-              )}
-              {isLastPart && <CardNow task={task} zh={zh} />}
-            </div>
+            {isLastPart ? <CardNow task={task} zh={zh} />
+              : partSummary && <p className="map-card-said"><MarkdownExcerpt>{partSummary}</MarkdownExcerpt></p>}
             {isLastPart && <CardFigure taskId={task.id} title={title} />}
           </div>
           {/* The course a task ran: planned, carried out, reviewed, delivered.
@@ -540,9 +504,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 : `${layout.steps.length} ${zh ? "个环节" : "steps"}`}
             </span>
             <span className="map-card-submap-hint">
-              {staleSummary
-                ? zh ? "描述更新中" : "Summary updating"
-                : task.turn_kind === 'qa' ? (zh ? "查看回答" : "Read answer") : zh ? "查看进展" : "View progress"}
+              {task.turn_kind === 'qa' ? (zh ? "查看回答" : "Read answer") : zh ? "查看进展" : "View progress"}
               <ChevronRight size={12} />
             </span>
           </div>

@@ -19,7 +19,7 @@ it('offers an empty workspace a direct start, four draft examples and the phone 
   expect(html).toContain('landing.new');
   expect(html.match(/<button /g)).toHaveLength(9);
   expect(html.match(/class="starter-card showcase-card"/g)).toHaveLength(3);
-  expect(html).toContain('landing.menu');
+  expect(html).toContain('aria-label="topbar.openSessions"');
   expect(html).toContain('class="landing-navigation lg:hidden"');
   expect(html.match(/class="[^"]*landing-mark text-ink"/g)).toHaveLength(1);
   expect(html).toContain('width:var(--landing-mark-size);height:var(--landing-mark-size)');

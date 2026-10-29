@@ -64,8 +64,8 @@ export interface BacklogItem {
   notes?: string;
   started_ts?: number | null;
   finished_ts?: number | null;
-  /** Latest recorded step or handoff on this task. */
-  latest_action?: { role: string; kind: 'message' | 'command' | 'edit'; text: string; ts: number };
+  /** The latest thing a role said on this task: a message while it worked, or a letter. */
+  latest_action?: { role: string; text: string; ts: number };
   /** Files named by the handoff that closed this task, in opening order. */
   result_paths?: string[];
   last_error?: string;

@@ -120,6 +120,9 @@ const OPENING_WAIT_MS = 700;
 const NODE_TYPES = { task: MacroTaskNode, human: HumanCardView };
 const EDGE_TYPES = { relation: MapRelationEdge, human: HumanLinkView };
 const CANVAS_HINT_KEY = "argus.map.canvasHintDismissed.v1";
+/** The canvas's zoom buttons, named in the reader's language. */
+const ZH_CONTROLS = { 'controls.ariaLabel': '地图缩放', 'controls.zoomIn.ariaLabel': '放大', 'controls.zoomOut.ariaLabel': '缩小', 'controls.fitView.ariaLabel': '显示整张地图' };
+const EN_CONTROLS = { 'controls.ariaLabel': 'Map zoom', 'controls.zoomIn.ariaLabel': 'Zoom in', 'controls.zoomOut.ariaLabel': 'Zoom out', 'controls.fitView.ariaLabel': 'Show the whole map' };
 /** The map's key (ⓘ in the toolbar): what each kind of card is. */
 export const MAP_CARD_LEGEND: Array<[[string, string], string, string]> = [
   [["任务卡", "Task card"], "团队拆出来、能单独完成和验收的一件事", "one piece of work the team split out that can be finished and checked on its own"],
@@ -202,10 +205,7 @@ export function MapCanvas({
       return;
     }
     if (data.kind === 'live' && !readOnly && ((operatorMessageId && operatorMessageId !== lastOperatorMessage.current)
-      || (composer.pending && !wasPending.current))) {
-      setConversationOpen(true);
-      setAgentsOpen(false);
-    }
+      || (composer.pending && !wasPending.current))) showConversation();
     lastOperatorMessage.current = operatorMessageId;
     wasPending.current = composer.pending;
   }, [operatorMessageId, composer.pending, data.kind, readOnly]);
@@ -289,6 +289,14 @@ export function MapCanvas({
   // Before the canvas is measured the window stands in for it, so a phone
   // lays its cards out once instead of re-placing them after the first frame.
   const narrow = (camera.canvasSize.width || window.innerWidth) < 640;
+  // A message's reply is read in the conversation, which opens beside the map;
+  // on a phone it would cover the whole map, so a notice links to it instead.
+  const showConversation = () => {
+    if (narrow) return setConversationNotice(zh ? "回复在对话里" : "The reply is in the conversation");
+    setConversationNotice("");
+    setConversationOpen(true);
+    setAgentsOpen(false);
+  };
   const scene = useMemo(() => {
     const next = layoutScene(graph, data.events, zh, sceneCache.current, links, expandedMissions, narrow);
     sceneCache.current = replaceEqualDeep(sceneCache.current, next);
@@ -350,7 +358,7 @@ export function MapCanvas({
         // the conversation, where it is shown.
         if (aboutCard && hasTask) setConversationNotice(zh ? "已交给团队，新任务出现在画布上" : "Handed to the team; the new task is on the canvas");
         else if (aboutCard && result.outcome === 'message') setConversationNotice(zh ? "Argus 已回复" : "Argus replied");
-        else if (aboutCard || (result.outcome === 'message' && !hasTask)) { setConversationNotice(""); setConversationOpen(true); setAgentsOpen(false); }
+        else if (aboutCard || (result.outcome === 'message' && !hasTask)) showConversation();
       }
       if (alive.current) setFlight((current) => current?.id === id ? { ...current, result } : current);
     };
@@ -367,6 +375,9 @@ export function MapCanvas({
     setFlight((current) => current ? { ...current, result: { type: 'settled', outcome: 'cancelled' } } : null);
     composer.onCancel();
   };
+  // The map is fitted when its first cards appear (a map opened before its
+  // project has a task fits when the tasks come), and again whenever cards
+  // come or go while the reader has not moved the view (fitUpdatedScene).
   // The opening fit waits for the saved explanations (their relations place
   // cards) and a remembered view for its history, but not for long: on a busy
   // server those reads can take seconds, and an invisible canvas reads as an
@@ -387,23 +398,15 @@ export function MapCanvas({
       const canvas = canvasRef.current!;
       // A viewport is in screen pixels. A desktop view cannot be restored
       // onto a phone's stacked cards or a differently sized canvas.
+      // A phone too opens on the whole map: fitted to one task, its tall card
+      // filled the screen and ran under the composer.
       if (saved && saved.canvasSize.width === canvas.clientWidth && saved.canvasSize.height === canvas.clientHeight)
         camera.restore(saved);
-      else {
-        camera.fit();
-        // A phone opens on the summary card of the task at work, or of the one
-        // waiting on the reader, not inside it: the card and the status line
-        // above it say where things stand, and one tap opens the internals.
-        // With neither, the whole map is where things stand.
-        if (data.kind === "live" && canvas.clientWidth < 640) {
-          const task = data.tasks.find((task) => ACTIVE.has(task.status)) ?? attention[0];
-          if (task) camera.fit(new Set([task.id]));
-        }
-      }
+      else camera.fit();
       setFitted(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [nodesReady, camera.fit, camera.enter, camera.restore, data.kind, data.tasks, attention, scene.cards, data.history_loading, copyReady, waited]);
+  }, [nodesReady, camera.fit, camera.restore, scene.cards, data.history_loading, copyReady, waited]);
   useEffect(() => {
     if (!fitted || savedView.current?.camera || camera.reducedMotion) return;
     setArriving(true);
@@ -1758,6 +1761,7 @@ export function MapCanvas({
               selectionKeyCode={null}
               onlyRenderVisibleElements={fitted && nodesReady}
               proOptions={{ hideAttribution: true }}
+              ariaLabelConfig={zh ? ZH_CONTROLS : EN_CONTROLS}
             >
               <Background
                 variant={BackgroundVariant.Dots}

@@ -5,7 +5,7 @@ import { NAMES } from '../prompts.js';
 import type { Note, Project, Store } from '../store.js';
 import { ROLES, type Role } from '../types.js';
 import { HttpError, type Handler } from './index.js';
-import { progressMap, readEvents, turns, webEvents } from './views.js';
+import { named as projectName, progressMap, readEvents, turns, webEvents } from './views.js';
 
 const RESULTS = 50;
 const EXCERPT = 32_000;
@@ -43,6 +43,13 @@ function detail(store: Store, project: Project, id: string) {
   return { ...card, notes: letters.join('\n\n'), last_error: error };
 }
 
+/** Where a text is quoted for the line found at `hit`: the paragraph, list or table it is in,
+ * which the page renders as Markdown; of a long one, the part around it. */
+function snippet(text: string, hit: number): string {
+  const start = text.lastIndexOf('\n\n', hit), end = text.indexOf('\n\n', hit);
+  return text.slice(Math.max(start < 0 ? 0 : start + 2, hit - 200), Math.min(end < 0 ? text.length : end, hit + 400)).trim();
+}
+
 /** What holds every word asked, newest project first: a project's request, its conversation, and
  * the team's letters. A project whose record cannot be read is named in `errors`. */
 function search(store: Store, query: string) {
@@ -52,14 +59,15 @@ function search(store: Store, query: string) {
   const errors: string[] = [];
   let partial = false;
   for (const project of store.list().reverse()) {
-    const title = project.request.split('\n')[0]!.slice(0, 80) || project.id;
+    const title = projectName(project) || project.id;
     const match = (text: string, kind: string, more: Record<string, unknown> = {}): void => {
       const folded = text.toLowerCase();
       if (!terms.every(term => folded.includes(term))) return;
       if (results.length >= RESULTS) { partial = true; return; }
-      const at = Math.max(0, folded.indexOf(terms[0]!) - 65);
+      const hit = folded.indexOf(terms[0]!);
+      const at = Math.max(0, hit - 65);
       results.push({
-        sid: project.id, title, kind, snippet: text.slice(at, at + 260), ...more,
+        sid: project.id, title, kind, snippet: snippet(text, hit), ...more,
         text: text.length > EXCERPT ? text.slice(Math.max(0, at - 1_000), at + EXCERPT - 1_000) : text, truncated: text.length > EXCERPT,
       });
     };
