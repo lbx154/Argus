@@ -14,7 +14,7 @@ import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRoo
 import { ChatBox } from './components/ChatBox';
 import { ContinuousSwitch } from './components/ContinuousSwitch';
 import { promptHistory, type PromptSources } from './lib/promptCompletion';
-import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
+import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps } from '../../core/src/phaseTrail';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { ConfigModal, TranscriptModal } from './components/InfoModals';
@@ -47,7 +47,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { finishManagerMessage } from './lib/messageResult';
 import { EDITIONS_CAPABILITY, POLL_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
-  mergeOptimisticManagerDelta,
+  mergeOptimisticManagerReply,
   mergeOptimisticManagerSteps,
   optimisticOperatorEvent,
   settleOptimisticManagerTurn,
@@ -831,25 +831,6 @@ export default function App() {
       optimisticOperatorEvent(requestSid, requestId, text),
     ], requestSid, requestId, []));
 
-    const showManagerText = (
-      reply: unknown,
-      messageId = '',
-      fragmentMode: 'append' | 'snapshot' | 'auto' = 'auto',
-      inProgress = false,
-    ) => {
-      if (!isCurrent() || typeof reply !== 'string' || !reply.trim()) return;
-      setLocalConversationEvents((current) => mergeOptimisticManagerDelta(
-        current,
-        requestSid,
-        requestId,
-        reply,
-        messageId,
-        Date.now(),
-        fragmentMode,
-        inProgress,
-      ));
-    };
-
     const dispatchTask = (result: Record<string, unknown>) => {
       if (!isCurrent()) return;
       const item = result.item as { id?: unknown } | undefined;
@@ -930,31 +911,21 @@ export default function App() {
                 ));
               }
             },
-            onDelta: (block, messageId, fragmentMode, inProgress) => {
+            onDelta: (reply) => {
               if (!isCurrent()) return;
               gotDelta = true;
-              showManagerText(
-                block,
-                messageId,
-                fragmentMode === 'append' || fragmentMode === 'snapshot'
-                  ? fragmentMode
-                  : 'auto',
-                inProgress,
-              );
+              setLocalConversationEvents((current) => mergeOptimisticManagerReply(current, requestId, reply));
             },
             onDone: (result) => {
               if (!isCurrent()) return;
               if (result.kind !== 'error') setRouteOverride('auto');
               trail = closePhaseTrail(trail);
               setManagerSteps(trail);
-              // Prefer the journaled steps: they carry real end times and
-              // outcomes. The local trail stands in when a turn had none.
-              const journaled = turnStepsFrom(result.steps);
-              const steps = journaled.length ? journaled : trailToTurnSteps(trail, Date.now() / 1000, true);
-              setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
-                current, requestSid, requestId, steps, Date.now(), false, result.kind === 'error' ? 'failed' : 'completed',
+              // A turn that ended without a reply keeps its steps, and how they ended; a reply is its row in the record.
+              if (!gotDelta) setLocalConversationEvents((current) => mergeOptimisticManagerSteps(
+                current, requestSid, requestId, trailToTurnSteps(trail, Date.now() / 1000, true), Date.now(), false,
+                result.kind === 'error' ? 'failed' : 'completed',
               ));
-              if (result.kind !== 'error') showManagerText(result.reply, '', 'snapshot');
               finishMessage(result);
               if (revision && result.kind !== 'error' && typeof result.reply === 'string' && result.reply.trim()) {
                 void api.saveEdition(requestSid, 'conversation', {

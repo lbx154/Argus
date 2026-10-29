@@ -1,24 +1,7 @@
 import type { EventMsg } from '../api';
-import { isDraftCloser, isDraftReply, mergeFragment, type FragmentMode } from '../../../core/src/events';
-
-interface TranscriptTurn {
-  ts: number;
-  role: string;
-  text: string;
-  message_id?: string;
-  mission_result?: boolean;
-  item_id?: string;
-  success?: boolean;
-  summary?: string;
-  delivery_id?: string;
-  delivery?: unknown;
-  steps?: unknown;
-  campaign_continues?: boolean;
-}
+import { eventKey } from '../../../core/src/events';
 
 const LOCAL_REQUEST_FIELD = 'local_request_id';
-
-const hasSteps = (value: unknown): value is unknown[] => Array.isArray(value) && value.length > 0;
 
 /**
  * Show the work behind a reply while it is still happening: the tool steps
@@ -49,7 +32,6 @@ export function mergeOptimisticManagerSteps(
         ts: nowMs / 1_000,
         event_id: `local-${sid}-${requestId}-argus`,
         message_id: `local-${requestId}-argus`,
-        fragment_mode: 'snapshot',
         steps,
         live,
         ...(status ? { status } : {}),
@@ -115,236 +97,39 @@ export function optimisticOperatorEvent(
   };
 }
 
-/** Grow the one locally-rendered Manager row for a request as SSE blocks arrive. */
-export function mergeOptimisticManagerDelta(
-  localEvents: EventMsg[],
-  sid: string,
-  requestId: number,
-  fragment: string,
-  messageId: string,
-  nowMs = Date.now(),
-  mode: FragmentMode = 'auto',
-  /** The text is a snapshot of a reply still being written, not its final form. */
-  inProgress = false,
-): EventMsg[] {
-  const text = fragment.trim();
-  if (!text) return localEvents;
-  const index = localEvents.findIndex((event) => (
-    event.type === 'ui.argus'
-    && Number(event[LOCAL_REQUEST_FIELD]) === requestId
-  ));
-  const confirmedOperatorId = messageId.endsWith('-argus')
-    ? `${messageId.slice(0, -'-argus'.length)}-operator`
-    : '';
-  const withConfirmedOperator = confirmedOperatorId
-    ? localEvents.map((event) => (
-        event.type === 'ui.operator'
-        && Number(event[LOCAL_REQUEST_FIELD]) === requestId
-          ? { ...event, message_id: confirmedOperatorId }
-          : event
-      ))
-    : localEvents;
-  const operator = withConfirmedOperator.find((event) => (
-    event.type === 'ui.operator'
-    && Number(event[LOCAL_REQUEST_FIELD]) === requestId
-  ));
-  const responseLatencyMs = operator
-    ? Math.max(0, nowMs - Number(operator.ts ?? nowMs / 1_000) * 1_000)
-    : 0;
-  if (index < 0) {
-    return [
-      ...withConfirmedOperator,
-      {
-        type: 'ui.argus',
-        agent_layer: 'manager',
-        text,
-        ts: nowMs / 1_000,
-        event_id: `local-${sid}-${requestId}-argus`,
-        message_id: messageId || `local-${requestId}-argus`,
-        fragment_mode: mode,
-        in_progress: inProgress,
-        response_latency_ms: responseLatencyMs,
-        [LOCAL_REQUEST_FIELD]: requestId,
-      },
-    ];
-  }
-  const current = withConfirmedOperator[index];
-  const next = [...withConfirmedOperator];
-  next[index] = {
-    ...current,
-    // A row put up before any words came is timed by its first words.
-    ...(String(current.text ?? '').trim() ? {} : { ts: nowMs / 1_000 }),
-    text: mergeFragment(String(current.text ?? ''), text, mode),
-    message_id: messageId || current.message_id,
-    fragment_mode: mode,
-    in_progress: inProgress,
-  };
-  return next;
-}
-
-const isChatRow = (event: EventMsg) => event.type === 'ui.operator' || event.type === 'ui.argus';
-
 /**
- * A Manager reply in progress (its first words, shown at once) stays only
- * while it is the newest word of the conversation: the final reply with the
- * same message id, a later in-progress row of that reply, or any later
- * message replaces it. A turn that ended without a reply closes it, and the
- * closing row itself shows nothing.
+ * The reply has come, as its row in the record: the page's row for it becomes
+ * that row, and the message it answers takes the id the record gives it.
  */
-export function dropSupersededDrafts(
-  streamedEvents: EventMsg[],
-  transcript: TranscriptTurn[] = [],
-  localEvents: EventMsg[] = [],
-): EventMsg[] {
-  if (!streamedEvents.some((event) => event.type === 'ui.argus' && event.in_progress === true)) return streamedEvents;
-  const finals = new Set<string>();
-  for (const event of [...streamedEvents, ...localEvents]) {
-    if (event.type === 'ui.argus' && event.in_progress !== true && event.message_id) finals.add(String(event.message_id));
-  }
-  for (const turn of transcript) {
-    if (turn.role !== 'operator' && turn.message_id) finals.add(String(turn.message_id));
-  }
-  const chatTs = [
-    ...streamedEvents.filter(isChatRow).map((event) => ({ id: String(event.message_id ?? ''), ts: Number(event.ts ?? 0) })),
-    ...transcript.map((turn) => ({ id: String(turn.message_id ?? ''), ts: Number(turn.ts ?? 0) })),
+export function mergeOptimisticManagerReply(localEvents: EventMsg[], requestId: number, reply: EventMsg): EventMsg[] {
+  const mine = (event: EventMsg) => Number(event[LOCAL_REQUEST_FIELD]) === requestId;
+  const asked = String(reply.message_id).replace(/-argus$/, '-operator');
+  return [
+    ...localEvents.flatMap(event => !mine(event) ? [event] : event.type === 'ui.operator' ? [{ ...event, message_id: asked }] : []),
+    { ...reply, [LOCAL_REQUEST_FIELD]: requestId },
   ];
-  return streamedEvents.filter((event, index) => {
-    if (isDraftCloser(event)) return false;
-    if (!isDraftReply(event)) return true;
-    const id = String(event.message_id ?? '');
-    if (id && finals.has(id)) return false;
-    const ts = Number(event.ts ?? 0);
-    if (streamedEvents.some((other, at) => at > index && other.type === 'ui.argus' && other.in_progress === true
-      && String(other.message_id ?? '') === id)) return false;
-    return !chatTs.some((other) => other.id !== id && other.ts > ts);
-  });
 }
 
 /**
- * Build one conversation feed from transcript replay, live events, and local
- * optimistic rows. A server-confirmed message replaces its local row by stable
- * message id; exact type+text is the fallback for transcript rows and dispatch
- * acknowledgements whose ids are generated in separate layers.
+ * The conversation: the record's rows, which the transcript and the live stream
+ * both send as the server's one reading of the record makes them, in the
+ * record's order; and the page's own rows of a message under way, each until
+ * the record has it: by its message id, or for a message whose reply has not
+ * come, by its words, recorded once it was sent.
  */
 export function mergeConversationEvents(
   streamedEvents: EventMsg[],
-  transcript: TranscriptTurn[],
+  transcript: EventMsg[],
   localEvents: EventMsg[],
 ): EventMsg[] {
-  // A Manager turn's tool calls are persisted as progress rows for the Agent
-  // activity panel; the reply row already lists them as steps.
-  const liveEvents = dropSupersededDrafts(
-    streamedEvents.filter((event) => !(event.type === 'engineer.progress' && event.turn_step === true)),
-    transcript,
-    localEvents,
-  );
-  const liveByContent = new Map<string, number[]>();
-  const mergedLive = [...liveEvents];
-  liveEvents.forEach((event, index) => {
-    const type = String(event.type ?? '');
-    if (type !== 'ui.operator' && type !== 'ui.argus') return;
-    const key = `${type}\u0000${String(event.text ?? '')}`;
-    liveByContent.set(key, [index, ...(liveByContent.get(key) ?? [])]);
+  const recorded = [...new Map([...transcript, ...streamedEvents].map(event => [eventKey(event), event])).values()]
+    .sort((left, right) => Number(left.event_id) - Number(right.event_id));
+  const claimed = new Set<EventMsg>();
+  const pending = localEvents.filter((event) => {
+    const twin = recorded.find(row => !claimed.has(row) && row.type === event.type && (row.message_id === event.message_id
+      || row.text === event.text && Number(row.ts) >= Number(event.ts) - 5));
+    if (twin) claimed.add(twin);
+    return !twin;
   });
-  const history: EventMsg[] = transcript.map((turn) => ({
-    type: turn.role === 'operator' ? 'ui.operator' : 'ui.argus',
-    agent_layer: turn.role === 'operator' ? 'operator' : 'manager',
-    text: turn.text,
-    ts: turn.ts,
-    message_id: turn.message_id || `transcript-${turn.ts}-${turn.role}`,
-    ...(turn.mission_result === true ? { mission_result: true } : {}),
-    ...(typeof turn.item_id === 'string' ? { item_id: turn.item_id } : {}),
-    ...(typeof turn.success === 'boolean' ? { success: turn.success } : {}),
-    ...(typeof turn.summary === 'string' ? { summary: turn.summary } : {}),
-    ...(typeof turn.delivery_id === 'string' ? { delivery_id: turn.delivery_id } : {}),
-    ...(turn.delivery && typeof turn.delivery === 'object' ? { delivery: turn.delivery } : {}),
-    ...(hasSteps(turn.steps) ? { steps: turn.steps } : {}),
-    ...(turn.campaign_continues === true ? { campaign_continues: true } : {}),
-  }));
-  const keepHistory = new Array(history.length).fill(true);
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const event = history[index];
-    const key = `${String(event.type)}\u0000${String(event.text ?? '')}`;
-    const candidates = liveByContent.get(key) ?? [];
-    const messageId = transcript[index].message_id;
-    const compatible = (liveIndex: number) => {
-      const live = mergedLive[liveIndex];
-      if (event.item_id && live.item_id && event.item_id !== live.item_id) return false;
-      // Receipt prose is often a repeated template. Require its durable
-      // message identity before removing history or carrying task metadata.
-      return event.mission_result !== true && live.mission_result !== true
-        || Boolean(messageId && live.message_id === messageId)
-        || Boolean(!messageId && event.delivery_id && event.delivery_id === live.delivery_id);
-    };
-    let match = candidates.findIndex(liveIndex => compatible(liveIndex)
-      && Boolean(messageId && mergedLive[liveIndex].message_id === messageId));
-    if (match < 0) match = candidates.findIndex(compatible);
-    if (match >= 0) {
-      keepHistory[index] = false;
-      const [liveIndex] = candidates.splice(match, 1);
-      const live = mergedLive[liveIndex];
-      if (messageId && live.message_id === messageId) {
-        const missing: Partial<EventMsg> = {};
-        for (const field of ['mission_result', 'item_id', 'success'] as const) {
-          if ((live[field] == null || live[field] === '') && event[field] != null) missing[field] = event[field];
-        }
-        mergedLive[liveIndex] = { ...live, ...missing };
-      }
-    }
-  }
-  const confirmed = [
-    ...history.filter((_event, index) => keepHistory[index]),
-    ...mergedLive,
-  ];
-  const keepConfirmed = new Array(confirmed.length).fill(true);
-  const claimedConfirmed = new Set<number>();
-  const preferredLocal = localEvents.map((event) => {
-    const messageId = String(event.message_id ?? '');
-    let matchIndex = messageId
-      ? confirmed.findIndex((candidate, index) => (
-          !claimedConfirmed.has(index)
-          && String(candidate.message_id ?? '') === messageId
-        ))
-      : -1;
-    const localTs = Number(event.ts ?? 0);
-    if (matchIndex < 0) {
-      matchIndex = confirmed.findIndex((candidate, index) => {
-        if (claimedConfirmed.has(index)) return false;
-        if (candidate.type !== event.type || candidate.text !== event.text) return false;
-        const confirmedTs = Number(candidate.ts ?? 0);
-        // Exact text is only a fallback correlation near this request. Without
-        // the time bound, a new repeated greeting would hide behind an old one.
-        return Math.abs(confirmedTs - localTs) <= 5;
-      });
-    }
-    if (matchIndex >= 0) {
-      // Prefer the local row after confirmation: it carries the real client
-      // click/arrival timestamp and response latency. The durable server row
-      // will naturally replace it after a project switch or page reload.
-      claimedConfirmed.add(matchIndex);
-      keepConfirmed[matchIndex] = false;
-      const authoritative = confirmed[matchIndex];
-      return {
-        ...event,
-        ...(authoritative.mission_result === true ? { mission_result: true } : {}),
-        ...(typeof authoritative.item_id === 'string' ? { item_id: authoritative.item_id } : {}),
-        ...(typeof authoritative.success === 'boolean' ? { success: authoritative.success } : {}),
-        ...(typeof authoritative.summary === 'string' ? { summary: authoritative.summary } : {}),
-        ...(typeof authoritative.delivery_id === 'string' ? { delivery_id: authoritative.delivery_id } : {}),
-        ...(authoritative.delivery && typeof authoritative.delivery === 'object'
-          ? { delivery: authoritative.delivery }
-          : {}),
-        // The journaled steps carry real end times and outcomes; once they
-        // exist they replace the live trail and the row is no longer live.
-        ...(hasSteps(authoritative.steps) ? { steps: authoritative.steps, live: false } : {}),
-      };
-    }
-    return event;
-  });
-  return [
-    ...confirmed.filter((_event, index) => keepConfirmed[index]),
-    ...preferredLocal,
-  ].sort(
-    (left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0),
-  );
+  return [...recorded, ...pending].sort((left, right) => Number(left.ts ?? 0) - Number(right.ts ?? 0));
 }

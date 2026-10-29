@@ -153,9 +153,8 @@ export function follow(store: Store, id: string): () => EventMsg[] {
   };
 }
 
-/** The conversation, as the transcript endpoint returns it. */
-export const turns = (events: EventMsg[]) => events.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus')
-  .map(event => ({ ts: event.ts, role: event.type === 'ui.operator' ? 'operator' : 'argus', text: event.text, message_id: event.message_id }));
+/** The conversation, as the transcript endpoint returns it: its rows as the stream sends them. */
+export const turns = (events: EventMsg[]) => events.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus');
 
 /** A question's id names who asked it and its words, so a new question is a new card. */
 export function questionId({ role, task, question }: Question): string {

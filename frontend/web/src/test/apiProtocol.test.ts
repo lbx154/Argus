@@ -523,7 +523,7 @@ describe('web API protocol handshake', () => {
 
   it('rejects a stream that closes after a delta without a terminal event', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      'data: {"type":"delta","text":"partial"}\n\n',
+      'data: {"type":"delta","event":{"type":"ui.argus","text":"partial"}}\n\n',
       { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
     )));
     const { api } = await import('../api');
@@ -532,7 +532,7 @@ describe('web API protocol handshake', () => {
     await expect(api.messageStream('s-test', 'do something', { onDelta })).rejects.toThrow(
       'ended before a terminal event',
     );
-    expect(onDelta).toHaveBeenCalledWith('partial', '', 'auto', false);
+    expect(onDelta).toHaveBeenCalledWith({ type: 'ui.argus', text: 'partial' });
   });
 
   it('keeps JSON on streamed chunks and reuses attachment ids in message requests', async () => {

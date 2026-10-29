@@ -222,18 +222,6 @@ export interface ModelProbeResult {
   error: string;
   duration_ms: number;
 }
-export interface Turn {
-  ts: number;
-  role: string; // "operator" | "argus"
-  text: string;
-  message_id?: string;
-  mission_result?: boolean;
-  item_id?: string;
-  success?: boolean;
-  summary?: string;
-  delivery_id?: string;
-  delivery?: unknown;
-}
 export interface ProjectIndex {
   projects: ProjectRow[];
   local_cwd: string;
@@ -975,7 +963,7 @@ export const api = {
   probeModel: (sid: string, model: string) =>
     postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model }),
   transcript: (sid: string, n = 30, signal?: AbortSignal) =>
-    getJson<{ turns: Turn[] }>(P(sid, `/transcript?n=${n}`), signal)
+    getJson<{ turns: EventMsg[] }>(P(sid, `/transcript?n=${n}`), signal)
       .then((r) => r.turns),
   events: (sid: string, limit = 80, signal?: AbortSignal) =>
     getJson<{ events: EventMsg[] }>(
@@ -1268,9 +1256,8 @@ export const api = {
     }),
   /**
    * Streaming Manager front-door (SSE): ``onPhase`` per real step, ``onDelta``
-   * per reply block as it's produced, ``onDone`` with the final classification,
-   * ``onError`` on failure. Un-freezes the UI — Argus visibly thinks and the
-   * answer types in. Callers must not automatically replay a failed POST.
+   * with the reply's row in the record, ``onDone`` with the final classification,
+   * ``onError`` on failure. Callers must not automatically replay a failed POST.
    */
   messageStream: async (
     sid: string,
@@ -1292,8 +1279,8 @@ export const api = {
           output: string;
         },
       ) => void;
-      /** ``inProgress`` marks a snapshot of a reply still being written, not the final text. */
-      onDelta?: (block: string, messageId: string, fragmentMode: string, inProgress: boolean) => void;
+      /** The reply, as the conversation has it once the record is read. */
+      onDelta?: (reply: EventMsg) => void;
       onDone?: (result: StreamDone) => void;
       onError?: (err: Error) => void;
     },
@@ -1329,14 +1316,7 @@ export const api = {
           },
         );
       }
-      else if (f.type === 'delta') {
-        handlers.onDelta?.(
-          String(f.text ?? ''),
-          String(f.message_id ?? ''),
-          String(f.fragment_mode ?? 'auto'),
-          f.live === true,
-        );
-      }
+      else if (f.type === 'delta') handlers.onDelta?.(f.event as EventMsg);
       else if (f.type === 'done') {
         handlers.onDone?.((f.result ?? {}) as StreamDone);
       }

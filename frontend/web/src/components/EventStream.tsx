@@ -4,7 +4,6 @@ import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt, MissionView } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
-import { isDraftReply } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
@@ -338,10 +337,6 @@ function ConversationRow({
   // A question's numbered options become buttons; typing a free answer still works.
   const asked = !operator && !taskReceipt ? splitReplyOptions(reportText) : null;
   const steps = operator ? [] : turnStepsFrom(ev.steps);
-  const responseLatencyMs = Number(ev.response_latency_ms ?? 0);
-  const responseLatency = !operator && responseLatencyMs >= 100
-    ? ` · ${(responseLatencyMs / 1_000).toFixed(1)}s`
-    : '';
   const revisionLabel = locale === 'zh-CN' ? '编辑并重发' : 'Edit and resend';
   const versionsLabel = locale === 'zh-CN' ? '版本记录' : 'Versions';
   const rowRef = useRef<HTMLElement>(null);
@@ -410,14 +405,14 @@ function ConversationRow({
               >{recordedAt ? recordedAt.toLocaleString(locale, {
                 year: 'numeric', month: '2-digit', day: '2-digit',
                 hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-              }) : clockOf(ev)}{responseLatency}</time></>}
+              }) : clockOf(ev)}</time></>}
             </div>
             {reportText ? <div data-task-receipt-prose={taskReceipt || undefined}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(report?.text ?? (asked ? readableQuestions(asked.body) : reportText))}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
             {resume ? <button type="button" data-receipt-resume onClick={resume}
               className="brand-button brand-button-primary mt-3 inline-flex items-center gap-1.5">
               <Play size={14} aria-hidden="true" />{t('topbar.continueRun')}
             </button> : null}
-            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText) && !isDraftReply(ev)}
+            {steps.length || ev.live === true ? <TurnSteps steps={steps} live={ev.live === true} startedTs={Number(ev.ts)} replied={Boolean(reportText)}
               status={ev.success === false ? 'failed' : String(ev.status ?? '')} /> : null}
             {taskReceipt && typeof ev.item_id === 'string' && ev.item_id ? <StepProcessDisclosure taskId={ev.item_id} /> : null}
             {report ? <RawDisclosure className="task-receipt-original" label={locale === 'zh-CN' ? '查看原始回报（含技术记录）' : 'View original report (including technical records)'}>
@@ -427,7 +422,7 @@ function ConversationRow({
         </div>
       )}
       {!taskReceipt && ev.live !== true && <div className={`conversation-meta ${operator ? 'justify-end' : ''}`}>
-        <time>{clockOf(ev)}{responseLatency}</time>
+        <time>{clockOf(ev)}</time>
         <div className="conversation-tools">
         <CopyButton text={r.text} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
         {revision && onAction && (operator

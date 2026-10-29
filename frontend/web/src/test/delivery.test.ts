@@ -184,27 +184,10 @@ describe('completed delivery presentation', () => {
     expect(latestConversationDelivery([])).toBeUndefined();
   });
 
-  it('keeps delivery metadata when an optimistic reply is confirmed', () => {
-    const events = mergeConversationEvents(
-      [],
-      [{
-        role: 'argus',
-        text: 'Done',
-        ts: 2,
-        message_id: 'turn-1-argus',
-        delivery_id: delivery.delivery_id,
-        delivery,
-      }],
-      [{
-        type: 'ui.argus',
-        text: 'Done',
-        ts: 1.5,
-        message_id: 'turn-1-argus',
-      }],
-    );
-
-    expect(events).toHaveLength(1);
-    expect(events[0].delivery).toEqual(delivery);
+  it('a reply recorded with a delivery replaces the page’s row for it, delivery and all', () => {
+    const recorded = { type: 'ui.argus', text: 'Done', ts: 2, event_id: 5, message_id: 'm3-argus', delivery };
+    const events = mergeConversationEvents([], [recorded], [{ type: 'ui.argus', text: 'Done', ts: 1.5, message_id: 'm3-argus' }]);
+    expect(events).toEqual([recorded]);
   });
 });
 

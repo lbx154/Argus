@@ -8,7 +8,7 @@ import type { FlowEvent, Project, Question, Store } from '../store.js';
 import type { CallAgent } from '../types.js';
 import { readEvents, webEvents, type Live } from './views.js';
 
-/** One frame of a message's stream: `phase` while the Manager works, then `delta`, `done` or `error`. */
+/** One frame of a message's stream: `phase` while the Manager works, then `delta`, the reply's row in the record, and `done`; or `error`. */
 export type Frame = { type: 'phase' | 'delta' | 'done' | 'error'; [field: string]: unknown };
 
 /** A project's flow while anything is under way on it, and the calls under way. */
@@ -88,11 +88,10 @@ export class Runs {
       const handoff = await this.start(id, flow => flow.say(id, text, controller.signal));
       if (controller.signal.aborted) return { type: 'done', result: { kind: 'cancelled', reply: null } };
       if (!handoff) return { type: 'error', error: this.store.load(id).error ?? 'The Manager did not answer.' };
-      const reply = handoff.letters.join('\n\n');
-      // The reply's id is the one its row in the record has: it names the message it answers.
-      const row = webEvents(readEvents(this.store, id)).filter(event => event.type === 'ui.argus').at(-1);
-      send({ type: 'delta', text: reply, message_id: row?.message_id ?? '', fragment_mode: 'snapshot' });
-      return { type: 'done', result: { kind: handoff.to === 'operator' ? 'chat' : 'task', reply } };
+      // The reply is its row in the record, as the conversation shows it: whom it is to, the message it answers.
+      const event = webEvents(readEvents(this.store, id)).filter(row => row.type === 'ui.argus').at(-1);
+      send({ type: 'delta', event });
+      return { type: 'done', result: { kind: handoff.to === 'operator' ? 'chat' : 'task', reply: handoff.letters.join('\n\n') } };
     } catch (error) {
       return { type: 'error', error: error instanceof Error ? error.message : String(error) };
     } finally {
