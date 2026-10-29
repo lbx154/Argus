@@ -1,29 +1,22 @@
 import { type QueryClient } from '@tanstack/react-query';
 import { useCallback, useRef, useState } from 'react';
-import { createSessionFast } from './lib/createDaemonFlow';
 import { api, type ProjectRow } from './api';
-import { type NoticeTone } from './components/ActionNotice';
-import { errorText } from './lib/format';
 
 interface UseCreateDaemonSessionOptions {
   localCwd: string;
-  notify: (tone: NoticeTone, message: string, details?: unknown) => void;
   onFocusComposer: () => void;
   queryClient: QueryClient;
   refetchProjects: () => Promise<unknown>;
   selectProject: (id: string) => void;
-  translate?: (key: string, variables?: Record<string, string | number>) => string;
   onCreated?: (sid: string, draft: string) => void;
 }
 
 export function useCreateDaemonSession({
   localCwd,
-  notify,
   onFocusComposer,
   queryClient,
   refetchProjects,
   selectProject,
-  translate,
   onCreated,
 }: UseCreateDaemonSessionOptions) {
   const [creatingDaemon, setCreatingDaemon] = useState(false);
@@ -33,7 +26,6 @@ export function useCreateDaemonSession({
 
   const createDaemon = async (
     name: string,
-    objective: string,
     workdir: string,
     draft = '',
   ): Promise<boolean> => {
@@ -42,12 +34,7 @@ export function useCreateDaemonSession({
     setCreatingDaemon(true);
     setCreateError(null);
     try {
-      const { created: result, startCampaign } = await createSessionFast(
-        api,
-        name,
-        objective,
-        workdir,
-      );
+      const result = await api.createDaemon('', name, workdir);
       const outputWorkdir = String(result.workdir || workdir || '');
       queryClient.setQueryData<{
         projects: ProjectRow[];
@@ -74,23 +61,6 @@ export function useCreateDaemonSession({
       selectProject(result.sid);
       void refetchProjects();
       window.setTimeout(onFocusComposer, 0);
-      if (startCampaign) {
-        void startCampaign()
-          .then(() => {
-            void queryClient.invalidateQueries({ queryKey: ['snapshot', result.sid] });
-            void refetchProjects();
-            notify('success', translate ? translate('new.campaignStarted') : 'Work started.');
-          })
-          .catch((error) => {
-            notify(
-              'error',
-              translate
-                ? translate('new.campaignFailed', { error: errorText(error) })
-                : `The project was created, but its work could not start: ${errorText(error)}`,
-              error,
-            );
-          });
-      }
       return true;
     } catch (error) {
       setCreateError(error);

@@ -147,7 +147,7 @@ test('applyCompletion adds a trailing space only for arg commands', () => {
 
 test('parseCommand resolves aliases + splits the argument + flags unknown', () => {
   assert.equal(sl.parseCommand('/q')?.name, '/quit');
-  assert.equal(sl.parseCommand('/rm x')?.name, '/skip'); // /rm is an alias of /skip
+  assert.equal(sl.parseCommand('/inject x')?.name, '/nudge');
   const nudge = sl.parseCommand('/nudge fix the framework');
   assert.equal(nudge?.name, '/nudge');
   assert.equal(nudge?.rest, 'fix the framework');
@@ -164,15 +164,15 @@ test('parseCommand resolves aliases + splits the argument + flags unknown', () =
 
 test('Ink keeps the supported command surface and removes manual lifecycle controls', () => {
   const required = [
-    '/help', '/status', '/roles', '/journal', '/backlog', '/add', '/plan',
-    '/stop', '/abort', '/done', '/note', '/nudge', '/run', '/daemons', '/attach',
+    '/help', '/status', '/roles', '/backlog', '/add', '/plan',
+    '/abort', '/note', '/nudge', '/run', '/daemons', '/attach',
     '/resume', '/rename', '/doctor', '/backend', '/config', '/identity', '/reset',
     '/skills', '/exit',
   ];
   for (const command of required) {
     assert.notEqual(sl.parseCommand(command)?.cmd, null, command);
   }
-  for (const removed of ['/daemon', '/continuous', '/start']) {
+  for (const removed of ['/daemon', '/continuous', '/start', '/journal', '/stop', '/done', '/skip', '/rm']) {
     assert.equal(sl.parseCommand(removed)?.cmd, null, removed);
   }
 });
@@ -218,6 +218,6 @@ test('helpGroups folds aliases and orders sections', () => {
   assert.deepEqual(groups.map((g) => g.group), [
     'Everyday', 'Task management', 'Sessions & diagnostics', 'Configuration', 'Other',
   ]);
-  const skip = groups.flatMap((g) => g.rows).find((r) => r.label.startsWith('/skip'));
-  assert.ok(skip && skip.label.includes('(= /rm)'));
+  const task = groups.flatMap((g) => g.rows).find((r) => r.label.startsWith('/task'));
+  assert.ok(task && task.label.includes('(= /add)'));
 });

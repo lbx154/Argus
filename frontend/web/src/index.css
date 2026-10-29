@@ -864,9 +864,6 @@ button {
 
 
 /* Asset selection follows the workbench theme, including manual overrides. */
-.app-brand-image .app-brand-dark { display: none; }
-[data-theme="dark"] .app-brand-image .app-brand-light { display: none; }
-[data-theme="dark"] .app-brand-image .app-brand-dark { display: block; }
 
 /* A project that is working breathes in the list; a stopped one is still. */
 [data-live='true'] { animation: status-dot-breathe 2.4s ease-in-out infinite; }

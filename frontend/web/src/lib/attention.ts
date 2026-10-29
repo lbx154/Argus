@@ -1,4 +1,4 @@
-import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
+import type { DeliveryReceipt, Snapshot } from '../../../core/src/types';
 import { operatorDecisionCards } from '../../../core/src/decisions';
 import type { ProgressHealth } from './progressHealth';
 
@@ -14,12 +14,9 @@ export interface Attention {
 
 /** The one thing that needs the operator in this project, if any. Replies come first. */
 export function projectAttention({
-  snapshot, view, complete, delivery, health, zh,
+  snapshot, delivery, health, zh,
 }: {
   snapshot: Snapshot | undefined;
-  view?: MissionView | null;
-  /** The operator's whole task finished (no queued work, no standing campaign). */
-  complete: boolean;
   delivery?: DeliveryReceipt | null;
   health?: ProgressHealth | null;
   zh: boolean;
@@ -28,7 +25,6 @@ export function projectAttention({
   const cards = operatorDecisionCards(
     snapshot.pending_questions ?? [],
     snapshot.backlog as unknown as Array<Record<string, unknown>>,
-    view?.mission.id,
   );
   if (cards.length) {
     const card = cards[0];
@@ -41,9 +37,6 @@ export function projectAttention({
       title: health.problem === 'repeated_failures' ? (zh ? '连续几个任务没有完成' : 'Several tasks in a row did not finish') : (zh ? '很久没有新的成果' : 'No new result for a long time'),
       body: health.latestFailure?.title || '',
     };
-  }
-  if (complete && view?.mission.id) {
-    return { kind: 'done', key: `done:${view.mission.id}`, title: zh ? '任务已完成' : 'Task finished', body: delivery?.title || view.mission.title };
   }
   if (delivery?.kind === 'stage_package') {
     return { kind: 'stage', key: `stage:${delivery.delivery_id}`, title: zh ? '有新的阶段成果' : 'New stage result', body: delivery.title };

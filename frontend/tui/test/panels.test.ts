@@ -21,9 +21,7 @@ import {
   type DaemonReplacementState,
 } from '../src/components/DaemonReplacementPicker.js';
 import { CostGauge } from '../src/components/CostGauge.js';
-import { MissionCockpit } from '../src/components/MissionCockpit.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
-import { emptyMissionView } from '../../core/src/missionView.js';
 import type { EventMsg, ResourceStatus, Snapshot, StatusView, UsageSummary } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
@@ -179,49 +177,6 @@ test('header uses a neutral lab identity outside research missions', async () =>
   assert.doesNotMatch(output, /pid|backend|daily cap/);
 });
 
-test('mission cockpit keeps mission, team, and timeline readable at 60 columns', async () => {
-  const view = emptyMissionView();
-  view.mission.objective = 'Optimize FlashAttention on B200 beyond 65% SOL';
-  view.mission.summary = 'Improved the kernel and verified the measured result.';
-  view.routing = {
-    route: 'team',
-    vertical: 'kernel_engineering',
-    workflow_mode: 'staged',
-    lifetime: 'bounded',
-    continuous: true,
-    open_ended: false,
-  };
-  view.mission.elapsed_seconds = 8040;
-  view.stage = { id: 'optimize', label: 'Optimize' };
-  view.round = { current: 7, max: 24 };
-  view.outcome = {
-    execution_status: 'completed',
-    review_status: 'not_assessed',
-    stage_certification: 'deferred',
-    interruption_kind: 'none',
-    resumable: false,
-  };
-  view.roles.find((role) => role.role === 'planner')!.status = 'active';
-  view.roles.find((role) => role.role === 'planner')!.label = 'Comparing 3 branches';
-  view.timeline = [{
-    id: 'e1', ts: 1, type: 'round.review.completed', role: 'reviewer',
-    title: 'Evidence accepted', detail: 'Official scorer passed', tone: 'success',
-  }];
-  const output = await renderNode(React.createElement(MissionCockpit, { view, width: 60 }), 60);
-  assert.match(output, /MISSION/);
-  assert.match(output, /AI TEAM/);
-  assert.match(output, /LIVE RESEARCH TIMELINE/);
-  assert.match(output, /Comparing 3 branches/);
-  assert.match(output, /MISSION SUMMARY/);
-  assert.match(output, /Stage decision pending/);
-  assert.doesNotMatch(output, /stage=deferred/);
-  assert.match(output, /MODE TEAM · kernel_engineering · STAGED · BOUNDED · FINITE/);
-  assert.match(output, /CONTINUOUS/);
-  assert.match(output, /Improved the kernel/);
-  assert.match(output, /● Comparing 3 branches/);
-  assert.doesNotMatch(output, /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/);
-  assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
-});
 
 test('operator decision prompt shows the full blocker and answer controls', async () => {
   const card = {
@@ -295,39 +250,23 @@ test('operator decision prompt never fabricates choices when the agent supplied 
 });
 
 test('operations panel owns cost, pid, backend, and model details', async () => {
-  const missionView = emptyMissionView();
-  missionView.storage.project_skill_dir = '/state/project/skills';
-  missionView.storage.project_skill_count = 3;
-  missionView.storage.wiki_paths = ['/workspace/.autors/demo/wiki'];
-  missionView.storage.skill_history_compressed = 4;
-  missionView.storage.wiki_retired_compressed = 2;
-  missionView.storage.skill_history_bytes_saved = 1024;
-  missionView.storage.wiki_retired_bytes_saved = 512;
   const snap = {
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
       alive: true, pid: 42, uptime_seconds: 600, backend: 'copilot', backend_label: 'Copilot',
-      protocol: { name: 'argus.daemon', major: 1, minor: 1 },
     },
     roles: [{
       role: 'engineer', backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.6-sol',
       effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
     }],
-    backlog: [], recent_events: [],
-    usage_summary: { call_count: 3, cost_usd: 1.25, pricing_status: 'priced', input_tokens: 10, output_tokens: 2 },
-    global_usage_summary: { call_count: 40, cost_usd: 12.5, pricing_status: 'priced' },
-    mission_view: missionView,
+    backlog: [], usage_summary: { call_count: 3, cost_usd: 1.25, pricing_status: 'priced', input_tokens: 10, output_tokens: 2 },
   } as Snapshot;
   const output = await renderPanel({ kind: 'operations' }, 60, { snap, viewportRows: 40 });
   assert.match(output, /pid 42/);
   assert.match(output, /Copilot/);
   assert.match(output, /gpt-5\.6-sol/);
   assert.match(output, /model\/API spend \$1\.25/);
-  assert.match(output, /today, all projects \$12\.50/);
-  assert.match(output, /self-evolution storage/);
-  assert.match(output, /\/state\/project\/skills/);
-  assert.match(output, /\.autors\/demo\/wiki/);
-  assert.match(output, /skill 4 · wiki 2 · 1\.5 KB saved/);
+  assert.doesNotMatch(output, /protocol|—\/—\.—/);
   assert.ok(output.split('\n').every((line) => stringWidth(line) <= 60));
 });
 
@@ -438,18 +377,17 @@ test('partial usage never renders as a zero-dollar cumulative cost', async () =>
   const output = await renderNode(
     React.createElement(CostGauge, {
       usage: usageSummary({ cost_usd: null, pricing_status: 'partial' }),
-      globalUsage: usageSummary({ cost_usd: 3, known_cost_usd: 3 }),
       width: 120,
     }),
     120,
   );
-  assert.match(output, /model\/API spend partial · today, all projects \$3\.00/);
+  assert.match(output, /model\/API spend partial/);
   assert.doesNotMatch(output, /\$0\.00/);
 });
 
 test('fresh project renders zero spend for itself and for today', async () => {
   const output = await renderNode(React.createElement(CostGauge, { width: 120 }), 120);
-  assert.match(output, /model\/API spend \$0\.00 · today, all projects \$0\.00/);
+  assert.match(output, /model\/API spend \$0\.00/);
   assert.doesNotMatch(output, /cap|remaining|paused/);
 });
 
@@ -616,97 +554,23 @@ test('final Planner delivery wraps instead of truncating its tail', async () => 
   assert.match(output.replace(ANSI, ''), /FINAL_TAIL_VISIBLE/);
 });
 
-test('19-row cockpit stays below Ink full-screen clear threshold', async () => {
-  const view = emptyMissionView();
-  const output = await renderNode(
-    React.createElement(
-      Box,
-      { flexDirection: 'column' },
-      React.createElement(Header, { width: 135 }),
-      React.createElement(MissionCockpit, { view, width: 135, height: 19 }),
-      React.createElement(EventLog, {
-        events: [],
-        width: 135,
-        mode: 'conversation',
-        showIdle: false,
-      }),
-      React.createElement(PromptBox, {
-        edit: { value: '', cursor: 0 },
-        width: 135,
-        rowsBelow: 1,
-      }),
-      React.createElement(Footer, { width: 135 }),
-    ),
-    135,
-  );
-  // Debug rendering writes one frame at mount and one at unmount; measure the
-  // final frame, which is what Ink compares against the terminal height.
-  const finalFrame = output.slice(output.lastIndexOf('◉ argus'));
-  assert.ok(finalFrame.trimEnd().split('\n').length < 19);
-  assert.match(finalFrame, /MISSION/);
-  assert.match(finalFrame, /AI TEAM/);
-  assert.match(finalFrame, /MANAGER.*Waiting/);
-  assert.match(finalFrame, /PLANNER.*Waiting/);
-  assert.match(finalFrame, /ENGINEER.*Waiting/);
-  assert.match(finalFrame, /REVIEWER.*Waiting/);
-  assert.doesNotMatch(finalFrame, /All quiet|Standing watch|Waiting, unhurried/);
-});
 
-test('pending Manager frame does not trigger Ink full-screen repaint', async () => {
-  const output = await renderInteractiveNode(
-    React.createElement(
-      Box,
-      { flexDirection: 'column' },
-      React.createElement(Header, { width: 100 }),
-      React.createElement(MissionCockpit, {
-        view: emptyMissionView(),
-        width: 100,
-        height: 19,
-        busy: true,
-      }),
-      React.createElement(EventLog, {
-        events: [],
-        width: 100,
-        mode: 'conversation',
-        showIdle: false,
-      }),
-      React.createElement(ThinkingLine, {
-        tick: 1,
-        elapsedS: 6,
-      }),
-      React.createElement(PromptBox, {
-        edit: { value: '', cursor: 0 },
-        width: 100,
-        rowsBelow: 1,
-      }),
-      React.createElement(Footer, { width: 100 }),
-    ),
-    100,
-    19,
-  );
-  assert.doesNotMatch(output, /\u001B\[2J/, 'Ink must not clear the terminal while thinking');
-  assert.match(output.replace(ANSI, ''), /MISSION Waiting for a mission/);
-  assert.match(output.replace(ANSI, ''), /Replying to your message/);
-  assert.doesNotMatch(output.replace(ANSI, ''), /Manager step/);
-});
 
 test('24-row operations panel stays below Ink full-screen clear threshold', async () => {
   const snap = {
     session: { id: 's-ops', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: {
       alive: false, pid: null, uptime_seconds: null, backend: 'copilot', backend_label: 'Copilot',
-      protocol: { name: 'argus.daemon', major: 1, minor: 1 },
     },
     roles: ['manager', 'planner', 'engineer', 'reviewer'].map((role) => ({
       role, backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.5',
       effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
     })),
-    backlog: [], recent_events: [], spend_usd: 0, spend_status: 'priced',
+    backlog: [], spend_usd: 0, spend_status: 'priced',
     usage_summary: {
       input_tokens: 16_296, cached_input_tokens: 14_848, cache_write_tokens: 0,
       output_tokens: 103, reasoning_output_tokens: 61, call_count: 1,
     },
-    mission_view: emptyMissionView(),
   } as Snapshot;
   const events: EventMsg[] = [{
     type: 'role.activity', activity_id: 'manager-request', role: 'manager',
@@ -832,8 +696,7 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   const snap = {
     session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
     daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
-    roles: [], recent_events: [],
-    backlog: [item, { ...item, id: 'done-1', title: 'Old result', status: 'done' }],
+    roles: [], backlog: [item, { ...item, id: 'done-1', title: 'Old result', status: 'done' }],
   } as Snapshot;
   const backlog = await renderPanel({ kind: 'backlog', selection: 0 }, 60, { snap });
   assert.match(backlog, /› running/);

@@ -1,17 +1,4 @@
-import { applicationBrand } from '../applicationBrand';
-
-function ApplicationImage({ kind, size, className = '' }: { kind: 'mark' | 'logo'; size: number | string; className?: string }) {
-  const brand = applicationBrand();
-  return (
-    <span className={`app-brand-image shrink-0 ${className}`} style={{ display: 'inline-flex', height: size }}>
-      <img className="app-brand-light" src={brand.assets[kind]} alt={brand.name} style={{ height: size, width: kind === 'mark' ? size : 'auto' }} />
-      <img className="app-brand-dark" src={brand.assets[`${kind}_dark`]} alt={brand.name} style={{ height: size, width: kind === 'mark' ? size : 'auto' }} />
-    </span>
-  );
-}
-
 export function ArgusMark({ size, className = 'text-ink' }: { size: number | string; className?: string }) {
-  if (applicationBrand().assets.mark) return <ApplicationImage kind="mark" size={size} className={className} />;
   return (
     <svg data-logo="rounded-mark" viewBox="0 0 512 512" role="img" aria-label="Argus" style={{ width: size, height: size }} className={`argus-brand-mark shrink-0 ${className}`}>
       <path d="M352 112q0-30 30-30h28q30 0 30 30v320h-88v-52q-46 62-129 62Q66 442 66 266T228 88q80 0 124 56v-32ZM140 266q46-80 102-80t110 80q-54 80-110 80t-102-80Z" fill="rgb(var(--brand-body))" fillRule="evenodd" />
@@ -25,7 +12,6 @@ export function ArgusMark({ size, className = 'text-ink' }: { size: number | str
 }
 
 export function RoundedLockup({ size }: { size: number }) {
-  if (applicationBrand().assets.logo) return <ApplicationImage kind="logo" size={size} />;
   return (
     <svg data-logo="rounded-horizontal" viewBox="150 40 1160 390" role="img" aria-label="Argus" style={{ width: size * 2.75, height: size }} className="shrink-0 text-ink">
       <g className="argus-brand-mark" transform="translate(180 92) scale(.54)">

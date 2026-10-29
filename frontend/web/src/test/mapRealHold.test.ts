@@ -3,8 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { latestCertifiedTask, statusKey, type MapEvent, type MapTask } from "../map/model";
-import { attentionSummary, projectBrief } from "../map/presentation";
-import { mapStatusSentence } from "../map/status";
+import { attentionSummary } from "../map/presentation";
 
 // A real project map: the operator invalidated earlier simulated results and
 // asked for a redo; the redo was reviewed, then the Manager held the stage.
@@ -44,31 +43,4 @@ describe("real stage-hold project", () => {
     }
   });
 
-  it("uses the written reader-language account of the hold when one exists", () => {
-    const written = "早先的模拟数据已作废，论文还没写，方法还要在真实轨迹上和真实基线比。";
-    const zh = attentionSummary(held, payload.events, true, written);
-    expect(zh.reason).toBe(`工作已暂停：${written}`);
-    expect(zh.detail).toMatch(/^Previous simulated/);
-  });
-
-  it("gives an outsider the goal, the conclusion so far, and the next step", () => {
-    const brief = projectBrief(payload.tasks, payload.events, true);
-    expect(brief.goal).toMatch(/^将既往所有模拟及虚构的实验数据/);
-    expect(brief.conclusion).toMatch(/还没有经过检查确认的结果/);
-    expect(brief.current).toMatch(/工作已暂停/);
-    expect(brief.next).toMatch(/不会自动继续/);
-    // The goal already names the task; the conclusion does not repeat it.
-    expect(brief.conclusion).not.toContain(held.title.slice(0, 20));
-  });
-
-  it("counts every bucket in the same unit", () => {
-    const zh = mapStatusSentence({ total: 11, qa: 4, complete: 5, ended: 1, reviewUnavailable: 1, held: 1,
-      running: 0, pending: false, paused: true, hasOpenWork: true, zh: true });
-    expect(zh).toContain("7 个任务");
-    expect(zh).toContain("已完成 5 个");
-    expect(zh).toContain("1 个任务结束时目标还没完成");
-    expect(zh).toContain("1 个结果尚未检查成功");
-    expect(zh).toContain("1 个任务暂停，后续工作尚未安排");
-    expect(zh).not.toMatch(/次/);
-  });
 });

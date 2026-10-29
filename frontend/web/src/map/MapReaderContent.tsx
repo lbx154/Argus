@@ -6,12 +6,8 @@ import { ErrorMessage } from '../components/ErrorMessage';
 import { errorText } from '../lib/format';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { ACTIVE, type MapTask } from './model';
-import type { CardCopy } from './presentation';
-/** The reader holds a saved explanation, or the card's own record when none
- * was written, and the way to ask about it; the records an explanation was
- * written from are the map's own steps, one click away, not repeated here. */
-export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, artifacts, onOpenArtifact, sessionId, workspace, zh = true }: {
-  cardKey: string; taskId: string; card?: CardCopy; originalDetail: string;
+export function MapReaderContent({ cardKey, taskId, task, originalDetail, artifacts, onOpenArtifact, sessionId, workspace, zh = true }: {
+  cardKey: string; taskId: string; originalDetail: string;
   task?: MapTask; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
   /** A live project's session: its team tasks show their recorded trajectory. */
   sessionId?: string; workspace?: string; zh?: boolean;
@@ -30,13 +26,10 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
       {task.status === 'failed' && task.last_error ? <ErrorMessage error={task.last_error} code="agent_failed" /> : null}
       <TaskTrace sessionId={sessionId} taskId={taskId} zh={zh} running={ACTIVE.has(task.status)}
         workspace={workspace} conclusion={task.status === 'failed' && task.last_error ? undefined : plainConclusion(task, zh)} />
-      {card?.detail ? <details className="mt-3 text-sm"><summary>{zh ? '已保存的说明' : 'Saved explanation'}</summary>
-        <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shown(cleanDeliverySummary(card.detail))}</MarkdownContent></div>
-      </details> : null}
     </div>;
   }
   return <div className="font-sans" data-reader-card={cardKey} data-reader-task-id={taskId}>
-    <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shown(cleanDeliverySummary(card?.detail || originalDetail))}</MarkdownContent></div>
+    <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shown(cleanDeliverySummary(originalDetail))}</MarkdownContent></div>
     <PendingQuestion task={task?.id === taskId ? task : undefined} zh={zh} artifacts={artifacts} onOpenArtifact={onOpenArtifact} workspace={workspace} />
   </div>;
 }

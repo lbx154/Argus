@@ -14,7 +14,7 @@ let inputNode: {
 const defaults: MapComposerProps = {
   value: "", onChange: () => {}, onSend: async () => false,
   attachments: [], onAttachmentsChange: () => {}, pending: false,
-  focusSignal: 0, sessionName: "Demo", historical: false, zh: false,
+  focusSignal: 0, zh: false,
 };
 const island = () => renderer!.root.findByProps({ className: "map-composer-dock map-island-dock" });
 const textarea = () => renderer!.root.findByType("textarea");

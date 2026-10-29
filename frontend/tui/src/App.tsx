@@ -41,23 +41,17 @@ import { filterProjects, rankProjects } from '../../core/src/projects.js';
 import { moveSelection } from './input/selection.js';
 import { visibleBacklogItems } from '../../core/src/backlog.js';
 import {
-  overlayActiveRole,
-  overlayRoleActivities,
-} from '../../core/src/activity.js';
-import {
   daemonDraftValues,
   daemonFormInput,
   newDaemonDraft,
   type NewDaemonDraft,
 } from './newDaemonForm.js';
-import { MissionCockpit } from './components/MissionCockpit.js';
 import { consumePasteChunk } from './input/paste.js';
 import {
   daemonReplacementInputIntent,
   DaemonReplacementPicker,
   type DaemonReplacementState,
 } from './components/DaemonReplacementPicker.js';
-import { projectMissionView } from '../../core/src/missionView.js';
 import { isPromptRewriteShortcut } from '../../core/src/shortcuts.js';
 import { operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions.js';
 import { useProjectFeed } from './appProjectFeed.js';
@@ -169,7 +163,6 @@ export function App({
   }, [pendingDecision?.id]);
   const creatingProjectRef = useRef(false);
   const mountedRef = useRef(true);
-  const dismissedAdmissionRef = useRef(0);
   const pasteActiveRef = useRef(false);
   const rewritingRef = useRef(false);
 
@@ -195,26 +188,9 @@ export function App({
   ) => {
     const next = replacementState(start, targetProject, resumeContinuous);
     if (next) {
-      dismissedAdmissionRef.current = 0;
       setReplacement(next);
     }
   };
-
-  useEffect(() => {
-    const admission = snap?.daemon_admission;
-    if (
-      replacement ||
-      !admission ||
-      admission.requested_at <= dismissedAdmissionRef.current
-    ) return;
-    setReplacement(
-      replacementState(
-        admission,
-        admission.target_sid || project,
-        admission.resume_continuous,
-      ),
-    );
-  }, [project, replacement, snap?.daemon_admission]);
 
   const replaceRunningDaemon = async () => {
     if (!replacement || replacement.busy) return;
@@ -231,7 +207,6 @@ export function App({
       const result = await targetApi.replaceDaemon(
         victim.id,
         replacement.resumeContinuous,
-        snap?.daemon_commands?.revision,
       );
       if (result.rc !== 0) {
         const refreshed = replacementState(
@@ -248,7 +223,6 @@ export function App({
         );
         return;
       }
-      dismissedAdmissionRef.current = Date.now() / 1000;
       setReplacement(null);
       setNotice(`parked ${victim.label || victim.id} · queued work started`);
     } catch (error) {
@@ -283,7 +257,6 @@ export function App({
     setProject(id);
     onProjectChange?.(id);
     setReplacement(null);
-    dismissedAdmissionRef.current = 0;
     return true;
   };
 
@@ -472,8 +445,6 @@ export function App({
     try {
       const result = pendingDecision.kind === 'domain_intake'
         ? await api.answerDomain(pendingDecision.id, freeform ? 'custom' : option!.id, note)
-        : pendingDecision.legacy
-        ? await api.answerPending(pendingDecision.item_id, note)
         : await api.resolveDecision(
             pendingDecision.id,
             freeform ? 'custom' : option!.id,
@@ -606,7 +577,6 @@ export function App({
       if (intent === 'exit') {
         quit();
       } else if (intent === 'dismiss') {
-        dismissedAdmissionRef.current = Date.now() / 1000;
         setReplacement(null);
         setNotice('new work remains queued');
       } else if (intent === 'next') {
@@ -840,37 +810,15 @@ export function App({
   const comps = slashCompletions(edit.value);
   const slashMenuOpen = comps.length > 0 && !replacement && !daemonDraft && !panel;
   const backgroundExcludedRoles = pending ? ['manager'] : [];
-  const eventRoles = overlayRoleActivities(snap?.roles ?? [], events);
-  const displayRoles = pending
-    ? overlayActiveRole(
-        eventRoles,
-        'manager',
-        'Replying to your message',
-        Math.max(0, (Date.now() - startedAt) / 1000),
-      )
-    : eventRoles;
-  const missionView = snap
-    ? projectMissionView({ ...snap, roles: displayRoles }, events)
-    : null;
-  const partialDetail = snap?.partial
-    ? (snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`).join(' · ')
-    : '';
-  const sloDetail = snap?.observability?.slo.status === 'degraded'
-    ? snap.observability.slo.violations.join(' · ')
-    : '';
   const healthNotice = snapshotError
     ? `snapshot refresh failed · ${snapshotError}`
-    : snap?.partial
-    ? `snapshot partial · ${partialDetail || 'backend reported incomplete state'}`
-    : sloDetail
-    ? `SLO degraded · ${sloDetail}`
     : streamError && !connected
     ? `event stream reconnecting · ${streamError}`
     : '';
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Header width={terminal.columns} vertical={missionView?.routing.vertical} />
+      <Header width={terminal.columns} />
       {!slashMenuOpen ? <GuardianBanner alert={activeGuardianAlert(events)} /> : null}
       {pendingDecision ? (
         <PendingDecisionPrompt
@@ -886,16 +834,6 @@ export function App({
         <NewDaemonForm draft={daemonDraft} />
       ) : (
         <>
-          {missionView && !slashMenuOpen && !panel ? (
-            <MissionCockpit
-              view={missionView}
-              width={terminal.columns}
-              height={terminal.rows}
-              busy={pending}
-              spentUsd={snap?.global_spend_usd}
-              spendStatus={snap?.global_spend_status}
-            />
-          ) : null}
           {/* Ink 5 retains a root pointer to the latest Static node after unmount;
               keep EventLog mounted and collapse it while overlays are open. */}
           <EventLog
@@ -904,7 +842,7 @@ export function App({
             mode="all"
             liveMessageId={managerRequestRef.current?.messageId}
             collapsed={slashMenuOpen || Boolean(panel)}
-            showIdle={!missionView}
+            showIdle
             showReasoning={showReasoning}
           />
           {panel ? (

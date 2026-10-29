@@ -23,7 +23,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
     {
       role: 'engineer',
       label: 'Engineer',
-      glyph: '🎉',
+      glyph: '✓',
       text: 'The task was completed. · Created RESULT.txt and verified its contents.',
       tone: 'ok',
       rule: true,
@@ -48,7 +48,7 @@ test('renderEvent reports truthful terminal mission outcomes for new and legacy 
     {
       role: 'engineer',
       label: 'Engineer',
-      glyph: '🎉',
+      glyph: '✓',
       text: 'The final submission was checked and approved.',
       tone: 'ok',
       rule: true,

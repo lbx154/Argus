@@ -33,8 +33,7 @@ function snapshot(): Snapshot {
     },
     roles: [],
     backlog: [],
-    recent_events: [],
-  };
+    };
 }
 
 interface ProjectIndex {

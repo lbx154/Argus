@@ -23,7 +23,6 @@ import {
   type ApiMeta,
 } from '../../core/src/protocol';
 import type { ResourceStatus } from '../../core/src/resourceStatus.generated';
-import { workflowClient } from '../../core/src/applicationWorkflows';
 import {
   attachmentMime, attachmentSuffix, MESSAGE_ATTACHMENT_MAX_BYTES,
   MESSAGE_ATTACHMENT_MAX_COUNT, MESSAGE_ATTACHMENT_TOTAL_MAX_BYTES,
@@ -114,66 +113,6 @@ export interface KnowledgeFeed {
   events: KnowledgeEvent[];
 }
 
-/** One spec test joined to a component through its marker. */
-export interface ResearchMethodTest {
-  id: string;
-  kind: string;
-}
-/** One component of the hand-written card; component/prescribes/notes are the agent's text, tests are derived. */
-export interface ResearchMethodComponent {
-  component: string;
-  prescribes: string;
-  notes: string;
-  tests: ResearchMethodTest[];
-}
-/** A third_party/ clone or installed package the project's own code imports, found by the host's import scan. */
-export interface ResearchMethodReusedCode {
-  name: string;
-  kind: 'third_party' | 'package';
-  revision_or_version: string;
-  remote: string;
-  modules: string[];
-  imported_from: string[];
-}
-/** A value read from a run config file; `why` is the Engineer's `# why:` comment. */
-export interface ResearchMethodHyperparameter {
-  key: string;
-  value: string;
-  file: string;
-  why: string;
-}
-/** One git history entry touching the method. */
-export interface ResearchMethodChange {
-  when: string;
-  summary: string;
-  files: string[];
-}
-/**
- * A research project's method card: the hand-written METHOD.md plus what the
- * host derived from code, tests, config files and git at zero model cost.
- */
-export type ResearchMethod =
-  | { exists: false; error?: string }
-  | {
-    exists: true;
-    path: string;
-    /** METHOD.md mtime: epoch seconds or an ISO-8601 string; null when it could not be read. */
-    updated_at: number | string | null;
-    title: string;
-    /** First paragraph after the H1. */
-    statement: string;
-    markdown: string;
-    truncated: boolean;
-    components: ResearchMethodComponent[];
-    /** Components that carry test markers but are not named in the card. */
-    unlisted_components?: string[];
-    protocol: string;
-    falsifiers: string;
-    reused_code: ResearchMethodReusedCode[];
-    hyperparameters: ResearchMethodHyperparameter[];
-    change_log: ResearchMethodChange[];
-  };
-
 export interface ConfigRole {
   role: string;
   backend: string;
@@ -245,15 +184,6 @@ export interface PromptRewrite {
 }
 export type { UploadedAttachment } from '@argus/contracts';
 export type MessageAttachmentRef = UploadedAttachment;
-export interface ContinuousUpdateResult {
-  ok: boolean;
-  daemon?: {
-    rc?: number;
-    command_status?: string;
-    error?: string;
-    admission_required?: boolean;
-  };
-}
 /** Operator-owned message category; Task skips only the category classifier. */
 export type MessageRouteOverride = 'auto' | 'chat' | 'task';
 export interface AttachmentUploadResponse {
@@ -469,15 +399,6 @@ export async function requestWithTimeout<T>(
     if (timeout) clearTimeout(timeout);
     removeParentAbortListener();
   }
-}
-
-/** Bound connection establishment for callers that consume the body later. */
-export function fetchWithTimeout(
-  path: string,
-  init: RequestInit,
-  timeoutMs: number,
-): Promise<Response> {
-  return requestWithTimeout(path, init, timeoutMs, (response) => response);
 }
 
 async function getJson<T>(
@@ -807,7 +728,6 @@ export const api = {
   /** What `content` changes in the text result `source` as it is now, as a unified diff. */
   editionDiff: (sid: string, source: string, content: string) =>
     postJson<{ diff: string; truncated: boolean }>(P(sid, '/editions/artifact/diff'), { source, content }),
-  workflows: workflowClient(getJson, postJson),
   liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
     const params = new URLSearchParams();
     if (after) params.set('after', after);
@@ -818,25 +738,13 @@ export const api = {
     }
     return getJson<import('./map/model').Dataset>(P(sid, '/map') + (params.size ? `?${params}` : ''), signal);
   },
-  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string) => {
-    const params = new URLSearchParams({ locale });
-    if (sessionId) params.set('session_id', sessionId);
-    return getJson<import('./map/presentation').MapCopy>(`/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`, signal);
-  },
   /** One task's recorded trajectory: what each role thought, said, ran and changed. */
   mapTrace: (sid: string, task: string, signal?: AbortSignal) =>
     getJson<import('./components/TaskTrace').TaskTraceData>(P(sid, '/map-trace') + `?task=${encodeURIComponent(task)}`, signal),
-  mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
-  mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,
   projectIndex: async () => {
     await compatibleApiMeta();
     return getJson<ProjectIndex>('/api/projects', undefined, API_LOCAL_READ_TIMEOUT_MS);
-  },
-  listProjects: async () => {
-    await compatibleApiMeta();
-    return getJson<ProjectIndex>('/api/projects', undefined, API_LOCAL_READ_TIMEOUT_MS)
-      .then((result) => result.projects);
   },
   projectCosts: async (signal?: AbortSignal) => {
     await compatibleApiMeta();
@@ -893,7 +801,7 @@ export const api = {
   snapshot: async (sid: string, signal?: AbortSignal) => {
     await compatibleApiMeta();
     const value = await getJson<unknown>(
-      P(sid, '/snapshot?compact=true&events_limit=1'),
+      P(sid, '/snapshot'),
       signal,
       API_LOCAL_READ_TIMEOUT_MS,
     );
@@ -907,12 +815,6 @@ export const api = {
     postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model }),
   conversation: (sid: string, before?: number, signal?: AbortSignal) =>
     getJson<ConversationPage>(P(sid, `/conversation?limit=30${before === undefined ? '' : `&before=${before}`}`), signal),
-  events: (sid: string, limit = 80, signal?: AbortSignal) =>
-    getJson<{ events: EventMsg[] }>(
-      P(sid, `/events?limit=${limit}&view=ui`),
-      signal,
-    )
-      .then((r) => r.events),
   backlogItem: (sid: string, id: string, signal?: AbortSignal) =>
     getJson<{ item: BacklogItem }>(
       P(sid, `/backlog/${encodeURIComponent(id)}`),
@@ -957,35 +859,6 @@ export const api = {
   restoreTrash: (trashId: string) =>
     postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
 
-  addTask: (sid: string, text: string) =>
-    postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
-  abortMission: (sid: string, reason: string) =>
-    postJson<{ requested: boolean; item_id: string | null; message: string }>(
-      P(sid, '/mission/abort'),
-      { reason },
-    ),
-  mapNotes: (sid: string, signal?: AbortSignal) =>
-    getJson<{ notes: import('./map/notes').MapNote[] }>(P(sid, '/map-notes'), signal),
-  addMapNote: (sid: string, body: { node_id: string; text: string; author?: string }) =>
-    postJson<{ note: import('./map/notes').MapNote }>(P(sid, '/map-notes'), body),
-  mapCanvas: (sid: string, signal?: AbortSignal) =>
-    getJson<import('./map/canvas').CanvasRecord>(P(sid, '/canvas'), signal),
-  /** One canvas write; the body carries the revision it was based on. */
-  writeMapCanvas: <T extends { canvas: import('./map/canvas').CanvasRecord }>(
-    sid: string, method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', path: string, body?: Record<string, unknown>,
-  ) => uploadRequest<T>(method, P(sid, `/canvas${path}`), body),
-  answerPending: (sid: string, itemId: string, text: string) =>
-    postJson<{
-      answered_item_id: string;
-      resolved: boolean;
-      reply?: string;
-      manager_decision?: string;
-      item?: BacklogItem;
-      daemon?: { rc?: number; error?: string; admission_required?: boolean };
-    }>(
-      P(sid, `/backlog/${encodeURIComponent(itemId)}/answer`),
-      { text },
-    ),
   resolveDecision: (
     sid: string,
     decisionId: string,
@@ -1222,24 +1095,14 @@ export const api = {
     getJson<SkillCatalog>(`/api/skill-library${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
   skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
-  researchMethod: (sid: string, signal?: AbortSignal) => getJson<ResearchMethod>(P(sid, '/research/method'), signal),
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>
     getJson<KnowledgeFeed>(`/api/knowledge/feed?${new URLSearchParams({ limit: String(limit) })}`, signal),
   learningStatus: (sid: string, signal?: AbortSignal) => getJson<LearningState>(P(sid, '/learning'), signal),
-  setLaunchCwd: (sid: string, launchCwd: string) =>
-    postJson<{ ok: boolean }>(P(sid, '/launch-cwd'), { launch_cwd: launchCwd }),
   setWorkdir: (sid: string, workdir: string) =>
     postJson<{ ok: boolean; workdir: string; unchanged?: boolean }>(
       P(sid, '/workdir'),
       { workdir },
     ),
-  setContinuous: (sid: string, enabled: boolean, objective = '') =>
-    postJson<ContinuousUpdateResult>(P(sid, '/continuous'), { enabled, objective }).then((result) => {
-      if (!enabled) return result;
-      if (!result.daemon) throw new Error('daemon start returned no result');
-      requireDaemonCommand(result.daemon);
-      return result;
-    }),
   startDaemon: (sid: string, expectedRevision?: number) => postJson(P(sid, '/daemon/start'), {
     command_id: commandId(),
     expected_revision: expectedRevision,

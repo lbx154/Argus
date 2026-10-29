@@ -1,4 +1,4 @@
-import type { EventMsg, MissionView, Snapshot, ProjectWorkStatus } from '../../../core/src/types';
+import type { EventMsg, Snapshot, ProjectWorkStatus } from '../../../core/src/types';
 import type { Locale } from '../i18n';
 
 export type WorkStatus = Omit<ProjectWorkStatus, 'state'> & {
@@ -20,14 +20,6 @@ export function internalRecordsOnly(item: unknown): boolean {
 
 export function eventTaskId(event: EventMsg): string {
   return String(event.item_id || event.mission_id || '').split(':attempt:')[0];
-}
-
-/** The recorded start boundary for this task's current attempt and daemon run. */
-export function currentWorkStartedAt(snapshot: Snapshot | undefined, view: MissionView | null | undefined, taskId: string): number {
-  const task = snapshot?.backlog?.find(item => item.id === taskId);
-  const boot = Date.parse(snapshot?.daemon.started_at_iso || '') / 1000;
-  return Math.max(view?.mission.id === taskId ? view.mission.started_at || 0 : 0,
-    task?.started_ts || 0, Number.isFinite(boot) ? boot : 0);
 }
 
 /** A completion belongs to its call or task, never to every concurrent task. */

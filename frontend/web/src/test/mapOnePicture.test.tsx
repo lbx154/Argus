@@ -2,12 +2,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { NodeProps } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 import { MacroTaskNode, type MacroData, type MacroNode } from "../map/MacroTaskNode";
-import { farLabelFont, farLabelLines, HumanCardView, type HumanCardNode } from "../map/CanvasNodes";
-import { HUMAN_FRAME, humanFrame, type HumanCard } from "../map/canvas";
 import { MAP_CARD_LEGEND } from "../map/MapPanel";
 import { plainTitle, replacedNote, requestChip, type MapTask } from "../map/model";
 import { layoutSubmap } from "../map/submap";
-import { createZoomStepStore, ZoomStepContext } from "../map/zoomStep";
 
 vi.mock("@xyflow/react", async (original) => ({
   ...(await original<typeof import("@xyflow/react")>()),
@@ -29,7 +26,7 @@ const card = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({
   data: {
     id: "recheck-card", task, ordinal: 2, part: 1, partCount: 1, start: 1, end: 0, totalSteps: 0,
     layout: layoutSubmap(task, [], true, []), frame: { width: 1440, height: 900, scale: 1 },
-    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false, live: true,
+    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false,
     source: "live:project", readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(),
     ...patch,
   },
@@ -68,49 +65,6 @@ describe("one picture of the work", () => {
   it("explains how the cards are split in the map's key", () => {
     expect(MAP_CARD_LEGEND.map(([name, text]) => `${name[0]} = ${text}`)).toEqual([
       "任务卡 = 团队拆出来、能单独完成和验收的一件事",
-      "你的卡 = 你加的想法和资料",
-      "必经步骤 = 你定的必须经过的路",
     ]);
-  });
-});
-
-describe("required step cards", () => {
-  const words = "写 wordstat/core.py：count_words(text) 返回词频字典（不分大小写、去掉标点），配单元测试";
-  const step: HumanCard = { id: "hc-a", kind: "step", text: words, attachment: null, created_ts: 1, updated_ts: 1 };
-  const render = (zoom: number) => {
-    const store = createZoomStepStore();
-    store.set(zoom);
-    const props = { id: step.id, data: {
-      card: step, zh: true, readOnly: false, commit: vi.fn(), cancel: vi.fn(), openFile: vi.fn(), menu: vi.fn(),
-      step: { id: "hc-a", number: 1, text: words, checkpoint: false, after: [], status: "running", task_ids: ["t1", "t2"], question_item_id: "" },
-      taskTitles: ["写 core", "补测试"],
-    } } as unknown as NodeProps<HumanCardNode>;
-    return renderToStaticMarkup(<ZoomStepContext.Provider value={store}><HumanCardView {...props} /></ZoomStepContext.Provider>);
-  };
-
-  it("are as wide as idea cards and tall enough for the person's words from afar", () => {
-    expect(HUMAN_FRAME.step.width).toBe(HUMAN_FRAME.idea.width);
-    expect(HUMAN_FRAME.step.width).toBeGreaterThanOrEqual(1200);
-    const frame = humanFrame(step);
-    expect(frame.width).toBe(HUMAN_FRAME.idea.width);
-    // At an overview zoom (~0.125) the words keep at least three whole lines.
-    const font = farLabelFont(0.125, "step");
-    expect(font * 0.125).toBeCloseTo(14, 0);
-    expect(farLabelLines(font, step)).toBeGreaterThanOrEqual(3);
-    expect(farLabelLines(font, { kind: "step", text: "短" })).toBeGreaterThanOrEqual(2);
-  });
-
-  it("show the number badge, status dot and word in one header row, the words below", () => {
-    const near = render(1);
-    const header = near.slice(near.indexOf("<header>"), near.indexOf("</header>"));
-    expect(header).toContain('class="canvas-step-badge"');
-    expect(header).toContain('class="canvas-step-dot"');
-    expect(header).toContain("进行中");
-    expect(header).toContain("2 个任务");
-    expect(near.indexOf("canvas-card-text")).toBeGreaterThan(near.indexOf("</header>"));
-    const far = render(0.125);
-    expect(far).toContain('class="canvas-step-far-word"');
-    expect(far).toMatch(/--far-lines:\s*[3-4]/);
-    expect(far).toContain(words);
   });
 });

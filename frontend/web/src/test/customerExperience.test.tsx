@@ -1,7 +1,6 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type ArtifactInfo, type ProjectRow, type ProjectPreference } from '../api';
-import { emptyMissionView } from '../../../core/src/missionView';
 import { Landing } from '../components/Landing';
 import { StartPrompts } from '../components/StartPrompts';
 import { ResearchCanvas, FILES_PATH } from '../components/ResearchCanvas';
@@ -108,7 +107,7 @@ describe('starting and revisiting work', () => {
 
   it('opens files rather than progress, and retains the selected file across project reloads', () => {
     const file: ArtifactInfo = { path: 'report.md', name: 'report.md', exists: true, source: 'delivery', kind: 'markdown', mime: 'text/markdown', size: 100, mtime: 1, why: 'fixture' };
-    const props = { sid: 's-A', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), filesFirst: true, deliveriesLoaded: true };
+    const props = { sid: 's-A', artifacts: [file], onExpand: vi.fn(), filesFirst: true, deliveriesLoaded: true };
     const onRevise = vi.fn();
     act(() => { view = create(<ResearchCanvas {...props} onRevise={onRevise} />); });
     expect(view.root.findByType('select').props.value).toBe(FILES_PATH);
@@ -131,7 +130,7 @@ describe('starting and revisiting work', () => {
 
   it('names each listed file with the folder it is in, so files of one name tell apart', () => {
     const file = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop()!, exists: true, kind: 'text', mime: 'text/plain', size: 100, mtime: 1, why: '' });
-    act(() => { view = create(<ResearchCanvas sid="s-A" missionView={emptyMissionView()} onExpand={vi.fn()} filesFirst deliveriesLoaded
+    act(() => { view = create(<ResearchCanvas sid="s-A" onExpand={vi.fn()} filesFirst deliveriesLoaded
       artifacts={[file('src/index.js'), file('lib/index.js'), file('README.md')]} />); });
     const rows = view.root.findByProps({ className: 'file-browser' }).findAllByType('button')
       .map(row => [row.findByType('strong').children.join(''), row.findByType('small').children.join('')]);

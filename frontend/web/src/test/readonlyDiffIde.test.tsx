@@ -10,7 +10,7 @@ const props: ActiveWorkbenchPageProps = {
   sid: 's-A', active: false,
   snapshot: { session: { id: 's-A', display_name: 'Synthetic A', cwd: '/synthetic', objective: '', last_active: 1 },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
-    roles: [], backlog: [], recent_events: [] },
+    roles: [], backlog: [], },
   events: [], refresh: vi.fn(),
 };
 let client: QueryClient;

@@ -4,12 +4,11 @@ export type ApplicationBrand = {
   name: string;
   tagline: string;
   terminal_wordmark: string;
-  assets: Partial<Record<'mark' | 'mark_dark' | 'logo' | 'logo_dark' | 'icon' | 'icon_dark', string>>;
 };
 
 export const DEFAULT_APPLICATION_BRAND: ApplicationBrand = {
   schema: 1, id: 'argus', name: 'Argus', tagline: 'Autonomous Work Lab',
-  terminal_wordmark: 'argus', assets: {},
+  terminal_wordmark: 'argus',
 };
 
 export function parseApplicationBrand(value: unknown): ApplicationBrand {
@@ -25,21 +24,8 @@ export function parseApplicationBrand(value: unknown): ApplicationBrand {
     }
   }
   if (!/^[a-z0-9 -]+$/.test(String(data.terminal_wordmark))) throw new Error('Invalid terminal wordmark');
-  if (!data.assets || typeof data.assets !== 'object' || Array.isArray(data.assets)) {
-    throw new Error('Invalid application brand assets');
-  }
-  const assets: ApplicationBrand['assets'] = {};
-  const names = ['mark', 'mark_dark', 'logo', 'logo_dark', 'icon', 'icon_dark'] as const;
-  for (const name of names) {
-    const url = (data.assets as Record<string, unknown>)[name];
-    if (url !== undefined && url !== `/api/application-brand/assets/${name}`) {
-      throw new Error(`Invalid application brand asset ${name}`);
-    }
-    if (typeof url === 'string') assets[name] = url;
-    else if (data.id !== 'argus') throw new Error(`Missing application brand asset ${name}`);
-  }
   return {
     schema: 1, id: data.id, name: String(data.name), tagline: String(data.tagline),
-    terminal_wordmark: String(data.terminal_wordmark), assets,
+    terminal_wordmark: String(data.terminal_wordmark),
   };
 }

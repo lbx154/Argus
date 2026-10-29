@@ -14,7 +14,6 @@ interface Options {
   snapshotError: unknown;
   queryClient: QueryClient;
   receipts: DeliveryReceipt[];
-  completionId: string;
   selectProject: (sid: string) => void;
   openDelivery: (receipt: DeliveryReceipt, path?: string | null) => void;
   focusPath: (path: string) => void;
@@ -38,8 +37,7 @@ function legacyTarget(payload: DesktopDeliveryNotification, current: Options): s
       && known.title === payload.title && known.summary === payload.summary
       && (!payload.path || deliveryFiles(receipt).some(file => file.path === payload.path));
   });
-  const completion = Boolean(current.completionId && current.completionId === payload.deliveryId);
-  return matches.length + Number(completion) === 1 ? current.loadedSid : null;
+  return matches.length === 1 ? current.loadedSid : null;
 }
 
 /** Native activation restores the window; this hook owns only session/file

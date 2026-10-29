@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildMap, connectMap, type MapTask } from "../map/model";
+import { buildMap, type MapTask } from "../map/model";
 
 // The survey project's shape: a turn handed to a team task, a check of the
 // delivered survey, a replacement of that check, and a later question whose
@@ -20,7 +20,7 @@ const survey: MapTask[] = [
 
 describe("map lines follow recorded relations", () => {
   it("links a question to the card it is about instead of the card before it in time", () => {
-    const links = connectMap(buildMap(survey), [], true);
+    const links = buildMap(survey).links;
     const question = links.filter((link) => link.target === "turn:web-2");
     expect(question).toEqual([expect.objectContaining({ kind: "relation", relation: "about", source: "survey" })]);
     // Shared chronology does not add a dependency.
@@ -32,7 +32,7 @@ describe("map lines follow recorded relations", () => {
 
   it("leaves a card with no dependency or recorded relation unconnected", () => {
     const loose: MapTask = { id: "later", title: "另一件事", objective: "", status: "done", deps: [], ts: 6 };
-    const links = connectMap(buildMap([...survey, loose]), [], true);
+    const links = buildMap([...survey, loose]).links;
     expect(links.filter((link) => link.kind === "context").map((l) => [l.source, l.target]))
       .toEqual([]);
   });

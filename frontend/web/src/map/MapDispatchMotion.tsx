@@ -31,11 +31,10 @@ export function dispatchCurve(from: Point, to: Point, width: number) {
   };
 }
 
-export function MapDispatchMotion({ flight, canvas, zh, historical = false, onReveal, onLand, onFinish }: {
+export function MapDispatchMotion({ flight, canvas, zh, onReveal, onLand, onFinish }: {
   flight: MapDispatchFlight;
   canvas: RefObject<HTMLDivElement>;
   zh: boolean;
-  historical?: boolean;
   onReveal: (taskId: string) => void;
   onLand: (id: number) => void;
   onFinish: (id: number) => void;
@@ -47,7 +46,7 @@ export function MapDispatchMotion({ flight, canvas, zh, historical = false, onRe
   const gradientId = `dispatch-wake-${useId().replace(/:/g, '')}`;
   const callbacks = useRef({ onReveal, onLand, onFinish });
   callbacks.current = { onReveal, onLand, onFinish };
-  const isTask = flight.result?.type === 'task' && !historical;
+  const isTask = flight.result?.type === 'task';
 
   useEffect(() => {
     if (!flight.result) return;
@@ -55,7 +54,7 @@ export function MapDispatchMotion({ flight, canvas, zh, historical = false, onRe
     let timer: ReturnType<typeof setTimeout> | undefined;
     let haloAnimation: Animation | undefined;
     const finish = () => callbacks.current.onFinish(flight.id);
-    if (flight.result.type !== 'task' || historical) {
+    if (flight.result.type !== 'task') {
       timer = setTimeout(finish, 2200);
       return () => clearTimeout(timer);
     }
@@ -155,7 +154,7 @@ export function MapDispatchMotion({ flight, canvas, zh, historical = false, onRe
       root?.removeEventListener('pointerdown', interrupt);
       root?.removeEventListener('wheel', interrupt);
     };
-  }, [flight.id, flight.result, canvas, historical]);
+  }, [flight.id, flight.result, canvas]);
 
   // Processing and outcome feedback belong to the island, not a second notification card.
   if (!isTask) return null;

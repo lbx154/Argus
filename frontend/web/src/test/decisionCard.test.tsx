@@ -25,13 +25,12 @@ const card = {
 };
 
 describe('operator decision cards', () => {
-  it('projects typed and legacy pending questions', () => {
+  it('projects only server decision IDs', () => {
     const rows = operatorDecisionCards(
       [{ id: 'item-1', operator_decision: card }],
       [{ id: 'legacy', title: 'Legacy', pending_question: 'What now?' }],
     );
-    expect(rows.map((row) => row.id)).toEqual(['decision-item-1', 'legacy-legacy']);
-    expect(rows[1].legacy).toBe(true);
+    expect(rows.map((row) => row.id)).toEqual(['decision-item-1']);
   });
 
   it('hides legacy control-plane filler while preserving the actionable question', () => {
@@ -116,6 +115,7 @@ describe('operator decision cards', () => {
       { id: 'another', title: 'Another question', status: 'paused_operator', pending_question: 'Choose a route' },
       { id: 'current', title: 'Submission facts', status: 'paused_operator', pending_question: 'Supply real author details' },
     ];
+    for (const row of pending) Object.assign(row, { operator_decision: { id: `decision-${row.id}`, item_id: row.id, title: row.title, question: row.pending_question, status: 'pending' } });
     const before = JSON.stringify(pending);
     const rows = operatorDecisionCards(pending, [], 'current');
 

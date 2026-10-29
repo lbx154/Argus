@@ -156,32 +156,14 @@ export function requireSnapshotContract(value: unknown): Snapshot {
     );
   }
   if (!daemon) throw new Error('invalid snapshot: daemon section is missing');
-  const requiredDaemonFields = [
-    'read_status',
-    'read_error',
-    'protocol_compatible',
-    'protocol_error',
-  ];
-  const missingDaemon = requiredDaemonFields.filter((field) => !Object.hasOwn(daemon, field));
-  if (missingDaemon.length > 0) {
-    throw new Error(`invalid snapshot: daemon fields missing: ${missingDaemon.join(', ')}`);
-  }
   const requiredSnapshotFields = [
     'spend_usd',
     'spend_status',
     'usage_summary',
-    'daemon_commands',
-    'observability',
-    'mission_view',
-    'partial',
-    'diagnostics',
   ];
   const missingSnapshot = requiredSnapshotFields.filter((field) => !Object.hasOwn(snapshot, field));
   if (missingSnapshot.length > 0) {
     throw new Error(`invalid snapshot: fields missing: ${missingSnapshot.join(', ')}`);
-  }
-  if (!Array.isArray(snapshot.diagnostics)) {
-    throw new Error('invalid snapshot: diagnostics must be an array');
   }
   return value as Snapshot;
 }

@@ -110,7 +110,6 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['config', sid] }),
         queryClient.invalidateQueries({ queryKey: ['model-choices', sid] }),
-        queryClient.invalidateQueries({ queryKey: ['map-copy'] }),
       ]);
     } catch (error) {
       setFailure(requestFailureText(error, t).text);

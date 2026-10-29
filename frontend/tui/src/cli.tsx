@@ -8,8 +8,6 @@ import {
   type ProjectRow,
 } from './api.js';
 import { App } from './App.js';
-import { WorkflowWorkbench } from './WorkflowWorkbench.js';
-import { APPLICATION_WORKFLOWS } from '../../core/src/applicationWorkflows.js';
 import { isLocalApiHost } from './apiOwnership.js';
 import { HELP, parseArgs, withSelectedPort, type Args } from './args.js';
 import { FirstRun } from './components/FirstRun.js';
@@ -72,7 +70,7 @@ function Boot({
   animate: boolean;
   lifecycle: InteractiveExitLifecycle;
 }) {
-  const [phase, setPhase] = useState<'splash' | 'connecting' | 'picker' | 'empty' | 'live' | 'workflows' | 'error'>(
+  const [phase, setPhase] = useState<'splash' | 'connecting' | 'picker' | 'empty' | 'live' | 'error'>(
     animate ? 'splash' : 'connecting',
   );
   const [project, setProject] = useState<string | null>(null);
@@ -86,7 +84,7 @@ function Boot({
   const splashDone = useRef(!animate);
   const exitRequested = useRef(false);
   const webOpened = useRef(false);
-  const destination = useRef<'connecting' | 'picker' | 'empty' | 'live' | 'workflows'>('connecting');
+  const destination = useRef<'connecting' | 'picker' | 'empty' | 'live'>('connecting');
   const base = useMemo(
     () => new ApiClient({ host: args.host, port: args.port, project: '_', token: args.token }),
     [args.host, args.port, args.token],
@@ -121,12 +119,6 @@ function Boot({
       }
       setNote('connecting…');
       try {
-        if ((await base.meta()).capabilities.includes(APPLICATION_WORKFLOWS)
-            && process.env.ARGUS_APPLICATION_MODE !== 'legacy') {
-          destination.current = 'workflows';
-          if (splashDone.current) setPhase('workflows');
-          return;
-        }
         const availableProjects = await base.listProjects();
         if (uiCancelled()) return;
         const upgrades = await scheduleOutdatedDaemonUpgrades(
@@ -263,9 +255,6 @@ function Boot({
       onCreated={onFirstDaemon}
     />
   );
-  if (phase === 'workflows') {
-    return <WorkflowWorkbench api={base} initialProject={args.project} initialObjective={args.objective} />;
-  }
   if (phase === 'live' && project) {
     return (
       <App
@@ -376,12 +365,6 @@ async function main() {
     });
     let project: string;
     try {
-      if ((await probe.meta()).capabilities.includes(APPLICATION_WORKFLOWS)
-          && process.env.ARGUS_APPLICATION_MODE !== 'legacy') {
-        if (!args.project) throw new Error('Select a work order with --project; --once never creates one.');
-        process.stdout.write(`${JSON.stringify(await probe.workflows.snapshot(args.project), null, 2)}\n`);
-        return;
-      }
       const availableProjects = await probe.listProjects();
       await scheduleOutdatedDaemonUpgrades(
         availableProjects,
@@ -450,7 +433,6 @@ async function runOnce(api: ApiClient, count: number): Promise<void> {
     daemon_alive: snap.daemon.alive,
     roles: snap.roles.map((r) => `${r.role}:${r.active ? 'active' : 'idle'}`),
     backlog: snap.backlog.length,
-    mission_summary: snap.mission_view?.mission.summary ?? '',
     events,
   };
   process.stdout.write(JSON.stringify(out, null, 2) + '\n');

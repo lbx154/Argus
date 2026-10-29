@@ -116,8 +116,7 @@ describe('real rows from a dogfood session', () => {
     // "Public package: /fastdata/…/work/timefmt/timefmt/__init__.py".
     const snapshot = {
       session: { id: 's', display_name: 'datefmt', objective: '', cwd: '/srv/state/projects/s', workdir: '/work/datefmt', last_active: 1 },
-      daemon: { alive: false, pid: null, uptime_seconds: 0, backend: 'pi' }, roles: [], backlog: [], recent_events: [],
-    } as unknown as Snapshot;
+      daemon: { alive: false, pid: null, uptime_seconds: 0, backend: 'pi' }, roles: [], backlog: [], } as unknown as Snapshot;
     const command = 'rm -r -- /work/datefmt/build /work/datefmt2/build && ls /work/datefmt';
     const events = [
       { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: command, ts: 1 },

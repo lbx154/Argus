@@ -94,7 +94,7 @@ describe("progress map data semantics", () => {
       task("selected", ["parent", "outside"]), task("child", ["selected"]),
       task("grandchild", ["child"]), task("unrelated"),
     ]);
-    graph.links.push({ id: "semantic", source: "unrelated", target: "selected", kind: "semantic" });
+    graph.links.push({ id: "related", source: "unrelated", target: "selected", kind: "relation", relation: "checks" });
     const dependencies = taskDependencies(graph, "selected");
     expect(dependencies.upstream.map((row) => row.id).sort()).toEqual(["outside", "parent"]);
     expect(dependencies.downstream.map((row) => row.id)).toEqual(["child"]);

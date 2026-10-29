@@ -40,9 +40,4 @@ function applyApplicationBrand(value: typeof brand) {
   document.title = brand.name;
   document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', brand.name);
   document.querySelector('link[rel="manifest"]')?.setAttribute('href', '/api/application-brand/manifest.webmanifest');
-  for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="apple-touch-icon"]')) {
-    const dark = link.media.includes('dark');
-    link.href = (dark ? brand.assets.icon_dark : brand.assets.icon)!;
-    link.removeAttribute('type');
-  }
 }

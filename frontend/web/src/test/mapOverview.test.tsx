@@ -56,7 +56,7 @@ describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
   it("keeps the header from saying 已完成 beside a step that did not finish, whatever files it owned", () => {
     const snapshot = (owns: string[]): Snapshot => ({
       session: { id: "s-7d7b7d22", display_name: "", objective: "", cwd: "/w", last_active: 1 },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, resumable: true }, roles: [], recent_events: [], work_status: { state: "paused", reason: "not_running", role: "", roles: [], taskId: "", title: "", foreground: false, activityAt: null, label: { "zh-CN": "执行中断：1 个任务暂停", en: "Interrupted: 1 task paused" } },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, resumable: true }, roles: [], work_status: { state: "paused", reason: "not_running", role: "", roles: [], taskId: "", title: "", foreground: false, activityAt: null, label: { "zh-CN": "执行中断：1 个任务暂停", en: "Interrupted: 1 task paused" } },
       backlog: [{ id: "last", title: "收尾", objective: "", status: "failed", priority: 1, owns_paths: owns } as Snapshot["backlog"][number]],
     }) as Snapshot;
     for (const owns of [[".argus/maintenance/review-progress-repair"], ["report.md"]]) {

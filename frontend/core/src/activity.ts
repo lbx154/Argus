@@ -1,4 +1,4 @@
-import type { EventMsg, Role } from './types.js';
+import type { EventMsg } from './types.js';
 import { eventKey } from './events.js';
 
 export type ActivityStatus = 'running' | 'done' | 'error';
@@ -346,74 +346,6 @@ export function runningActivities(
         now - activity.updatedTs <= ACTIVE_ACTIVITY_WINDOW_S,
     )
     .sort((a, b) => b.updatedTs - a.updatedTs);
-}
-
-/** Overlay live wire activity immediately instead of waiting for snapshot polling. */
-export function overlayRoleActivities(roles: Role[], events: EventMsg[]): Role[] {
-  const byRole = new Map(runningActivities(events).map((activity) => [activity.role, activity]));
-  const known = new Set(roles.map((role) => role.role));
-  const now = Date.now() / 1000;
-  const merged = roles.map((role) => {
-    const activity = byRole.get(role.role);
-    if (!activity) return role;
-    return {
-      ...role,
-      active: true,
-      label: activity.label,
-      status: 'running',
-      age_s: Math.max(0, now - activity.updatedTs),
-    };
-  });
-  for (const activity of byRole.values()) {
-    if (known.has(activity.role)) continue;
-    merged.push({
-      role: activity.role,
-      backend: activity.backend,
-      backend_label: activity.backend,
-      model: activity.model,
-      effort: null,
-      active: true,
-      label: activity.label,
-      status: 'running',
-      age_s: Math.max(0, now - activity.updatedTs),
-    });
-  }
-  return merged;
-}
-
-/** Overlay UI-local work that has not been journaled to the project event log. */
-export function overlayActiveRole(
-  roles: Role[],
-  roleName: string,
-  label: string,
-  ageS = 0,
-): Role[] {
-  const activityLabel = label.trim() || 'working';
-  const activeAge = Math.max(0, ageS);
-  let found = false;
-  const merged = roles.map((role) => {
-    if (role.role !== roleName) return role;
-    found = true;
-    return {
-      ...role,
-      active: true,
-      label: activityLabel,
-      status: 'running',
-      age_s: activeAge,
-    };
-  });
-  if (found) return merged;
-  return merged.concat({
-    role: roleName,
-    backend: '',
-    backend_label: '',
-    model: '',
-    effort: null,
-    active: true,
-    label: activityLabel,
-    status: 'running',
-    age_s: activeAge,
-  });
 }
 
 export function activityHistory(events: EventMsg[], max = 10): ActivityView[] {

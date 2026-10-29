@@ -9,7 +9,6 @@ import { MapCanvas } from "../map/MapPanel";
 import { MapReaderContent } from "../map/MapReaderContent";
 import type { MacroNode } from "../map/MacroTaskNode";
 import type { Dataset } from "../map/model";
-import type { MapCopy } from "../map/presentation";
 import type { CameraMemory } from "../map/useSemanticCamera";
 
 const fitCamera = vi.hoisted(() => vi.fn<(ids?: ReadonlySet<string>) => void>());
@@ -66,11 +65,11 @@ const props: ComponentProps<typeof MapCanvas> = {
   snapshot: {
     session: { id: "navigation", display_name: "Navigation", objective: "", last_active: 0, cwd: "" },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
-    roles: [], backlog: [], recent_events: [],
+    roles: [], backlog: [],
   },
   composer: {
     value: "", onChange: () => {}, onSend: async () => false, pending: false, 
-    attachments: [], onAttachmentsChange: () => {}, focusSignal: 0, sessionName: "Navigation", historical: false, zh: false,
+    attachments: [], onAttachmentsChange: () => {}, focusSignal: 0, zh: false,
   },
   actions: {
     conversationEvents: [], connected: true, artifacts: [], deliveryCount: 0,
@@ -92,7 +91,6 @@ beforeEach(() => {
   restoreCamera.mockClear();
   vi.stubGlobal("window", { location: { search: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
-  client.setQueryData(['map-copy', 'project', 'navigation', 'en-US', 'navigation'], { cards: {}, relations: [], available: false });
   act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>, {
     createNodeMock: (element) => element.props.className?.split(" ").includes("map-canvas-wrap")
       ? { clientWidth: 1440 } : null,
@@ -119,67 +117,30 @@ it("omits the empty status row and ambient decoration without hiding active work
   expect(renderer.root.findAllByProps({ className: "map-progress" })).toHaveLength(0);
 });
 
-it("keeps the explicitly opened task reader when new copy arrives and background focus changes", async () => {
-  const key = ['map-copy', 'project', 'navigation', 'en-US', 'navigation'];
-  const retained: MapCopy = { version: 22, available: true, relations: [], cards: { failed: {
-    title: 'Retained task explanation', summary: 'A limited finding', detail: 'Retained evidence', generated_at: 1, version: 22,
-  } } };
-  await act(async () => { client.setQueryData(key, retained); await new Promise(resolve => setTimeout(resolve, 0)); });
+it("keeps the task reader open when background focus changes and reads the real trajectory", () => {
   act(() => nodes().find(node => node.id === 'failed')!.data.open('failed'));
   act(() => nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', 'failed'));
   const reader = () => renderer.root.findByProps({ 'data-testid': 'map-task-reading' });
   expect(reader().props['data-task-id']).toBe('failed');
-  const positions = nodes().map(node => node.position);
-  const updated: MapCopy = { ...retained, cards: { failed: { ...retained.cards.failed, title: 'Updated task explanation', generated_at: 2 } },
-    relations: [{ source: 'parent', target: 'unrelated', kind: 'semantic', label: 'Explains' }] };
-  await act(async () => { client.setQueryData(key, updated); await new Promise(resolve => setTimeout(resolve, 0)); });
-  expect(nodes().map(node => node.position)).toEqual(positions);
-
-  // ReactFlow/camera animation is mocked here. Exercise its observable focus
-  // change and the owning node's detailed-mode cleanup explicitly.
   act(() => {
     nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', null);
     button('Fit map').props.onClick();
   });
   expect(focused()).toBeUndefined();
-  expect(reader().props['data-task-id']).toBe('failed');
-  expect(reader().findByType(MapReaderContent).props.card.title).toBe('Updated task explanation');
   expect(reader().findByType(MapReaderContent).props.taskId).toBe('failed');
-
+  expect(reader().findByType(TaskTrace).props.taskId).toBe('failed');
   act(() => renderer.root.findAllByType(Modal).find(modal => modal.props.label === 'Task explanation')!.props.onClose());
   expect(renderer.root.findAllByProps({ 'data-testid': 'map-task-reading' })).toHaveLength(0);
 });
 
-it("opens a task without a saved explanation on its own record and never asks for one to be written", async () => {
-  await act(async () => {
-    client.setQueryData(['map-copy', 'project', 'navigation', 'en-US', 'navigation'], { cards: {}, relations: [], available: true });
-    await new Promise(resolve => setTimeout(resolve, 0));
-  });
-  act(() => nodes().find(node => node.id === 'failed')!.data.open('failed'));
-  act(() => nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', 'failed'));
-  // Longer than the debounce the map once waited before writing an explanation.
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 800)); });
-  const reading = renderer.root.findByProps({ 'data-testid': 'map-task-reading' });
-  const reader = reading.findByType(MapReaderContent);
-  expect(reader.props.card).toBeUndefined();
-  expect(reader.props.taskId).toBe('failed');
-  expect(reading.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
-  // A live team task reads as its recorded trajectory, not a written explanation.
-  expect(reading.findByType(TaskTrace).props.taskId).toBe('failed');
-});
-
 it("does not count a partial research execution as a completed overall goal", () => {
-  const partial = { ...data, kind: "historical" as const, tasks: [data.tasks[0]], events: [{
+  const partial = { ...data, kind: "live" as const, tasks: [data.tasks[0]], events: [{
     id: "ended", item_id: "parent", type: "life.mission.completed", ts: 5, text: "",
     success: true, overall_complete: false, campaign_continues: true,
   }] };
   act(() => renderer.update(
     <QueryClientProvider client={client}><MapCanvas {...props} data={partial} /></QueryClientProvider>,
   ));
-  const sentence = renderer.root.findByProps({ className: "map-status-text" }).children.join("");
-  expect(sentence).toContain("1 ended before their goals were complete");
-  expect(sentence).not.toContain("all completed");
-  // The header no longer carries a progress strip; the sentence is the only tally.
   expect(renderer.root.findAllByProps({ className: "map-progress-strip" })).toHaveLength(0);
   expect(nodes()[0].data.task.status).toBe("done");
   expect(nodes()[0].data.completionScope).toContain("further work remained");
@@ -278,32 +239,6 @@ it("measures offscreen cards before fitting and after graph growth", () => {
   expect(renderer.root.findByProps({ "data-testid": "flow" }).props["data-culling"]).toBe(true);
 });
 
-it.each(["paused_provider_fence", "paused_external_work", "parked", "blocked"])(
-  "does not call unfinished %s work ready",
-  (status) => {
-    act(() => renderer.update(
-      <QueryClientProvider client={client}>
-        <MapCanvas {...props} data={{ ...data, kind: "historical", tasks: [
-          data.tasks[0], { ...data.tasks[1], status },
-        ] }} />
-      </QueryClientProvider>,
-    ));
-    expect(renderer.root.findByProps({ className: "map-status-text" }).children.join(""))
-      .toBe("2 tasks · 1 done · paused");
-  },
-);
-
-it("counts the tasks the overview counts: a replaced task is not one left to finish", () => {
-  // Trial s-f0e1b2f0: the overview said "任务 1/1 已完成", the map "2 个任务 · 已完成 1 个".
-  act(() => renderer.update(
-    <QueryClientProvider client={client}>
-      <MapCanvas {...props} data={{ ...data, kind: "historical", tasks: [{ ...data.tasks[1], status: "superseded" }, data.tasks[0]] }} />
-    </QueryClientProvider>,
-  ));
-  expect(renderer.root.findByProps({ className: "map-status-text" }).children.join(""))
-    .toBe("1 task · all completed");
-});
-
 it("cycles all attention tasks and displays their actual question or failure reason", () => {
   const jump = () => act(() => button("Cycle through 2 tasks needing attention").props.onClick());
   jump();
@@ -364,7 +299,7 @@ it("keeps normal card navigation when the traced task disappears from the live m
   act(() => button("Trace dependencies").props.onClick());
   act(() => renderer.update(
     <QueryClientProvider client={client}>
-      <MapCanvas {...props} data={{ ...data, kind: "historical", tasks: data.tasks.filter((task) => task.id !== "question") }} />
+      <MapCanvas {...props} data={{ ...data, kind: "live", tasks: data.tasks.filter((task) => task.id !== "question") }} />
     </QueryClientProvider>,
   ));
   expect(button("Trace dependencies").props["aria-pressed"]).toBe(false);

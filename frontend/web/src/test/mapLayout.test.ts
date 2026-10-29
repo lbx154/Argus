@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { buildMap, connectMap, type MapTask } from "../map/model";
+import { buildMap, type MapTask } from "../map/model";
 import { layoutGraph, relationPorts } from "../map/graphLayout";
 import { inside, routeRelation, type Box } from "../map/relationGeometry";
 
@@ -13,7 +13,7 @@ function arrange(dependencies: number[][]) {
     deps: deps.map(String),
   }));
   const graph = buildMap(tasks);
-  const links = connectMap(graph, [], true);
+  const links = graph.links;
   const sizes = Object.fromEntries(
     graph.tasks.map((t, i) => [
       t.id,
@@ -158,7 +158,7 @@ it("keeps a cycle together with its downstream work in later columns", () => {
 it("lays the browser reproduction out by dependency depth, independent of creation order", async () => {
   const { default: tasks } = await import("./fixtures/map-deps.json");
   const graph = buildMap(tasks);
-  const links = connectMap(graph, [], true);
+  const links = graph.links;
   expect(links.map(({ source, target }) => [source, target])).toEqual([
     ["t1", "t2"], ["t1", "t3"], ["t2", "t5"], ["t3", "t5"], ["t5", "t6"],
   ]);

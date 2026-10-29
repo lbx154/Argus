@@ -6,7 +6,7 @@
       "major": 1,
       "minor": 16
     },
-    "snapshot_schema_version": 7,
+    "snapshot_schema_version": 8,
     "capabilities": [
       "daemon.admission.v1",
       "daemon.status.protocol.v1",
@@ -79,7 +79,7 @@
     "generated_at": 100
   },
   "snapshot": {
-    "schema_version": 7,
+    "schema_version": 8,
     "session": {
       "id": "s-fixture",
       "display_name": "Fixture project",
@@ -91,15 +91,10 @@
       "alive": false,
       "pid": null,
       "uptime_seconds": null,
-      "backend": null,
-      "read_status": "ok",
-      "read_error": "",
-      "protocol_compatible": null,
-      "protocol_error": ""
+      "backend": null
     },
     "roles": [],
     "backlog": [],
-    "recent_events": [],
     "spend_usd": 0,
     "spend_status": "empty",
     "usage_summary": {
@@ -119,11 +114,6 @@
       "total_nano_aiu": 0,
       "premium_request_cost_usd": 0,
       "pricing_status": "empty"
-    },
-    "daemon_commands": null,
-    "observability": null,
-    "mission_view": null,
-    "partial": false,
-    "diagnostics": []
+    }
   }
 }

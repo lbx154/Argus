@@ -16,13 +16,10 @@ function spendText(summary?: UsageSummary | null): string {
 /** Model/API-call spend as recorded in the usage ledgers; GPU and infrastructure cost are out of scope. Nothing is capped here. */
 export function CostGauge({
   usage,
-  globalUsage,
   width,
 }: {
   /** This project's ledger. */
   usage?: UsageSummary | null;
-  /** Today's ledger across all projects. */
-  globalUsage?: UsageSummary | null;
   width: number;
 }) {
   return (
@@ -30,7 +27,6 @@ export function CostGauge({
       <Box>
         <Text dimColor>model/API spend </Text>
         <Text color={incomplete(usage) ? theme.warning : theme.success}>{spendText(usage)}</Text>
-        <Text dimColor>{` · today, all projects ${spendText(globalUsage)}`}</Text>
       </Box>
       {usage && usage.call_count > 0 ? (
         <Text dimColor wrap="truncate-end">

@@ -31,8 +31,6 @@ export interface MapComposerProps {
   progressVisible?: boolean;
   dispatchStatus?: "launching" | "task" | "message" | "error" | "cancelled";
   focusSignal: number;
-  sessionName: string;
-  historical: boolean;
   zh: boolean;
   overview?: boolean;
   routeOverride?: MessageRouteOverride;
@@ -61,8 +59,6 @@ export function MapComposer({
   progressVisible = true,
   dispatchStatus,
   focusSignal,
-  sessionName,
-  historical,
   zh,
   routeOverride = 'auto',
   onRouteOverrideChange,
@@ -477,9 +473,7 @@ export function MapComposer({
             ? zh
               ? "已发送"
               : "Sent"
-            : historical
-              ? `${zh ? "发送至" : "Send to"} ${sessionName}`
-              : ""}
+            : ""}
       </span>
     </div>
   );

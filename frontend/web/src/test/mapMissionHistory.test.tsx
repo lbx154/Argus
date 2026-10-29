@@ -64,7 +64,7 @@ it("offers a keyboard-accessible history control without repeating Continued tit
     selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0,
     data: { ...card, layout: scene.layouts[card.id], frame: scene.frames[card.id],
       canvasSize: { width: 1440, height: 960 },
-      zh: false, focused: false, detailed: false, live: true, readOnly: false, source: "live:test",
+      zh: false, focused: false, detailed: false,  readOnly: false, source: "live:test",
       open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(), toggleHistory },
   };
   let renderer: ReturnType<typeof create>;

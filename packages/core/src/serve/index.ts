@@ -24,7 +24,7 @@ import { resources } from './resources.js';
 import { Runs, type Frame } from './runs.js';
 import { trash } from './trash.js';
 import { versions } from './versions.js';
-import { daemon, follow, progressMap, projectRow, readEvents, snapshot, taskTrace, webEvents, readRecord, conversationRows, conversationPage } from './views.js';
+import { daemon, follow, progressMap, projectRow, snapshot, taskTrace, readRecord, conversationRows, conversationPage } from './views.js';
 import { workspace } from './workspace.js';
 
 export interface ServeOptions {
@@ -185,8 +185,6 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     ...projectRoutes(store, runs, project),
     ['GET', /^\/api\/projects\/([^/]+)\/snapshot$/, ({ params: [id] }) => snapshot(store, project(id!), runs.live(id!))],
-    ['GET', /^\/api\/projects\/([^/]+)\/events$/, ({ params: [id], url }) =>
-      ({ events: webEvents(readEvents(store, project(id!).id)).slice(-Number(url.searchParams.get('limit') ?? 120)) })],
     // The record's events as they are appended, each stream reading on from where it stopped. A page
     // that reconnects names the last line it has (Last-Event-ID) and is sent those after it; a new
     // one, the last `replay`.

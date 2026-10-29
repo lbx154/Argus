@@ -66,16 +66,16 @@ describe('project-scoped event stream', () => {
       type: 'round.start',
       event_id: String(i),
     }));
-    const seeded = streamReducer(initial, {
-      kind: 'seed',
+    const replayed = streamReducer(initial, {
+      kind: 'push-many',
       sid: 's-current',
       events,
     });
 
-    expect(seeded.events).toHaveLength(2_000);
-    expect(seeded.seen.size).toBe(2_000);
+    expect(replayed.events).toHaveLength(2_000);
+    expect(replayed.seen.size).toBe(2_000);
 
-    const replayedOldEvent = streamReducer(seeded, {
+    const replayedOldEvent = streamReducer(replayed, {
       kind: 'push',
       sid: 's-current',
       ev: events[0],
@@ -103,7 +103,7 @@ describe('project-scoped event stream', () => {
     expect(batched.seen.size).toBe(2);
   });
 
-  it('preserves live events received before the REST seed resolves', () => {
+  it('appends live events after replay and ignores repeated replay frames', () => {
     const initial = {
       sid: 's-current',
       events: [] as EventMsg[],
@@ -111,34 +111,28 @@ describe('project-scoped event stream', () => {
     };
     const live = { type: 'round.review.completed', event_id: 'live' } as EventMsg;
     const historical = { type: 'round.start', event_id: 'history' } as EventMsg;
-    const pushed = streamReducer(initial, {
-      kind: 'push',
+    const replayed = streamReducer(initial, {
+      kind: 'push-many',
       sid: 's-current',
-      ev: live,
+      events: [historical],
     });
 
-    const seeded = streamReducer(pushed, {
-      kind: 'seed',
+    const pushed = streamReducer(replayed, {
+      kind: 'push-many',
       sid: 's-current',
       events: [historical, live],
     });
 
-    expect(seeded.events.map((event) => event.event_id)).toEqual(['history', 'live']);
-    expect(seeded.seen.size).toBe(2);
+    expect(pushed.events.map((event) => event.event_id)).toEqual(['history', 'live']);
+    expect(pushed.seen.size).toBe(2);
   });
 
-  it('says the fresh window has landed only after the seed, not after live pushes or a cached restore', () => {
-    // Deliveries settled before the project opened arrive in the seed; the
-    // side panel must not take its "new delivery" baseline before then.
-    const live = { type: 'ui.argus', event_id: 'live' } as EventMsg;
-    const restored = streamReducer({ sid: null, events: [], seen: new Set<string>() }, { kind: 'reset', sid: 's', events: [live] });
-    expect(restored.seeded).toBeFalsy();
-    const pushed = streamReducer(restored, { kind: 'push', sid: 's', ev: { type: 'ui.argus', event_id: 'next' } as EventMsg });
-    expect(pushed.seeded).toBeFalsy();
-    const seeded = streamReducer(pushed, { kind: 'seed', sid: 's', events: [live] });
-    expect(seeded.seeded).toBe(true);
-    expect(streamReducer(seeded, { kind: 'push', sid: 's', ev: { type: 'ui.argus', event_id: 'later' } as EventMsg }).seeded).toBe(true);
-    expect(streamReducer(seeded, { kind: 'reset', sid: 's2' }).seeded).toBeFalsy();
+  it('clears the previous project window and deduplication keys on a switch', () => {
+    const old = { type: 'ui.argus', event_id: '1' } as EventMsg;
+    const reset = streamReducer({ sid: 'old', events: [old], seen: new Set(['1']) }, { kind: 'reset', sid: 'new' });
+    expect(reset.events).toEqual([]);
+    expect(reset.seen.size).toBe(0);
+    expect(streamReducer(reset, { kind: 'push', sid: 'new', ev: old }).events).toEqual([old]);
   });
 
   it('requests an immediate artifact refresh for live-view and file events', () => {

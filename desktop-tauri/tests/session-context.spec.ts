@@ -1,5 +1,5 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
-import { startSessionFixture, deferred, REPORT_PATH } from './session-context-fixture.mjs';
+import { startSessionFixture, deferred, FIXTURE_AUTH, REPORT_PATH } from './session-context-fixture.mjs';
 
 type Fixture = Awaited<ReturnType<typeof startSessionFixture>>;
 let fixture: Fixture;
@@ -61,6 +61,26 @@ test.afterEach(async ({}, info) => {
   expect(outside).toEqual([]);
   expect(fixture.state.unexpected).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test('snapshot fixtures use schema 8 without retired snapshot or daemon fields', async () => {
+  for (const sid of ['s-A', 's-B']) {
+    const response = await fetch(`${fixture.origin}/api/projects/${sid}/snapshot`, {
+      headers: { Authorization: `Bearer ${FIXTURE_AUTH}` },
+    });
+    expect(response.status).toBe(200);
+    const snapshot = await response.json();
+    expect(snapshot.schema_version).toBe(8);
+    for (const field of ['recent_events', 'daemon_commands', 'observability', 'mission_view', 'partial', 'diagnostics',
+      'global_spend_usd', 'global_spend_status', 'global_usage_summary', 'daemon_admission', 'continuous', 'storage',
+      'request_usage', 'cost_control']) {
+      expect(Object.hasOwn(snapshot, field), field).toBe(false);
+    }
+    for (const field of ['read_status', 'read_error', 'protocol_compatible', 'protocol_error',
+      'liveness_source', 'heartbeat_age_seconds', 'health', 'mission_width', 'protocol', 'capabilities', 'runtime', 'global_daily_cap_usd']) {
+      expect(Object.hasOwn(snapshot.daemon, field), field).toBe(false);
+    }
+  }
 });
 
 test('A1: A/B drafts and File attachments are isolated, while map and activity share the same draft', async ({ page }) => {

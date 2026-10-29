@@ -11,9 +11,6 @@ import {
   computeSpend,
   defaultProject,
   reconcileProjectSelection,
-  deriveMissionView,
-  displayObjective,
-  projectMissionView,
   EVENT_TYPES,
   eventKey,
   eventMatchesView,
@@ -28,15 +25,9 @@ import { finishManagerMessage, managerMessageError } from '../lib/messageResult'
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
 import type { AgentIoCompleteEvent } from '../../../core/src/eventPayloads.generated';
 import {
-  selectPreferredLiveArtifact,
   selectPreferredPreviewArtifact,
   selectPreviewArtifacts,
-  selectLiveMissionStatus,
-  defaultPreviewPath,
-  liveProgressSummary,
-  LIVE_PROGRESS_PATH,
 } from '../components/ResearchCanvas';
-import { emptyMissionView } from '../../../core/src/missionView';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { PendingReplyDialog } from '../components/PendingReplyDialog';
 import { Sidebar } from '../components/Sidebar';
@@ -461,17 +452,6 @@ describe('shared frontend core', () => {
     expect(authoritativeSpend(spend, 0.8)).toBe(0.8);
   });
 
-  it('distinguishes mission completion from daemon liveness', () => {
-    const view = deriveMissionView({
-      session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
-      roles: [],
-      backlog: [],
-      recent_events: [],
-      continuous: { enabled: false, objective: 'CO2 paper', done_reason: 'done' },
-    });
-    expect(view).toMatchObject({ state: 'complete', objective: 'CO2 paper' });
-  });
 
   it('maps mission terminal outcomes truthfully across new and legacy fields', () => {
     const present = (sharedCore as Record<string, unknown>).missionOutcomePresentation;
@@ -560,32 +540,7 @@ describe('shared frontend core', () => {
     }
   });
 
-  it('treats a fresh session with a lazy daemon as ready, not offline', () => {
-    const view = deriveMissionView({
-      session: { id: 's-fresh', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
-      roles: [],
-      backlog: [],
-      recent_events: [],
-      continuous: { enabled: false, objective: '', done_reason: '' },
-    });
-    expect(view).toMatchObject({ state: 'idle', stateLabel: 'ready' });
-  });
 
-  it('does not report armed work as active when the executor is absent', () => {
-    const snapshot = {
-      session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
-      roles: [],
-      recent_events: [],
-      backlog: [],
-      continuous: { enabled: true, objective: 'Run the benchmark', done_reason: '' },
-    };
-    expect(deriveMissionView(snapshot)).toMatchObject({
-      state: 'waiting',
-      stateLabel: 'queued',
-    });
-  });
 
   it('formats artifact sizes for compact result metadata', () => {
     expect(formatBytes(0)).toBe('0 B');
@@ -633,25 +588,6 @@ describe('shared frontend core', () => {
     expect(manifest).toContain('/icon-maskable-dark-512.png');
   });
 
-  it('lets the Manager choose the live canvas and prefers its rendered output', () => {
-    const artifacts = [
-      { path: 'paper/main.tex', name: 'main.tex', why: 'draft', exists: true, kind: 'text' as const, mime: 'text/plain', size: 10, mtime: 1, source: 'manager_live' as const },
-      { path: 'paper/main.pdf', name: 'main.pdf', why: 'rendered draft', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 20, mtime: 2, source: 'manager_live' as const },
-      { path: 'review/private.pdf', name: 'private.pdf', why: 'review', exists: true, kind: 'pdf' as const, mime: 'application/pdf', size: 30, mtime: 3, source: 'reviewer_evidence' as const },
-    ];
-
-    expect(selectPreferredLiveArtifact(artifacts)?.path).toBe('paper/main.tex');
-    expect(selectPreferredLiveArtifact([{ ...artifacts[0], exists: false }])).toBeNull();
-    expect(selectPreferredLiveArtifact([{
-      ...artifacts[1],
-      source: 'research_registered' as const,
-    }])).toBeNull();
-    expect(selectPreferredLiveArtifact([artifacts[2]])).toBeNull();
-    expect(selectPreferredLiveArtifact([
-      { ...artifacts[0], exists: false },
-      artifacts[2],
-    ])).toBeNull();
-  });
 
   it('falls back to an existing reviewed artifact when the live draft is pending', () => {
     const artifacts = [
@@ -665,145 +601,12 @@ describe('shared frontend core', () => {
     expect(selectPreferredPreviewArtifact(artifacts)?.path).toBe('paper/main.pdf');
   });
 
-  it('decodes transport escapes only for objective presentation', () => {
-    expect(displayObjective('\\*\\*问题\\*\\*: $n=2,3,\\\\dots$')).toBe(
-      '**问题**: $n=2,3,\\dots$',
-    );
-  });
 
-  it('presents an idle project without a fake zero-over-missing DAG', () => {
-    const summary = liveProgressSummary(emptyMissionView());
-    expect(summary).toEqual({
-      title: 'Ready for a new mission',
-      dagProgress: 'Not planned',
-    });
-  });
 
-  it('lets Manager selection own the default and falls back to live progress', () => {
-    const view = emptyMissionView();
-    const artifacts = [{ path: '.argus/live/status.md', name: 'status.md', why: 'checkpoint', exists: true, kind: 'markdown' as const, mime: 'text/markdown', size: 20, mtime: 1, source: 'manager_live' as const }];
 
-    expect(defaultPreviewPath(view, artifacts)).toBe('.argus/live/status.md');
-    expect(defaultPreviewPath(view, [])).toBe(LIVE_PROGRESS_PATH);
-    expect(defaultPreviewPath(null, artifacts)).toBe('.argus/live/status.md');
-  });
 
-  it('shows the current runtime role above a stale Manager checkpoint', () => {
-    const view = emptyMissionView();
-    view.active_role = 'reviewer';
-    Object.assign(view.roles.find((role) => role.role === 'reviewer')!, {
-      status: 'active',
-      label: 'Reporting progress',
-    });
 
-    const status = selectLiveMissionStatus(view, [{
-      type: 'engineer.progress',
-      agent_layer: 'reviewer',
-      kind: 'agent_message',
-      text: '正在独立核对证明与证书。',
-      ts: 10,
-    }]);
 
-    expect(status).toEqual({
-      role: 'reviewer',
-      roleLabel: 'Reviewer',
-      label: 'Reporting progress',
-      detail: '正在独立核对证明与证书。',
-    });
-  });
-
-  it('keeps campaign elapsed stable when the active DAG node changes', () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(130_000);
-    const view = emptyMissionView();
-    view.mission.started_at = 100;
-    const snapshot = {
-      session: { id: 's', display_name: '', objective: '', created: 10, last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
-      roles: [],
-      backlog: [{ id: 'solve', title: 'Solve', objective: '', status: 'running', priority: 100, iterate: true, pending_question: '', started_ts: 100, finished_ts: null, deps: [], iteration_max_cycles: 1, iteration_cycles_done: 0 }],
-      recent_events: [],
-      continuous: { enabled: true, objective: 'Solve the problem' },
-      mission_view: view,
-    };
-
-    const result = projectMissionView(snapshot, [], []);
-
-    expect(result.mission.elapsed_seconds).toBe(30);
-    expect(result.mission.campaign_elapsed_seconds).toBe(120);
-    now.mockRestore();
-  });
-
-  it('recovers a historical full handoff even when the snapshot is newer', () => {
-    const view = emptyMissionView();
-    view.mission.id = 'task-long';
-    view.mission.title = 'Write report';
-    view.mission.summary = 'Compact summary ending early';
-    view.mission.status = 'complete';
-    view.last_event_ts = 10;
-    const snapshot = {
-      session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
-      roles: [],
-      backlog: [],
-      recent_events: [],
-      continuous: { enabled: false, objective: '' },
-      mission_view: view,
-    };
-    const supersededDraft = '# Superseded draft\n\n' + 'obsolete detail\n'.repeat(400);
-    const fullOutput = '# Complete report\n\n' + 'final detail\n'.repeat(100);
-
-    const result = projectMissionView(snapshot, [
-      { type: 'life.mission.started', ts: 1, item_id: 'task-long' },
-      {
-        type: 'engineer.progress',
-        ts: 2,
-        agent_layer: 'engineer',
-        kind: 'agent_message',
-        text: supersededDraft,
-      },
-      {
-        type: 'engineer.progress',
-        ts: 3,
-        agent_layer: 'engineer',
-        kind: 'agent_message',
-        final_delivery: true,
-        text: fullOutput,
-      },
-      { type: 'life.mission.completed', ts: 4, item_id: 'task-long' },
-    ], []);
-
-    expect(result.mission.summary).toBe('Compact summary ending early');
-    expect(result.mission.final_output).toBe(fullOutput.trim());
-  });
-
-  it('does not recover output without a matching mission start boundary', () => {
-    const view = emptyMissionView();
-    view.mission.id = 'task-long';
-    view.mission.status = 'complete';
-    view.last_event_ts = 10;
-    const snapshot = {
-      session: { id: 's', display_name: '', objective: '', created: 1, last_active: 0, cwd: '' },
-      daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
-      roles: [],
-      backlog: [],
-      recent_events: [],
-      continuous: { enabled: false, objective: '' },
-      mission_view: view,
-    };
-
-    const result = projectMissionView(snapshot, [
-      {
-        type: 'engineer.progress',
-        ts: 1,
-        agent_layer: 'engineer',
-        kind: 'agent_message',
-        text: 'Output from a different mission',
-      },
-      { type: 'life.mission.completed', ts: 2, item_id: 'task-long' },
-    ], []);
-
-    expect(result.mission.final_output).toBe('');
-  });
 
   it('renders conversation Markdown without executing raw HTML', () => {
     const html = renderToStaticMarkup(

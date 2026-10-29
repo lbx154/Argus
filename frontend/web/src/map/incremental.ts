@@ -39,8 +39,5 @@ export function livePollInterval(
 
 export function mapIsPaused(snapshot: Snapshot): boolean {
   if (snapshot.manager_requests?.some(request => request.status === 'running')) return false;
-  if (!snapshot.daemon.alive) return true;
-  if (snapshot.continuous?.enabled === false && /pause|stop/i.test(snapshot.continuous.done_reason || ""))
-    return true;
-  return snapshot.daemon.health?.state === "stopped";
+  return !snapshot.daemon.alive;
 }

@@ -9,7 +9,7 @@ import { errorText, shortcut } from '../lib/format';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
-import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 
@@ -445,12 +445,6 @@ export function Sidebar({
               </summary>
               <div className="sidebar-more-menu">
                 {onSignOut && <button type="button" onClick={onSignOut} className="icon-control flex h-8 items-center gap-2 px-2 text-xs"><LogOut size={15} />{zh ? '退出登录' : 'Sign out'}</button>}
-                {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
-                  <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
-                    className="icon-control flex h-8 w-8 items-center justify-center">
-                    <Cpu size={16} />
-                  </a>
-                ) : null}
                 <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} />
               </div>
             </details>

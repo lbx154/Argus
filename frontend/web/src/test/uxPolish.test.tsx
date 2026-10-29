@@ -12,7 +12,6 @@ vi.mock('../i18n', async (importOriginal) => {
 });
 
 const { RunControl, teamPhase } = await import('../components/TeamControls');
-const { ContinuousSwitch } = await import('../components/ContinuousSwitch');
 
 const snap = (alive: boolean, backlog: Array<{ status: string; title?: string }> = [], extra: Partial<Snapshot['daemon']> = {}) => ({
   daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: null, ...extra },
@@ -49,19 +48,6 @@ describe('team status and controls', () => {
     expect(resume).toContain('data-resume-work');
     expect(resume).not.toContain('data-stop-work');
     expect(renderToStaticMarkup(<RunControl snapshot={snap(false, [{ status: 'in_progress' }])} onStop={() => {}} onResume={() => {}} />)).toBe('');
-  });
-});
-
-describe('continuous work switch', () => {
-  it('is a labelled switch that says what it does and reflects the project state', () => {
-    const off = renderToStaticMarkup(<ContinuousSwitch enabled={false} onToggle={vi.fn()} />);
-    expect(off).toContain('role="switch"');
-    expect(off).toContain('aria-checked="false"');
-    expect(off).toContain('持续推进');
-    expect(off).toContain('做完一项自动安排下一项，不用每次等你');
-    const on = renderToStaticMarkup(<ContinuousSwitch enabled pending onToggle={vi.fn()} />);
-    expect(on).toContain('aria-checked="true"');
-    expect(on).toContain('disabled=""');
   });
 });
 

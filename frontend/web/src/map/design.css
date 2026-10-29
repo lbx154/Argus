@@ -708,7 +708,6 @@
   padding-right: 4px;
 }
 .argus-map .macro-summary .map-card > :not(h3):not(.map-card-top),
-.argus-map .macro-summary .map-card h3 .macro-note-badge,
 .argus-map .macro-summary > .map-history-toggle { scale: var(--near); }
 .argus-map .macro-summary > .map-card-results { max-height: calc(var(--near) * 3em); padding-bottom: calc(var(--near) * 12px); overflow: hidden; }
 

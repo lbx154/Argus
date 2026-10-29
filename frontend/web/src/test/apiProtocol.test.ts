@@ -32,20 +32,10 @@ const currentMeta = {
 
 const currentSnapshot = {
   schema_version: SNAPSHOT_SCHEMA_VERSION,
-  daemon: {
-    read_status: 'ok',
-    read_error: '',
-    protocol_compatible: true,
-    protocol_error: '',
-  },
+  daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
   spend_usd: 0,
   spend_status: 'ok',
   usage_summary: {},
-  daemon_commands: {},
-  observability: {},
-  mission_view: {},
-  partial: false,
-  diagnostics: [],
 };
 
 describe('web API protocol handshake', () => {
@@ -130,7 +120,7 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await expect(api.listProjects()).rejects.toThrow(/does not expose \/api\/meta/);
+    await expect(api.projectIndex()).rejects.toThrow(/does not expose \/api\/meta/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -140,7 +130,7 @@ describe('web API protocol handshake', () => {
     }));
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
-    await expect(api.listProjects()).rejects.toThrow(/out of sync/);
+    await expect(api.projectIndex()).rejects.toThrow(/out of sync/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -155,8 +145,8 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await expect(api.listProjects()).resolves.toEqual([]);
-    await expect(api.listProjects()).resolves.toEqual([]);
+    await expect(api.projectIndex()).resolves.toEqual({ projects: [] });
+    await expect(api.projectIndex()).resolves.toEqual({ projects: [] });
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/meta',
       '/api/projects',
@@ -254,11 +244,11 @@ describe('web API protocol handshake', () => {
     ]);
   });
 
-  it('times out a stalled compact snapshot and succeeds on retry', async () => {
+  it('times out a stalled snapshot and succeeds on retry', async () => {
     vi.useFakeTimers();
     let snapshotAttempts = 0;
     const snapshotPath =
-      '/api/projects/s-stalled/snapshot?compact=true&events_limit=1';
+      '/api/projects/s-stalled/snapshot';
     const fetchMock = vi.fn((path: string, init?: RequestInit): Promise<Response> => {
       if (path === '/api/meta') return Promise.resolve(Response.json(currentMeta));
       if (path === snapshotPath) {
@@ -280,14 +270,13 @@ describe('web API protocol handshake', () => {
     const { api } = await import('../api');
 
     const stalled = expect(api.snapshot('s-stalled')).rejects.toThrow(
-      /compact=true.*timed out after 12s/,
+      /snapshot.*timed out after 12s/,
     );
     await vi.advanceTimersByTimeAsync(12_001);
     await stalled;
 
     await expect(api.snapshot('s-stalled')).resolves.toMatchObject({
       schema_version: SNAPSHOT_SCHEMA_VERSION,
-      partial: false,
     });
     expect(snapshotAttempts).toBe(2);
   });
@@ -345,37 +334,11 @@ describe('web API protocol handshake', () => {
     const { api } = await import('../api');
     const controller = new AbortController();
 
-    const pending = api.events('s-test', 120, controller.signal);
+    const pending = api.conversation('s-test', undefined, controller.signal);
     controller.abort();
 
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
     expect(receivedSignal?.aborted).toBe(true);
-  });
-
-  it('posts mission aborts to the mission abort endpoint with the reason body', async () => {
-    const reason = 'operator asked to stop';
-    const fetchMock = vi.fn(async (path: string, init?: RequestInit) => {
-      expect(path).toBe('/api/projects/s-test/mission/abort');
-      expect(init).toMatchObject({
-        method: 'POST',
-        headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
-      });
-      expect(JSON.parse(String(init?.body))).toEqual({ reason });
-      return Response.json({
-        requested: true,
-        item_id: 'item-1',
-        message: 'Stop requested for running task item-1.',
-      });
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const { api } = await import('../api');
-
-    await expect(api.abortMission('s-test', reason)).resolves.toEqual({
-      requested: true,
-      item_id: 'item-1',
-      message: 'Stop requested for running task item-1.',
-    });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('retries one malformed HTTP daemon create with the same command id', async () => {
@@ -414,21 +377,6 @@ describe('web API protocol handshake', () => {
     );
   });
 
-  it('rejects an HTTP-successful continuous resume failure', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => Response.json({
-      ok: true,
-      daemon: {
-        rc: 3,
-        command_status: 'failed',
-        error: 'workdir is unavailable',
-      },
-    })));
-    const { api } = await import('../api');
-
-    await expect(api.setContinuous('s-test', true, 'Resume work')).rejects.toThrow(
-      'workdir is unavailable',
-    );
-  });
 
   it('wires the complete Web administration surface', async () => {
     const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => {
@@ -439,14 +387,12 @@ describe('web API protocol handshake', () => {
 
     await api.setConfig('s-test', 'manager_model', 'gpt-5.6-sol');
     await api.resetManager('s-test');
-    await api.setLaunchCwd('s-test', '/workspace');
     await api.setWorkdir('s-test', '/workspace');
     await api.restoreTrash('p-old-20261029000000');
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/projects/s-test/config/set',
       '/api/projects/s-test/reset',
-      '/api/projects/s-test/launch-cwd',
       '/api/projects/s-test/workdir',
       '/api/trash/p-old-20261029000000/restore',
     ]);
@@ -890,7 +836,7 @@ describe('a page left open across a deployment', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api, LocalArgusUnavailableError } = await import('../api');
     const { getPageUpdateAvailable, observePageRelease, PageUpdateRequiredError } = await import('../lib/pageUpdate');
-    await api.listProjects();
+    await api.projectIndex();
     updated = true;
     const failure = await api.snapshot('s-one').catch(error => error);
     expect(failure).toBeInstanceOf(PageUpdateRequiredError);

@@ -20,7 +20,7 @@ export async function startReadonlyWorkspaceFixture(kind = 'normal') {
     const snapshot = state.snapshots.get(sid);
     if (url.pathname === `/api/projects/${sid}/status`) return { body: {
       identity: 'Synthetic', backlog_pending: [], pending_questions: [], journal: [], inbox_pending: 0,
-      continuous: snapshot.continuous, daemon: snapshot.daemon, roles: [], active_role: null,
+      daemon: snapshot.daemon, roles: [], active_role: null,
     } };
     if (url.pathname === '/api/v2/workspaces') return { body: { default_id: 'synthetic-workspace', profiles: [{
       id: 'synthetic-workspace', label: 'Synthetic code workspace', path: snapshot.session.workdir,

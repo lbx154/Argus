@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
 import { buildMap, type MapTask, type MapEvent } from "../map/model";
 import { buildSubmap, layoutScene, MAX_STEPS_PER_CARD } from "../map/submap";
-import { referenceText, requestsFor, splitDraft } from "../map/presentation";
 
 const task: MapTask = {
   id: "research",
@@ -87,41 +86,6 @@ it("connects upstream input to the first part and downstream work to the final p
       ?.source,
   ).toBe(parts.at(-1)!.id);
   expect(graph.links.find((l) => l.target === after.id)?.source).toBe(task.id);
-});
-
-it("uses original task and event identities for continuation copy and references", () => {
-  const rows = events(30),
-    scene = layoutScene(buildMap([task]), rows, true),
-    card = scene.cards[1];
-  const steps = scene.layouts[card.id].steps;
-  const requested = requestsFor(
-    {
-      id: "live:session",
-      title: "Research",
-      description: "",
-      kind: "live",
-      read_only: false,
-      tasks: [task],
-      events: rows,
-    },
-    steps,
-    task.id,
-  );
-  expect(requested.filter((r) => r.kind !== "task").map((r) => r.key)).toEqual(
-    steps.map((s) => s.id),
-  );
-  expect(requested.every((r) => r.task_id === task.id)).toBe(true);
-  expect(requested.some((r) => r.key === card.id)).toBe(false);
-  const ref = {
-    source: "live:session",
-    task_id: task.id,
-    task_title: "Research · Continued 1",
-    part: 2,
-    event_ids: steps.flatMap((s) => s.eventIds),
-  };
-  expect(
-    splitDraft(referenceText(ref) + "Continue with this evidence"),
-  ).toEqual({ refs: [ref], text: "Continue with this evidence" });
 });
 
 it("lays out each bounded part on aligned rows with an unambiguous reading order", () => {

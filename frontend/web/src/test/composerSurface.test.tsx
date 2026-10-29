@@ -17,7 +17,7 @@ describe('shared conversation surface', () => {
   it('keeps the shared attachment and send affordances in both composer layouts', () => {
     const main = renderToStaticMarkup(createElement(ChatBox, mainProps));
     const map = renderToStaticMarkup(createElement(MapComposer, {
-      ...mainProps, onSend: async () => false, focusSignal: 0, sessionName: 'fixture', historical: false, zh: true,
+      ...mainProps, onSend: async () => false, focusSignal: 0, zh: true,
     }));
     for (const html of [main, map]) {
       expect(html).toMatch(/class="[^"]*\bmap-composer\b/);

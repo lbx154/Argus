@@ -42,11 +42,9 @@ export async function startSessionFixture(options = {}) {
     await writeFile(resolve(root, 'data/projects', sid, 'session.json'), JSON.stringify(session), { flag: 'wx' });
     rows.push({ ...session, label: session.display_name, daemon_alive: false, daemon_pid: null, uptime_seconds: null });
     snapshots.set(sid, { schema_version: schema, session,
-      daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory', global_daily_cap_usd: null,
-        read_status: 'ok', read_error: null, protocol_compatible: true, protocol_error: null },
-      roles: [], backlog: [], recent_events: [], pending_questions: [], manager_requests: [],
-      spend_usd: 0, spend_status: 'empty', usage_summary: {}, request_usage: null, cost_control: null, daemon_commands: null,
-      observability: null, mission_view: null, partial: false, diagnostics: [], continuous: { enabled: false, objective: '' },
+      daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory' },
+      roles: [], backlog: [], pending_questions: [], manager_requests: [],
+      spend_usd: 0, spend_status: 'empty', usage_summary: {},
     });
     files.set(sid, { path: REPORT_PATH, storage_path: path, name: 'report.md', why: 'Synthetic fixture, not review evidence', exists: true, kind: 'markdown', mime: 'text/markdown', size: Buffer.byteLength(content), mtime: 1, source: 'delivery' });
   }
@@ -134,7 +132,6 @@ export async function startSessionFixture(options = {}) {
           return json(response, { ...files.get(sid), preview: await readFile(files.get(sid).storage_path, 'utf8') });
         }
         if (endpoint === '/transcript') return json(response, { turns: [] });
-        if (endpoint === '/events') return json(response, { events: [] });
         if (endpoint === '/config') return json(response, { schema_version: 1, trial_mode: false, generated_at_utc: '2026-09-17T00:00:00Z', roles: [], operator_knobs: [], how_to_change: [] });
         if (endpoint === '/wiki') return json(response, { exists: false });
         if (endpoint === '/map-notes') return json(response, { notes: [] });

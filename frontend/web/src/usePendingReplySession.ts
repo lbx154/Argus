@@ -99,8 +99,6 @@ export function usePendingReplySession({
     try {
       const result = pendingReply.kind === 'domain_intake'
         ? await api.answerDomain(activeSid, pendingReply.id, optionId, note)
-        : pendingReply.legacy
-        ? await api.answerPending(activeSid, pendingReply.item_id, note)
         : await api.resolveDecision(
           activeSid,
           pendingReply.id,

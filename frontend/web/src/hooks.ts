@@ -146,7 +146,7 @@ export const useBacklogItem = (sid: string | null, itemId: string | null) =>
 
 /* --------------------------------------------------------------- mutations */
 
-export function useProjectActions(sid: string | null, commandRevision?: number) {
+export function useProjectActions(sid: string | null) {
   const qc = useQueryClient();
   const invalidateProject = (targetSid: string | null) => {
     qc.invalidateQueries({ queryKey: ['snapshot', targetSid] });
@@ -155,9 +155,8 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
   };
   const invalidate = () => invalidateProject(sid);
   return {
-    addTask: useMutation({ mutationFn: (text: string) => api.addTask(sid!, text), onSuccess: invalidate }),
-    startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!, commandRevision), onSuccess: invalidate }),
-    stopDaemon: useMutation({ mutationFn: () => api.stopDaemon(sid!, commandRevision), onSuccess: invalidate }),
+    startDaemon: useMutation({ mutationFn: () => api.startDaemon(sid!), onSuccess: invalidate }),
+    stopDaemon: useMutation({ mutationFn: () => api.stopDaemon(sid!), onSuccess: invalidate }),
     updateProject: useMutation({
       mutationFn: (input: { sid: string; name: string }) =>
         api.updateProject(input.sid, input.name),
@@ -179,11 +178,6 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
         await qc.invalidateQueries({ queryKey: ['projects'] });
       },
     }),
-    setContinuous: useMutation({
-      mutationFn: (a: { enabled: boolean; objective?: string }) =>
-        api.setContinuous(sid!, a.enabled, a.objective ?? ''),
-      onSuccess: invalidate,
-    }),
   };
 }
 
@@ -191,39 +185,17 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
 
 const MAX_EVENTS = 2_000;
 
-// `restored` counts the leading events kept from this project's previous visit;
-// the fresh seed replaces them. `seeded` says that seed has landed.
-type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string>; restored?: number; seeded?: boolean };
+type StreamState = { sid: string | null; events: EventMsg[]; seen: Set<string> };
 type StreamAction =
-  | { kind: 'seed'; sid: string; events: EventMsg[] }
   | { kind: 'push'; sid: string; ev: EventMsg }
   | { kind: 'push-many'; sid: string; events: EventMsg[] }
-  | { kind: 'reset'; sid: string | null; events?: EventMsg[] };
+  | { kind: 'reset'; sid: string | null };
 
 export function streamReducer(state: StreamState, action: StreamAction): StreamState {
   if (action.kind === 'reset') {
-    const events = action.events ?? [];
-    return { sid: action.sid, events, seen: new Set(events.map((ev) => eventKey(ev))), ...(events.length ? { restored: events.length } : {}) };
+    return { sid: action.sid, events: [], seen: new Set<string>() };
   }
   if (action.sid !== state.sid) return state;
-  if (action.kind === 'seed') {
-    const seen = new Set<string>();
-    const events: EventMsg[] = [];
-    [...action.events, ...state.events.slice(state.restored ?? 0)].forEach((ev) => {
-      const k = eventKey(ev);
-      if (!seen.has(k)) {
-        seen.add(k);
-        events.push(ev);
-      }
-    });
-    const retained = events.slice(-MAX_EVENTS);
-    return {
-      sid: state.sid,
-      events: retained,
-      seen: new Set(retained.map((ev) => eventKey(ev))),
-      seeded: true,
-    };
-  }
   // Live provider streams may deliver many fragments in one display frame.
   // Clone the retained window once per batch rather than once per event so the
   // whole React cockpit does not rerender for every protocol fragment.
@@ -242,22 +214,16 @@ export function streamReducer(state: StreamState, action: StreamAction): StreamS
     events.push(ev);
   }
   if (!events || !seen) return state;
-  let restored = state.restored;
   if (events.length > MAX_EVENTS) {
     const removed = events.splice(0, events.length - MAX_EVENTS);
     removed.forEach((ev) => seen.delete(eventKey(ev)));
-    if (restored) restored = Math.max(0, restored - removed.length);
   }
-  return { sid: state.sid, events, seen, ...(restored ? { restored } : {}), ...(state.seeded ? { seeded: true } : {}) };
+  return { sid: state.sid, events, seen };
 }
 
 export interface StreamHandle {
   events: EventMsg[];
   connected: boolean;
-  /** The events are the previous visit's window until the fresh seed lands. */
-  restored?: boolean;
-  /** This visit's fresh window has landed. */
-  seeded: boolean;
 }
 
 // Twenty-five visual updates per second is ample for a readable event stream
@@ -309,18 +275,8 @@ export function snapshotRefreshEventKey(events: EventMsg[]): string {
   return '';
 }
 
-/** The newest canvas revision the live stream announced (a write in any
- * window), or 0. Open maps refetch the canvas when it is ahead of theirs. */
-export function canvasRevisionFromEvents(events: EventMsg[]): number {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i];
-    if (event.type === 'project.canvas.updated') return Number(event.revision) || 0;
-  }
-  return 0;
-}
-
-/** Subscribe to a project's live event feed: REST replay seed + WS tail with
- *  auto-reconnect. Dedupes by event key so reconnect backfill never doubles. */
+/** Subscribe to a project's event stream, starting with its replay window.
+ * Dedupes by event key so reconnect backfill never doubles. */
 export function useEventStream(sid: string | null, reconnectKey = 0): StreamHandle {
   const [browserOnline, setBrowserOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
   useEffect(() => {
@@ -341,15 +297,11 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
   });
   const sidRef = useRef(sid);
   sidRef.current = sid;
-  const queryClient = useQueryClient();
-
   useEffect(() => {
-    // Re-entry starts from the window this tab last saw for the project.
-    dispatch({ kind: 'reset', sid, events: sid ? queryClient.getQueryData<EventMsg[]>(['events', sid]) : undefined });
+    dispatch({ kind: 'reset', sid });
     setConnection({ sid, connected: false });
     if (!sid) return;
     let cancelled = false;
-    const controller = new AbortController();
     let pendingEvents: EventMsg[] = [];
     let flushTimer: number | undefined;
     const flushEvents = () => {
@@ -362,17 +314,6 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
       pendingEvents = [];
       dispatch({ kind: 'push-many', sid, events });
     };
-
-    // seed the last window over REST so the feed is populated instantly
-    api
-      .events(sid, 120, controller.signal)
-      .then((evs) => {
-        if (!cancelled && sidRef.current === sid) {
-          dispatch({ kind: 'seed', sid, events: evs });
-          queryClient.setQueryData(['events', sid], evs);
-        }
-      })
-      .catch(() => {});
 
     const close = openStream(sid, (ev) => {
       if (!cancelled && sidRef.current === sid) {
@@ -396,7 +337,6 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
     });
     return () => {
       cancelled = true;
-      controller.abort();
       if (flushTimer !== undefined) window.clearTimeout(flushTimer);
       pendingEvents = [];
       close();
@@ -407,7 +347,5 @@ export function useEventStream(sid: string | null, reconnectKey = 0): StreamHand
   return {
     events: state.sid === sid ? state.events : [],
     connected: browserOnline && connection.sid === sid && connection.connected,
-    restored: state.sid === sid && Boolean(state.restored),
-    seeded: state.sid === sid && Boolean(state.seeded),
   };
 }

@@ -6,7 +6,6 @@ import {
   mergeFragment,
   visibleAgentText,
 } from '../../core/src/events.js';
-import { formatMissionRouting } from '../../core/src/missionView.js';
 import { missionOutcomePresentation } from '../../core/src/missionOutcome.js';
 import { plainRoleMessage } from '../../core/src/plainWords.js';
 import {
@@ -181,14 +180,13 @@ function renderWhitelisted(ev: EventMsg): Rendered | null {
 
   if (t === 'life.manager.intent.started') return { role: 'manager', label: 'Manager', glyph: '🧭', text: '判断这是什么样的请求…', tone: 'info' };
   if (t === 'life.manager.intent.completed') {
-    const routing = formatMissionRouting({
-      route: S(ev, 'route') || 'team',
-      vertical: S(ev, 'vertical'),
-      workflow_mode: S(ev, 'workflow_mode'),
-      lifetime: S(ev, 'lifetime'),
-      continuous: (ev as Record<string, unknown>).continuous === true,
-      open_ended: (ev as Record<string, unknown>).open_ended === true,
-    });
+    const parts = [(S(ev, 'route') || 'team').toUpperCase(), S(ev, 'vertical'), S(ev, 'workflow_mode').toUpperCase()].filter(Boolean);
+    const lifetime = S(ev, 'lifetime');
+    if (lifetime === 'standing') parts.push('STANDING · OPEN-ENDED');
+    else if (lifetime === 'bounded_increment') parts.push('BOUNDED INCREMENT');
+    else if (lifetime === 'bounded' && ev.continuous === true) parts.push('BOUNDED · FINITE CONTINUOUS');
+    else if (lifetime) parts.push(lifetime.toUpperCase());
+    const routing = parts.join(' · ');
     return { role: 'manager', label: 'Manager', glyph: '🧭', text: `→ ${routing || S(ev, 'kind') || 'resolved'}`, tone: 'info' };
   }
   if (t === 'life.manager.intent.failed') return { role: 'manager', label: 'Manager', glyph: '⚠', text: managerFailureText(ev), tone: 'err', expand: true };

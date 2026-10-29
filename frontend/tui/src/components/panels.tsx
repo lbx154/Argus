@@ -191,8 +191,6 @@ function OperationsPanel({
     return <Frame title="Operations" hint="Esc close"><Text dimColor>loading…</Text></Frame>;
   }
   const activities = activityHistory(events, 8);
-  const slo = snap.observability?.slo;
-  const storage = snap.mission_view?.storage;
   const compact = height <= 24;
   const veryCompact = height <= 20;
   const visibleRoles = veryCompact ? snap.roles.slice(0, 2) : snap.roles;
@@ -200,9 +198,8 @@ function OperationsPanel({
     <Frame title="Operations" hint="Esc close · /status and /doctor for details">
       <Row k="daemon" v={snap.daemon.alive ? `● pid ${snap.daemon.pid ?? '—'} · ${Math.floor((snap.daemon.uptime_seconds ?? 0) / 60)}m` : '○ stopped'} c={snap.daemon.alive ? theme.success : 'gray'} />
       <Row k="backend" v={snap.daemon.backend_label || snap.daemon.backend || '—'} />
-      {!veryCompact ? <Row k="protocol" v={`${snap.daemon.protocol?.name || '—'}/${snap.daemon.protocol?.major ?? '—'}.${snap.daemon.protocol?.minor ?? '—'}`} /> : null}
       {!compact ? <Text> </Text> : null}
-      <CostGauge usage={snap.usage_summary} globalUsage={snap.global_usage_summary} width={width} />
+      <CostGauge usage={snap.usage_summary} width={width} />
       {!compact ? <Text> </Text> : null}
       <Text dimColor>roles</Text>
       {visibleRoles.map((role) => (
@@ -213,25 +210,6 @@ function OperationsPanel({
       ))}
       {veryCompact && snap.roles.length > visibleRoles.length ? (
         <Text dimColor>{`  + ${snap.roles.length - visibleRoles.length} roles · /status`}</Text>
-      ) : null}
-      {!compact && storage && (storage.project_skill_dir || storage.global_skill_dir || storage.wiki_paths.length || storage.skill_history_compressed || storage.wiki_retired_compressed) ? (
-        <>
-          <Text> </Text>
-          <Text dimColor>self-evolution storage</Text>
-          {storage.project_skill_dir ? <Row k="project skills" v={`${storage.project_skill_count} · ${storage.project_skill_dir}`} /> : null}
-          {storage.global_skill_dir ? <Row k="global skills" v={`${storage.global_skill_count} · ${storage.global_skill_dir}`} /> : null}
-          {storage.wiki_paths.map((path, index) => <Row key={path} k={index ? "" : "project wiki"} v={path} />)}
-          {(storage.skill_history_compressed || storage.wiki_retired_compressed) ? <Row k="cold history" v={`skill ${storage.skill_history_compressed} · wiki ${storage.wiki_retired_compressed} · ${formatBytes(storage.skill_history_bytes_saved + storage.wiki_retired_bytes_saved)} saved`} /> : null}
-        </>
-      ) : null}
-      {compact && slo?.status === 'degraded' ? (
-        <Row k="SLO" v={slo.violations[0] || 'degraded'} c={theme.error} />
-      ) : slo?.status === 'degraded' ? (
-        <>
-          <Text> </Text>
-          <Text color={theme.error}>SLO degraded</Text>
-          {slo.violations.slice(0, 5).map((violation) => <Text key={violation} dimColor>{`  ! ${violation}`}</Text>)}
-        </>
       ) : null}
       {compact && activities.length ? (
         <Row k="activity" v={`${activities[0]?.role} · ${activities[0]?.label}`} />

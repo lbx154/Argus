@@ -1,8 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DeliveryReceipt, MissionView, Snapshot } from '../../../core/src/types';
+import type { DeliveryReceipt, Snapshot } from '../../../core/src/types';
 import { ApiError } from '../../../core/src/http';
-import { emptyMissionView } from '../../../core/src/missionView';
 
 vi.mock('../i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../i18n')>();
@@ -27,7 +26,6 @@ function snapshot(patch: Partial<Snapshot> = {}): Snapshot {
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
     roles: [],
     backlog: [],
-    recent_events: [],
     ...patch,
   } as Snapshot;
 }
@@ -57,19 +55,16 @@ describe('spend estimate', () => {
 
 describe('attention signals', () => {
   it('puts an open question before results', () => {
-    const asking = snapshot({ backlog: [{ id: 'q', title: '选数据集', objective: 'x', status: 'paused_operator', priority: 1, pending_question: '用哪个数据集？' }],
-      pending_questions: [{ id: 'q', title: '选数据集', pending_question: '用哪个数据集？' }] });
-    const reply = projectAttention({ snapshot: asking, complete: false, zh: true });
+    const asking = snapshot({ backlog: [{ id: 'q', title: '选数据集', objective: 'x', status: 'paused_operator', priority: 1, operator_decision: { id: 'q', revision: 1, item_id: 'q', status: 'pending', title: '选数据集', reason: '', question: '用哪个数据集？', evidence: [], options: [], selected_option: '', note: '' } }] });
+    const reply = projectAttention({ snapshot: asking, zh: true });
     expect(reply?.kind).toBe('reply');
     expect(reply?.body).toContain('用哪个数据集');
   });
 
-  it('reports a finished task and a new stage result once each', () => {
-    const view = { ...emptyMissionView(), mission: { ...emptyMissionView().mission, id: 'm1', title: 'T', status: 'done' } } as MissionView;
-    expect(projectAttention({ snapshot: snapshot(), view, complete: true, zh: true })).toMatchObject({ kind: 'done', key: 'done:m1' });
-    expect(projectAttention({ snapshot: snapshot(), complete: false, delivery: delivery('stage_package'), zh: true }))
+  it('reports a new stage result', () => {
+    expect(projectAttention({ snapshot: snapshot(), delivery: delivery('stage_package'), zh: true }))
       .toMatchObject({ kind: 'stage', key: 'stage:d-stage_package' });
-    expect(projectAttention({ snapshot: snapshot(), complete: false, zh: true })).toBeNull();
+    expect(projectAttention({ snapshot: snapshot(), zh: true })).toBeNull();
   });
 });
 

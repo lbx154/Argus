@@ -6,8 +6,6 @@ import { createContext, useContext } from 'react';
 export const SETTINGS_CAPABILITY = 'project.config.v1';
 /** The machine's CPU, memory and GPUs. */
 export const RESOURCES_CAPABILITY = 'system.resources.v1';
-/** The map's own records: the operator's notes and canvas, and the saved explanation of each card. */
-export const MAP_CAPABILITY = 'map.annotations.v1';
 /** The composer's choice of Auto, Task or Chat for a message. */
 export const ROUTE_CAPABILITY = 'composer.route.v1';
 /** Versions of a result the operator edits, and their history. */

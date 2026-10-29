@@ -2,7 +2,7 @@ import { act, create } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { useDeliveryCenter } from '../useDeliveryCenter';
-import { cleanDeliverySummary, deliveryFiles, defaultDeliverySelection, selectActiveDelivery } from '../components/deliveryPresentation';
+import { cleanDeliverySummary, deliveryFiles, defaultDeliverySelection } from '../components/deliveryPresentation';
 const receipt = (id: string): DeliveryReceipt => ({ schema_version: 1, delivery_id: id, item_id: id, kind: 'task_completed', status: 'done', review_status: 'done', title: id, summary: 'Ready. RESULT=Checks passed.', delivered_at: 1, primary_target: { path: 'index.html', label: 'Website', source: 'delivery', why: 'Reviewed' }, targets: [{ path: 'report.md', label: 'Report', source: 'delivery', why: 'Reviewed' }] });
 afterEach(() => vi.unstubAllGlobals());
 it('opens files only when chosen and closes the viewer when switching projects', () => {
@@ -28,14 +28,14 @@ it('opens files only when chosen and closes the viewer when switching projects',
   act(() => renderer.unmount());
 });
 
-it('opens the research manuscript after a newer task delivered only its review report', () => {
+it('opens the newest real delivery and its primary file', () => {
   const report = { path: 'paper/REVIEW.md', label: 'Review', source: 'delivery', why: 'Review report' };
   const latest = { ...receipt('review'), primary_target: report, targets: [] };
   const paper = { ...receipt('paper'), primary_target: report, targets: [{ ...report, path: 'paper/main.pdf', label: 'Paper' }] };
-  expect(defaultDeliverySelection([latest, paper], 'research')).toEqual({ receipt: paper, path: 'paper/main.pdf' });
-  expect(defaultDeliverySelection([latest, paper], 'software')).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
-  expect(defaultDeliverySelection([latest], 'research')).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
-  expect(defaultDeliverySelection([], 'research')).toBeNull();
+  expect(defaultDeliverySelection([latest, paper])).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
+  expect(defaultDeliverySelection([latest, paper])).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
+  expect(defaultDeliverySelection([latest])).toEqual({ receipt: latest, path: 'paper/REVIEW.md' });
+  expect(defaultDeliverySelection([])).toBeNull();
 });
 it('keeps the primary file first and removes transport markers without losing validation results', () => {
   const r = receipt('a'); r.targets.push(r.primary_target!);
@@ -43,12 +43,6 @@ it('keeps the primary file first and removes transport markers without losing va
   expect(cleanDeliverySummary(r.summary)).toBe('Ready.\n\nChecks passed.');
 });
 
-it('surfaces async task completion after an operator turn, while keeping old deliveries in history', () => {
-  const events = [{ type: 'ui.operator', ts: 10, text: 'Build it' }, { type: 'ui.argus', ts: 11, text: 'Started' }];
-  expect(selectActiveDelivery(null, { ...receipt('new'), delivered_at: 12 }, events)?.delivery_id).toBe('new');
-  expect(selectActiveDelivery(null, { ...receipt('old'), delivered_at: 9 }, events)).toBeNull();
-  expect(selectActiveDelivery({ ...receipt('solo'), delivered_at: 13 }, { ...receipt('task'), delivered_at: 12 }, events)?.delivery_id).toBe('solo');
-});
 
 it('finds the previous version of a redelivered file', async () => {
   const { previousDeliveryVersion } = await import('../components/deliveryPresentation');

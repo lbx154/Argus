@@ -2,10 +2,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
-import { emptyMissionView } from '../../../core/src/missionView';
 import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
 import { PdfPreview, pdfContainScale } from '../components/PdfPreview';
-import { LIVE_PROGRESS_PATH, ResearchCanvas } from '../components/ResearchCanvas';
+import { ResearchCanvas } from '../components/ResearchCanvas';
 import { preferredPreviewWidth } from '../lib/previewLayout';
 
 vi.mock('../hooks', () => ({ useArtifact: () => ({ data: undefined, isLoading: false, isError: false }) }));
@@ -35,17 +34,15 @@ describe('file reading experience', () => {
     expect(html).toMatch(/适合页面|Fit page/);
   });
 
-  it('expands only on explicit file selection, not when polling or showing live progress', () => {
+  it('expands only on explicit file selection, not when rendering', () => {
     const onOpenFile = vi.fn();
     const file: ArtifactInfo = { path: 'preview.pdf', name: 'preview.pdf', exists: true, source: 'delivery', kind: 'pdf', mime: 'application/pdf', size: 100, mtime: 1, why: 'fixture' };
     let renderer!: ReturnType<typeof create>;
     act(() => { renderer = create(createElement(ResearchCanvas, {
-      sid: 'fixture', missionView: emptyMissionView(), artifacts: [file], onExpand: vi.fn(), onOpenFile, deliveriesLoaded: true,
+      sid: 'fixture', artifacts: [file], onExpand: vi.fn(), onOpenFile, deliveriesLoaded: true,
     })); });
     expect(onOpenFile).not.toHaveBeenCalled();
     act(() => renderer.root.findByType('select').props.onChange({ target: { value: 'preview.pdf' } }));
-    expect(onOpenFile).toHaveBeenCalledTimes(1);
-    act(() => renderer.root.findByType('select').props.onChange({ target: { value: LIVE_PROGRESS_PATH } }));
     expect(onOpenFile).toHaveBeenCalledTimes(1);
     act(() => renderer.unmount());
   });
@@ -60,7 +57,7 @@ describe('following the newest delivery', () => {
       schema_version: 1, delivery_id: id, kind: 'task_completed', item_id: id, title: id, summary: '', status: 'done', review_status: 'done',
       delivered_at: deliveredAt, primary_target: { path, label: path, source: 'solo_output', why: '' }, targets: [{ path, label: path, source: 'solo_output', why: '' }],
     }) as unknown as DeliveryReceipt;
-    const props = { sid: 's', filesFirst: true, missionView: emptyMissionView(), artifacts: ['chosen.md', 'old-a.md', 'old-b.md', 'new.md'].map(artifact), onExpand: vi.fn() };
+    const props = { sid: 's', filesFirst: true, artifacts: ['chosen.md', 'old-a.md', 'old-b.md', 'new.md'].map(artifact), onExpand: vi.fn() };
     let renderer!: ReturnType<typeof create>;
     // Server times sit far behind this browser's clock: only server stamps are compared.
     act(() => { renderer = create(createElement(ResearchCanvas, { ...props, deliveriesLoaded: false, latestDelivery: receipt('d1', 'old-a.md', 1_000) })); });

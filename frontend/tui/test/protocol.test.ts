@@ -108,19 +108,14 @@ test('protocol contract accepts the current server and rejects missing capabilit
 });
 
 
-test('snapshot contract fails closed when daemon status fields are absent', () => {
-  assert.throws(
-    () => requireSnapshotContract({
-      schema_version: SNAPSHOT_SCHEMA_VERSION,
-      daemon: { alive: false },
-      spend_usd: null,
-      spend_status: 'empty',
-      usage_summary: {},
-      partial: false,
-      diagnostics: [],
-    }),
-    /daemon fields missing: read_status/,
-  );
+test('snapshot schema 8 accepts the computed response and rejects schema 7', () => {
+  const snapshot = {
+    schema_version: SNAPSHOT_SCHEMA_VERSION,
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
+    spend_usd: null, spend_status: 'empty', usage_summary: {},
+  };
+  assert.equal(requireSnapshotContract(snapshot), snapshot);
+  assert.throws(() => requireSnapshotContract({ ...snapshot, schema_version: 7 }), /incompatible snapshot schema/);
 });
 
 test('startup probe identifies an old reachable backend as incompatible', async () => {
@@ -908,7 +903,7 @@ test('ApiClient validates snapshot schema after the one-time handshake', async (
   }) as typeof fetch;
   try {
     const api = new ApiClient({ host: '127.0.0.1', port: 8799, project: 's-test' });
-    await assert.rejects(() => api.snapshot(), /daemon fields missing/);
+    await assert.rejects(() => api.snapshot(), /fields missing: spend_usd/);
     assert.equal(calls, 2);
   } finally {
     globalThis.fetch = originalFetch;

@@ -7,17 +7,10 @@ import { deliveryHeadingKey } from '../lib/deliveryKind';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { emptyMissionView } from '../../../core/src/missionView';
 import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
-import {
-  LIVE_PROGRESS_PATH,
-  defaultPreviewPath,
-  selectPreviewArtifacts,
-} from '../components/ResearchCanvas';
 import { artifactPathFromHref, MarkdownContent } from '../components/MarkdownContent';
 import { pdfContainScale, PdfPreview } from '../components/PdfPreview';
 import {
-  completionNotificationPayload,
   deliveryNotificationPayload,
 } from '../lib/desktopBridge';
 import { latestConversationDelivery } from '../components/EventStream';
@@ -92,31 +85,7 @@ describe('completed delivery presentation', () => {
     }, context);
     expect(accepted?.role).toBe('reviewer');
   });
-  it('opens the receipt primary target before a stale live checkpoint', () => {
-    const view = emptyMissionView();
-    view.delivery = delivery;
-    const artifacts = [
-      artifact('.argus/live/status.md', 'manager_live'),
-      artifact('out/final.md', 'delivery'),
-    ];
 
-    expect(defaultPreviewPath(view, artifacts)).toBe('out/final.md');
-    expect(selectPreviewArtifacts(artifacts).map((item) => item.path)).toEqual([
-      'out/final.md',
-      '.argus/live/status.md',
-    ]);
-  });
-
-  it('keeps live progress selected until work completes', () => {
-    const view = emptyMissionView();
-    view.mission.status = 'working';
-    const files = [artifact('out/final.md', 'delivery')];
-
-    expect(defaultPreviewPath(view, files)).toBe(LIVE_PROGRESS_PATH);
-
-    view.mission.status = 'complete';
-    expect(defaultPreviewPath(view, files)).toBe('out/final.md');
-  });
 
   it('resolves relative and absolute completion links to an allowlisted file', () => {
     const file = artifact('out/final.md', 'delivery');
@@ -153,20 +122,6 @@ describe('completed delivery presentation', () => {
     expect(markup).not.toContain('browser PDF plugin');
     expect(markup).not.toContain('<embed');
     expect(markup).not.toContain('<object');
-  });
-
-  it('builds a concise native completion toast even without a receipt', () => {
-    expect(completionNotificationPayload({
-      completionId: 'completion:s:item-1',
-      title: '**Create report**',
-      summary: 'Ready: [final.pdf](/C:/workspace/final.pdf)',
-      path: 'final.pdf',
-    })).toEqual({
-      deliveryId: 'completion:s:item-1',
-      title: 'Create report',
-      summary: 'Ready: final.pdf',
-      path: 'final.pdf',
-    });
   });
 
   it('keeps a delivery notification display-only and bounded', () => {

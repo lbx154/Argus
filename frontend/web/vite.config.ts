@@ -7,8 +7,6 @@ import { fileURLToPath, URL } from 'node:url';
 const API = process.env.ARGUS_WEB_API ?? 'http://127.0.0.1:8799';
 
 export default defineConfig({
-  // The same build is served at / and /admin/data. Relative chunks and fonts
-  // stay inside the corresponding authenticated asset namespace.
   base: './',
   plugins: [react()],
   server: {
@@ -16,9 +14,6 @@ export default defineConfig({
     fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
     proxy: {
       '/api': { target: API, changeOrigin: true },
-      '/admin/api': { target: API, changeOrigin: true },
-      '/admin/status': { target: API, changeOrigin: true },
-      '/admin/logout': { target: API, changeOrigin: true },
     },
   },
   build: {

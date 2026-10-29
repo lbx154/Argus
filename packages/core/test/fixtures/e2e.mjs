@@ -23,9 +23,34 @@ const api = async (path, body) => {
 };
 try {
   const { sid } = await api('/api/daemons', { workdir });
-  await api(`/api/projects/${sid}/message`, { text: request });
-  while ((await api('/api/projects')).projects.find(row => row.id === sid).daemon_alive) await sleep(200);
-  for (const event of (await api(`/api/projects/${sid}/events`)).events) if (event.type === 'ui.argus') console.log(event.text);
+  const controller = new AbortController();
+  const stream = await fetch(`${url}/api/projects/${sid}/stream?replay=40&view=ui`, {
+    headers: { authorization: `Bearer ${decodeURIComponent(token)}` }, signal: controller.signal,
+  });
+  if (!stream.ok) throw new Error(`Event stream: ${stream.status}`);
+  const reading = (async () => {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for await (const chunk of stream.body) {
+      buffer += decoder.decode(chunk, { stream: true });
+      let end;
+      while ((end = buffer.indexOf('\n\n')) >= 0) {
+        const data = buffer.slice(0, end).split('\n').find(line => line.startsWith('data: '));
+        buffer = buffer.slice(end + 2);
+        if (data) {
+          const event = JSON.parse(data.slice(6));
+          if (event.type === 'ui.argus') console.log(event.text);
+        }
+      }
+    }
+  })();
+  try {
+    await api(`/api/projects/${sid}/message`, { text: request });
+    while ((await api('/api/projects')).projects.find(row => row.id === sid).daemon_alive) await sleep(200);
+  } finally {
+    controller.abort();
+    await reading.catch(error => { if (error.name !== 'AbortError') throw error; });
+  }
   const record = join(process.env.ARGUS_HOME || join(homedir(), '.argus'), 'projects', sid, 'project.json');
   console.log(`status: ${JSON.parse(readFileSync(record, 'utf8')).status}`);
 } finally {

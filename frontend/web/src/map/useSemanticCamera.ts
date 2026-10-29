@@ -62,13 +62,6 @@ function viewingArea(el: HTMLElement, detailed = false) {
   };
 }
 
-/** The part of the canvas no chrome covers, in screen pixels. */
-export function openCanvasArea(el: HTMLElement) {
-  const area = viewingArea(el);
-  const bounds = el.getBoundingClientRect();
-  return { x: area.x + bounds.left, y: area.y + bounds.top, width: area.width, height: area.height };
-}
-
 // A focused card's short side targets FOCUS_FILL of the canvas's short side so
 // submap text is readable without a manual zoom, no matter how much of the
 // area the composer eats; FOCUS_FILL_MAX stops oversized fills when chrome is
@@ -451,9 +444,6 @@ export function useSemanticCamera(
     void flow.setViewport(view, { duration: motionDuration(reducedMotion, 320) });
   }, [cancelWheel, flow, reducedMotion, root]);
   refitOverview.current = () => fit(overviewTasks.current);
-  /** The person is drawing on the map (placing a card, drawing a link): the
-   * overview stops re-fitting itself, so nothing moves under their hand. */
-  const hold = useCallback(() => { fitOnResize.current = false; }, []);
   const fitUpdatedScene = useCallback(() => {
     if (fitOnResize.current) refitOverview.current();
     else if (allowRefit.current && reading.current && readerTarget.current)
@@ -639,7 +629,6 @@ export function useSemanticCamera(
     back,
     fit,
     fitUpdatedScene,
-    hold,
     navigate,
     readStep,
     onMove,

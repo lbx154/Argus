@@ -153,11 +153,18 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
     agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', request_id: 'r1', row_id: 'm0-argus', order: 3 } });
   assert.deepEqual(reply[2], { type: 'done', result: { kind: 'task', reply: brief } });
 
-  const asking = await eventually(() => get<Snapshot>(`${P}/snapshot?compact=true&events_limit=1`),
+  const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`),
     snapshot => Boolean(snapshot.pending_questions?.length) && !snapshot.daemon.alive);
   requireSnapshotContract(asking);
-  // No continuous campaign here: the page shows no switch for one.
-  assert.equal(asking.continuous, undefined);
+  assert.equal(asking.schema_version, 8);
+  for (const field of ['recent_events', 'daemon_commands', 'observability', 'mission_view', 'partial', 'diagnostics',
+    'global_spend_usd', 'global_spend_status', 'global_usage_summary', 'daemon_admission', 'continuous', 'storage']) {
+    assert.equal(Object.hasOwn(asking, field), false, field);
+  }
+  for (const field of ['read_status', 'read_error', 'protocol_compatible', 'protocol_error',
+    'liveness_source', 'heartbeat_age_seconds', 'health', 'mission_width', 'protocol', 'capabilities', 'runtime']) {
+    assert.equal(Object.hasOwn(asking.daemon, field), false, field);
+  }
   assert.equal(asking.session.objective, 'Total the columns of data.csv');
   assert.deepEqual(asking.backlog.map(item => [item.id, item.status]), [['t1', 'blocked']]);
   assert.equal(asking.usage_summary?.call_count, 3);
@@ -170,7 +177,10 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   const card = (asking.pending_questions![0] as { operator_decision: { id: string; question: string; options: unknown[] } }).operator_decision;
   assert.deepEqual([card.question, card.options], ['Ship it as is?', []]);
 
-  const { events } = await get<{ events: EventMsg[] }>(`${P}/events?limit=120&view=ui`);
+  assert.equal((await call(`${P}/events?limit=120&view=ui`)).status, 404);
+  const replay = new AbortController();
+  const events = await frames(await call(`${P}/stream?replay=40&view=ui`, { signal: replay.signal }), event => event.type === 'engineer.progress' && event.agent_layer === 'reviewer');
+  replay.abort();
   assert.deepEqual(events.map(event => event.type), [
     'ui.operator', 'provider.request.started', 'provider.request.completed', 'ui.argus', 'life.mission.started',
     'provider.request.started', 'engineer.progress', 'provider.request.completed', 'engineer.progress',

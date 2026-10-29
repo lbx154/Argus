@@ -14,14 +14,6 @@ export interface DesktopDeliveryNotification {
   sessionId?: string;
 }
 
-export interface CompletionNotificationInput {
-  completionId: string;
-  title: string;
-  summary?: string;
-  path?: string;
-  sessionId?: string;
-}
-
 type EmbeddedDesktopMessage = {
   type?: unknown;
   payload?: unknown;
@@ -40,31 +32,6 @@ function notificationSession(value: unknown): { sessionId?: string } | null {
 
 function nonEmptyString(value: unknown, limit: number): string {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
-}
-
-function notificationPlainText(value: unknown, limit: number): string {
-  return nonEmptyString(value, limit * 2)
-    .replace(/!?(?:\[([^\]]+)\])\([^)]+\)/g, '$1')
-    .replace(/[*_`#]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, limit);
-}
-
-export function completionNotificationPayload(
-  input: CompletionNotificationInput,
-): DesktopDeliveryNotification | null {
-  const deliveryId = nonEmptyString(input.completionId, 300);
-  const session = notificationSession(input.sessionId);
-  if (!deliveryId || !session) return null;
-  const path = nonEmptyString(input.path, 1_000);
-  return {
-    ...session,
-    deliveryId,
-    title: notificationPlainText(input.title, 240) || '已完成的任务',
-    summary: notificationPlainText(input.summary, 500),
-    ...(path ? { path } : {}),
-  };
 }
 
 export function deliveryNotificationPayload(
@@ -108,21 +75,6 @@ function notificationPayload(value: unknown): DesktopDeliveryNotification | null
     summary: nonEmptyString(row.summary, 1_000),
     ...(path ? { path } : {}),
   };
-}
-
-export function notifyDesktopCompletion(
-  notification: DesktopDeliveryNotification,
-): Promise<boolean> {
-  const payload = notificationPayload(notification);
-  const parent = embeddedDesktopParent();
-  if (!payload || !parent) return Promise.resolve(false);
-  parent.postMessage({ type: 'argus:notify-completion', payload }, '*');
-  return Promise.resolve(true);
-}
-
-export function notifyDesktopDelivery(delivery: DeliveryReceipt, sessionId?: string): Promise<boolean> {
-  const payload = deliveryNotificationPayload(delivery, sessionId);
-  return payload ? notifyDesktopCompletion(payload) : Promise.resolve(false);
 }
 
 export function setDesktopLargePreview(active: boolean): void {

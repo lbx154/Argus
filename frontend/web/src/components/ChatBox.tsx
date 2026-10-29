@@ -22,7 +22,7 @@ interface Caret { text: string; at: number; fits: boolean; typed: boolean }
 export function ChatBox({
   value, onChange, onSend, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, onUndoRewrite, rewriting = false,
-  completionSelection, onCompletionSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, continuousControl, pendingNote,
+  completionSelection, onCompletionSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, pendingNote,
   completion,
 }: {
   value: string;
@@ -44,8 +44,6 @@ export function ChatBox({
   onRouteOverrideChange?: (value: MessageRouteOverride) => void;
   /** Shown under the input, like the map composer's runtime line. */
   footer?: ReactNode;
-  /** Always-visible continuous-work switch for the current project. */
-  continuousControl?: ReactNode;
   /** Said while the send waits on something else, such as uploads. */
   pendingNote?: string;
   /** What `@`, `#` and the gray text complete from; only the project conversation has it. */
@@ -239,7 +237,6 @@ export function ChatBox({
     {completion ? <span className="sr-only" role="status">{whole && t('completion.ghostHint', { text: whole })}</span> : null}
     <div className="composer-meta">
     {footer}
-    {continuousControl}
     {onRouteOverrideChange && <details className="composer-options">
       <summary>{zh ? '任务设置' : 'Task settings'}{routeOverride === 'chat' ? zh ? ' · 仅对话' : ' · Chat only' : routeOverride === 'task' ? zh ? ' · 研究任务' : ' · Research task' : ''}</summary>
       {onRouteOverrideChange ? <RouteSegment value={routeOverride} onChange={onRouteOverrideChange} disabled={disabled || pending} /> : null}

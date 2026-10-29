@@ -47,11 +47,9 @@ export function resolvePairing(
 
 /** Add the project selector to an already-built pairing URL. */
 export function withProject(url: string, project?: string): string {
-  const legacy = process.env.ARGUS_APPLICATION_MODE === 'legacy';
-  if (!project?.trim() && !legacy) return url;
+  if (!project?.trim()) return url;
   const parsed = new URL(url);
   if (project?.trim()) parsed.searchParams.set('project', project.trim());
-  if (legacy) parsed.searchParams.set('legacy', '1');
   return parsed.toString();
 }
 

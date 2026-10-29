@@ -1,8 +1,6 @@
-import type { Dataset, MapEvent, MapTask } from "./model";
-import { ACTIVE, attentionTasks, isStageHold, latestCertifiedTask, latestMissionCompletion, statusKey } from "./model";
-import type { SubmapStep } from "./submap";
-import { humanizeHarnessNote, readableRecord } from "./submap";
-import { shortWorkText } from "../lib/taskLanguage";
+import type { MapEvent, MapTask } from "./model";
+import { isStageHold } from "./model";
+import { humanizeHarnessNote } from "./submap";
 import { errorText } from '../lib/format';
 
 /** The newest explicit failure, with the task's own record when no event names one. */
@@ -30,12 +28,8 @@ function recordedDetail(task: MapTask): string {
  * language, with the agent's own (possibly other-language) words kept apart
  * as detail rather than shown as the headline. The next step is a plain
  * instruction with no "Next:" of its own; the brief shows it under that label.
- *
- * ``written`` is the plain-language account of this task's outcome that the
- * writer already produced in the reader's language, when one is cached. A
- * stage hold's reason is the Manager's free-form judgement; without a saved
- * account in the reader's language, its words stay in the expandable detail. */
-export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean, written = ""):
+ */
+export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean):
   { reason: string; next: string; detail: string } {
   if (task.pending_question) return {
     reason: task.pending_question,
@@ -44,11 +38,8 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
   };
   if (isStageHold(task)) {
     const detail = recordedDetail(task);
-    const said = written.trim();
     return {
-    reason: said
-        ? zh ? `工作已暂停：${said}` : `Work paused: ${said}`
-        : detail
+      reason: detail
           ? zh ? "工作已暂停：当前结果还没有满足要求，具体原因见下方说明。"
             : "Work paused: the current result does not yet meet the requirements. The reason is shown below."
           : zh ? "工作已暂停：当前结果还没有满足要求，记录里没有说明具体原因。"
@@ -70,161 +61,6 @@ export function attentionSummary(task: MapTask, events: MapEvent[], zh: boolean,
   };
 }
 
-const clip = (text: string, size = 80) => text.length > size ? `${text.slice(0, size)}…` : text;
-
-/** Three lines an outsider can read: the goal of the task the reader most
- * needs to see, what has been concluded (only an acceptance still standing
- * counts), and what comes next. ``live`` is what the runtime reports under
- * way right now; a question waiting on the reader still heads the brief. */
-export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, written: (task: MapTask) => string = () => "", live = ""):
-  { goal: string; current: string; conclusion: string; next: string } {
-  const work = tasks.filter((task) => task.turn_kind !== "qa" && task.kind !== "turn");
-  const running = work.find((task) => ACTIVE.has(task.status));
-  // A question waiting on the reader comes first, then the work under way,
-  // then whatever happened last: a task's finish, else its arrival.
-  const recent = [...work].sort((a, b) => (b.finished_ts ?? b.ts ?? 0) - (a.finished_ts ?? a.ts ?? 0));
-  const focus = recent.find((task) => statusKey(task) === "question") ?? running ?? recent[0];
-  const goal = focus ? clip((focus.objective || focus.title).trim()) : (zh ? "还没有任务" : "No task yet");
-  // A question waiting on the reader keeps the project open, not the results
-  // already reviewed: those are said, as their cards say them, beside it.
-  const asked = attentionTasks(tasks).filter((task) => task.pending_question);
-  const accepted = latestCertifiedTask(tasks.filter((task) => !asked.includes(task)), events);
-  // What the accepted task found, in the words that closed it; its title names
-  // what was asked, which reads wrong after "confirmed".
-  const result = accepted
-    ? shortWorkText(readableRecord(written(accepted) || latestMissionCompletion(accepted, events)?.text || accepted.title), 160)
-    : "";
-  const label = (task: MapTask) => {
-    const key = statusKey(task);
-    return ({
-      held: zh ? "工作已暂停" : "work paused",
-      failed: zh ? "这项工作没有做完" : "this task did not finish",
-      review_unavailable: zh ? "结果检查没有完成" : "the result check did not finish",
-      done: zh ? "已完成" : "done",
-      running: zh ? "进行中" : "running",
-      pending: zh ? "待开始" : "planned",
-      question: zh ? "等你回答" : "waiting on you",
-      paused: zh ? "已暂停" : "paused",
-    } as Record<string, string>)[key] || (zh ? '还没有新的进展记录' : 'No new progress has been recorded');
-  };
-  // The goal line already names the task; saying its title again under the
-  // conclusion only repeats it.
-  const conclusion = accepted
-    ? asked.length
-      ? zh ? `审阅通过（还有一项在等你回答）：${result}` : `Reviewed (another item is waiting for your answer): ${result}`
-      : zh ? `已确认：${result}` : `Confirmed: ${result}`
-    : focus
-      ? statusKey(focus) === 'review_unavailable'
-        ? zh ? '这次结果检查没有完成，暂时不能确认结果。' : 'The result check did not finish, so the result is not yet confirmed.'
-        : zh ? '还没有经过检查确认的结果。' : 'There is no checked, confirmed result yet.'
-      : zh ? "还没有结果" : "No result yet";
-  const queued = [...work].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0)).find((task) => statusKey(task) === "pending");
-  const current = focus && statusKey(focus) === "question" ? label(focus)
-    : live || (running && focus === running
-      ? zh ? `正在处理：${clip(running.title, 70)}` : `Working on: ${clip(running.title, 70)}`
-      : focus ? label(focus) : zh ? '可以开始新任务' : 'Ready for a new task');
-  const next = focus && ["question", "held", "failed", "review_unavailable"].includes(statusKey(focus))
-    ? attentionSummary(focus, events, zh, written(focus)).next
-    : queued
-      ? zh ? `待做任务：${clip(queued.title, 70)}` : `Queued: ${clip(queued.title, 70)}`
-      : running
-        ? zh ? '等当前工作完成，再查看检查结果。' : 'Wait for the current work to finish, then check the result.'
-        : accepted
-          ? zh ? "可以查看结果，或继续提出要求。" : "Read the result, or tell me what to do next."
-          : zh ? "还没有后续任务，可在对话里告诉我接下来做什么。" : "Nothing else is scheduled. Tell me what to do next in the conversation.";
-  return { goal, current, conclusion, next };
-}
-
-export interface CardCopy {
-  copy_revision?: number;
-  version?: number;
-  model_revision?: string;
-  title: string;
-  summary: string;
-  detail: string;
-  generated_at: number;
-  task_revision?: string;
-  task_content_revision?: string;
-  task_status?: string;
-  event_ids?: string[];
-  event_revisions?: string[];
-  input_revision?: string;
-}
-export interface MapRelation {
-  source: string;
-  target: string;
-  label: string;
-  kind: "semantic";
-}
-export interface MapCopy {
-  cache_revision?: number;
-  version?: number;
-  model_revision?: string;
-  cards: Record<string, CardCopy>;
-  relations: MapRelation[];
-  available?: boolean;
-  retry_after?: number;
-  generation_error?: { code: string; message: string; manual_retry?: boolean } | null;
-}
-
-export function mergeMapCopy(previous: MapCopy | undefined, result: MapCopy, requestedRevision?: string): MapCopy {
-  const settingsChanged = previous?.model_revision && previous.model_revision !== requestedRevision;
-  const cards = { ...previous?.cards };
-  for (const [key, card] of Object.entries(result.cards)) {
-    if (settingsChanged && cards[key]?.model_revision === previous.model_revision) continue;
-    const old = cards[key];
-    if (old?.version && (card.version ?? 0) < old.version) continue;
-    if (!old || (card.copy_revision ?? 0) > (old.copy_revision ?? 0) ||
-      ((card.copy_revision ?? 0) === (old.copy_revision ?? 0) &&
-        (card.generated_at > old.generated_at ||
-          (card.generated_at === old.generated_at && !old.input_revision)))) cards[key] = card;
-  }
-  const older = (result.cache_revision ?? 0) < (previous?.cache_revision ?? 0);
-  return {
-    ...previous,
-    ...result,
-    cards,
-    ...((previous?.version != null || result.version != null)
-      ? { version: Math.max(previous?.version ?? 0, result.version ?? 0) } : {}),
-    cache_revision: Math.max(result.cache_revision ?? 0, previous?.cache_revision ?? 0),
-    relations: (settingsChanged || older) && previous ? previous.relations : result.relations,
-    available: result.available ?? true,
-    ...(settingsChanged ? { model_revision: previous.model_revision, available: previous.available } : {}),
-  };
-}
-
-export function needsCardCopy(
-  card: CardRequest,
-  data: Dataset,
-  copy?: MapCopy,
-  eventIndex?: Map<string, MapEvent>,
-): boolean {
-  const saved = copy?.cards[card.key];
-  const task = data.tasks.find((t) => t.id === card.task_id);
-  if (!saved || !task) return true;
-  if ((saved.version ?? 0) < (copy?.version ?? 0)) return true;
-  if (copy?.model_revision && saved.model_revision !== copy.model_revision) return true;
-  const dynamic = [task.id, task.id + ":active", task.id + ":outcome"].includes(card.key);
-  if (dynamic || !saved.task_content_revision || !task.content_revision) {
-    if (task.revision && saved.task_revision !== task.revision) return true;
-    if (dynamic && saved.task_status !== task.status) return true;
-  } else if (saved.task_content_revision !== task.content_revision) return true;
-  const ids = saved.event_ids || [];
-  // A full-history summary may contain additional valid evidence when only
-  // current progress is being viewed. Do not rewrite it with a poorer subset.
-  return card.event_ids.some((id) => {
-    const index = ids.indexOf(id);
-    const event = eventIndex ? eventIndex.get(id) : data.events.find((e) => e.id === id);
-    return index < 0 || (saved.event_revisions && event?.revision &&
-      saved.event_revisions[index] !== event.revision);
-  }) || (!dynamic && JSON.stringify(card.event_ids) !== JSON.stringify(ids));
-}
-export interface CardRequest {
-  key: string;
-  task_id: string;
-  kind: string;
-  event_ids: string[];
-}
 export interface CardReference {
   source: string;
   task_id: string;
@@ -267,68 +103,4 @@ export function splitDraft(value: string) {
     return true;
   });
   return { refs, text: lines.join("\n").replace(/^\n+/, "") };
-}
-/** Ids of the latest main/review outcomes of a task, optionally as of a moment. */
-function outcomeIds(data: Dataset, id: string, through = Infinity): string[] {
-  const start = Math.max(
-    -Infinity,
-    ...data.events
-      .filter(
-        (e) =>
-          e.item_id === id &&
-          e.type === "life.mission.started" &&
-          e.ts <= through,
-      )
-      .map((e) => e.ts),
-  );
-  return data.events
-    .filter(
-      (e) =>
-        e.item_id === id &&
-        e.ts >= start &&
-        e.ts <= through &&
-        ["round.main.completed", "round.review.completed"].includes(e.type),
-    )
-    .slice(-2)
-    .map((e) => e.id);
-}
-/** One request per step of a task's sub-map, in reading order. */
-function stepRequests(data: Dataset, task: MapTask, steps: SubmapStep[]): CardRequest[] {
-  return steps.map((s) => ({
-    key: s.id,
-    task_id: task.id,
-    kind: s.kind,
-    event_ids: [
-      ...new Set([
-        ...(s.kind === "result" ? outcomeIds(data, task.id, s.ts) : []),
-        ...s.eventIds,
-      ]),
-    ].slice(-16),
-  }));
-}
-export function requestsFor(
-  data: Dataset,
-  steps: SubmapStep[],
-  focused: string | null,
-): CardRequest[] {
-  const focusedTask = data.tasks.find((t) => t.id === focused);
-  const sorted = focusedTask
-    ? [focusedTask, ...data.tasks.filter((t) => t.id !== focused)]
-    : data.tasks;
-  const roots = sorted.map((t) => ({
-    key: t.id,
-    task_id: t.id,
-    kind: "task",
-    event_ids: [
-      ...new Set([
-        ...outcomeIds(data, t.id),
-        ...data.events
-          .filter((e) => e.item_id === t.id)
-          .slice(-2)
-          .map((e) => e.id),
-      ]),
-    ],
-  }));
-  const children = focusedTask ? stepRequests(data, focusedTask, steps) : [];
-  return [...roots.slice(0, 1), ...children, ...roots.slice(1)];
 }

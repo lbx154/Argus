@@ -53,7 +53,7 @@ describe('the task holder, the latest thing said and results on the map card', (
   const card = (value: MapTask): NodeProps<MacroNode> => ({ id: value.id, data: {
     id: value.id, task: value, ordinal: 1, part: 1, partCount: 1, start: 1, end: 0, totalSteps: 0,
     layout: layoutSubmap(value, [], true, []), frame: { width: 1440, height: 900, scale: 1 },
-    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false, live: true,
+    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false,
     source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(),
   } as MacroData } as NodeProps<MacroNode>);
 

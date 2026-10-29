@@ -1,7 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
-import type { EventMsg } from '../api';
-import { streamReducer } from '../hooks';
 import { QUERY_CACHE_KEY, QUERY_CACHE_MAX_CHARS, persistQueryCache, restoreQueryCache } from '../lib/queryPersistence';
 
 function memoryStorage(fail = false) {
@@ -44,6 +42,7 @@ describe('conversation cache across reloads', () => {
     before.setQueryData(['snapshot', 's-1'], { session: { id: 's-1' } }, { updatedAt: 1_000 });
     before.setQueryData(['conversation', 's-1', 120], [{ role: 'operator', text: 'Hello', ts: 1 }], { updatedAt: 1_000 });
     before.setQueryData(['artifacts', 's-1'], [{ path: 'big.bin' }], { updatedAt: 1_000 });
+    before.setQueryData(['events', 's-1'], [{ type: 'ui.argus', text: 'Old event window' }], { updatedAt: 1_000 });
     clock.run();
     stop();
     expect(values.has(QUERY_CACHE_KEY)).toBe(true);
@@ -53,6 +52,7 @@ describe('conversation cache across reloads', () => {
     expect(after.getQueryData(['conversation', 's-1', 120])).toEqual([{ role: 'operator', text: 'Hello', ts: 1 }]);
     expect(after.getQueryState(['snapshot', 's-1'])?.dataUpdatedAt).toBe(1_000);
     expect(after.getQueryData(['artifacts', 's-1'])).toBeUndefined();
+    expect(after.getQueryData(['events', 's-1'])).toBeUndefined();
     // Another build may read different shapes: it starts clean.
     expect(restoreQueryCache(new QueryClient(), () => storage, 'build-2', 2_000)).toBe(0);
   });
@@ -88,15 +88,4 @@ describe('conversation cache across reloads', () => {
     vi.restoreAllMocks();
   });
 
-  it('starts a revisited project from its last event window and lets the fresh seed replace it', () => {
-    const event = (id: string, ts: number): EventMsg => ({ type: 'engineer.progress', event_id: id, ts, text: id });
-    const kept = [event('old-1', 1), event('old-2', 2)];
-    let state = streamReducer({ sid: null, events: [], seen: new Set() }, { kind: 'reset', sid: 's-1', events: kept });
-    expect(state.events.map(ev => ev.event_id)).toEqual(['old-1', 'old-2']);
-    state = streamReducer(state, { kind: 'push', sid: 's-1', ev: event('live-9', 9) });
-    state = streamReducer(state, { kind: 'seed', sid: 's-1', events: [event('old-2', 2), event('new-5', 5)] });
-    // The kept window gives way to the server's, and live events stay last.
-    expect(state.events.map(ev => ev.event_id)).toEqual(['old-2', 'new-5', 'live-9']);
-    expect(state.restored).toBeUndefined();
-  });
 });

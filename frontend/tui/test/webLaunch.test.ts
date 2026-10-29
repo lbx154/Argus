@@ -43,17 +43,3 @@ test('browserCommand is headless-safe and platform aware', () => {
     command: 'open', args: ['http://x'],
   });
 });
-
-test('explicit legacy selection survives project and pairing URL construction', (t) => {
-  const previous = process.env.ARGUS_APPLICATION_MODE;
-  t.after(() => {
-    if (previous === undefined) delete process.env.ARGUS_APPLICATION_MODE;
-    else process.env.ARGUS_APPLICATION_MODE = previous;
-  });
-  process.env.ARGUS_APPLICATION_MODE = 'legacy';
-  const paired = new URL(withProject('http://localhost:8799/?token=fixture', 'old-session'));
-  assert.equal(paired.searchParams.get('legacy'), '1');
-  assert.equal(paired.searchParams.get('token'), 'fixture');
-  assert.equal(paired.searchParams.get('project'), 'old-session');
-  assert.equal(new URL(webUiUrl('localhost', 8799)).searchParams.get('legacy'), '1');
-});

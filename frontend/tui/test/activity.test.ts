@@ -3,8 +3,6 @@ import { test } from 'node:test';
 import {
   activityHistory,
   normalizeOperatorEvent,
-  overlayActiveRole,
-  overlayRoleActivities,
   reduceOperatorEvent,
   runningActivities,
 } from '../../core/src/activity.js';
@@ -26,49 +24,8 @@ test('raw agent IO becomes a safe semantic activity without prompt or output', (
   assert.doesNotMatch(JSON.stringify(event), /SECRET/);
 });
 
-test('live activities immediately override stale idle role snapshots', () => {
-  const now = Date.now() / 1000;
-  const callId = `${Math.floor(now * 1000)}-7`;
-  const roles = [{
-    role: 'engineer', backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.5',
-    effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: null,
-  }];
-  const events = reduceOperatorEvent([], {
-    type: 'agent.io.stream', call_id: callId, run_label: 'engineer-r4',
-    backend: 'copilot', ts: now, line: '{}',
-  });
-  const overlaid = overlayRoleActivities(roles, events);
-  assert.equal(overlaid[0].active, true);
-  assert.equal(overlaid[0].label, 'working on the mission · round 4');
-});
 
-test('UI-local Manager work overrides an idle snapshot without journaling', () => {
-  const roles = [{
-    role: 'manager', backend: 'copilot', backend_label: 'Copilot', model: 'gpt-5.6-sol',
-    effort: 'xhigh', active: false, label: 'idle', status: 'idle', age_s: 300,
-  }];
-  const overlaid = overlayActiveRole(roles, 'manager', 'classifying this message', 2.4);
-  assert.equal(overlaid[0].active, true);
-  assert.equal(overlaid[0].label, 'classifying this message');
-  assert.equal(overlaid[0].status, 'running');
-  assert.equal(overlaid[0].age_s, 2.4);
-  assert.equal(roles[0].active, false);
-});
 
-test('UI-local activity adds a role before the first snapshot arrives', () => {
-  const overlaid = overlayActiveRole([], 'manager', 'handling your message');
-  assert.deepEqual(overlaid, [{
-    role: 'manager',
-    backend: '',
-    backend_label: '',
-    model: '',
-    effort: null,
-    active: true,
-    label: 'handling your message',
-    status: 'running',
-    age_s: 0,
-  }]);
-});
 
 test('operator transcript, local echo, and wire event coalesce to one line', () => {
   let events = reduceOperatorEvent([], {

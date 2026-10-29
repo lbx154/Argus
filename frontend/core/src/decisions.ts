@@ -76,27 +76,6 @@ export function operatorDecisionCards(
       });
       continue;
     }
-    const question = text(row.pending_question ?? row.question ?? row.text);
-    if (!itemId || !question) continue;
-    const id = `legacy-${itemId}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    cards.push({
-      id,
-      item_id: itemId,
-      revision: 1,
-      status: 'pending',
-      title: text(row.title ?? row.objective) || 'Blocked task',
-      reason: '',
-      question,
-      evidence: [],
-      options: [customDecisionOption(text(row.title ?? row.objective), question)],
-      options_source: 'none',
-      selected_option: '',
-      note: '',
-      legacy: true,
-      ...taskContext(itemId, row),
-    });
   }
   if (!currentTaskId) return cards;
   return [...cards.filter(card => card.kind === 'domain_intake'), ...cards.filter(card => card.kind !== 'domain_intake' && card.item_id === currentTaskId), ...cards.filter(card => card.kind !== 'domain_intake' && card.item_id !== currentTaskId)];

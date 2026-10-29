@@ -3,7 +3,7 @@
   "API_PROTOCOL_NAME": "argus.webapi",
   "API_PROTOCOL_MAJOR": 1,
   "API_PROTOCOL_MINOR": 16,
-  "SNAPSHOT_SCHEMA_VERSION": 7,
+  "SNAPSHOT_SCHEMA_VERSION": 8,
   "API_REQUIRED_CAPABILITIES": [
     "daemon.command.v1",
     "manager.sse.v1",

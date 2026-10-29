@@ -11,7 +11,7 @@ import type { ActiveWorkbenchPageProps } from '../research-workbench/pages/pageT
 const snap: ActiveWorkbenchPageProps['snapshot'] = {
   session: { id: 's-test', display_name: 'Test project', cwd: '/fixture', last_active: 1, objective: '' },
   daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
-  roles: [], backlog: [], recent_events: [], daemon_commands: { schema_version: 1, revision: 7, recent: [] },
+  roles: [], backlog: [],
 };
 let client: QueryClient;
 let tree: ReactTestRenderer | undefined;

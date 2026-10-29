@@ -71,8 +71,6 @@
   color: rgb(var(--ink-dim));
 }
 .map-status-line { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; }
-.map-status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.map-status-sep { color: rgb(var(--ink-faint)); }
 .map-attention-link {
   flex-shrink: 0;
   color: #a06a4b;
@@ -98,43 +96,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.map-dataset-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  color: rgb(var(--ink-dim));
-  min-width: 0;
-}
-.map-dataset-bar > svg {
-  color: #6186a9;
-  flex-shrink: 0;
-}
-.map-dataset-bar select {
-  background: var(--map-paper);
-  color: rgb(var(--ink));
-  font-weight: 550;
-  border: 0;
-  outline-offset: 3px;
-  max-width: 360px;
-  min-width: 0;
-}
-.map-dataset-description {
-  font-size: 11px;
-  color: rgb(var(--ink-faint));
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.map-capture {
-  display: flex;
-  gap: 5px;
-  align-items: center;
-  margin-left: auto;
-  white-space: nowrap;
-  font-size: 11px;
-  color: rgb(var(--ink-faint));
 }
 .map-workspace {
   display: flex;
@@ -544,9 +505,6 @@
   color: #b87753;
 }
 @media (max-width: 1100px) {
-  .map-dataset-description {
-    display: none;
-  }
   .map-header {
     padding: 18px 20px;
   }
@@ -582,16 +540,6 @@
 @media (max-width: 640px) {
   .map-heading h1 {
     font-size: 15px;
-  }
-  .map-dataset-bar > svg {
-    display: none;
-  }
-  .map-dataset-bar select {
-    max-width: 100%;
-    font-size: 12px;
-  }
-  .map-capture {
-    display: none;
   }
   .map-canvas-toolbar {
     left: 12px;

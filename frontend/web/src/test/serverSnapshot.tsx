@@ -14,8 +14,7 @@ export function roleSnapshot(events: EventMsg[], patch: Partial<Snapshot> = {}):
   const snapshot: Snapshot = {
     session: { id: 's', display_name: '', objective: '', cwd: '', last_active: 1 },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
-    roles: [], backlog: [], recent_events: [],
-    work_status: { state: 'running', roles: ['manager'], role: 'manager', taskId: '', title: '', reason: '', foreground: false,
+    roles: [], backlog: [], work_status: { state: 'running', roles: ['manager'], role: 'manager', taskId: '', title: '', reason: '', foreground: false,
       activityAt: null, label: { 'zh-CN': '团队正在工作', en: 'The team is working' } }, ...patch,
   };
   setRoleLog(snapshot.session.id, events);

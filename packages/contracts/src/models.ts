@@ -17,34 +17,15 @@ export interface Role {
   tasks?: string[];
 }
 
-export interface DaemonHealth {
-  state?: string;
-  stalled?: boolean;
-  last_progress_at?: number | null;
-  last_progress_event?: string;
-  seconds_since_progress?: number | null;
-}
-
 export interface Daemon {
   alive: boolean;
   pid: number | null;
   /** Nothing is under way, and Resume has work to take up. */
   resumable?: boolean;
-  liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;
-  heartbeat_age_seconds?: number | null;
   uptime_seconds: number | null;
   started_at_iso?: string | null;
-  health?: DaemonHealth;
   backend: string | null;
   backend_label?: string | null;
-  mission_width?: number | null;
-  read_status?: 'ok' | 'error';
-  read_error?: string;
-  protocol?: { name: string; major: number | null; minor: number | null };
-  capabilities?: string[];
-  runtime?: Record<string, unknown> | null;
-  protocol_compatible?: boolean | null;
-  protocol_error?: string;
 }
 
 export interface BacklogItem {
@@ -131,45 +112,6 @@ export interface DeliverySnapshot {
   stored: boolean;
 }
 
-export interface ContinuousState {
-  enabled: boolean;
-  open_ended?: boolean;
-  objective: string;
-  done_reason?: string;
-  done_at?: string;
-}
-
-export interface DaemonCommandReceipt {
-  command_id: string;
-  operation: string;
-  status: 'accepted' | 'running' | 'applied' | 'failed' | 'rejected';
-  revision: number;
-  expected_revision: number | null;
-  args: Record<string, unknown>;
-  result: Record<string, unknown>;
-  error: string;
-  submitted_at: number;
-  updated_at: number;
-}
-
-export interface DaemonCommandState {
-  schema_version: 1;
-  revision: number;
-  recent: DaemonCommandReceipt[];
-}
-
-export interface ObservabilitySnapshot {
-  schema_version: 1;
-  provider: Record<string, unknown>;
-  daemon_commands: Record<string, unknown>;
-  web: Record<string, unknown>;
-  event_validation_failures: number;
-  slo: {
-    status: 'healthy' | 'degraded';
-    violations: string[];
-  };
-}
-
 export interface DaemonAdmission {
   admission_required: boolean;
   requested_at: number;
@@ -200,162 +142,6 @@ export interface UsageSummary {
   premium_request_cost_usd: number;
 }
 
-export type MissionRoleStatus = 'active' | 'done' | 'waiting' | 'rejected' | 'error';
-
-export interface MissionRoleView {
-  role: string;
-  status: MissionRoleStatus | string;
-  /** Stable code naming the state the label describes; localize by this. */
-  kind?: string;
-  label: string;
-  updated_at: number;
-  backend?: string;
-  model?: string;
-  effort?: string | null;
-}
-
-export interface MissionDagNode {
-  id: string;
-  title: string;
-  objective: string;
-  status: string;
-  deps: string[];
-  branch_id: string;
-  parent_branch_id: string | null;
-  acceptance_check?: string;
-  plan_hypothesis?: string;
-  goal_contribution?: string;
-  expected_regressions?: string;
-  decision_rule?: string;
-  non_goals?: string[];
-}
-
-export interface MissionRoleWorkItem {
-  id: string;
-  ts: number;
-  role: string;
-  kind: string;
-  title: string;
-  detail: string;
-  status: string;
-  /** Why a round produced no judgment (rows with kind "review" and status "skipped"). */
-  cause?: string;
-  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
-  technical?: string;
-  item_id?: string;
-  mission_id?: string;
-  mission_title?: string;
-  round_index?: number | null;
-}
-
-export interface MissionSkillView {
-  id: string;
-  name: string;
-  version: number;
-  scope: string;
-  path: string;
-  status: string;
-  updated_at: number;
-  mission_id?: string;
-  mission_title?: string;
-  source_path?: string;
-  source_placement?: string;
-  source_vertical?: string;
-  content?: string;
-  content_truncated?: boolean;
-}
-
-export interface MissionTimelineItem {
-  id: string;
-  ts: number;
-  type: string;
-  role: string;
-  /** Stable code naming what happened; localize by this, not by the title. */
-  kind?: string;
-  title: string;
-  detail: string;
-  tone: 'neutral' | 'info' | 'success' | 'error' | 'skill' | string;
-  /** Why a round produced no judgment (rows with kind "round_not_judged"). */
-  cause?: string;
-  /** The runtime's own record (exit code, retry count); shown apart from the sentence. */
-  technical?: string;
-  item_id?: string;
-  branch_id?: string;
-}
-
-export interface MissionAchievement {
-  id: string;
-  title: string;
-  goal: string;
-  summary?: string;
-  rejected_attempts?: number;
-  skills_learned?: number;
-  artifacts?: number;
-  elapsed_seconds?: number;
-  evidence?: string[];
-  reviewer_certified: boolean;
-  certified_at?: number | null;
-}
-
-export interface MissionStorageView {
-  project_skill_dir: string;
-  global_skill_dir: string;
-  project_skill_count: number;
-  global_skill_count: number;
-  skill_history_compressed: number;
-  wiki_retired_compressed: number;
-  skill_history_bytes_saved: number;
-  wiki_retired_bytes_saved: number;
-  wiki_paths: string[];
-}
-
-export interface MissionView {
-  schema_version: number;
-  bootstrapped?: boolean;
-  /** "zh" or "en" once the operator's request has been seen; the view's sentences are in this language. */
-  language?: string;
-  health?: string;
-  mission: {
-    id: string;
-    title: string;
-    objective: string;
-    summary: string;
-    final_output?: string;
-    status: string;
-    started_at: number | null;
-    completed_at: number | null;
-    elapsed_seconds: number;
-    campaign_started_at: number | null;
-    campaign_elapsed_seconds: number;
-  };
-  stage: { id: string; label: string };
-  routing: {
-    route: string;
-    vertical: string;
-    workflow_mode: string;
-    lifetime: string;
-    continuous: boolean;
-    open_ended: boolean;
-  };
-  round: { current: number; max: number };
-  active_role: string;
-  roles: MissionRoleView[];
-  role_work: MissionRoleWorkItem[];
-  dag: MissionDagNode[];
-  timeline: MissionTimelineItem[];
-  artifacts: Array<Record<string, unknown>>;
-  learned_skills: MissionSkillView[];
-  learned_wiki_pages: Array<Record<string, unknown>>;
-  storage: MissionStorageView;
-  achievement: MissionAchievement | null;
-  review: { status: string; reason: string; rejected_attempts: number };
-  frontier: { change: string; summary: string; updated_at: number };
-  delivery: DeliveryReceipt | null;
-  outcome: Partial<MissionOutcomeDimensions>;
-  last_event_ts: number;
-  updated_at: number;
-}
-
 export interface Snapshot {
   schema_version?: number;
   /** When the server read it, in milliseconds; a later read is larger. A page holds the later of two. */
@@ -376,33 +162,14 @@ export interface Snapshot {
   /** The newest model call this project opened: what it actually ran on. */
   last_call?: { backend: string; model: string; effort: string; run_label: string; role?: string; ts: number } | null;
   backlog: BacklogItem[];
-  recent_events: EventMsg[];
   spend_usd?: number | null;
   spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   usage_summary?: UsageSummary;
-  global_spend_usd?: number | null;
-  global_spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
-  global_usage_summary?: UsageSummary;
-  daemon_commands?: DaemonCommandState | null;
-  observability?: ObservabilitySnapshot | null;
-  mission_view?: MissionView | null;
-  daemon_admission?: DaemonAdmission;
-  /** Present on compact UI snapshots. */
-  continuous?: ContinuousState;
-  /** Present on compact UI snapshots. */
   pending_questions?: Array<Record<string, unknown>>;
   /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
   manager_requests?: Array<{ request_id: string; status: 'running' }>;
   /** The committed operator objective, for overview headings. */
   goal?: string;
-  /** Free space on the disk holding the project's outputs. */
-  storage?: { total_bytes: number; free_bytes: number; used_fraction: number | null } | null;
-  partial?: boolean;
-  diagnostics?: Array<{
-    section: string;
-    error_type: string;
-    message: string;
-  }>;
 }
 
 /** How many of a role's newest entries its log holds: a round can run for hours, and its earlier

@@ -1,4 +1,3 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { ModelPicker } from './ModelPicker';
 import { useConfig } from '../hooks';
 import { Modal, ModalHeader } from './Modal';
@@ -43,7 +42,6 @@ export function ConfigModal({
   onCycleTheme?: () => void;
 }) {
   const { t, locale } = useI18n();
-  const queryClient = useQueryClient();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pendingBackend, setPendingBackend] = useState('');
@@ -58,7 +56,6 @@ export function ConfigModal({
   }, [data, open]);
   const refreshSettings = async () => {
     await refetch();
-    await queryClient.invalidateQueries({ queryKey: ['map-copy'] });
   };
   const currentBackend = configuredBackend(data);
   const backendTarget = pendingBackend || currentBackend;

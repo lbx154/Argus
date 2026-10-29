@@ -1,7 +1,6 @@
 import { WorkspaceHeader } from './WorkspaceShell';
 import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot } from '../api';
-import type { MissionView } from '../../../core/src/types';
 import { roleLabel } from '../lib/enumLabels';
 import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
 import { useI18n } from '../i18n';
@@ -31,7 +30,6 @@ export function TopBar({
   busy,
   snapshotStale = false,
   readOnly = false,
-  missionView,
 }: {
   snap: Snapshot;
   streamOk: boolean;
@@ -51,23 +49,17 @@ export function TopBar({
   busy: boolean;
   snapshotStale?: boolean;
   readOnly?: boolean;
-  missionView?: MissionView | null;
 }) {
   const { t, locale } = useI18n();
   const work = currentWorkStatus(snap);
-  const missionTerminal = ['complete', 'completed', 'done', 'success'].includes(
-    String(missionView?.mission.status || '').toLowerCase(),
-  );
   const roleName = work.role || 'manager';
   const roleActive = work.state === 'running' && streamOk && !snapshotStale;
   const activeItem = snap.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
   const focus = relativizeWorkspacePaths(work.title
     || activeItem?.title
     || activeItem?.objective
-    || (missionTerminal ? missionView?.mission.summary || missionView?.mission.title : '')
     || snap.session.objective
     || '', snap.session.workdir, snap.session.cwd);
-  const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
   const phase = teamPhase(work);
   const statusWords = workStatusLabel(work, locale);
   const activityAt = work.activityAt ?? snap.session.last_active;
@@ -75,12 +67,7 @@ export function TopBar({
   const spendLabel = spent != null && Number.isFinite(spent) && snap.spend_status !== 'empty'
     ? t('topbar.spent', { amount: `${snap.spend_status === 'partial' ? '≥' : ''}${money(spent, spent < 10 ? 2 : 1)}` })
     : '';
-  const healthTitle = degraded
-    ? [
-        ...(snap.diagnostics ?? []).map((item) => `${item.section}: ${item.message}`),
-        ...(snap.observability?.slo.violations ?? []),
-      ].join('\n') || t('common.degraded')
-    : snapshotStale
+  const healthTitle = snapshotStale
     ? t('common.stale')
     : streamOk
     ? t('common.live')
@@ -112,9 +99,9 @@ export function TopBar({
             </svg>
           </button>
         ) : null}
-        {degraded || snapshotStale || !streamOk ? <span
+        {snapshotStale || !streamOk ? <span
           title={healthTitle}
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${degraded || snapshotStale ? 'bg-err' : 'bg-silver'}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${snapshotStale ? 'bg-err' : 'bg-silver'}`}
         >
           <span className="sr-only">{healthTitle}</span>
         </span> : <span className="sr-only">{healthTitle}</span>}

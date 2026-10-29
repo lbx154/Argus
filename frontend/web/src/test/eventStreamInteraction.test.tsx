@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventMsg, Snapshot } from '../api';
-import { emptyMissionView } from '../../../core/src/missionView';
 import { CopyButton } from '../components/CopyButton';
 import { EventStream } from './serverSnapshot';
 import { referenceText } from '../map/presentation';
@@ -279,20 +278,17 @@ describe('conversation references', () => {
 
 function runtimeFixture(alive = true) {
   const now = Date.now() / 1000;
-  const missionView = emptyMissionView();
-  Object.assign(missionView.mission, { id: 'task-a', title: 'Research task A', status: 'working', started_at: now - 20 });
-  missionView.active_role = 'engineer';
   const snapshot: Snapshot = {
     session: { id: 'session', display_name: 'Research', objective: '', cwd: '/tmp', last_active: now },
     daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 30, backend: 'pi'},
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Working', age_s: 1, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null }],
     backlog: [{ id: 'task-a', title: 'Research task A', objective: '', status: 'running', started_ts: now - 20, priority: 1 }],
-    recent_events: [], mission_view: missionView,
+
     work_status: { state: alive ? 'running' : 'idle', roles: alive ? ['engineer'] : [], role: '', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } },
   };
   const events = [{ ...progress(1), item_id: 'task-a', ts: now - 1 }];
   setRoleLog(snapshot.session.id, events);
-  return { snapshot, missionView, events };
+  return { snapshot, events };
 }
 
 it('restores an opted-in conversation reading position without jumping to the latest reply', () => {

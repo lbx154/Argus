@@ -72,14 +72,13 @@ export function requireProjectCosts(value: unknown): ProjectCosts {
   return value as unknown as ProjectCosts;
 }
 
-/** Required top-level shape at the new process boundary; optional legacy payloads remain open. */
+/** Required project shape at the read service boundary. */
 export function requireReadSnapshot(value: unknown, sid: string): Snapshot {
   const snapshot = requireSnapshotContract(value);
   if (!isJsonObject(snapshot.session) || snapshot.session.id !== sid
     || typeof snapshot.session.display_name !== 'string' || typeof snapshot.session.objective !== 'string'
     || typeof snapshot.session.cwd !== 'string' || !finite(snapshot.session.last_active)
     || !Array.isArray(snapshot.roles) || !Array.isArray(snapshot.backlog)
-    || !Array.isArray(snapshot.recent_events) || typeof snapshot.partial !== 'boolean'
     || !nullableNumber(snapshot.spend_usd) || typeof snapshot.spend_status !== 'string'
     || !isJsonObject(snapshot.usage_summary)) throw new Error('invalid project snapshot');
   return snapshot;

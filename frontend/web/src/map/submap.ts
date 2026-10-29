@@ -1,6 +1,5 @@
 import {
   ACTIVE,
-  connectMap,
   latestMissionCompletion,
   type MapEvent,
   type MapTask,
@@ -1028,7 +1027,7 @@ export function layoutScene(
     structure: string;
     positions: Record<string, { x: number; y: number }>;
   },
-  links = connectMap(graph, [], zh),
+  links = graph.links,
   expandedMissions?: ReadonlySet<string>,
   narrow = false,
   workspace?: string,

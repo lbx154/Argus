@@ -4,7 +4,6 @@ import {
   authoritativeSpend,
   computeSpend,
   defaultProject,
-  deriveMissionView,
   eventKey,
   filterProjects,
   isPromptRewriteShortcut,
@@ -48,61 +47,4 @@ test('shared spend ignores lifecycle totals and prefers the server ledger', () =
   ]);
   assert.equal(observed.total, 0);
   assert.equal(authoritativeSpend(observed, 0.8), 0.8);
-});
-
-test('shared mission state reports a completed campaign even when its daemon is alive', () => {
-  const view = deriveMissionView({
-    session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
-    roles: [],
-    backlog: [],
-    recent_events: [],
-    continuous: { enabled: false, objective: 'CO2 paper', done_reason: 'done' },
-  });
-  assert.equal(view.state, 'complete');
-  assert.equal(view.objective, 'CO2 paper');
-});
-
-test('a fresh session with a lazy daemon is ready, not offline', () => {
-  const view = deriveMissionView({
-    session: { id: 's-fresh', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
-    roles: [],
-    backlog: [],
-    recent_events: [],
-    continuous: { enabled: false, objective: '', done_reason: '' },
-  });
-  assert.equal(view.state, 'idle');
-  assert.equal(view.stateLabel, 'ready');
-});
-
-test('armed or queued work without an executor is not reported as working', () => {
-  const snapshot = {
-    session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
-    roles: [],
-    recent_events: [],
-    backlog: [],
-    continuous: { enabled: true, objective: 'Run the benchmark', done_reason: '' },
-  } as Snapshot;
-  const view = deriveMissionView(snapshot);
-  assert.equal(view.state, 'waiting');
-  assert.equal(view.stateLabel, 'queued');
-});
-
-test('pending backlog is shown as queued instead of ready', () => {
-  const snapshot = {
-    session: { id: 's', display_name: '', objective: '', last_active: 0, cwd: '' },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
-    roles: [],
-    recent_events: [],
-    backlog: [{
-      id: 'task-1', title: 'Run the experiment', objective: '', status: 'pending',
-      priority: 1,
-    }],
-    continuous: { enabled: false, objective: '', done_reason: '' },
-  } as Snapshot;
-  const view = deriveMissionView(snapshot);
-  assert.equal(view.stateLabel, 'queued');
-  assert.equal(view.objective, 'Run the experiment');
 });

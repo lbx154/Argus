@@ -1,5 +1,4 @@
 import WebSocket from 'ws';
-import { workflowClient } from '../../core/src/applicationWorkflows.js';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
@@ -281,24 +280,6 @@ export class ApiClient {
     return `${this.httpBase}/api/projects/${encodeURIComponent(this.project)}${path}`;
   }
 
-  workflows = workflowClient(
-    <T>(path: string) => this.workflowRequest<T>('GET', path),
-    <T>(path: string, body: unknown) => this.workflowRequest<T>('POST', path, body),
-  );
-
-  private workflowRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
-    return requestWithTimeout(
-      `${this.httpBase}${path}`,
-      { method, headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-        body: body === undefined ? undefined : JSON.stringify(body) },
-      this.readTimeoutMs,
-      async (response) => {
-        await ensureResponseOk(response, method, path);
-        return await response.json() as T;
-      },
-    );
-  }
-
   meta(): Promise<ApiMeta> {
     if (!this.metaPromise) {
       const path = '/api/meta';
@@ -469,12 +450,11 @@ export class ApiClient {
   }
 
   async snapshot(
-    eventsLimit = 1,
     signal?: AbortSignal,
   ): Promise<Snapshot> {
     await this.meta();
     return requestWithTimeout(
-      this.p(`/snapshot?compact=true&events_limit=${eventsLimit}`),
+      this.p('/snapshot'),
       { headers: this.authHeaders(), signal },
       this.readTimeoutMs,
       async (r) => {
@@ -629,10 +609,6 @@ export class ApiClient {
 
   async getBacklogItem(id: string): Promise<BacklogItem> {
     return (await this.getJson<{ item: BacklogItem }>(`/backlog/${encodeURIComponent(id)}`)).item;
-  }
-
-  answerPending(itemId: string, text: string): Promise<Record<string, unknown>> {
-    return this.post(`/backlog/${encodeURIComponent(itemId)}/answer`, { text });
   }
 
   answerDomain(id: string, optionId: string, note: string): Promise<Record<string, unknown>> {

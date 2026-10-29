@@ -1,5 +1,5 @@
 import { parkReason, settledStatus } from '../../../core/src/missionOutcome';
-import type { MissionOutcomeDimensions, MissionView } from '../../../core/src/types';
+import type { MissionOutcomeDimensions } from '../../../core/src/types';
 import { agentRoleName, isAgentRole } from './agentRoles';
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
@@ -157,22 +157,6 @@ export function outcomeLabels(
   if (interruption) rows.push(t(interruption));
   if (outcome.resumable) rows.push(t('label.outcome.canResume'));
   return rows;
-}
-
-export function routingLabels(routing: MissionView['routing'], t: Translate): string[] {
-  const route = routing.route === 'team'
-    ? t('label.routing.team')
-    : routing.route ? t('label.routing.individual') : '';
-  const vertical = routing.vertical === 'research'
-    ? t('label.routing.research')
-    : routing.vertical === 'software' ? t('label.routing.software') : '';
-  const workflow = routing.workflow_mode === 'staged'
-    ? t('label.routing.staged')
-    : routing.workflow_mode ? t('label.routing.flexible') : '';
-  const lifetime = routing.lifetime === 'standing'
-    ? t('label.routing.ongoing')
-    : routing.lifetime ? t('label.routing.defined') : '';
-  return [route, vertical, workflow, lifetime].filter(Boolean);
 }
 
 export function acceleratorLabel(value: string, t: Translate): string {

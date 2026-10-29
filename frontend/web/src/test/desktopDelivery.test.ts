@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { completionNotificationPayload, deliveryNotificationPayload, notifyDesktopCompletion, notifyDesktopDelivery, subscribeDesktopDelivery } from '../lib/desktopBridge';
+import { deliveryNotificationPayload, subscribeDesktopDelivery } from '../lib/desktopBridge';
 
 const receipt: DeliveryReceipt = { schema_version: 1, delivery_id: 'delivery:fixture', kind: 'task_completed', item_id: 'fixture', title: 'Synthetic result', summary: 'Synthetic fixture, not review evidence', status: 'done', review_status: 'pending', delivered_at: 1,
   primary_target: { path: 'results/report.md', label: 'Report', source: 'delivery', why: 'Synthetic fixture' }, targets: [] };
@@ -20,22 +20,17 @@ function incoming(payload: unknown, origin = 'http://tauri.localhost', source: u
 describe('optional desktop notification session identity', () => {
   it('preserves legacy JSON without inventing a sessionId', async () => {
     expect(deliveryNotificationPayload(receipt)).toEqual(old);
-    expect(await notifyDesktopCompletion(JSON.parse(JSON.stringify(old)))).toBe(true);
     const receive = vi.fn(); release = subscribeDesktopDelivery(receive);
     incoming(old);
     expect(receive).toHaveBeenCalledWith(old);
     expect(Object.hasOwn(receive.mock.calls[0][0], 'sessionId')).toBe(false);
   });
 
-  it.each(['s-A', 's-研究_1', 'legacy.project-1'])('round-trips %s through completion, delivery, native forwarding and click parsing', async sessionId => {
-    const completion = completionNotificationPayload({ completionId: 'completion:s-A:fixture', title: '**Synthetic**', summary: 'Fixture', path: 'results/report.md', sessionId });
-    expect(completion?.sessionId).toBe(sessionId);
-    expect(deliveryNotificationPayload(receipt, sessionId)).toEqual({ ...old, sessionId });
-    expect(await notifyDesktopDelivery(receipt, sessionId)).toBe(true);
-    const sent = parent.postMessage.mock.calls.at(-1)![0];
-    expect(sent).toEqual({ type: 'argus:notify-completion', payload: { ...old, sessionId } });
+  it.each(['s-A', 's-研究_1', 'legacy.project-1'])('preserves %s through receipt matching and notification click parsing', async sessionId => {
+    const payload = deliveryNotificationPayload(receipt, sessionId);
+    expect(payload).toEqual({ ...old, sessionId });
     const receive = vi.fn(); release = subscribeDesktopDelivery(receive);
-    incoming(JSON.parse(JSON.stringify(sent.payload)));
+    incoming(JSON.parse(JSON.stringify(payload)));
     expect(receive).toHaveBeenCalledWith({ ...old, sessionId });
   });
 
@@ -43,8 +38,6 @@ describe('optional desktop notification session identity', () => {
     const receive = vi.fn(); release = subscribeDesktopDelivery(receive);
     incoming({ ...old, sessionId });
     expect(receive).not.toHaveBeenCalled();
-    expect(await notifyDesktopCompletion({ ...old, sessionId } as never)).toBe(false);
-    expect(parent.postMessage).not.toHaveBeenCalled();
   });
 
   it('rejects a non-parent source and a parent message with the wrong origin', () => {

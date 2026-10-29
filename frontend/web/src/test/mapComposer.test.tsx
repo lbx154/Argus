@@ -11,8 +11,7 @@ const props: MapComposerProps = {
   onAttachmentsChange: () => {},
   pending: false,
   focusSignal: 0,
-  sessionName: "Study",
-  historical: false,
+
   zh: false,
 };
 

@@ -14,8 +14,7 @@ const snap: Snapshot = {
   session: { id: 's-A', display_name: 'Synthetic A', objective: '', last_active: 1,
     cwd: '/loaded/legacy-cwd', workdir: 'D:\\Synthetic\\研究\\session-A' },
   daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
-  roles: [], backlog: [], recent_events: [],
-};
+  roles: [], backlog: [], };
 const props: ActiveWorkbenchPageProps = {
   sid: 's-A', active: false, snapshot: snap,
   events: [], refresh: vi.fn(),

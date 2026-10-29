@@ -16,11 +16,7 @@
     "uptime_seconds": null,
     "started_at_iso": null,
     "backend": "codex",
-    "backend_label": "Codex",
-    "read_status": "ok",
-    "read_error": "",
-    "protocol_compatible": true,
-    "protocol_error": ""
+    "backend_label": "Codex"
   },
   "work_status": {
     "state": "paused",
@@ -38,7 +34,6 @@
   },
   "roles": [],
   "backlog": [],
-  "recent_events": [],
   "spend_usd": 94.5,
   "spend_status": "priced"
 }

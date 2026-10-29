@@ -24,7 +24,6 @@ export interface OperatorDecisionCard {
   options_source?: 'agent' | 'workflow' | 'none';
   selected_option: string;
   note: string;
-  legacy?: boolean;
   /** When this question was actually raised, if recorded by the producer. */
   asked_at?: number;
   task_title?: string;

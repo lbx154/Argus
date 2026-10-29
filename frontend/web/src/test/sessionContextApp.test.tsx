@@ -3,13 +3,11 @@ import { act, create } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
 import type { DeliveryReceipt, Snapshot } from '../../../core/src/types';
-import { emptyMissionView } from '../../../core/src/missionView';
 import App from '../App';
 import { api } from '../api';
 import { ApiError } from '../../../core/src/http';
 import { ChatBox } from '../components/ChatBox';
 import { ComposerRuntime } from '../components/ComposerRuntime';
-import { ContinuousSwitch } from '../components/ContinuousSwitch';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
 import { Landing } from '../components/Landing';
@@ -28,7 +26,7 @@ const fixture = vi.hoisted(() => {
     idle,
     index: { ...idle, data: { projects: [] as unknown[], local_cwd: '/synthetic' } },
     snapshots: new Map<string, typeof idle & { data?: unknown; error?: Error }>(),
-    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'updateProject', 'deleteProject', 'setContinuous'].map(key => [key, mutation])),
+    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'updateProject', 'deleteProject'].map(key => [key, mutation])),
     turns: [] as unknown[],
     events: [],
     artifacts: [],
@@ -40,7 +38,7 @@ vi.mock('../hooks', async importOriginal => ({
   useProjectCosts: () => fixture.idle,
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
-  useEventStream: () => ({ events: fixture.events, connected: true, seeded: true }),
+  useEventStream: () => ({ events: fixture.events, connected: true }),
   useProjectActions: () => fixture.actions,
 }));
 vi.mock('../useConversationHistory', () => ({ useConversationHistory: () => ({ query: { ...fixture.idle, data: fixture.turns, hasNextPage: false, isFetchedAfterMount: true }, events: fixture.turns, status: 'ready' }) }));
@@ -73,7 +71,7 @@ let client: QueryClient;
 let parent: { postMessage: ReturnType<typeof vi.fn> };
 function snapshot(sid: string): Snapshot {
   return { session: { id: sid, display_name: sid, objective: '', last_active: 1, cwd: `/synthetic/${sid}` },
-    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null}, roles: [], backlog: [], recent_events: [] };
+    daemon: { alive: false, pid: null, uptime_seconds: null, backend: null}, roles: [], backlog: [], };
 }
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -130,6 +128,10 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
+  it('shows no continuous work control or command for the server snapshot', () => {
+    expect(renderer.root.findAllByProps({ role: 'switch' })).toHaveLength(0);
+    expect(JSON.stringify(renderer.toJSON())).not.toMatch(/Keep going|continuous campaign|持续推进/);
+  });
   it.each(['trash/s-A-20261029000000', 'trash\\s-A-20261029000000'])('offers Undo without server paths after deletion and restores the project (%s)', async trash_path => {
     fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, trash_path, workdir_preserved: true, workdir: '/private/server/workspaces/s-A' });
     const restore = vi.spyOn(api, 'restoreTrash').mockResolvedValue({ ok: true, sid: 's-A' });
@@ -238,32 +240,6 @@ describe('App session composer ownership', () => {
     fixture.idle.refetch.mockClear();
     await act(async () => { expect(await props().onSend('Total the columns of data.csv')).toBe(true); });
     expect(fixture.idle.refetch).toHaveBeenCalled();
-  });
-  it('shows the project continuous state beside the composer and toggles it through the shared action', () => {
-    const setContinuous = fixture.actions.setContinuous.mutate;
-    setContinuous.mockClear();
-    const control = () => props().continuousControl as { type?: unknown; props: ComponentProps<typeof ContinuousSwitch> };
-    for (const enabled of [false, true]) {
-      fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), continuous: { enabled, open_ended: enabled, objective: 'keep improving the model' } } });
-      refresh();
-      expect(control().type).toBe(ContinuousSwitch);
-      expect(control().props.enabled).toBe(enabled);
-      act(() => control().props.onToggle());
-      expect(setContinuous).toHaveBeenLastCalledWith({ enabled: !enabled, objective: 'keep improving the model' }, expect.any(Object));
-    }
-  });
-  it('shows a finite task as not keeping going: its campaign ends when the task is done', () => {
-    // A bounded CartPole study armed a finite campaign (enabled, not open-ended)
-    // and the switch read only `enabled`, so it showed 持续推进 on although the
-    // person never turned it on.
-    const setContinuous = fixture.actions.setContinuous.mutate;
-    setContinuous.mockClear();
-    const control = () => props().continuousControl as { props: ComponentProps<typeof ContinuousSwitch> };
-    fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), continuous: { enabled: true, open_ended: false, objective: 'write the CartPole report' } } });
-    refresh();
-    expect(control().props.enabled).toBe(false);
-    act(() => control().props.onToggle());
-    expect(setContinuous).toHaveBeenLastCalledWith({ enabled: true, objective: 'write the CartPole report' }, expect.any(Object));
   });
   it('keeps A text and File references in A, with a clean B draft', () => {
     const file = new File(['A attachment'], 'report.md');
@@ -502,24 +478,6 @@ describe('App desktop delivery session navigation', () => {
     expect(openPaths()).toEqual([{ sid: 's-A', path: 'results/report.md' }]);
   });
 
-  it('attaches the loaded session to new completion notifications without replaying historical completion on selection', async () => {
-    vi.useFakeTimers();
-    // The stub window was created before fake timers; keep its clock aligned
-    // with the global one instead of leaving the real 500ms timer running.
-    Object.assign(window, { setTimeout, clearTimeout });
-    const complete = emptyMissionView();
-    complete.mission = { ...complete.mission, id: 'fixture-task', title: 'Synthetic result', status: 'complete', started_at: 1, completed_at: 2 };
-    fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), mission_view: complete,
-      backlog: [{ id: 'fixture-task', title: 'Synthetic result', objective: 'Fixture only', priority: 0, status: 'done', ts: 1 }] } });
-    refresh();
-    await act(async () => { await vi.advanceTimersByTimeAsync(501); });
-    const outgoing = () => parent.postMessage.mock.calls.filter(([message]) => message.type === 'argus:notify-completion');
-    expect(outgoing()).toHaveLength(1);
-    expect(outgoing()[0][0].payload).toMatchObject({ sessionId: 's-A', deliveryId: 'completion:s-A:fixture-task' });
-    select('s-B'); select('s-A');
-    await act(async () => { await vi.advanceTimersByTimeAsync(501); });
-    expect(outgoing()).toHaveLength(1);
-  });
 
   it('does not guess a project from a legacy path-only notification', async () => {
     select('s-B');

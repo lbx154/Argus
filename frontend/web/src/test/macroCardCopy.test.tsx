@@ -52,7 +52,7 @@ const propsFor = (
       zh: false,
       focused: true,
       detailed: false,
-      live: true,
+
       source: "live:project",
       readOnly: false,
       open: vi.fn(),

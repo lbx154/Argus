@@ -20,7 +20,7 @@ import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
-import type { MapCopy, CardReference } from "./presentation";
+import type { CardReference } from "./presentation";
 import { ACTIVE, plainTitle, replacedNote, requestChip, statusKey } from "./model";
 import {
   STEP_KINDS,
@@ -31,7 +31,6 @@ import {
   type MapCard,
 } from "./submap";
 import { SubmapEdges } from "./SubmapEdges";
-import { ConnectSource } from "./CanvasNodes";
 import { CardNow, LiveLine } from "./LiveLine";
 import { MapCardFigureContext } from "./cardContext";
 import { WorkspaceImage } from "../components/MarkdownContent";
@@ -45,8 +44,6 @@ export function taskFarTitle(step: number, scale: number): number {
 
 export type MacroData = MapCard & {
   zh: boolean;
-  /** A person may draw a link from this card (the canvas's connect dot). */
-  connectable?: boolean;
   layout: SubmapLayout;
   frame: { width: number; height: number; scale: number };
   canvasSize?: { width: number; height: number };
@@ -54,9 +51,7 @@ export type MacroData = MapCard & {
   toggleHistory?: (taskId: string) => void;
   focused: boolean;
   detailed: boolean;
-  copy?: Pick<MapCopy, "cards" | "version">;
   readCopy?: (nodeId: string, key: string | null) => void;
-  live: boolean;
   managerMessage?: string;
   paused?: boolean;
   growthDelay?: number;
@@ -90,11 +85,6 @@ export type MacroData = MapCard & {
 export type MacroNode = Node<MacroData, "task">;
 /** Artifact previews change often and are only read inside the open reader;
  * context keeps them out of every node's data so updates skip idle nodes. */
-/** Operator margin notes per node id; provided once by MapPanel so note
- * updates never churn every node's data object. */
-export const MapNotesContext = createContext<{
-  notes: Record<string, import("./notes").MapNote[]>;
-}>({ notes: {} });
 export const MapArtifactContext = createContext<{
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
@@ -196,7 +186,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
   const { artifacts, onOpenArtifact, workspace } = useContext(MapArtifactContext);
-  const cardNotes = useContext(MapNotesContext).notes[task.id] ?? [];
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
@@ -233,14 +222,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     data.frame.width / 288,
     data.frame.height / 280,
   );
-  const copy = data.copy?.cards || {};
-  const stepCopy = (step: SubmapStep) => {
-    if (step.completionScope || step.status === "review_unavailable") return undefined;
-    return copy[step.id];
-  };
-  // An explanation written before the execution ended short of its goal may
-  // claim more than happened, so it does not head such a card.
-  const title = plainTitle((data.completionScope ? "" : copy[task.id]?.title) || task.title);
+  const title = plainTitle(task.title);
   // What the person said that started this task rides on it as a chip, and
   // the plans it replaced fold into it (map_relations.fold_cards).
   const request = isLastPart ? requestChip(task.requests, zh) : null;
@@ -252,7 +234,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const partSummary =
     data.partCount > 1 && !isLastPart
       ? layout.steps
-          .map((step) => stepCopy(step)?.summary || step.summary || step.detail)
+          .map((step) => step.summary || step.detail)
           .filter(
             (value) => value && ![noDetails(true), noDetails(false)].includes(value),
           )
@@ -263,7 +245,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     data.frame.height / layout.height,
   );
   const activityStep =
-    isLastPart && data.live && ACTIVE.has(task.status)
+    isLastPart && ACTIVE.has(task.status)
       ? [...layout.steps]
           .reverse()
           .find((s) => !["plan", "result"].includes(s.kind))?.id
@@ -283,7 +265,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       ? step.eventIds
       : data.partCount > 1
         ? [...new Set(layout.steps.flatMap((s) => s.eventIds))]
-        : copy[task.id]?.event_ids || [],
+        : [...new Set(layout.steps.flatMap(step => step.eventIds))],
   });
   const readerWidth = Math.min(
     640,
@@ -361,7 +343,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-detailed={detailed}
       aria-label={title}
       data-completed-now={completedNow}
-      data-active={isLastPart && data.live && !data.paused && ACTIVE.has(task.status)}
+      data-active={isLastPart && !data.paused && ACTIVE.has(task.status)}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -381,7 +363,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           ),
         ),
       )}
-      {data.connectable && !data.detailed && <ConnectSource zh={data.zh} />}
       <div
         className="macro-summary"
         aria-hidden={detailed}
@@ -444,14 +425,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           </div>
           <h3>
             <MarkdownExcerpt>{title}</MarkdownExcerpt>
-            {cardNotes.length > 0 && (
-              <span
-                className="macro-note-badge"
-                title={zh ? "你的批注" : "Your notes"}
-              >
-                {cardNotes.length}
-              </span>
-            )}
           </h3>
           {/* Under the title only who holds the task and the latest thing said
               on it (an earlier part of a long task: what that part last
@@ -483,7 +456,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </div>
           )}
           {(() => {
-            const live = isLastPart && data.live && !data.paused && ACTIVE.has(task.status);
+            const live = isLastPart && !data.paused && ACTIVE.has(task.status);
             // The state is on the chip at the top of the card; it is not said
             // again down here unless the card has no chip.
             const chip = state !== "recorded" || !!data.completionScope;
@@ -589,14 +562,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </span>
           ))}
         </div>
-        {cardNotes.length > 0 && (
-          <aside className="macro-notes" aria-label={zh ? "你的批注" : "Your notes"}>
-            <small>{zh ? "批注" : "Notes"}</small>
-            {cardNotes.map((note) => (
-              <p key={note.id}>{note.text}</p>
-            ))}
-          </aside>
-        )}
         <SubmapEdges layout={layout} growing={data.growingLinks} activeStep={activeStep} />
         {layout.columns.map((col) => (
           <div
@@ -652,8 +617,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </div>
               <h4><MarkdownExcerpt>{step.title}</MarkdownExcerpt></h4>
               <div className="submap-step-copy"><MarkdownExcerpt>
-                {stepCopy(step)?.summary ||
-                  step.summary ||
+                {step.summary ||
                   step.detail ||
                   noDetails(zh)}
               </MarkdownExcerpt></div>
@@ -727,9 +691,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 <X size={20} />
               </button>
             </header>
-            <h3><MarkdownExcerpt>{stepCopy(detail)?.title || detail.title}</MarkdownExcerpt></h3>
+            <h3><MarkdownExcerpt>{detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
-              <MapReaderContent cardKey={detail.id} taskId={task.id} card={stepCopy(detail)} task={task}
+              <MapReaderContent cardKey={detail.id} taskId={task.id} task={task}
                 workspace={workspace}
                 originalDetail={detail.detail || noDetails(zh)}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} />

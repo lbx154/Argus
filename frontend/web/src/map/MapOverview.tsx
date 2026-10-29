@@ -1,15 +1,12 @@
 import { useState, type ReactNode } from "react";
-import { STEP_STATUS, stepMark, type RouteView } from "./canvas";
 import type { ProjectOverview } from "./overview";
 
 const SHOWN = 3;
 
 /** The strip at the top of the canvas: the team's state, the required steps, and
  * what waits on the person (等你决定), each finding its card on the canvas. */
-export function MapOverview({ overview, zh, team, route, onFocusTask, onAnswer }: {
+export function MapOverview({ overview, zh, team, onFocusTask, onAnswer }: {
   overview: ProjectOverview;
-  /** The person's required steps: "必经步骤 2/5" and the next one open. */
-  route?: RouteView;
   zh: boolean;
   /** The team status line with 暂停团队 / 继续, shared with the conversation. */
   team?: ReactNode;
@@ -29,23 +26,6 @@ export function MapOverview({ overview, zh, team, route, onFocusTask, onAnswer }
     <section className="map-overview" aria-label={zh ? "项目总览" : "Project overview"} data-testid="map-overview">
       {team}
       <dl>
-        {route && route.total > 0 && (() => {
-          const next = route.steps.find((step) => step.status !== "done");
-          return (
-            <div data-row="steps">
-              <dt>{zh ? "必经步骤" : "Required steps"}</dt>
-              <dd className="map-overview-steps" data-testid="overview-steps">
-                <b>{route.done}/{route.total}</b>
-                {next && (
-                  <span title={next.text}>
-                    {zh ? "下一步 " : "Next "}{stepMark(next.number) || "·"} {next.text}
-                    <small> · {STEP_STATUS[next.status][zh ? 0 : 1]}</small>
-                  </span>
-                )}
-              </dd>
-            </div>
-          );
-        })()}
         {decisions.length > 0 && (
           <div data-row="decide" className="is-attention">
             <dt>{zh ? "等你决定" : "Your call"}</dt>

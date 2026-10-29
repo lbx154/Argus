@@ -26,7 +26,7 @@ function Probe({ autoOpen }: { autoOpen?: boolean }) {
     autoOpen,
     backlog: [],
     notify: () => {},
-    pendingQuestions: [question],
+    pendingQuestions: [{ id: 'task-1', operator_decision: { ...question, status: 'pending', options_source: 'agent' } }],
     refetchSnapshot: async () => {},
   });
   opened = pendingReplyOpen;

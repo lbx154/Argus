@@ -135,9 +135,8 @@ export interface MapEvent {
 export interface Dataset {
   id: string;
   title: string;
-  kind: "historical" | "demo" | "synthetic" | "live";
+  kind: "live";
   description: string;
-  captured_at?: string;
   read_only: boolean;
   tasks: MapTask[];
   events: MapEvent[];
@@ -158,10 +157,6 @@ export interface Dataset {
     source_tasks_read?: number;
   };
 }
-export type DatasetSummary = Omit<Dataset, "tasks" | "events"> & {
-  task_count: number;
-  event_count: number;
-};
 export interface MapLink {
   id: string;
   source: string;
@@ -170,7 +165,6 @@ export interface MapLink {
     | "dependency"
     | "replacement"
     | "context"
-    | "semantic"
     | "continuation"
     | "relation";
   /** kind "relation": which recorded relation this line is. */
@@ -447,31 +441,6 @@ export function replayTasks(tasks: MapTask[], count: number): MapTask[] {
   return [...tasks]
     .sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0) || a.id.localeCompare(b.id))
     .slice(0, count);
-}
-
-/** Annotate recorded links without turning shared context or time order into dependencies. */
-export function connectMap(
-  graph: MapGraph,
-  semantic: Array<{
-    source: string;
-    target: string;
-    label: string;
-  }>,
-  zh: boolean,
-): MapLink[] {
-  const links = graph.links.map((link): MapLink => {
-    if (link.kind !== "dependency") return link;
-    const phrase = semantic.find((r) => r.source === link.source && r.target === link.target);
-    return phrase
-      ? {
-          ...link,
-          label: phrase.label,
-          stated: true,
-          evidence: `${zh ? "执行依赖" : "Execution dependency"} · ${phrase.label}`,
-        }
-      : link;
-  });
-  return links;
 }
 
 /** A person's canvas card id ("hc-35885033b637") never reaches a title: the
