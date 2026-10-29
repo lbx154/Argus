@@ -24,7 +24,7 @@ import {
   visibleBacklogItems,
 } from '../../../core/src';
 import { COMMANDS } from '../../../core/src/commands';
-import { formatBytes } from '../lib/format';
+import { formatBytes, shortcut, uptime } from '../lib/format';
 import { finishManagerMessage, managerMessageError } from '../lib/messageResult';
 import { filterPaletteItems, commandPaletteRows, type PaletteItem } from '../components/CommandPalette';
 import type { AgentIoCompleteEvent } from '../../../core/src/eventPayloads.generated';
@@ -66,6 +66,16 @@ const typedCallEvent: AgentIoCompleteEvent = {
 };
 
 describe('shared frontend core', () => {
+  it('says durations and shortcuts in the reader\'s words and on their platform', () => {
+    expect(uptime(4 * 3600 + 12 * 60, 'zh-CN')).toBe('4 小时 12 分钟');
+    expect(uptime(9 * 60)).toBe('9m');
+    vi.stubGlobal('navigator', { platform: 'Linux x86_64' });
+    expect(shortcut('K')).toBe('Ctrl+K');
+    vi.stubGlobal('navigator', { platform: 'MacIntel' });
+    expect(shortcut('K')).toBe('⌘K');
+    vi.unstubAllGlobals();
+  });
+
   it('renders Markdown by kind, MIME type, or filename', () => {
     expect(isMarkdownArtifact({ kind: 'markdown', name: 'report.bin' })).toBe(true);
     expect(isMarkdownArtifact({ kind: 'text', mime: 'text/markdown; charset=utf-8', name: 'report.txt' })).toBe(true);
@@ -311,9 +321,9 @@ describe('shared frontend core', () => {
     expect(light).toContain('aria-label="Open settings"');
     expect(light).toContain('lucide-settings');
     expect(light).toContain('lucide-sun');
-    expect(light).toContain('switch to dark');
+    expect(light).toContain('aria-label="Switch to dark"');
     expect(dark).toContain('lucide-moon');
-    expect(dark).toContain('switch to light');
+    expect(dark).toContain('aria-label="Switch to light"');
     expect(`${light}${dark}`).not.toContain('system');
     expect(`${light}${dark}`).not.toContain('desktop');
     expect(light).not.toContain('>Runtime<');

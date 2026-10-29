@@ -33,7 +33,7 @@ describe('entries the server does not declare are hidden', () => {
     expect(plain).not.toContain('role="listbox"');
     expect(commands).toContain('role="listbox"');
     const [help, reference] = both(<KeybindingHelp open onClose={() => undefined} />, COMMANDS_CAPABILITY);
-    expect(help).toContain('⌘K / Ctrl+K');
+    expect(help).toContain('Ctrl+K');
     expect(help).not.toContain('/status');
     expect(reference).toContain('/status');
   });

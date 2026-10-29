@@ -3,14 +3,14 @@ import { COMMANDS } from '../../../core/src/commands';
 import { useI18n } from '../i18n';
 import { localizedHelpGroups } from '../lib/commandI18n';
 import { COMMANDS_CAPABILITY, useCapability } from '../lib/capabilities';
+import { shortcut } from '../lib/format';
 
 const BINDINGS: { keys: string; desc: string }[] = [
-  { keys: '⌘K / Ctrl+K', desc: 'help.palette' },
-  { keys: '⌘B / Ctrl+B', desc: 'help.sessions' },
-  { keys: '⌘J / Ctrl+J', desc: 'help.managerChat' },
-  { keys: '⌘T / Ctrl+T', desc: 'help.reasoning' },
-  { keys: '⌘. / Ctrl+.', desc: 'help.kiosk' },
-  { keys: '/', desc: 'help.composer' },
+  { keys: shortcut('K'), desc: 'help.palette' },
+  { keys: shortcut('B'), desc: 'help.sessions' },
+  { keys: shortcut('T'), desc: 'help.reasoning' },
+  { keys: shortcut('.'), desc: 'help.kiosk' },
+  { keys: `/ · ${shortcut('J')}`, desc: 'help.composer' },
   { keys: '@ / #', desc: 'help.mention' },
   { keys: 'Tab', desc: 'help.acceptSuggestion' },
   { keys: '↵ Enter', desc: 'help.send' },

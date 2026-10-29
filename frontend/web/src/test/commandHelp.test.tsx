@@ -18,7 +18,9 @@ describe('keybinding help panel — command reference', () => {
     expect(html).toContain('/quit');
     // Ctrl/⌘+R is the browser's reload, never a rewrite.
     expect(html).not.toContain('Ctrl+R');
-    expect(html).toContain('⌘T / Ctrl+T');
-    expect(html).not.toContain('⌘O / Ctrl+O');
+    // Off Apple devices the keys say Ctrl, never ⌘.
+    expect(html).toContain('Ctrl+T');
+    expect(html).not.toContain('⌘');
+    expect(html).not.toContain('Ctrl+O');
   });
 });

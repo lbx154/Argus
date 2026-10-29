@@ -61,7 +61,7 @@ import {
   settleOptimisticManagerTurn,
 } from './lib/conversationEvents';
 import { mergeProjectCosts } from './lib/projectCosts';
-import { errorText, managerStreamFailureMessage } from './lib/format';
+import { errorText, managerStreamFailureMessage, shortcut } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
 import { keepsGoing, useProjectDaemonActions } from './useProjectDaemonActions';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
@@ -1244,14 +1244,14 @@ export default function App() {
       {
         id: 'reasoning',
         label: showReasoning ? t('palette.hideReasoning') : t('palette.showReasoning'),
-        hint: '⌘T',
+        hint: shortcut('T'),
         group: t('palette.view'),
         run: () => setShowReasoning((v) => !v),
       },
       {
         id: 'kiosk',
         label: kiosk ? t('palette.exitKiosk') : t('palette.enterKiosk'),
-        hint: '⌘.',
+        hint: shortcut('.'),
         group: t('palette.view'),
         run: () => setKiosk((v) => !v),
       },
@@ -1415,9 +1415,9 @@ export default function App() {
                   <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{locale === 'zh-CN' ? '高级工作台' : 'Advanced workbench'}</button>
                 </div>
                 <button type="button" className="ml-auto flex items-center gap-1.5 px-2 py-1 text-sm text-ink-dim hover:text-ink"
-                  onClick={() => setOverlay('palette')} title={t('topbar.commandsHint')}>
+                  onClick={() => setOverlay('palette')} title={t('topbar.commandsHint', { keys: shortcut('K') })}>
                   {t('topbar.commands')}
-                  <kbd className="rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-faint">{/Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K'}</kbd>
+                  <kbd className="rounded border border-line px-1 font-mono text-[11px] leading-4 text-ink-faint">{shortcut('K')}</kbd>
                 </button>
                 <button type="button" className="px-2 py-1 text-sm text-ink-dim hover:text-ink" aria-expanded={rightPanelOpen}
                   onClick={() => {

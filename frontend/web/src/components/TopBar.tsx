@@ -12,6 +12,7 @@ import { workSummary } from '../lib/workSummary';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { isFreshProject } from '../lib/launch';
 import { resumableTaskIds } from '../lib/resumable';
+import { shortcut } from '../lib/format';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -193,7 +194,7 @@ export function TopBar({
             type="button"
             onClick={onOpenPalette}
             aria-label={t('topbar.commands')}
-            title={t('topbar.commandsHint')}
+            title={t('topbar.commandsHint', { keys: shortcut('K') })}
             className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 lg:hidden"
           >
             <FontAwesomeIcon icon={faTerminal} className="h-3 w-3" />

@@ -1682,7 +1682,7 @@ export function MapCanvas({
                   className="map-agent-toggle"
                   aria-expanded={agentsOpen}
                   aria-label={zh ? 'Agent 动态' : 'Agent activity'}
-                  title={zh ? '各个 Agent 正在做什么' : 'What each agent is doing'}
+                  title={zh ? '各个角色正在做什么' : 'What each role is doing'}
                   onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}
                 >
                   <Activity size={15} /><i data-active={!!activePhase || composer.pending} aria-hidden /><span>{zh ? '工作详情' : 'Work details'}</span>
