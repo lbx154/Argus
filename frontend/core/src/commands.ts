@@ -5,7 +5,7 @@ export type CommandKind = 'panel' | 'action' | 'local';
 export type CommandId =
   | 'crystalpilot' | 'status' | 'roles' | 'journal' | 'backlog' | 'artifacts' | 'artifact'
   | 'events' | 'find' | 'cancel' | 'ask' | 'task' | 'plan' | 'rewrite' | 'nudge' | 'abort'
-  | 'note' | 'done' | 'skip' | 'stop' | 'item' | 'run' | 'new' | 'daemons'
+  | 'note' | 'item' | 'run' | 'new' | 'daemons'
   | 'resume' | 'attach' | 'rename' | 'doctor' | 'backend' | 'config'
   | 'identity' | 'reset' | 'skills' | 'clear' | 'reconnect' | 'help' | 'quit';
 
@@ -38,9 +38,6 @@ export const COMMANDS: SlashCommand[] = [
   { id: 'nudge', name: '/nudge', arg: '<text>', argument: 'required', desc: 'inject guidance into the running mission', aliases: ['/inject', '/notify'], group: 'Task management', kind: 'action' },
   { id: 'abort', name: '/abort', argument: 'none', desc: 'immediately stop the running mission', group: 'Task management', kind: 'action' },
   { id: 'note', name: '/note', arg: '<text>', argument: 'required', desc: 'append a manual note to the timeline', group: 'Task management', kind: 'action' },
-  { id: 'done', name: '/done', arg: '<id>', argument: 'required', desc: 'mark a task done', group: 'Task management', kind: 'action' },
-  { id: 'skip', name: '/skip', arg: '<id>', argument: 'required', desc: 'skip a task', aliases: ['/rm'], group: 'Task management', kind: 'action' },
-  { id: 'stop', name: '/stop', arg: '<id>', argument: 'required', desc: "stop a task's auto-iteration", group: 'Task management', kind: 'action' },
   { id: 'item', name: '/item', arg: '<id>', argument: 'required', desc: 'inspect a full task contract', group: 'Task management', kind: 'panel' },
   { id: 'run', name: '/run', argument: 'none', desc: 'return to the always-live mission feed', group: 'Task management', kind: 'local' },
   { id: 'new', name: '/new', arg: '[objective]', argument: 'optional', desc: 'review, create, and switch to a fresh conversation', group: 'Sessions & diagnostics', kind: 'action' },

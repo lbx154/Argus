@@ -830,12 +830,10 @@ export default function App() {
     manageStopDaemon,
     manageRenameProject,
     manageStartDaemon,
-    requestDispose,
     requestManageSession,
     requestPauseDaemon,
     requestStartDaemon,
     requestStopDaemon,
-    requestStopIteration,
     toggleContinuous,
   } = useProjectDaemonActions({
     actions,
@@ -861,7 +859,6 @@ export default function App() {
     activityEventsRef,
     notify,
     onClearEvents: (offset) => dispatchEventView({ kind: 'clear', offset }),
-    onDispose: requestDispose,
     onOpenConfig: () => setOverlay('config'),
     onOpenDoctor: () => setOverlay('doctor'),
     onOpenHelp: () => setOverlay('help'),
@@ -881,7 +878,6 @@ export default function App() {
     onSetTaskItemId: setTaskItemId,
     onSetWorkspaceView: setWorkspaceView,
     onShowArtifacts: openPreview,
-    onStopIteration: requestStopIteration,
     onStopWaiting: stopWaiting,
     refetchSnapshot: snapQ.refetch,
   }), [
@@ -891,8 +887,6 @@ export default function App() {
     openSkillLibrary,
     openRuntimeControls,
     renameCurrentProject,
-    requestDispose,
-    requestStopIteration,
     rewriteDraft,
     selectProject,
     snapQ.refetch,
@@ -1704,10 +1698,7 @@ export default function App() {
           open={overlay === 'inspector'}
           snap={snap}
           journal={journalQ.data ?? []}
-          busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
           onClose={() => setOverlay('none')}
-          onDispose={requestDispose}
-          onStop={requestStopIteration}
           onInspect={setTaskItemId}
         />
       ) : null}
@@ -1717,16 +1708,7 @@ export default function App() {
         reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />
-      <TaskDetailModal
-        sid={activeSid}
-        itemId={taskItemId}
-        onClose={() => setTaskItemId(null)}
-        onDone={(id) => requestDispose(id, 'done')}
-        onSkip={(id) => requestDispose(id, 'rm')}
-        onStop={requestStopIteration}
-        busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
-        readOnly={kiosk}
-      />
+      <TaskDetailModal sid={activeSid} itemId={taskItemId} onClose={() => setTaskItemId(null)} />
       <PendingReplyDialog
         reply={pendingReply}
         open={pendingReplyOpen}

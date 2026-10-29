@@ -210,14 +210,6 @@ export function useProjectActions(sid: string | null, commandRevision?: number) 
         await qc.invalidateQueries({ queryKey: ['projects'] });
       },
     }),
-    disposeBacklog: useMutation({
-      mutationFn: (a: { id: string; op: 'done' | 'skip' | 'rm' }) => api.disposeBacklog(sid!, a.id, a.op),
-      onSuccess: invalidate,
-    }),
-    stopBacklog: useMutation({
-      mutationFn: (id: string) => api.stopBacklog(sid!, id),
-      onSuccess: invalidate,
-    }),
     setContinuous: useMutation({
       mutationFn: (a: { enabled: boolean; objective?: string }) =>
         api.setContinuous(sid!, a.enabled, a.objective ?? ''),

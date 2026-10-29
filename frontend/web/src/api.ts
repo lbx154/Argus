@@ -1635,9 +1635,6 @@ export const api = {
       P(sid, '/workdir'),
       { workdir },
     ),
-  disposeBacklog: (sid: string, id: string, op: 'done' | 'skip' | 'rm') =>
-    postJson(P(sid, `/backlog/${encodeURIComponent(id)}/dispose`), { op }),
-  stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),
   setContinuous: (sid: string, enabled: boolean, objective = '') =>
     postJson<ContinuousUpdateResult>(P(sid, '/continuous'), { enabled, objective }).then((result) => {
       if (!enabled) return result;

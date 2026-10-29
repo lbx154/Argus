@@ -10,7 +10,6 @@ interface BuildWebCommandHandlersOptions {
   activityEventsRef: MutableRefObject<{ length: number }>;
   notify: (tone: NoticeTone, message: string) => void;
   onClearEvents: (offset: number) => void;
-  onDispose: (id: string, op: 'done' | 'skip' | 'rm') => void;
   onOpenConfig: () => void;
   onOpenDoctor: () => void;
   onOpenHelp: () => void;
@@ -30,7 +29,6 @@ interface BuildWebCommandHandlersOptions {
   onSetTaskItemId: (id: string) => void;
   onSetWorkspaceView: (view: 'activity') => void;
   onShowArtifacts: () => void;
-  onStopIteration: (id: string) => void;
   onStopWaiting: () => void;
   refetchSnapshot: () => Promise<unknown>;
 }
@@ -40,7 +38,6 @@ export function buildWebCommandHandlers({
   activityEventsRef,
   notify,
   onClearEvents,
-  onDispose,
   onOpenConfig,
   onOpenDoctor,
   onOpenHelp,
@@ -60,7 +57,6 @@ export function buildWebCommandHandlers({
   onSetTaskItemId,
   onSetWorkspaceView,
   onShowArtifacts,
-  onStopIteration,
   onStopWaiting,
   refetchSnapshot,
 }: BuildWebCommandHandlersOptions): WebCommandHandlers {
@@ -126,9 +122,6 @@ export function buildWebCommandHandlers({
       await api.note(activeSid, rest);
       notify('success', 'Note appended to timeline.');
     },
-    done: async (rest) => { if (rest) onDispose(rest, 'done'); },
-    skip: async (rest) => { if (rest) onDispose(rest, 'rm'); },
-    stop: async (rest) => { if (rest) onStopIteration(rest); },
     new: async () => onOpenNewDaemon(),
     daemons: async () => onOpenSidebar(),
     resume: async (rest) => {
