@@ -70,7 +70,7 @@ export type FlowEvent =
   | { type: 'call.start'; role: Role; task?: string }
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }
-  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string }
+  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[] }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
   | ({ type: 'step'; role: Role; task?: string } & Step)

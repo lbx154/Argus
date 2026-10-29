@@ -724,3 +724,21 @@ test("each call's end is paired with its own start, when tasks run side by side"
     ['provider.request.completed', 't1', 'c0'], ['provider.request.completed', 't2', 'c1'],
   ]);
 });
+
+test('a result the Manager hands the operator shows as its result card, its files as the Manager named them', () => {
+  const ts = '2026-10-28T00:00:00.000Z';
+  const [reply, plain] = webEvents([
+    { ts, type: 'handoff', role: 'manager', to: 'operator', letter: '# The totals report\nIt checks against data.csv.', open: ['report/index.html', 'figures/totals.png'] },
+    { ts, type: 'handoff', role: 'manager', to: 'operator', letter: 'Nothing to open.' },
+  ] satisfies Recorded[]);
+  assert.deepEqual(reply!.delivery, {
+    schema_version: 1, delivery_id: 'd0', kind: 'task_completed', item_id: '', title: 'The totals report',
+    summary: '# The totals report\nIt checks against data.csv.', status: 'done', review_status: '', delivered_at: Date.parse(ts) / 1000,
+    primary_target: { path: 'report/index.html', label: 'index.html', source: 'manager', why: '' },
+    targets: [
+      { path: 'report/index.html', label: 'index.html', source: 'manager', why: '' },
+      { path: 'figures/totals.png', label: 'totals.png', source: 'manager', why: '' },
+    ],
+  });
+  assert.equal(plain!.delivery, undefined);
+});

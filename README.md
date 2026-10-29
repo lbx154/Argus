@@ -58,7 +58,8 @@ delivers messages, records what happened, and keeps the permission boundary.
 the model's final answer to it — and the letter is free text, passed on as written. Its
 reader sees the project files and the letter, not the writer's conversation, so a letter
 that hands on work is that work's whole brief. You can read every letter; together they
-are the project's timeline. You can write to the Manager at any time, also while the team
+are the project's timeline. When the Manager hands you a result, its letter names the files,
+and the conversation shows them as a result card you open. You can write to the Manager at any time, also while the team
 works: it answers in its next turn and the team carries on. A role that needs something
 only you can decide writes to you, and the work waits for your answer. Argus never decides
 whether a task succeeded; the letters say so.

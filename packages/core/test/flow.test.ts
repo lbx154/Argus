@@ -18,6 +18,8 @@ interface Step {
   letter?: string;
   /** The Planner's letters, one task each. */
   letters?: string[];
+  /** The files of a result the Manager hands the operator. */
+  open?: string[];
   /** The turn ends after the turns already under way have. */
   later?: boolean;
   /** The turn ends once this has settled. */
@@ -40,7 +42,7 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
     const handoff = step.to === undefined ? null
-      : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`] };
+      : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`], ...step.open ? { open: step.open } : {} };
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
@@ -85,6 +87,12 @@ test("the project's request is the message that first set the team working, not 
   assert.equal((await say(flow, id, 'Hello')).request, 'Hello');
   assert.equal((await say(flow, id, 'Make me a CSV summary tool')).request, 'Make me a CSV summary tool');
   assert.equal((await say(flow, id, 'Also export a PDF')).request, 'Make me a CSV summary tool');
+});
+
+test('a result the Manager hands the operator keeps its files in the record, beside its letter', async t => {
+  const { flow, id, events } = await setup(t, [{ ...report, open: ['summary.py'] }]);
+  await say(flow, id, 'Make me a CSV summary tool');
+  assert.deepEqual(events().flatMap(event => event.type === 'handoff' ? [[event.letter, event.open]] : []), [[report.letter, ['summary.py']]]);
 });
 
 test('the Manager answers directly', async t => {

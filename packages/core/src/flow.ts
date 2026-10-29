@@ -272,7 +272,8 @@ export class Flow {
     }
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
     if (handoff) {
-      for (const letter of handoff.letters) this.record(project, { type: 'handoff', role, ...where, to: handoff.to, letter });
+      const { to, letters, open } = handoff;
+      for (const letter of letters) this.record(project, { type: 'handoff', role, ...where, to, letter, ...open ? { open } : {} });
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });

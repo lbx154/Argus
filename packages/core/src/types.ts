@@ -46,11 +46,13 @@ export interface Step { kind: 'message' | 'command' | 'edit'; text: string }
 
 export interface HandOff {
   form: Form;
-  /** Who holds the work next; the only part the host reads. */
+  /** Who holds the work next; the only part the host routes by. */
   to: string;
   /** Free text for them, passed on as written; the operator reads it too. One letter, except
    * when the Planner opens several tasks at once: one letter each. */
   letters: string[];
+  /** The files of the result the Manager hands the operator, the first to open first. */
+  open?: string[];
 }
 
 /** A token count as a backend reports it: a whole number, 0 when missing. */

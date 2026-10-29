@@ -1,8 +1,9 @@
 // A hand-off is a letter and its addressee. The addressee (`to`) is the one thing the host
-// reads, and the backend CLI holds the model's final answer to it (Codex --output-schema,
+// routes by, and the backend CLI holds the model's final answer to it (Codex --output-schema,
 // Claude --json-schema), or, with no such answer, takes the hand-off as a tool whose call ends
 // the turn (Copilot, Pi), so a turn cannot end in prose that only reads like a hand-off. The
 // letter is free text: it reaches the addressee as written, and the operator reads every one.
+// A result the Manager hands the operator names its files, which the page opens.
 
 import { isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts';
 import type { AgentRequest, Form, HandOff } from '../types.js';
@@ -40,6 +41,8 @@ const TO: Record<Form, Record<string, string>> = {
 
 const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
 const LETTERS = 'Your letters, each passed on as written: to the Engineer, one for each task; to anyone else, one. Each reader sees the workspace and its letter, not your conversation.';
+// The result the operator opens: shown beside the letter as written, without a check.
+const OPEN = 'What the operator opens, when your letter to the operator hands over a result: the paths of its files, relative to the workspace, the one to open first first. Empty for any other letter.';
 
 export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSchema {
   // The Planner hears only of the tasks it gave: it never had the Manager's.
@@ -51,8 +54,11 @@ export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSc
     ? ['letters', { type: 'array', minItems: 1, items: letter, description: LETTERS }] : ['letter', { ...letter, description: LETTER }];
   return {
     type: 'object', description: 'Your hand-off: the final answer of your turn.', additionalProperties: false,
-    properties: { to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` }, [name]: letters },
-    required: ['to', name],
+    properties: {
+      to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` }, [name]: letters,
+      ...form === 'manager' ? { open: { type: 'array', items: { type: 'string', minLength: 1 }, description: OPEN } } : {},
+    },
+    required: ['to', name, ...form === 'manager' ? ['open'] : []],
   };
 }
 
@@ -67,5 +73,6 @@ export function judge(form: Form, schema: PayloadSchema, payload: unknown): stri
   const errors = schemaErrors(payload, schema);
   if (errors.length || !isJsonObject(payload)) return errors.join('; ');
   const letters = Array.isArray(payload.letters) ? payload.letters : [payload.letter];
-  return { form, to: String(payload.to), letters: letters.map(letter => String(letter).trim()) };
+  const open = Array.isArray(payload.open) ? payload.open.map(String) : [];
+  return { form, to: String(payload.to), letters: letters.map(letter => String(letter).trim()), ...open.length ? { open } : {} };
 }

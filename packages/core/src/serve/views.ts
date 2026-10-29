@@ -2,9 +2,9 @@
 // events.jsonl and usage.jsonl: nothing here is stored and nothing here writes.
 
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
-  SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type Daemon, type EventMsg, type OperatorDecisionCard, type ProjectRow,
+  SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type Daemon, type DeliveryReceipt, type EventMsg, type OperatorDecisionCard, type ProjectRow,
   type Snapshot, type UsageSummary,
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
@@ -30,6 +30,15 @@ const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code
 const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change' };
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
+
+/** The result a Manager's letter hands the operator, as the page's result card shows it. */
+function delivered(letter: string, open: string[], ts: number, line: number): DeliveryReceipt {
+  const targets = open.map(path => ({ path, label: basename(path), source: 'manager', why: '' }));
+  return {
+    schema_version: 1, delivery_id: `d${line}`, kind: 'task_completed', item_id: '', title: letter.split('\n')[0]!.replace(/^#+\s*/, ''),
+    summary: letter, status: 'done', review_status: '', delivered_at: ts, primary_target: targets[0] ?? null, targets,
+  };
+}
 
 /** The JSON lines of a file from byte `from` on, and the byte after the last of them, where the
  * next read starts: a line not yet ended waits for it. A line cut short (a full disk, a killed
@@ -88,7 +97,10 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
       case 'handoff':
         // Every letter of the Manager's is in the conversation: its reply, and what it hands the team.
         if (event.role === 'manager') {
-          row('ui.argus', { agent_layer: 'manager', text: event.letter, message_id: `m${fold.asked ?? line}-argus` });
+          row('ui.argus', {
+            agent_layer: 'manager', text: event.letter, message_id: `m${fold.asked ?? line}-argus`,
+            ...event.open ? { delivery: delivered(event.letter, event.open, seconds(event.ts), line) } : {},
+          });
           fold.asked = null;
         } else if (event.role === 'planner') {
           row('life.planner.verdict', { status: event.to, enqueued_tasks: event.to === 'engineer' ? 1 : 0 });

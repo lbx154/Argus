@@ -8,7 +8,7 @@ import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
-import { formSchema } from '../src/agent/handoff.js';
+import { formSchema, judge } from '../src/agent/handoff.js';
 import { confine } from '../src/agent/sandbox.js';
 import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend, type Step } from '../src/index.js';
 
@@ -46,7 +46,12 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(schemaErrors({ to: 'done', letter: '', extra: 1 }, formSchema('engineer')), [
     'to must be one of ["reviewer","engineer","planner","manager","operator"]', 'letter must have length >= 1', 'extra is not allowed',
   ]);
-  assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required']);
+  assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required', 'open is required']);
+  // A result the Manager hands the operator names its files; no other form has the field.
+  const report = { to: 'operator', letter: 'The report is done.', open: ['report/index.html', 'figures/a.png'] };
+  assert.deepEqual(judge('manager', formSchema('manager'), report), { form: 'manager', to: 'operator', letters: ['The report is done.'], open: report.open });
+  assert.deepEqual(judge('manager', formSchema('manager'), { ...report, open: [] }), { form: 'manager', to: 'operator', letters: ['The report is done.'] });
+  assert.deepEqual(schemaErrors({ ...handoff, open: [] }, formSchema('engineer')), ['open is not allowed']);
   // A task's form offers its giver: the Planner, which never had a task the Manager gave, is not on its form.
   for (const form of ['engineer', 'review'] as const) {
     assert.deepEqual([formSchema(form, 'manager'), formSchema(form, 'planner')].map(({ properties }) => properties!.to!.enum!.includes('planner')), [false, true]);

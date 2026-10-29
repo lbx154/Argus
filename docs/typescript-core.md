@@ -50,8 +50,10 @@ only reads like a hand-off. A role's standing instructions, its rules and where 
 apart from the turn's message: with every turn where the backend has a place for them (Codex
 `developer_instructions`, Claude `--append-system-prompt`), so they outlast its compaction of a
 long session, and at the head of a session's first prompt where it has none (Copilot, Pi). The
-addressee is the one thing the host reads, and it is always
-someone who acts on the letter: never a state such as done. The letter is free text, passed to
+addressee is the one thing the host routes by, and it is always
+someone who acts on the letter: never a state such as done. The Manager's form also names the
+files of a result it hands the operator (`open`, empty for any other letter); the page shows
+them beside the letter as its result card, as named, without a check. The letter is free text, passed to
 its reader as written: they see the workspace, Argus's record and the letter, not the writer's
 conversation, so a letter that hands on new work is that work's whole brief. The operator reads
 every letter, so the letters are the project's timeline. A hand-off Argus refuses goes back to
