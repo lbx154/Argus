@@ -143,13 +143,13 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
       {query.data && <>
         <div className="experience-toolbar">
           <select className="experience-select" aria-label={zh ? '成果版本' : 'Result version'} value={selectedVersion} disabled={busy} onChange={event => choose(Number(event.target.value))}>
-            <option value={-1}>{zh ? '当前源文件' : 'Current source file'}</option>
+            <option value={-1}>{zh ? '现在的文件' : 'The file as it is'}</option>
             {query.data.versions.map(edition => <option key={edition.version} value={edition.version}>{edition.version === 0
-              ? zh ? '首次修改前的源文件' : 'Source before first edit'
-              : `${zh ? '未复审修改稿' : 'Unreviewed edition'} v${edition.version}`}</option>)}
+              ? zh ? '第一次修改前的文件' : 'The file before the first draft'
+              : zh ? `修改稿 ${edition.version}` : `Draft ${edition.version}`}</option>)}
           </select>
           <div className="route-seg" role="radiogroup" aria-label={zh ? '查看方式' : 'View'}>
-            {([['edit', '编辑', 'Edit'], ['preview', '预览', 'Preview'], ['compare', '对比源文件', 'Compare with source']] as const).map(([mode, zhLabel, enLabel]) =>
+            {([['edit', '编辑', 'Edit'], ['preview', '预览', 'Preview'], ['compare', '和现在的文件对比', 'Compare with the file']] as const).map(([mode, zhLabel, enLabel]) =>
               <button key={mode} type="button" role="radio" aria-checked={view === mode} data-view={mode} onClick={() => setView(mode)}>{zh ? zhLabel : enLabel}</button>)}
           </div>
           <span className="edition-save-status" role="status">{dirty ? zh ? '尚未保存' : 'Unsaved changes'
@@ -163,9 +163,9 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
             : view === 'preview' ? <div className="edition-preview"><MarkdownContent>{content}</MarkdownContent></div>
               : !changes ? <p role="status" className="edition-note">{zh ? '正在对比…' : 'Comparing…'}</p>
                 : changes.diff ? <DiffLines diff={changes.diff} truncated={changes.truncated} zh={zh} />
-                  : <p role="status" className="edition-note">{zh ? '和当前源文件一样，没有改动。' : 'The same as the current source file.'}</p>}
+                  : <p role="status" className="edition-note">{zh ? '和现在的文件一样，没有改动。' : 'The same as the file as it is.'}</p>}
         </div>
-        <p className="experience-caption">{zh ? '修改稿单独保存，不覆盖原文件。' : 'Editions are saved separately from the original.'}</p>
+        <p className="experience-caption">{zh ? '修改稿另外保存，不改动文件本身。' : 'Drafts are saved apart from the file and leave it as it is.'}</p>
       </>}
       {error && <div role="alert" className="experience-notice text-err">{error}<Button onClick={() => void query.refetch()}>{zh ? '重新读取版本（会放弃未保存修改）' : 'Reload versions (discard unsaved changes)'}</Button></div>}
       </div>
@@ -188,7 +188,7 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
 }
 
 export interface ConversationRevision {
-  source: string; prompt: string; answer: string; mode: 'edit' | 'versions'; baseVersion: number;
+  source: string; prompt: string; answer: string; baseVersion: number;
 }
 export function ConversationEditor({ sid, target, onClose, onCompose }: {
   sid: string; target: ConversationRevision; onClose: () => void;
@@ -198,28 +198,29 @@ export function ConversationEditor({ sid, target, onClose, onCompose }: {
   const query = useQuery({ queryKey: ['editions', sid, 'conversation', target.source], queryFn: () => api.editions(sid, 'conversation', target.source), refetchOnWindowFocus: false });
   const [prompt, setPrompt] = useState(target.prompt);
   const [edition, setEdition] = useState<Edition | null>(null);
-  return <Modal open onClose={onClose} label={zh ? '对话修订与版本' : 'Conversation revisions and versions'} width="max-w-3xl">
-    <ModalHeader title={zh ? '对话修订与版本' : 'Conversation revisions and versions'} sub={zh ? '准备新的对话草稿' : 'Prepare a new chat draft'} />
+  return <Modal open onClose={onClose} label={zh ? '改写后重发' : 'Rewrite and resend'} width="max-w-3xl">
+    <ModalHeader title={zh ? '改写后重发' : 'Rewrite and resend'}
+      sub={zh ? '改好的话放进输入框，发出去是一条新消息；原来的问答还在' : 'What you rewrite goes into the message box and is sent as a new message; the first question and answer stay'} />
     <div className="experience-panel">
       {query.isError && <p role="alert" className="text-err">{errorText(query.error)}</p>}
-      <select className="experience-select" aria-label={zh ? '对话版本' : 'Conversation version'} value={edition?.version ?? 0} onChange={event => {
+      <select className="experience-select" aria-label={zh ? '哪一次问答' : 'Which question and answer'} value={edition?.version ?? 0} onChange={event => {
         const next = query.data?.versions.find(item => item.version === Number(event.target.value)) ?? null;
         setEdition(next); setPrompt(next?.note || target.prompt);
       }}>
-        <option value={0}>{zh ? '原始记录' : 'Original record'}</option>
+        <option value={0}>{zh ? '最初的问答' : 'The first question and answer'}</option>
         {query.data?.versions.filter(item => item.version > 0).map(item => <option key={item.version} value={item.version}>
-          {zh ? '修订' : 'Revision'} v{item.version}</option>)}
+          {zh ? `第 ${item.version} 次改写` : `Rewrite ${item.version}`}</option>)}
       </select>
-      <label>{zh ? '编辑后作为新消息发送' : 'Edit and send as a new message'}
-        <textarea className="experience-input min-h-32" aria-label={zh ? '修订问题' : 'Revised question'} maxLength={32_000}
+      <label>{zh ? '要重发的话' : 'What to send again'}
+        <textarea className="experience-input min-h-32" aria-label={zh ? '要重发的话' : 'What to send again'} maxLength={32_000}
           value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
       {(edition?.content || target.answer) && <section className="conversation-version-reader">
-        <h3>{zh ? '对应回答' : 'Recorded answer'}</h3>
+        <h3>{zh ? '当时的回答' : 'The answer then'}</h3>
         <MarkdownContent>{edition?.content || target.answer}</MarkdownContent>
       </section>}
       <Button variant="primary" disabled={!prompt.trim() || query.isPending || query.isError}
         onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 })}>
-        {zh ? '放入对话草稿' : 'Put in chat draft'}
+        {zh ? '放进输入框' : 'Put in the message box'}
       </Button>
     </div>
   </Modal>;

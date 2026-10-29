@@ -1329,8 +1329,8 @@ export default function App() {
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
                     {revisionContext && <div className="experience-notice">
-                      <span>{locale === 'zh-CN' ? '正在修订对话' : 'Revising chat'}</span>
-                      <button type="button" onClick={() => setRevisionContext(null)}>{locale === 'zh-CN' ? '取消修订关联' : 'Detach revision'}</button>
+                      <span>{locale === 'zh-CN' ? '发出后记作那次问答的改写' : 'Sent, it is kept as a rewrite of that question'}</span>
+                      <button type="button" onClick={() => setRevisionContext(null)}>{locale === 'zh-CN' ? '作为普通消息发' : 'Send as a plain message'}</button>
                     </div>}
                     <ChatBox
                       key={activeSid || 'no-session'}

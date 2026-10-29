@@ -54,7 +54,7 @@ import { ErrorDetails } from './ErrorMessage';
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
 import type { ConversationRevision } from './ExperiencePanels';
-import { History, PencilLine, Play } from 'lucide-react';
+import { PencilLine, Play } from 'lucide-react';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 // A thread that project work interrupted continues without its operator row.
@@ -342,8 +342,7 @@ function ConversationRow({
   const responseLatency = !operator && responseLatencyMs >= 100
     ? ` · ${(responseLatencyMs / 1_000).toFixed(1)}s`
     : '';
-  const revisionLabel = locale === 'zh-CN' ? '编辑并重发' : 'Edit and resend';
-  const versionsLabel = locale === 'zh-CN' ? '版本记录' : 'Versions';
+  const revisionLabel = locale === 'zh-CN' ? '改写后重发' : 'Rewrite and resend';
   const rowRef = useRef<HTMLElement>(null);
   useGsapMotion(rowRef, (gsap, reduceMotion) => {
     if (!rowRef.current) return;
@@ -430,9 +429,9 @@ function ConversationRow({
         <time>{clockOf(ev)}{responseLatency}</time>
         <div className="conversation-tools">
         <CopyButton text={r.text} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
-        {revision && onAction && (operator
-          ? <button type="button" aria-label={revisionLabel} title={revisionLabel} onClick={() => onAction({ ...revision, mode: 'edit' })}><PencilLine size={14} /><span>{revisionLabel}</span></button>
-          : <button type="button" aria-label={versionsLabel} title={versionsLabel} onClick={() => onAction({ ...revision, mode: 'versions' })}><History size={14} /><span>{versionsLabel}</span></button>)}
+        {/* A question is rewritten and sent again, its new answer kept beside the first;
+            the answers so far are read from the same place. */}
+        {revision && onAction && operator && <button type="button" aria-label={revisionLabel} title={revisionLabel} onClick={() => onAction(revision)}><PencilLine size={14} /><span>{revisionLabel}</span></button>}
         </div>
       </div>}
     </article>
@@ -917,7 +916,7 @@ function ConversationThread({
     source,
     prompt: group.operator.r.text,
     answer: argusRows.filter(row => row.ev.mission_result !== true).map(row => row.r.text).join('\n\n'),
-    mode: 'edit', baseVersion: 0,
+    baseVersion: 0,
   } : undefined;
   const replyParts = argusRows
     .map((row) => {
