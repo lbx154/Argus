@@ -215,10 +215,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // turn of its own, which the Manager's conversation knows nothing of. A failed one leaves the
     // draft as it was, and says why.
     ['POST', /^\/api\/projects\/([^/]+)\/prompt\/rewrite$/, async ({ params: [id], body }) => {
-      const { text, mode } = await body();
-      // The gray text that guesses how a line ends: a backend turn takes longer than the pause it would fill.
-      if (mode === 'complete') return { completion: '' };
-      const original = String(text ?? '').trim();
+      const original = String((await body()).text ?? '').trim();
       if (!original) throw new HttpError(400, 'empty prompt');
       const { id: sid, backend, workdir, model, effort } = project(id!);
       const dir = store.dir(sid);

@@ -557,7 +557,6 @@ export default function App() {
   const promptSources = useMemo<PromptSources | undefined>(() => loadedSid ? {
     sid: loadedSid, tasks: snap?.backlog ?? [], history: promptHistoryList, files: workspaceTreeQ.data?.entries,
     wantFiles: (want) => setTreeSid(want ? loadedSid : null),
-    continuePrompt: (text, signal) => api.completePrompt(loadedSid, text, signal),
   } : undefined, [loadedSid, snap?.backlog, promptHistoryList, workspaceTreeQ.data]);
   // Content kept from an earlier visit shows at once; until its first refresh
   // lands it is marked as updating rather than presented as live.

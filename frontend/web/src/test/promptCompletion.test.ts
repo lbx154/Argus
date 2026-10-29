@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyCompletion, slashCompletions } from '../../../core/src/commands';
 import type { BacklogItem, EventMsg } from '../api';
-import { completionMenu, completionToken, ghostFor, promptHistory, wantsPrediction, type PromptSources } from '../lib/promptCompletion';
+import { completionMenu, completionToken, ghostFor, promptHistory, type PromptSources } from '../lib/promptCompletion';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
 import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
 
@@ -16,7 +16,7 @@ const files = [
   entry('docs', 'directory'), entry('docs/train notes.md'), entry('README.md'), entry('pretrain.py'),
 ];
 const tasks = [task('t1', 'Baseline run', 10), task('t2', '比较基线', 30, 'running'), task('t3', 'Ablation', 20)];
-const sources: PromptSources = { sid: 's1', tasks, history: [], files, wantFiles: () => undefined, continuePrompt: async () => '' };
+const sources: PromptSources = { sid: 's1', tasks, history: [], files, wantFiles: () => undefined };
 /** The menu with the caret at the end of the visible text, unless placed. */
 const menuAt = (value: string, at = splitDraft(value).text.length, locale: 'en' | 'zh-CN' = 'en') =>
   completionMenu(value, completionToken(splitDraft(value).text, at), sources, t, locale);
@@ -145,28 +145,5 @@ describe('ghostFor', () => {
     expect(ghostFor('comp', history)).toBe('');
     expect(ghostFor(' Co ', history)).toBe('');
     expect(ghostFor('Compare the two baselines', history)).toBe('');
-  });
-
-  it('prefers history, then follows a model guess while the typing agrees with it', () => {
-    const suggestion = { base: 'Please train the', tail: ' model on CIFAR' };
-    expect(ghostFor('Compare', history, { base: 'Compare', tail: ' again' })).toBe('Compare the two baselines');
-    expect(ghostFor('Please train the', [], suggestion)).toBe('Please train the model on CIFAR');
-    expect(ghostFor('Please train the mo', [], suggestion)).toBe('Please train the model on CIFAR');
-    expect(ghostFor('Please train th', [], suggestion)).toBe('');
-    expect(ghostFor('Please train the x', [], suggestion)).toBe('');
-  });
-});
-
-describe('wantsPrediction', () => {
-  it.each(['Compare the two', '比较两个基线的结果和', '  Compare th  '])('asks the model about %j', (text) => {
-    expect(wantsPrediction(text)).toBe(true);
-  });
-
-  it.each([
-    ['too short', 'Compare'], ['too short once trimmed', '   比较两个基线   '], ['a command', '/status of it'],
-    ['a finished sentence', 'Compare the two.'], ['a finished Chinese sentence', '比较两个基线的结果。 '],
-    ['a question', 'Is the run done? '], ['a new line', 'Compare the two\n'], ['an ellipsis', 'Compare the two…'],
-  ])('leaves %s alone', (_, text) => {
-    expect(wantsPrediction(text)).toBe(false);
   });
 });

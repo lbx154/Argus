@@ -561,8 +561,7 @@ test('the Manager rewrites a draft in a turn of its own, and a failed rewrite le
   assert.equal(asked!.usageFile, join(store.dir(sid), 'usage.jsonl'));
   assert.deepEqual(await rewrite({ text: 'data.csv 求和' }),
     { original: 'data.csv 求和', rewritten: 'data.csv 求和', changes: [], questions: [], error: 'The turn ended without the hand-off form.' });
-  // The gray text is not guessed, and an empty draft has nothing to rewrite: neither calls the Manager.
-  assert.deepEqual(await rewrite({ text: 'data.csv 求', mode: 'complete' }), { completion: '' });
+  // An empty draft has nothing to rewrite, and does not call the Manager.
   assert.equal((await post(`${P}/prompt/rewrite`, { text: ' ' })).status, 400);
   assert.equal(requests.length, 2);
   // Neither the record nor the Manager's session knows of it.

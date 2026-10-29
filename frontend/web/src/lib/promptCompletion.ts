@@ -10,8 +10,6 @@ import { statusLabel } from './enumLabels';
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
 
 export const HISTORY_MIN_CHARS = 3;
-export const GHOST_MIN_CHARS = 8; // code points after trim
-export const GHOST_PAUSE_MS = 1000;
 
 /** What the main composer completes from; absent (landing page, tests) leaves only slash commands. */
 export interface PromptSources {
@@ -23,8 +21,6 @@ export interface PromptSources {
   files?: readonly WorkspaceEntry[];
   /** Whether the caret is in an `@` word; the listing loads, or refreshes once stale, while it is. */
   wantFiles: (want: boolean) => void;
-  /** The light model's guess at how the line ends after a pause; '' when it has none. */
-  continuePrompt: (text: string, signal: AbortSignal) => Promise<string>;
 }
 export interface MentionToken { trigger: '@' | '#'; query: string; start: number; end: number }
 export interface CompletionMenu { kind: 'command' | '@' | '#'; items: CompletionItem[] }
@@ -125,17 +121,8 @@ export function promptHistory(events: readonly EventMsg[]): string[] {
   return [...seen];
 }
 
-/** The whole line the gray text proposes: an earlier message this draft begins, else a
- *  model guess still matching what was typed since; '' when there is none. */
-export function ghostFor(text: string, history: readonly string[], suggestion?: { base: string; tail: string } | null): string {
+/** The whole line the gray text proposes: an earlier message this draft begins; '' when there is none. */
+export function ghostFor(text: string, history: readonly string[]): string {
   if ([...text.trim()].length < HISTORY_MIN_CHARS) return '';
-  const earlier = history.find((prompt) => prompt.length > text.length && prompt.startsWith(text));
-  if (earlier) return earlier;
-  const guess = suggestion && text.length >= suggestion.base.length ? suggestion.base + suggestion.tail : '';
-  return guess.length > text.length && guess.startsWith(text) ? guess : '';
-}
-
-/** Whether a paused draft is worth a model call: long enough, not a command, and mid-sentence. */
-export function wantsPrediction(text: string): boolean {
-  return [...text.trim()].length >= GHOST_MIN_CHARS && !text.startsWith('/') && !/(?:[。！？!?….]\s*|\n)$/.test(text);
+  return history.find((prompt) => prompt.length > text.length && prompt.startsWith(text)) ?? '';
 }
