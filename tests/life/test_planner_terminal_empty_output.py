@@ -1296,3 +1296,87 @@ def test_an_answer_the_task_already_took_does_not_hold_bounded_completion(
     persist_once_answer(root, "再加一个 split_cents 的类型注解。")
     assert supervisor._bounded_completion_reason() == ""
     assert backend.planner_calls == 0
+
+
+def _accepted_idea_node(supervisor: LifeSupervisor, *, title: str, reason: str) -> BacklogItem:
+    item = supervisor.memory.backlog.add(
+        BacklogItem.new(
+            title=title,
+            objective=title,
+            tags=["planner", "scope:bounded", "bounded_dag_node", "review:required", "stage:idea"],
+        )
+    )
+    record_reviewed_handoff(
+        mission_context_path=create_mission_context(
+            life_dir=supervisor.memory.project_root,
+            mission_id=item.id,
+            stage="idea",
+            objective=item.objective,
+            scope="bounded",
+        ),
+        round_index=1,
+        engineer_summary="",
+        review=SimpleNamespace(status="done", reason=reason, next_action="", operator_question=""),
+        checkpoint_path=None,
+    )
+    supervisor.memory.backlog.mark_done(item.id, outcome={
+        "execution_status": "completed",
+        "review_status": "done",
+        "stage_certification": "deferred",
+        "interruption_kind": "none",
+        "resumable": False,
+    })
+    return item
+
+
+def test_an_accepted_route_assessment_does_not_close_idea_without_a_selected_route(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """s-dacac579 (10-28 23:57-00:03): the Reviewer accepted "independent assessments
+    of three candidate routes", a task that explicitly chose no route. The plan had
+    nothing left to start, so the empty-plan replay proposed Idea ready and the gate
+    moved to Experiment with no RESEARCH_NOTES.md; the Planner then idled for four
+    minutes asking for the mismatch to be fixed. Idea closes on its own output."""
+    supervisor, backend, sink = _make_supervisor(
+        tmp_path, monkeypatch, terminal_stage_done=False, split_memory=True,
+    )
+    project = Path(supervisor.config.project_worktree)
+    state_path = project / ".argus" / "PIPELINE_STATE.json"
+    state_path.write_text(
+        json.dumps({
+            "vertical": "research",
+            "current_stage": "idea",
+            "research_target_level": "exploratory",
+            "research_direction_mode": "broad",
+            "workflow_mode": "staged",
+        }),
+        encoding="utf-8",
+    )
+    assessed = _accepted_idea_node(
+        supervisor,
+        title="恢复三条视觉研究路线的独立评估",
+        reason="三份视觉研究报告已分别获得并保存独立评估；逐行读取的完整性无法独立证实。",
+    )
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == ""
+    assert json.loads(state_path.read_text())["current_stage"] == "idea"
+    [held] = [e for e in sink.events if e.get("type") == "life.manager.stage_decision"]
+    assert (held["action"], held["diagnostic"]) == ("hold", "stage_completion_gate_failed")
+    assert "RESEARCH_NOTES.md" in held["reason"]
+    stored = next(row for row in supervisor.memory.backlog.all() if row.id == assessed.id)
+    assert stored.outcome["stage_certification"] == "not_certified"
+    assert backend.manager_calls == 0
+
+    (project / "RESEARCH_NOTES.md").write_text(
+        "# Research notes — Idea stage\n\nSelected route: segmentation. VLM and anomaly set aside.\n",
+        encoding="utf-8",
+    )
+    _accepted_idea_node(
+        supervisor,
+        title="选定视觉研究路线并写研究笔记",
+        reason="路线已选定，研究笔记记录了理由与被搁置路线。",
+    )
+
+    assert supervisor._reconcile_reviewed_stage_empty_plan(None) == "advance"
+    assert json.loads(state_path.read_text())["current_stage"] == "experiment"

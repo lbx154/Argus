@@ -792,6 +792,31 @@ def _derived_method_card_for_reviewer(stage: str, project_root: Path | None) -> 
         return ""
 
 
+def _missing_route_block_for_planner(stage: str, project_root: Path | None) -> str:
+    """Tell the Planner what to do when Experiment has no selected route to build on.
+
+    Research stages only go forward, so a stage that moved ahead of Idea's output
+    is repaired in place: the selection is this stage's first task. Without
+    saying so the Planner reads "keep the selected idea" and "never reopen Idea
+    selection", finds nothing to keep, and hands the gap back to the Manager
+    every cycle (s-dacac579, 2026-10-28 23:58-00:03).
+    """
+    if project_root is None or stage != "experiment":
+        return ""
+    if read_research_notes(project_root).strip():
+        return ""
+    return (
+        "## No selected route\n"
+        "Experiment has no selected route to build on: RESEARCH_NOTES.md does not "
+        "record one. That input is planned here, in this planning turn: plan the "
+        "selection as this stage's first task (compare the reviewed routes, choose one "
+        "or position the operator's fixed direction, and write RESEARCH_NOTES.md as the "
+        "Idea playbook asks), independently reviewed, with the method card task "
+        "depending on it. No route was selected, so there is none to keep; do not idle "
+        "or hand it to the Manager."
+    )
+
+
 def render_role_prompt_context(
     *,
     role: str,
@@ -829,7 +854,10 @@ def render_role_prompt_context(
             packet,
         )
     elif normalized_role == "planner":
-        blocks = (active_research_context(normalized_stage, project_root),)
+        blocks = (
+            active_research_context(normalized_stage, project_root),
+            _missing_route_block_for_planner(normalized_stage, project_root),
+        )
     elif normalized_role == "engineer":
         blocks = (
             active_research_context(
