@@ -21,6 +21,7 @@ from ..event_catalog import EventType, canonical_event_type, validate_event_enve
 from ..file_lock import exclusive_file_lock
 from ..json_codec import loads_finite_json
 from ._dispatch import reduce_mission_view_event
+from ._milestones import reduce_milestone
 from ._view_state import empty_mission_view, mission_view_handles_event
 
 REPLAY_BYTES = 8 * 1024 * 1024
@@ -231,6 +232,8 @@ def reconcile_unlocked(root: Path, view: dict[str, Any]) -> dict[str, Any]:
                     skipped += 1
                     continue
                 kind = canonical_event_type(event.get("type"))
+                # Every task's milestones, a review of an earlier task's round included.
+                reduce_milestone(view, event, kind)
                 stale_review = (
                     kind in {EventType.ROUND_REVIEW_STARTED, EventType.ROUND_REVIEW_COMPLETED}
                     and event.get("item_id") not in (None, "", view.get("mission", {}).get("id", ""))

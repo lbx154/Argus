@@ -175,4 +175,10 @@ describe('project-scoped event stream', () => {
       { type: 'engineer.progress', kind: 'assistant_message', ts: 6 } as EventMsg,
     ])).toBe('');
   });
+
+  it('refreshes the snapshot when a round starts or ends, so the conversation shows the milestone', () => {
+    for (const type of ['round.start', 'round.main.completed', 'life.mission.requeued']) {
+      expect(snapshotRefreshEventKey([{ type, item_id: 't', ts: 7 } as EventMsg])).not.toBe('');
+    }
+  });
 });

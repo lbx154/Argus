@@ -176,11 +176,12 @@ FILE_WHILE_TEAM_WORKS = (
 )
 
 
-def team_at_work(items: Sequence[Any], *, ongoing: bool) -> str:
+def team_at_work(items: Sequence[Any], *, ongoing: bool, progress: str = "") -> str:
     """The team's running tasks, told with the message; while they run every turn files ``hand_off``.
 
     ``ongoing``: the campaign plans its next piece by itself (continuous mode);
     otherwise it stops when this work is done and waits for the operator.
+    ``progress`` is what Argus recorded about the work (``team_progress``).
     """
     if not items:
         return ""
@@ -192,7 +193,7 @@ def team_at_work(items: Sequence[Any], *, ongoing: bool) -> str:
              "This work is finite: after it, the team stops and waits for the operator.")
     return (
         "The team is working now (team-handoff rules: while the team works; this turn ends with hand_off):\n"
-        + "\n".join(lines) + f"\n{after}"
+        + "\n".join(lines) + f"\n{after}" + (f"\n\n{progress}" if progress else "")
     )
 
 

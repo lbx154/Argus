@@ -62,6 +62,8 @@ def empty_mission_view() -> dict[str, Any]:
         "role_work": [],
         "dag": [],
         "timeline": [],
+        # The team's milestones for the conversation (``_milestones``).
+        "milestones": [],
         "artifacts": [],
         "learned_skills": [],
         "learned_wiki_pages": [],

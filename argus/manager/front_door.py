@@ -1151,6 +1151,7 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         team_stopped,
         waiting_questions,
     )
+    from .team_progress import team_progress
 
     chat_state.pop("_self_delivery", None)
     chat_state.pop("_self_failure", None)
@@ -1243,7 +1244,10 @@ def manager_turn(mem: Any, body: str, chat_state: dict[str, Any], *,
         life_dir = _life_dir_for(mem)
         if _daemon_running(life_dir):
             campaign = read_continuous_state(life_dir)
-            working_text = team_at_work(running, ongoing=campaign.enabled and campaign.open_ended)
+            working_text = team_at_work(
+                running, ongoing=campaign.enabled and campaign.open_ended,
+                progress=team_progress(life_dir, _operator_workspace(chat_state, life_dir), running, body),
+            )
         else:
             # Nobody executes these rows, so the Manager is told the work is
             # stopped, and is not made to file hand_off as if the team worked.

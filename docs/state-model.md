@@ -48,6 +48,7 @@ make two records of one circuit, so they stay as they are.
 | Which completions the log already holds | `events.jsonl` | `mission-events.index.jsonl` |
 | Newest supervision decision | newest `manager-supervision/<id>.json` | `manager-supervision/latest.json` |
 | A mission's latest work | newest `handoffs/<id>/round-*.json`, else `mission.json` | read from `handoffs/<id>/latest.json` |
+| The team's milestones (conversation lines, the Manager's status facts) | `events.jsonl`, in the Mission View | not stored before |
 
 `handoffs/<id>/latest.json` is still written: prompts name it, and a stable name keeps the
 role-state block identical between turns. It holds only a reference to the newest record and the

@@ -322,6 +322,26 @@ def registered_research_artifacts(
     ]
 
 
+def team_written_file(sid: str, workspace: Path, requested: str, *, global_root: Path | str | None = None) -> bool:
+    """Whether the Engineer's tools recorded writing ``requested`` (a milestone's files), so the
+    conversation can show the figure it made; ``safe_artifact_path`` still decides what is servable."""
+    life_dir = project_life_dir(sid, global_root=global_root)
+    if life_dir is None:
+        return False
+    root = workspace.resolve()
+    written = [path for row in load_mission_view(life_dir).get("milestones") or ()
+               if row.get("kind") == "files" for path in row.get("paths") or ()]
+    for path in written:
+        candidate = Path(str(path))
+        try:
+            relative = candidate.resolve().relative_to(root).as_posix() if candidate.is_absolute() else candidate.as_posix()
+        except (OSError, ValueError):
+            continue
+        if relative.removeprefix("./") == requested:
+            return True
+    return False
+
+
 def artifact_metadata(
     workspace: Path,
     relative_path: str,
@@ -620,6 +640,9 @@ def get_project_artifact(
         return None
     requested = safe_requested[0]
     allowed = next((row for row in artifacts if row["path"] == requested), None)
+    if allowed is None and team_written_file(sid, workspace, requested, global_root=global_root):
+        allowed = {"path": requested, "exists": safe_requested[1].is_file(), "why": "",
+                   "source": "team_written", "group_title": ""}
     if allowed is None or not allowed["exists"]:
         return None
     row = artifact_metadata(

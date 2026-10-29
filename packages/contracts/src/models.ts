@@ -276,6 +276,29 @@ export interface MissionTimelineItem {
   branch_id?: string;
 }
 
+/** One recorded milestone of the team's work (argus/core/mission_view/_milestones.py). */
+export interface MissionMilestone {
+  id: string;
+  ts: number;
+  /** The event it was recorded from; a "files" row gathers a round's writes and has none. */
+  type?: string;
+  kind: 'task_started' | 'task_requeued' | 'round_started' | 'round_finished' | 'review' | 'files' | 'stopped' | string;
+  item_id: string;
+  round?: number | null;
+  title?: string;
+  error?: string;
+  failed?: boolean;
+  /** A review's verdict (the holder it settled on, or "skipped") and who gave it. */
+  status?: string;
+  source?: string;
+  /** The Reviewer's own reason, or a hold's own words. */
+  reason?: string;
+  text?: string;
+  stop_kind?: string;
+  /** Files the Engineer wrote in the round, as its tools named them, newest last. */
+  paths?: string[];
+}
+
 export interface MissionAchievement {
   id: string;
   title: string;
@@ -336,6 +359,8 @@ export interface MissionView {
   role_work: MissionRoleWorkItem[];
   dag: MissionDagNode[];
   timeline: MissionTimelineItem[];
+  /** Computed by the server from the whole log; absent from views built in the browser. */
+  milestones?: MissionMilestone[];
   artifacts: Array<Record<string, unknown>>;
   learned_skills: MissionSkillView[];
   learned_wiki_pages: Array<Record<string, unknown>>;
