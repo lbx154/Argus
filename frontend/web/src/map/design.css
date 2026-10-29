@@ -713,8 +713,10 @@
   --status-size: clamp(11.5px, calc(11px / var(--on-screen)), 36px);
   --text-size: max(14px, calc(10.5px / var(--on-screen)));
 }
-.argus-map .macro-summary :is(.map-card-number, .map-card-said, .map-card-live, .map-card-stages > span,
+.argus-map .macro-summary :is(.map-card-said, .map-card-live, .map-card-stages > span,
   .map-card-bottom, .map-card-results button, .map-history-toggle) { font-size: var(--text-size); }
+/* The number shares a row with the state: hidden, it takes no room from it. */
+.argus-map .macro-summary .map-card .map-card-number { font-size: calc(var(--text-size) * var(--near)); }
 /* Three whole lines always fit the card (its height less the status row and
    padding, over 3 × 1.35 lines), so the clamp ends on an ellipsis instead of
    the card cutting through a line of glyphs. */
@@ -726,7 +728,6 @@
   padding-right: 4px;
 }
 .argus-map .macro-summary .map-card > :not(h3):not(.map-card-top),
-.argus-map .macro-summary .map-card .map-card-number,
 .argus-map .macro-summary .map-card h3 .macro-note-badge,
 .argus-map .macro-summary > .map-history-toggle { scale: var(--near); }
 .argus-map .macro-summary > .map-card-results { max-height: calc(var(--near) * 3em); padding-bottom: calc(var(--near) * 12px); overflow: hidden; }
