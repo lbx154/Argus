@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import math
 import re
@@ -366,20 +367,33 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     invites = {row["invite"]: name for name, row in config["tenants"].items()}
     login_html = LOGIN.replace("{user}", f"{ledger.user / MICRO:g}").replace("{total}", f"{ledger.total / MICRO:g}")
-    # A session is a random token the portal holds, not a signed claim; a
-    # restart ends every session and the invite code signs in again.
-    sessions: dict[str, tuple[str, float]] = {}
+    # A session is a random token the portal holds, not a signed claim. Only
+    # its hash is kept, next to the ledger, so a portal restart (every deploy)
+    # does not sign everyone out and the file cannot be replayed as a cookie.
+    sessions_path = Path(config.get("sessions") or ledger.path.with_name("sessions.sqlite3"))
+    with closing(sqlite3.connect(sessions_path)) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS sessions (digest TEXT PRIMARY KEY, tenant TEXT NOT NULL, expiry REAL NOT NULL)")
+        db.commit()
+    sessions_path.chmod(0o600)
+
+    def digest(token: str) -> str:
+        return hashlib.sha256(token.encode()).hexdigest()
 
     def session(tenant: str) -> str:
         now = time.time()
-        for token in [t for t, (_, expiry) in sessions.items() if expiry <= now]:
-            del sessions[token]
         token = secrets.token_urlsafe(32)
-        sessions[token] = (tenant, now + 7 * 86400)
+        with closing(sqlite3.connect(sessions_path, timeout=10)) as db:
+            db.execute("DELETE FROM sessions WHERE expiry <= ?", (now,))
+            db.execute("INSERT INTO sessions VALUES (?,?,?)", (digest(token), tenant, now + 7 * 86400))
+            db.commit()
         return token
 
     def identify(cookie: str) -> str | None:
-        tenant, expiry = sessions.get(cookie, (None, 0.0))
+        if not cookie:
+            return None
+        with closing(sqlite3.connect(sessions_path, timeout=10)) as db:
+            row = db.execute("SELECT tenant, expiry FROM sessions WHERE digest=?", (digest(cookie),)).fetchone()
+        tenant, expiry = row or (None, 0.0)
         return tenant if tenant in config["tenants"] and expiry > time.time() else None
 
     def origin_ok(request: Request) -> bool:
@@ -422,7 +436,7 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
     async def quota_script():
         from fastapi.responses import Response
 
-        return Response("""(()=>{async function update(){const r=await fetch('/trial/budget');if(!r.ok)return;const b=await r.json();const host=document.querySelector('.composer-runtime');if(!host)return;let node=document.getElementById('trial-quota');if(!node){node=document.createElement('span');node.id='trial-quota';node.style.cssText='font-size:11px;color:#2069d1';host.append(node)}node.textContent='试用余额 $'+b.remaining_usd.toFixed(2)+' / $'+b.limit_usd.toFixed(2);node.title='全站剩余 $'+b.total_remaining_usd.toFixed(2)+'；模型 GPT-6.1 Sol'}setInterval(update,8000);setTimeout(update,1200)})();""", media_type="text/javascript")
+        return Response("""(()=>{async function update(){const r=await fetch('/trial/budget');if(r.status===401){location.assign('/login');return}if(!r.ok)return;const b=await r.json();const host=document.querySelector('.composer-runtime');if(!host)return;let node=document.getElementById('trial-quota');if(!node){node=document.createElement('span');node.id='trial-quota';node.style.cssText='font-size:11px;color:#2069d1';host.append(node)}node.textContent='试用余额 $'+b.remaining_usd.toFixed(2)+' / $'+b.limit_usd.toFixed(2);node.title='全站剩余 $'+b.total_remaining_usd.toFixed(2)+'；模型 '+b.model}setInterval(update,8000);setTimeout(update,1200)})();""", media_type="text/javascript")
 
     @app.get("/trial-transport.js")
     async def transport_script():
@@ -565,6 +579,8 @@ def portal_app(config: dict, ledger: Ledger) -> FastAPI:
 
             html = (await response.aread()).decode().replace("<head>", '<head><script src="/trial-transport.js"></script>').replace("</body>", '<script src="/trial-quota.js" defer></script></body>')
             await client.aclose()
+            # Never serve the shell from cache: a signed-out reader must reach /login.
+            response_headers["cache-control"] = "no-store"
             return Response(html, media_type="text/html", headers=response_headers)
 
         async def chunks():
