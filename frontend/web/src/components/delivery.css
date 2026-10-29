@@ -17,6 +17,8 @@
 .diff-lines { overflow: auto; padding: 10px; border: 1px solid rgb(var(--line)); border-radius: 8px; background: rgb(var(--bg)); font: 11px/1.5 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
 .diff-lines .add { color: rgb(22 128 61); background: rgb(22 128 61 / .08); }
 .diff-lines .del { color: rgb(190 18 60); background: rgb(190 18 60 / .08); }
+[data-theme="dark"] .diff-lines .add { color: rgb(110 211 145); background: rgb(110 211 145 / .1); }
+[data-theme="dark"] .diff-lines .del { color: rgb(var(--err)); background: rgb(var(--err) / .12); }
 .diff-lines .hunk { display: block; color: rgb(var(--ink-faint)); }
 .diff-lines .hunk:not(:first-child) { margin-top: 8px; padding-top: 6px; border-top: 1px dashed rgb(var(--line)); }
 .delivery-summary { margin-top: 8px; font-size: 13px; color: rgb(var(--ink-dim)); }
