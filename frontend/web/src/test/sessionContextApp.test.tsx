@@ -130,7 +130,7 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
-  it('keeps conversation revisions in chat even if the route control is changed and preserves their original version', async () => {
+  it('sends a revised question as typed and keeps the answer as a version of the original', async () => {
     vi.spyOn(api, 'editions').mockResolvedValue({ original: '', versions: [] });
     const save = vi.spyOn(api, 'saveEdition').mockResolvedValue({ version: 1, content: 'Revised answer' });
     const stream = vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
@@ -139,10 +139,9 @@ describe('App session composer ownership', () => {
     const target = { source: 'original-question', prompt: 'Original question', answer: 'Original answer', mode: 'edit', baseVersion: 0 };
     await act(async () => { renderer.root.findByType(EventStream).props.onConversationAction(target); });
     act(() => renderer.root.findByType(ConversationEditor).props.onCompose('/task revised question', target));
-    act(() => props().onRouteOverrideChange!('task'));
     await act(async () => { expect(await props().onSend('/task revised question')).toBe(true); });
     expect(stream).toHaveBeenCalledWith('s-A', '/task revised question', expect.any(Object),
-      expect.objectContaining({ routeOverride: 'chat', launch: undefined }));
+      expect.objectContaining({ routeOverride: 'auto', launch: undefined }));
     expect(save).toHaveBeenCalledWith('s-A', 'conversation', expect.objectContaining({
       source: 'original-question', original: 'Original answer', content: 'Revised answer', note: '/task revised question',
     }));

@@ -1122,7 +1122,7 @@ export default function App() {
           }, {
             signal: controller.signal,
             attachments: attachmentRefs,
-            routeOverride: revision ? 'chat' : routeOverride,
+            routeOverride,
             requestId: serverRequestId,
             launch: launches && !revision && routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
           });
@@ -1668,7 +1668,7 @@ export default function App() {
         target={conversationEditor} onClose={() => setConversationEditor(null)}
         onCompose={(text, target) => {
           if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
-          setComposerDraft(text); setRevisionContext(target); setRouteOverride('chat');
+          setComposerDraft(text); setRevisionContext(target);
           setConversationEditor(null); setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1);
         }} />}
       <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills'} width="max-w-6xl">

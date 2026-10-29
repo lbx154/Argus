@@ -174,7 +174,7 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
 }
 
 export interface ConversationRevision {
-  source: string; prompt: string; answer: string; mode: 'edit' | 'regenerate' | 'versions'; baseVersion: number;
+  source: string; prompt: string; answer: string; mode: 'edit' | 'versions'; baseVersion: number;
 }
 export function ConversationEditor({ sid, target, onClose, onCompose }: {
   sid: string; target: ConversationRevision; onClose: () => void;
@@ -205,7 +205,7 @@ export function ConversationEditor({ sid, target, onClose, onCompose }: {
       </section>}
       <Button variant="primary" disabled={!prompt.trim() || query.isPending || query.isError}
         onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 })}>
-        {target.mode === 'regenerate' ? zh ? '准备重新回答（仅对话）' : 'Prepare another answer (chat only)' : zh ? '放入对话草稿' : 'Put in chat draft'}
+        {zh ? '放入对话草稿' : 'Put in chat draft'}
       </Button>
     </div>
   </Modal>;
