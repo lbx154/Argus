@@ -542,6 +542,32 @@ test('a message typed while a reply is under way is answered after it', async t 
   assert.deepEqual(turns.map(turn => [turn.role, turn.text]), [['operator', 'first'], ['operator', 'second'], ['argus', 'Both answered.']]);
 });
 
+test('the Manager rewrites a draft in a turn of its own, and a failed rewrite leaves the draft as it was', async t => {
+  const { store, post, requests } = await setup(t, [
+    { role: 'manager', to: 'operator', letter: '把 data.csv 每列求和，结果写进 report.md。' },
+    { role: 'manager' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await post(`${P}/config/set`, { name: 'ARGUS_SKILL_MODEL', value: 'gpt-x' });
+  await post(`${P}/config/set`, { name: 'ARGUS_SKILL_MANAGER_REASONING_EFFORT', value: 'low' });
+  const rewrite = async (body: Record<string, unknown>) => await (await post(`${P}/prompt/rewrite`, body)).json();
+  assert.deepEqual(await rewrite({ text: ' data.csv 求和 写 report ' }),
+    { original: 'data.csv 求和 写 report', rewritten: '把 data.csv 每列求和，结果写进 report.md。', changes: [], questions: [], error: '' });
+  const [asked] = requests;
+  assert.deepEqual([asked!.role, asked!.form, asked!.access, asked!.model, asked!.effort, asked!.resume], ['manager', 'manager', 'read', 'gpt-x', 'low', undefined]);
+  assert.ok(asked!.prompt.endsWith('## Draft\ndata.csv 求和 写 report'));
+  assert.equal(asked!.usageFile, join(store.dir(sid), 'usage.jsonl'));
+  assert.deepEqual(await rewrite({ text: 'data.csv 求和' }),
+    { original: 'data.csv 求和', rewritten: 'data.csv 求和', changes: [], questions: [], error: 'The turn ended without the hand-off form.' });
+  // The gray text is not guessed, and an empty draft has nothing to rewrite: neither calls the Manager.
+  assert.deepEqual(await rewrite({ text: 'data.csv 求', mode: 'complete' }), { completion: '' });
+  assert.equal((await post(`${P}/prompt/rewrite`, { text: ' ' })).status, 400);
+  assert.equal(requests.length, 2);
+  // Neither the record nor the Manager's session knows of it.
+  assert.deepEqual([readEvents(store, sid), store.load(sid).sessions], [[], {}]);
+});
+
 test('deleting a project stops its work and moves its directory to the trash, its workdir left as it is', async t => {
   const { home, call, get, post } = await setup(t, [{ role: 'manager', to: 'engineer', letter: brief }, { role: 'engineer', hang: true }]);
   const remove = (sid: string) => call(`/api/projects/${sid}`, { method: 'DELETE' });
