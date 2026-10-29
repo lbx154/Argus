@@ -1932,7 +1932,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "skills": 29,
     "tools": 3,
     "verticals": 54,
-    "webapi": 122,
+    "webapi": 121,
     "wiki": 5,
 }
 
