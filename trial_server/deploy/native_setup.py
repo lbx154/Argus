@@ -40,7 +40,7 @@ def initialize(args) -> dict:
         (directory / 'bin/copilot').symlink_to(node / 'lib/node_modules/@github/copilot/npm-loader.js')
         (directory / 'state/identity.md').write_text(
             '你是研究和编程助手。用简明中文说明做了什么、得到什么结果、还需要什么信息。'
-            '默认工作目录为 /tenant/workspace。解释结果时少用内部代码、角色名和工具参数。\n')
+            '每个项目有自己的项目目录；提到文件时写相对项目目录的路径（例如 figures/plot.png），不要加 workspace/ 之类的前缀。解释结果时少用内部代码、角色名和工具参数。\n')
         config['tenants'][name] = {'directory': str(directory), 'socket': str(directory / 'run/web.sock'),
                                    'invite': 'argus-' + secrets.token_urlsafe(24),
                                    'model_token': secrets.token_urlsafe(48), 'web_token': secrets.token_urlsafe(48)}
