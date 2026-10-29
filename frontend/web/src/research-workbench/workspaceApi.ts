@@ -53,8 +53,6 @@ export interface WorkspaceGit {
   ahead: number;
   behind: number;
   identity: { name: string; email: string; valid: boolean };
-  github: { authenticated: boolean; host: string; login: string; protocol: string; scopes: string[] };
-  publish_ready: boolean;
   truncated?: boolean;
 }
 

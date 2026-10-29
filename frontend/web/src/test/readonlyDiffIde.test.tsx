@@ -28,7 +28,7 @@ function openGit(overrides: Partial<WorkspaceGit> = {}) {
   client.setQueryData(['workspace-git', 's-A', 'workspace-A'], {
     available: true, branch: 'synthetic', status: ' M demo.txt', diff, log: '', stat: '', remotes: [], upstream: '',
     ahead: 0, behind: 0, identity: { name: '', email: '', valid: false },
-    github: { authenticated: false, host: '', login: '', protocol: '', scopes: [] }, publish_ready: false, ...overrides,
+    ...overrides,
   });
   act(() => { view = create(<QueryClientProvider client={client}><IdePage {...props} /></QueryClientProvider>); });
   const changes = view.root.findAllByType('button').find(button => button.children.join('') === 'Changes')!;

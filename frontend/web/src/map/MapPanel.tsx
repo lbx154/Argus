@@ -61,6 +61,7 @@ import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { MAP_CAPABILITY, useCapability } from "../lib/capabilities";
 import { useI18n } from "../i18n";
+import { roleLabel } from "../lib/enumLabels";
 import { ACTIVE, attentionTasks, buildMap, connectMap, currentTask, RELATION_KINDS, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, relationPorts } from "./graphLayout";
@@ -1314,7 +1315,7 @@ export function MapCanvas({
   const playbackStrip = (
     <div className="map-playback" data-floating={data.kind === "live"}>
       <button
-        aria-label={playing ? "Pause reveal" : "Play reveal"}
+        aria-label={playing ? zh ? "暂停展开" : "Pause reveal" : zh ? "播放展开" : "Play reveal"}
         onClick={() => {
           if (visibleCount >= graph.tasks.length) setVisibleCount(1);
           setPlaying((v) => !v);
@@ -1323,7 +1324,7 @@ export function MapCanvas({
         {playing ? <Pause size={14} /> : <Play size={14} />}
       </button>
       <button
-        aria-label="Restart reveal"
+        aria-label={zh ? "从头展开" : "Restart reveal"}
         onClick={() => {
           setPlaying(false);
           setVisibleCount(1);
@@ -1334,7 +1335,7 @@ export function MapCanvas({
       </button>
       <span>{zh ? "逐卡展开" : "Reveal cards"}</span>
       <input
-        aria-label="Visible task count"
+        aria-label={zh ? "逐卡展开" : "Reveal cards"}
         type="range"
         min={Math.min(1, graph.tasks.length)}
         max={graph.tasks.length}
@@ -1348,7 +1349,7 @@ export function MapCanvas({
         {visibleCount} / {graph.tasks.length}
       </span>
       <button
-        aria-label="Reveal next card"
+        aria-label={zh ? "展开下一张" : "Reveal next card"}
         disabled={visibleCount >= graph.tasks.length}
         onClick={() =>
           setVisibleCount((c) => Math.min(graph.tasks.length, c + 1))
@@ -1581,7 +1582,7 @@ export function MapCanvas({
               className="map-fit-button"
               onClick={showOverview}
               title={zh ? "适配全图" : "Fit map"}
-              aria-label="Fit map"
+              aria-label={zh ? "适配全图" : "Fit map"}
             >
               <Maximize2 size={15} />
             </button>
@@ -1604,7 +1605,7 @@ export function MapCanvas({
                   setPlaying(true);
                 }}
                 title={zh ? "回放这项研究是如何展开的" : "Replay how this research unfolded"}
-                aria-label="Replay"
+                aria-label={zh ? "回放" : "Replay"}
               >
                 <History size={15} />
                 <span>{zh ? "回放" : "Replay"}</span>
@@ -1623,7 +1624,7 @@ export function MapCanvas({
               <button
                 onClick={camera.back}
                 className="map-back-button"
-                aria-label="Return to map"
+                aria-label={zh ? "返回全图" : "Overview"}
               >
                 <ArrowLeft size={14} />
                 <span>{zh ? "返回全图" : "Overview"}</span>
@@ -1835,7 +1836,7 @@ export function MapCanvas({
               onClick={toggleReplacements}
               aria-pressed={showReplacements}
               disabled={replacementCount === 0}
-              aria-label="Toggle plan replacements"
+              aria-label={zh ? "计划替代" : "Plan changes"}
             >
               <b className="replacement" />
               {zh ? "计划替代" : "Plan changes"}
@@ -2088,7 +2089,7 @@ export const MapPanel = memo(function MapPanel({
   snapshot: Snapshot;
   currentTaskId?: string | null;
   events: EventMsg[];
-  managerSteps?: Array<{ label: string; detail?: string }>;
+  managerSteps?: Array<{ role: string; label: string; detail?: string }>;
   draft: string;
   onDraftChange: (text: string) => void;
   onSend: MapSend;
@@ -2460,7 +2461,7 @@ export const MapPanel = memo(function MapPanel({
             snapshot={snapshot}
             currentTaskId={currentTaskId}
             events={events}
-            pendingLabel={managerSteps.at(-1)?.detail || managerSteps.at(-1)?.label}
+            pendingLabel={managerSteps.at(-1)?.detail || (managerSteps.length ? roleLabel(managerSteps.at(-1)!.role, t) : undefined)}
             viewKey={viewKey}
             paused={paused}
             sessionId={snapshot.session.id}
