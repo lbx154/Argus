@@ -551,7 +551,7 @@ test('the Manager rewrites a draft in a turn of its own, and a failed rewrite le
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
   await post(`${P}/config/set`, { name: 'ARGUS_SKILL_MODEL', value: 'gpt-x' });
-  await post(`${P}/config/set`, { name: 'ARGUS_SKILL_MANAGER_REASONING_EFFORT', value: 'low' });
+  await post(`${P}/config/set`, { name: 'ARGUS_SKILL_REASONING_EFFORT', value: 'low' });
   const rewrite = async (body: Record<string, unknown>) => await (await post(`${P}/prompt/rewrite`, body)).json();
   assert.deepEqual(await rewrite({ text: ' data.csv 求和 写 report ' }),
     { original: 'data.csv 求和 写 report', rewritten: '把 data.csv 每列求和，结果写进 report.md。', changes: [], questions: [], error: '' });

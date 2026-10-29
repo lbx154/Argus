@@ -50,13 +50,13 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
   const nextBackend = configured && configured.backend && configured.backend !== actual?.backend ? configured.backend : '';
   const nextModel = configured && !unset(configured.model) && configured.model !== actual?.model ? configured.model : '';
   const next = nextBackend || nextModel
-    ? [backendLabel(nextBackend || configured!.backend, t), nextModel || configured!.model || 'auto'].join(' · ')
+    ? [backendLabel(nextBackend || configured!.backend, data), nextModel || configured!.model || 'auto'].join(' · ')
     : '';
   const effortName = effort ? ({ low: zh ? '低' : 'low', medium: zh ? '中' : 'medium', high: zh ? '高' : 'high' } as Record<string, string>)[effort] ?? effort : '';
   const shown = trial ? 'GPT-5.5' : model && !unset(model) ? model : (zh ? '自动' : 'Automatic');
   // Everything else about the run is a hover away: the backend, and the role at work.
   const detail = [
-    trial ? (zh ? '试用' : 'Trial') : backend ? backendLabel(backend, t) : '',
+    trial ? (zh ? '试用' : 'Trial') : backend ? backendLabel(backend, data) : '',
     !trial && !actual && running && role?.active ? (isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role) : '',
   ].filter(Boolean).join(' · ');
   const title = [detail, actual

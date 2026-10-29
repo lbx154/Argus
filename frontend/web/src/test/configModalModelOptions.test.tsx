@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { api, type ConfigSnapshot } from '../api';
 import { AdvisorSettings } from '../components/AdvisorSettings';
 import { ConfigModal } from '../components/InfoModals';
+import { ModelPicker } from '../components/ModelPicker';
 import { Capabilities } from '../lib/capabilities';
 
 let renderer: ReactTestRenderer | undefined;
@@ -13,38 +14,13 @@ afterEach(() => { act(() => renderer?.unmount()); renderer = undefined; client?.
 const textOf = (node: { children: unknown[] }): string =>
   node.children.map(child => (typeof child === 'string' ? child : textOf(child as { children: unknown[] }))).join('');
 
-it('names what auto resolves to, marks a configured model the backend does not offer, and flags an offline list', async () => {
-  const config: ConfigSnapshot = {
-    schema_version: 1, generated_at_utc: '', roles: [], how_to_change: [],
-    operator_knobs: [{ name: 'ARGUS_SKILL_MODEL', value: 'stale-id' } as ConfigSnapshot['operator_knobs'][number]],
-    model_options: [
-      { model: 'newest-9', source: 'catalog', offline: true },
-      { model: 'stale-id', source: 'current', invalid: true },
-    ],
-    model_auto_resolves_to: 'newest-9',
-  };
-  vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:8000' } });
-  vi.spyOn(api, 'config').mockResolvedValue(config);
-  client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
-  client.setQueryData(['config', 'one'], config);
-  await act(async () => {
-    renderer = create(<QueryClientProvider client={client!}><ConfigModal sid="one" open onClose={() => {}} /></QueryClientProvider>);
-  });
-  const select = renderer!.root.findByProps({ 'aria-label': 'Model' });
-  const labels = select.findAllByType('option').map(textOf);
-  expect(labels[0]).toBe('auto → newest-9');
-  expect(labels).toContain('stale-id (unavailable)');
-  expect(labels).toContain('newest-9');
-  expect(renderer!.root.findAllByProps({ 'data-model-offline': true })).toHaveLength(1);
-});
-
 const baseConfig = (): ConfigSnapshot => ({
-  schema_version: 1, generated_at_utc: '', roles: [], how_to_change: [],
-  operator_knobs: [
-    { name: 'ARGUS_SKILL_RUNNER_BACKEND', value: 'pi' } as ConfigSnapshot['operator_knobs'][number],
-    { name: 'ARGUS_SKILL_MODEL', value: 'auto' } as ConfigSnapshot['operator_knobs'][number],
-  ],
-  model_options: [{ model: 'm-1', source: 'catalog' }],
+  schema_version: 1, generated_at_utc: '', how_to_change: [], operator_knobs: [],
+  roles: ['manager', 'planner', 'engineer', 'reviewer'].map(role => ({
+    role, backend: 'pi', backend_label: 'Pi', backend_source: 'persisted', model: 'm-1', model_source: 'persisted',
+    reasoning_effort: null, reasoning_effort_source: 'default', description: '',
+  })),
+  backends: { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' },
 });
 
 async function mount(config: ConfigSnapshot, snapshot?: unknown) {
@@ -70,45 +46,23 @@ it('saves a backend switch only on Apply, never on the dropdown change', async (
   expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_RUNNER_BACKEND', 'copilot');
 });
 
-it('changing only the model sends only the model, and the backend shows where it comes from', async () => {
-  const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
-  const config = baseConfig();
-  config.operator_knobs[0] = { name: 'ARGUS_SKILL_RUNNER_BACKEND', value: 'copilot', source: 'env' } as ConfigSnapshot['operator_knobs'][number];
-  await mount(config);
-  expect(renderer!.root.findByProps({ 'aria-label': 'Backend' }).props.value).toBe('copilot');
-  const source = renderer!.root.findByProps({ 'data-backend-source': 'env' });
-  expect(textOf(source as unknown as { children: unknown[] })).toBe('set by the server environment');
-  const model = renderer!.root.findByProps({ 'aria-label': 'Model' });
-  await act(async () => { model.props.onChange({ target: { value: 'm-1' } }); });
-  const applyModel = renderer!.root.findAll(node => node.type === 'button' && node.props.onClick && !node.props['data-apply-backend'] && textOf(node as unknown as { children: unknown[] }) === 'Apply')[0];
-  await act(async () => { applyModel.props.onClick(); });
-  expect(setConfig).toHaveBeenCalledTimes(1);
-  expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_MODEL', 'm-1', true);
-  const applyBackend = renderer!.root.findByProps({ 'data-apply-backend': true });
-  expect(applyBackend.props.disabled).toBe(true);
-  await act(async () => { applyBackend.props.onClick(); });
-  expect(setConfig).toHaveBeenCalledTimes(1);
+it('offers the backends the server lists, and one way to choose the model: the chooser', async () => {
+  await mount(baseConfig());
+  const select = renderer!.root.findByProps({ 'aria-label': 'Backend' });
+  expect(select.props.value).toBe('pi');
+  expect(select.findAllByType('option').map(option => [option.props.value, textOf(option as never)]))
+    .toEqual([['codex', 'Codex'], ['claude', 'Claude Code'], ['copilot', 'Copilot CLI'], ['pi', 'Pi']]);
+  expect(renderer!.root.findByProps({ 'data-apply-backend': true }).props.disabled).toBe(true);
+  expect(renderer!.root.findAllByProps({ 'aria-label': 'Model' })).toHaveLength(0);
+  expect(textOf(renderer!.root.findByProps({ 'data-current-model': true }) as never)).toBe('m-1');
+  await act(async () => { renderer!.root.findByProps({ 'data-open-model-picker': true }).props.onClick(); });
+  expect(renderer!.root.findByType(ModelPicker).props.open).toBe(true);
 });
 
-it('replaces a stale saved backend hidden by the environment and says what changes', async () => {
-  const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
-  const config = baseConfig();
-  config.operator_knobs[0] = { name: 'ARGUS_SKILL_RUNNER_BACKEND', value: 'copilot', source: 'env', saved: 'codex' } as ConfigSnapshot['operator_knobs'][number];
-  await mount(config);
-  expect(renderer!.root.findByProps({ 'aria-label': 'Backend' }).props.value).toBe('copilot');
-  const change = renderer!.root.findByProps({ 'data-backend-change': true });
-  expect(textOf(change as unknown as { children: unknown[] })).toContain('replaces the saved');
-  const applyBackend = renderer!.root.findByProps({ 'data-apply-backend': true });
-  expect(applyBackend.props.disabled).toBe(false);
-  await act(async () => { applyBackend.props.onClick(); });
-  expect(setConfig).toHaveBeenCalledWith('one', 'ARGUS_SKILL_RUNNER_BACKEND', 'copilot');
-});
-
-it('offers the light model and the advisor only where the server has them', async () => {
+it('offers the advisor only where the server has it', async () => {
   vi.spyOn(api, 'advisorSettings').mockReturnValue(new Promise(() => {}));
-  const light = { name: 'ARGUS_SKILL_LIGHT_MODEL', value: 'auto' } as ConfigSnapshot['operator_knobs'][number];
-  for (const [knobs, declared, shown] of [[[light], ['advisor.config.v1'], true], [[], ['manager.sse.v1'], false]] as const) {
-    const config = { ...baseConfig(), operator_knobs: [...baseConfig().operator_knobs, ...knobs] };
+  for (const [declared, shown] of [[['advisor.config.v1'], true], [['manager.sse.v1'], false]] as const) {
+    const config = baseConfig();
     vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:8000' } });
     vi.spyOn(api, 'config').mockResolvedValue(config);
     client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
@@ -119,7 +73,6 @@ it('offers the light model and the advisor only where the server has them', asyn
       </Capabilities.Provider></QueryClientProvider>);
     });
     await act(async () => { renderer!.root.findByProps({ 'aria-controls': 'config-advanced-settings' }).props.onClick(); });
-    expect(renderer!.root.findAllByProps({ 'aria-label': 'Light' })).toHaveLength(shown ? 1 : 0);
     expect(renderer!.root.findAllByType(AdvisorSettings)).toHaveLength(shown ? 1 : 0);
     act(() => renderer!.unmount());
   }

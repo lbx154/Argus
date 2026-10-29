@@ -2,11 +2,6 @@
 .model-picker { padding: 0 24px; }
 .model-picker-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
 .model-picker-effort { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--ink-dim)); }
-.model-picker-roles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
-.model-picker-roles button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; padding: 7px 10px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-control); font-size: 12px; color: rgb(var(--ink-dim)); text-align: left; transition: border-color 120ms ease, background-color 120ms ease; }
-.model-picker-roles button:hover { border-color: rgb(var(--ink-faint)); }
-.model-picker-roles button[aria-selected='true'] { border-color: rgb(var(--accent)); background: rgb(var(--accent) / .08); color: rgb(var(--ink)); }
-.model-picker-role-model { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 11px; color: rgb(var(--ink-faint)); }
 .model-picker-note { margin-top: 12px; font-size: 12px; line-height: 18px; color: rgb(var(--ink-faint)); }
 .model-picker-by-name { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: rgb(var(--ink-dim)); }
 .model-picker-by-name input { flex: 1; min-width: 0; height: 32px; padding: 0 8px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-control); background: rgb(var(--bg)); font-family: 'Geist Mono Variable', ui-monospace, monospace; font-size: 12px; color: rgb(var(--ink)); }
@@ -40,8 +35,6 @@
 .model-probe:hover:not(:disabled) { border-color: rgb(var(--blue) / .6); color: rgb(var(--blue)); }
 .model-probe:disabled { opacity: .6; cursor: default; }
 .model-probe-result { font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
-.model-card-roles { display: flex; flex-wrap: wrap; gap: 4px; }
-.model-card-roles span { padding: 1px 7px; border-radius: 999px; background: rgb(var(--accent) / .14); font-size: 11px; color: rgb(var(--ink)); }
 
 .model-picker-bar { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 12px; margin: 16px -24px 0; padding: 12px 24px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid rgb(var(--line)); background: rgb(var(--panel-raised)); }
 .model-picker-bar-text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; line-height: 18px; }
@@ -55,11 +48,10 @@
 @media (max-width: 640px) {
   .model-picker { padding: 0 16px; }
   .model-card-grid { grid-template-columns: minmax(0, 1fr); }
-  .model-picker-roles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .model-picker-bar { margin: 16px -16px 0; padding-left: 16px; padding-right: 16px; }
   .model-picker-use { min-height: 44px; }
   .model-probe { min-height: 36px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .model-card, .model-probe, .model-picker-use, .model-picker-roles button { transition: none; }
+  .model-card, .model-probe, .model-picker-use { transition: none; }
 }

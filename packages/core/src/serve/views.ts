@@ -25,7 +25,8 @@ export interface Live {
 
 export type Recorded = FlowEvent & { ts: string };
 
-const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
+/** Every backend there is, by the name the page shows it by. */
+export const BACKEND_LABELS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
 /** A step of a turn, as the page's feed knows it. */
 const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change' };
 
@@ -178,7 +179,7 @@ export function daemon(project: Project, live: Live): Daemon {
     // Stopped with calls under way: they end, and no other starts.
     alive: since !== null, draining: since !== null && project.status === 'stopped', pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
-    backend_label: BACKENDS[project.backend], control_available: true,
+    backend_label: BACKEND_LABELS[project.backend], control_available: true,
     read_status: 'ok', read_error: '', protocol_compatible: true, protocol_error: '',
   };
 }
@@ -244,7 +245,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     },
     daemon: daemon(project, live),
     roles: ROLES.map(role => ({
-      role, backend, backend_label: BACKENDS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: live.roles.includes(role),
+      role, backend, backend_label: BACKEND_LABELS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: live.roles.includes(role),
       label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null, last: said[role] ?? null,
     })),
     last_call: last ? {

@@ -36,25 +36,11 @@ describe('model figures', () => {
 });
 
 describe('applying a choice', () => {
-  const roles = (model: string) => ({ manager: model, planner: model, engineer: model, reviewer: model });
-
-  it('one model for every role sets the shared model and releases role pins', () => {
-    expect(choiceWrites({ mode: 'all', shared: 'b', perRole: roles('a'), current: roles('a'), effort: '', currentEffort: roles('high') }))
-      .toEqual([{ name: 'ARGUS_SKILL_MODEL', value: 'b', applyToRoles: true }]);
-    expect(choiceWrites({ mode: 'all', shared: 'a', perRole: roles('a'), current: roles('a'), effort: '', currentEffort: roles('high') }))
-      .toEqual([]);
-  });
-
-  it('per role writes only the roles that changed, and an effort only where it differs', () => {
-    const writes = choiceWrites({
-      mode: 'roles', shared: '', perRole: { ...roles('a'), engineer: 'b' }, current: roles('a'),
-      effort: 'medium', currentEffort: { ...roles('high'), reviewer: 'medium' },
-    });
-    expect(writes).toEqual([
-      { name: 'ARGUS_SKILL_ENGINEER_MODEL', value: 'b' },
-      { name: 'ARGUS_SKILL_MANAGER_REASONING_EFFORT', value: 'medium' },
-      { name: 'ARGUS_SKILL_PLANNER_REASONING_EFFORT', value: 'medium' },
-      { name: 'ARGUS_SKILL_ENGINEER_REASONING_EFFORT', value: 'medium' },
-    ]);
+  it("writes the project's model and effort, each only if it changes", () => {
+    expect(choiceWrites({ model: 'b', effort: '' }, { model: 'a', effort: 'high' }))
+      .toEqual([{ name: 'ARGUS_SKILL_MODEL', value: 'b' }]);
+    expect(choiceWrites({ model: 'a', effort: 'medium' }, { model: 'a', effort: 'high' }))
+      .toEqual([{ name: 'ARGUS_SKILL_REASONING_EFFORT', value: 'medium' }]);
+    expect(choiceWrites({ model: 'a', effort: 'high' }, { model: 'a', effort: 'high' })).toEqual([]);
   });
 });

@@ -330,11 +330,9 @@ export interface ConfigSnapshot {
   generated_at_utc: string;
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
-  /** Models the quick picker offers: the harness catalog, models that answered here recently, the current knobs. */
-  model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'configured' | 'seen' | 'current'; default?: boolean; last_used_at?: number; invalid?: boolean; offline?: boolean }>;
-  model_auto_resolves_to?: string;
-  /** What map text actually runs on; `note` says why a saved pin was set aside for auto. */
   how_to_change: string[];
+  /** Every backend there is, by its name for the page. */
+  backends?: Record<string, string>;
 }
 /** One row of the model chooser: every figure is from the price table or recorded calls. */
 export interface ModelChoice {
@@ -1605,8 +1603,8 @@ export const api = {
   /** The light model's guess at how the line being typed ends; '' when it has none. Nothing is queued. */
   completePrompt: (sid: string, text: string, signal: AbortSignal) =>
     postJson<{ completion?: string }>(P(sid, '/prompt/rewrite'), { text, mode: 'complete' }, signal).then((reply) => reply.completion ?? ''),
-  setConfig: (sid: string, name: string, value: string, applyToRoles = false) =>
-    postJson<Record<string, unknown>>(P(sid, '/config/set'), applyToRoles ? { name, value, apply_to_roles: true } : { name, value }),
+  setConfig: (sid: string, name: string, value: string) =>
+    postJson<Record<string, unknown>>(P(sid, '/config/set'), { name, value }),
   setIdentity: (sid: string, text: string) =>
     postJson<{ ok: boolean }>(P(sid, '/identity'), { text }),
   resetManager: (sid: string) =>

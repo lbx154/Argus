@@ -46,52 +46,13 @@ export function formatLatency(ms: number, locale: 'en' | 'zh-CN'): string {
   return zh ? `${minutes} 分钟` : `${minutes} min`;
 }
 
-export const ROLE_MODEL_KNOB = {
-  manager: 'ARGUS_SKILL_MANAGER_MODEL',
-  planner: 'ARGUS_SKILL_PLAN_MODEL',
-  engineer: 'ARGUS_SKILL_ENGINEER_MODEL',
-  reviewer: 'ARGUS_SKILL_REVIEWER_MODEL',
-} as const;
-
-export const ROLE_EFFORT_KNOB = {
-  manager: 'ARGUS_SKILL_MANAGER_REASONING_EFFORT',
-  planner: 'ARGUS_SKILL_PLANNER_REASONING_EFFORT',
-  engineer: 'ARGUS_SKILL_ENGINEER_REASONING_EFFORT',
-  reviewer: 'ARGUS_SKILL_REVIEWER_REASONING_EFFORT',
-} as const;
-
-export type ChooserRole = keyof typeof ROLE_MODEL_KNOB;
-export const CHOOSER_ROLES = Object.keys(ROLE_MODEL_KNOB) as ChooserRole[];
 export type Effort = 'low' | 'medium' | 'high';
 export const EFFORTS: Effort[] = ['low', 'medium', 'high'];
 
-/**
- * The settings writes that apply a choice, in order. One model for every role
- * sets the shared model and releases role pins; per role sets only the roles
- * that changed. An effort (when chosen) is written for each role it covers.
- */
-export function choiceWrites({ mode, shared, perRole, current, effort, currentEffort }: {
-  mode: 'all' | 'roles';
-  shared: string;
-  perRole: Record<ChooserRole, string>;
-  current: Record<ChooserRole, string>;
-  effort: Effort | '';
-  currentEffort: Record<ChooserRole, string>;
-}): Array<{ name: string; value: string; applyToRoles?: boolean }> {
-  const writes: Array<{ name: string; value: string; applyToRoles?: boolean }> = [];
-  if (mode === 'all') {
-    if (shared && CHOOSER_ROLES.some(role => current[role] !== shared)) {
-      writes.push({ name: 'ARGUS_SKILL_MODEL', value: shared, applyToRoles: true });
-    }
-  } else {
-    for (const role of CHOOSER_ROLES) {
-      if (perRole[role] && perRole[role] !== current[role]) writes.push({ name: ROLE_MODEL_KNOB[role], value: perRole[role] });
-    }
-  }
-  if (effort) {
-    for (const role of CHOOSER_ROLES) {
-      if (currentEffort[role] !== effort) writes.push({ name: ROLE_EFFORT_KNOB[role], value: effort });
-    }
-  }
-  return writes;
+/** The settings writes that apply a choice: the project's one model and effort, each only if it changes. */
+export function choiceWrites(chosen: { model: string; effort: Effort | '' }, current: { model: string; effort: string }) {
+  return [
+    ...chosen.model && chosen.model !== current.model ? [{ name: 'ARGUS_SKILL_MODEL', value: chosen.model }] : [],
+    ...chosen.effort && chosen.effort !== current.effort ? [{ name: 'ARGUS_SKILL_REASONING_EFFORT', value: chosen.effort }] : [],
+  ];
 }
