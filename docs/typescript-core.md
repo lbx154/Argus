@@ -57,21 +57,24 @@ its reader as written: they see the workspace, Argus's record and the letter, no
 conversation, so a letter that hands on new work is that work's whole brief. The operator reads
 every letter, so the letters are the project's timeline. A hand-off Argus refuses goes back to
 its writer once, in the same session, with the reason; refused again, or a turn that fails, is
-a failed call, recorded as such.
+a failed call, recorded as such. Nothing retries it: like a question, it holds up only its role,
+the task or the Planner, till the operator resumes the work, while the rest goes on.
 
 | Role | Writes to |
 |---|---|
 | Manager | `engineer`: the work, whole, when one person can carry it through, opened as a task, the letter its brief; `planner`: work too large for one task, whose later parts depend on what the earlier ones find, or word on the work it runs; `operator`: the answer, report or question |
-| Planner | `engineer`: the next tasks, a letter each, each a result to carry through and its letter its brief; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question it waits on |
+| Planner | `engineer`: the next tasks, a letter each, each a result to carry through and its letter its brief, each naming the tasks it waits for; `planner`: nothing to open now, it reads on with the next letter; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question it waits on |
 | Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the work is stuck; `operator` |
 | Reviewer | `engineer`: what to repair before the operator sees it; `planner` or `manager`: its judgment, accepted or what is wrong, to whoever gave the task; `operator` |
 
 A letter to the Engineer opens a task; a letter from the Engineer or its Reviewer to anyone but
 the two of them closes it, and stays on it as its last word. Nothing is done or finished: the
 host never decides whether a task succeeded, the letter says so. Open tasks run side by side,
-in the same workspace. The Planner cuts work too large for one task into a few large ones, each
-ending in a result rather than a plan for a later one; those that do not depend on each other
-it opens together, a letter each, and it reads their letters together when all have ended.
+in the same workspace, each once the tasks it waits for have closed. The Planner lays out work
+too large for one task as large ones, each ending in a result rather than a plan for a later
+one, each waiting for the tasks whose results it needs (only tasks opened before it, so none
+wait in a circle); it reads its letters as they come, while the tasks go on. A letter that hands
+over a result, the Manager's to the operator or one that closes a task, names its files.
 Letters to the Manager are answered one after another. A question to the operator holds up
 only its asker: its task, or the Planner, waits for the answer while every other task goes on,
 and the page shows each open question as a card of its own. A task's form is made for it: on

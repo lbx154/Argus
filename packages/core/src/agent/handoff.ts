@@ -3,7 +3,8 @@
 // Claude --json-schema), or, with no such answer, takes the hand-off as a tool whose call ends
 // the turn (Copilot, Pi), so a turn cannot end in prose that only reads like a hand-off. The
 // letter is free text: it reaches the addressee as written, and the operator reads every one.
-// A result the Manager hands the operator names its files, which the page opens.
+// A letter that hands over a result names its files, which the page opens; a task the Planner
+// opens names the tasks it waits for, which the host holds it back for.
 
 import { isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts';
 import type { AgentRequest, Form, HandOff } from '../types.js';
@@ -20,7 +21,8 @@ const TO: Record<Form, Record<string, string>> = {
     operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; they run side by side',
+    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; each starts once the tasks it waits for have closed, and those that wait for none run side by side at once',
+    planner: 'nothing to open or tell now: the tasks under way go on, and you read on when the next letter comes',
     manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
     operator: OPERATOR,
   },
@@ -41,24 +43,29 @@ const TO: Record<Form, Record<string, string>> = {
 
 const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
 const LETTERS = 'Your letters, each passed on as written: to the Engineer, one for each task; to anyone else, one. Each reader sees the workspace and its letter, not your conversation.';
+const AFTER = 'The tasks this one waits for, by id: an open or closed one, or one of these letters\' tasks above it, which take the next free ids in order. It starts once they have all closed. Empty when it can start now, and in a letter to anyone else.';
 // The result the operator opens: shown beside the letter as written, without a check.
-const OPEN = 'What the operator opens, when your letter to the operator hands over a result: the paths of its files, relative to the workspace, the one to open first first. Empty for any other letter.';
+const OPEN = 'What the operator opens to see the result your letter hands over, if it hands one over: the paths of its files, relative to the workspace, the one to open first first. Empty when it hands over none.';
 
 export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSchema {
   // The Planner hears only of the tasks it gave: it never had the Manager's.
   const to = Object.fromEntries(Object.entries(TO[form]).filter(([place]) => place !== 'planner' || giver !== 'manager'));
   const meanings = Object.entries(to).map(([place, meaning]) => `${place}, ${meaning}`).join('; ');
   const letter: PayloadSchema = { type: 'string', minLength: 1, maxLength: 20000 };
-  // The Planner may open several tasks at once; every other turn ends in one letter.
-  const [name, letters]: [string, PayloadSchema] = form === 'plan'
-    ? ['letters', { type: 'array', minItems: 1, items: letter, description: LETTERS }] : ['letter', { ...letter, description: LETTER }];
+  const strings = (description: string): PayloadSchema => ({ type: 'array', items: { type: 'string', minLength: 1 }, description });
+  // The Planner may open several tasks at once, each waiting for those it names; every other turn
+  // ends in one letter, and may hand over a result.
+  const fields: Record<string, PayloadSchema> = form === 'plan' ? {
+    letters: {
+      type: 'array', minItems: 1, description: LETTERS, items: {
+        type: 'object', additionalProperties: false, required: ['letter', 'after'], properties: { letter, after: strings(AFTER) },
+      },
+    },
+  } : { letter: { ...letter, description: LETTER }, open: strings(OPEN) };
   return {
     type: 'object', description: 'Your hand-off: the final answer of your turn.', additionalProperties: false,
-    properties: {
-      to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` }, [name]: letters,
-      ...form === 'manager' ? { open: { type: 'array', items: { type: 'string', minLength: 1 }, description: OPEN } } : {},
-    },
-    required: ['to', name, ...form === 'manager' ? ['open'] : []],
+    properties: { to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` }, ...fields },
+    required: ['to', ...Object.keys(fields)],
   };
 }
 
@@ -72,7 +79,11 @@ export function judge(form: Form, schema: PayloadSchema, payload: unknown): stri
   if (payload === undefined) return 'The turn ended without the hand-off form.';
   const errors = schemaErrors(payload, schema);
   if (errors.length || !isJsonObject(payload)) return errors.join('; ');
-  const letters = Array.isArray(payload.letters) ? payload.letters : [payload.letter];
+  const items = Array.isArray(payload.letters) ? payload.letters.filter(isJsonObject) : [payload];
+  const after = items.map(item => Array.isArray(item.after) ? item.after.map(String) : []);
   const open = Array.isArray(payload.open) ? payload.open.map(String) : [];
-  return { form, to: String(payload.to), letters: letters.map(letter => String(letter).trim()), ...open.length ? { open } : {} };
+  return {
+    form, to: String(payload.to), letters: items.map(item => String(item.letter).trim()),
+    ...after.some(ids => ids.length) ? { after } : {}, ...open.length ? { open } : {},
+  };
 }

@@ -119,7 +119,7 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
       case 'task.added':
         // A Planner's task joins its plan; a task from the Manager starts at once.
         row(event.task.from === 'planner' ? 'life.planner.task_added' : 'life.mission.started',
-          { item_id: event.task.id, title: event.task.title, objective: event.task.objective, deps: [] });
+          { item_id: event.task.id, title: event.task.title, objective: event.task.objective, deps: event.task.after ?? [] });
         break;
       case 'task.closed':
         row('life.mission.completed', { item_id: event.task, status: 'done', success: true });
@@ -182,10 +182,14 @@ export function daemon(project: Project, live: Live): Daemon {
   };
 }
 
+/** Each task as the map draws it: after the tasks it waits for, and as it stands. */
 function backlog(project: Project): BacklogItem[] {
+  const closed = new Set(project.tasks.filter(task => task.status === 'closed').map(task => task.id));
   return project.tasks.map(task => ({
-    id: task.id, title: task.title, objective: task.objective, priority: 0, deps: [],
-    status: task.status === 'closed' ? 'done' : asked(project, task.id) ? 'blocked' : 'in_progress',
+    id: task.id, title: task.title, objective: task.objective, priority: 0, deps: task.after ?? [],
+    status: task.status === 'closed' ? 'done' : asked(project, task.id) ? 'blocked'
+      : project.failures?.some(failure => failure.task === task.id) ? 'failed'
+      : (task.after ?? []).every(id => closed.has(id)) ? 'in_progress' : 'pending',
   }));
 }
 

@@ -50,7 +50,7 @@ delivers messages, records what happened, and keeps the permission boundary.
 | Role | What it does | Project files |
 |---|---|---|
 | **Manager** | Your one point of contact. Answers you and does small work itself; hands larger work whole to an Engineer, or to the Planner when one task cannot hold it; reports the result to you. | read and write |
-| **Planner** | Cuts work too large for one task into a few large tasks, each ending in a result you would open. Sends out the ones that do not depend on each other at once, an Engineer each; when they have all ended, reads their letters together and decides what comes next. | read only |
+| **Planner** | Lays out work too large for one task as large tasks, each ending in a result you would open and waiting for the tasks whose results it needs; the rest start at once, an Engineer each. Reads each letter as it comes, while the others work, and decides what comes next. | read only |
 | **Engineer** | Carries one task through, then sends it to the Reviewer. | read and write |
 | **Reviewer** | Opens the result and judges it as you will when you open it: sends back to the Engineer what you would send back, and gives its judgment to whoever gave the task. Reruns the decisive check itself. | read only |
 

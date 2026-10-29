@@ -9,8 +9,9 @@ import { join, resolve } from 'node:path';
 import type { Backend, Role, Step, Usage } from './types.js';
 
 /** `idle`: no letter is waiting for anyone but the operator; `asking`: nothing goes on but what
- * waits for the operator's answers; `stopped`: the operator stopped the work, and no turn starts
- * till they resume it or ask the Manager for more. */
+ * waits for the operator's answers; `failed`: nothing goes on but what waits for the operator to
+ * resume failed turns; `stopped`: the operator stopped the work, and no turn starts till they
+ * resume it or ask the Manager for more. */
 export type Status = 'working' | 'asking' | 'stopped' | 'failed' | 'idle';
 /** A task opens with a letter to the Engineer and closes with a letter from it, or from its
  * Reviewer, to anyone but the two of them. */
@@ -29,6 +30,8 @@ export interface Task {
   holder: Holder;
   /** The last letter on it: what the holder reads next, or for a closed task, its last word. */
   note: Note | null;
+  /** The tasks it waits for: it starts once they have all closed. */
+  after?: string[];
 }
 
 /** A question to the operator: its asker, the task's holder or the Planner, waits for the answer. */
@@ -37,6 +40,14 @@ export interface Question {
   task: string | null;
   /** The asker's letter. */
   question: string;
+}
+
+/** A turn that failed: its role waits, on its task if it was on one, till the operator resumes the
+ * work; the rest of the work goes on. */
+export interface Failure {
+  role: Role;
+  task: string | null;
+  error: string;
 }
 
 export interface Project {
@@ -51,12 +62,14 @@ export interface Project {
   /** The operator's name for the project; absent, the page names it by its request. */
   name?: string;
   status: Status;
-  /** Why the last call failed, with status 'failed'. */
+  /** Why the last call failed, while a failed turn waits. */
   error: string | null;
   /** The operator's open questions, one per asker at most; the rest of the work goes on. */
   questions: Question[];
+  /** The failed turns that wait for the operator to resume the work. */
+  failures?: Failure[];
   tasks: Task[];
-  /** Letters to the Planner; it is called when no task is open and one is waiting. */
+  /** Letters to the Planner, which it reads as they come. */
   inbox: string[];
   /** Letters to the Manager, the operator's and the team's, that no Manager turn has taken yet. */
   forManager?: string[];

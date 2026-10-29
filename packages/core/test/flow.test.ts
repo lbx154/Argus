@@ -18,6 +18,8 @@ interface Step {
   letter?: string;
   /** The Planner's letters, one task each. */
   letters?: string[];
+  /** For each of the Planner's letters, the tasks its task waits for. */
+  after?: string[][];
   /** The files of a result the Manager hands the operator. */
   open?: string[];
   /** The turn ends after the turns already under way have. */
@@ -42,7 +44,8 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
     const handoff = step.to === undefined ? null
-      : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`], ...step.open ? { open: step.open } : {} };
+      : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`],
+          ...step.after ? { after: step.after } : {}, ...step.open ? { open: step.open } : {} };
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
@@ -262,10 +265,10 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
     [['t1', 'Parse data.csv', 'planner', 'closed'], ['t2', 'Write the totals report', 'planner', 'closed']]);
   const [, planner, parse, , replan, report2, , , manager] = requests;
   assert.deepEqual([planner?.form, planner?.access], ['plan', 'read']);
-  assert.match(planner?.prompt ?? '', /## Tasks\n\(none yet\)\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
+  assert.match(planner?.prompt ?? '', /## Tasks\nThe next task opened is t1\.\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
   assert.match(parse?.prompt ?? '', /## Task t1, from the Planner\nParse data\.csv\nCheck: the parser tests pass\.$/);
   assert.equal(replan?.resume, 'planner-2');
-  assert.equal(replan?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n\n## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted: the parser reads every row.');
+  assert.equal(replan?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\nThe next task opened is t2.\n\n## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted: the parser reads every row.');
   assert.match(report2?.prompt ?? '', /## Earlier tasks\n- t1 Parse data\.csv\. Its last word, from the Reviewer: Accepted: the parser reads every row\.\n\n## Task t2, from the Planner\n/);
   assert.equal(manager?.prompt, 'From the Planner:\nThe summary tool is built and checked.');
   assert.deepEqual(project.inbox, []);
@@ -280,6 +283,8 @@ test("tasks the Planner opens together run side by side; one's question holds up
     { role: 'engineer', to: 'operator', letter: 'Which delimiter?' },
     { role: 'engineer', waits: held, to: 'reviewer', letter: 'parsed 2' },
     { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' },
+    // The Planner reads t2's letter at once, while t1 waits for its answer.
+    { role: 'planner', to: 'planner', letter: 'Nothing to open till t1 ends.' },
   ];
   const { flow, id, requests } = await setup(t, steps);
   await flow.say(id, 'Summarise data.csv and data2.csv');
@@ -287,10 +292,11 @@ test("tasks the Planner opens together run side by side; one's question holds up
   // t1 waits for the answer while t2 goes on.
   assert.equal(flow.store.load(id).status, 'working');
   release();
-  // The Planner reads t2's letter once t1 has ended too.
   const asking = await flow.settled(id);
-  assert.deepEqual([asking.status, asking.tasks.map(task => task.status), asking.inbox.length], ['asking', ['open', 'closed'], 1]);
+  assert.deepEqual([asking.status, asking.tasks.map(task => task.status), asking.inbox], ['asking', ['open', 'closed'], []]);
   assert.match(requests[3]?.prompt ?? '', /## Running beside it, in the same workspace\n- t1 Parse data\.csv\n\n## Task t2, from the Planner\nParse data2\.csv$/);
+  assert.equal(requests[5]?.prompt, '## Tasks\n- t1 [open, with the Engineer] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
+    + '## Since your last turn\nFrom the Reviewer, on task t2 (Parse data2.csv):\nAccepted 2.');
   steps.push(
     { role: 'engineer', to: 'reviewer', letter: 'parsed 1' },
     { role: 'reviewer', to: 'planner', letter: 'Accepted 1.' },
@@ -298,8 +304,32 @@ test("tasks the Planner opens together run side by side; one's question holds up
     report,
   );
   assert.equal((await answer(flow, id, asking.questions[0]!, 'comma')).status, 'idle');
-  assert.equal(requests[7]?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n- t2 [closed] Parse data2.csv\n\n## Since your last turn\n'
-    + 'From the Reviewer, on task t2 (Parse data2.csv):\nAccepted 2.\n\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted 1.');
+  assert.equal(requests[8]?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
+    + '## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted 1.');
+});
+
+test('a task the Planner opens waits for the tasks it names, and starts once they have all closed', async t => {
+  const { flow, id, requests, events } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Train the baseline', 'Train the method', 'Compare the two'], after: [[], [], ['t1', 't2', 't9', 't3']] },
+    { role: 'engineer', to: 'planner', letter: 'baseline trained' },
+    { role: 'engineer', later: true, to: 'planner', letter: 'method trained' },
+    // The Planner reads the first letter while the method still trains.
+    { role: 'planner', to: 'planner', letter: 'The comparison waits for the method.' },
+    { role: 'engineer', to: 'planner', letter: 'The method beats the baseline.', open: ['results/compare.md'] },
+    { role: 'planner', to: 'planner', letter: 'The comparison runs.' },
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ]);
+  const project = await say(flow, id, 'Does the method beat the baseline?');
+  // Only tasks opened before it are waited for: a later or unknown one is none.
+  assert.deepEqual(project.tasks.map(task => [task.id, task.after ?? []]), [['t1', []], ['t2', []], ['t3', ['t1', 't2']]]);
+  const turns = requests.map(request => request.role === 'engineer' ? /## Task (t\d)/.exec(request.prompt)?.[1] : request.role);
+  assert.deepEqual(turns, ['manager', 'planner', 't1', 't2', 'planner', 't3', 'planner', 'planner', 'manager']);
+  assert.equal(requests[4]?.prompt.split('\n\n## Since')[0], '## Tasks\n- t1 [closed] Train the baseline\n- t2 [open, with the Engineer] Train the method\n'
+    + '- t3 [open, waits for t2] Compare the two\nThe next task opened is t4.');
+  // The letter that ends a task with a result names its files, kept in the record beside it.
+  assert.deepEqual(events().flatMap(event => event.type === 'handoff' && event.task === 't3' ? [event.open] : []), [['results/compare.md']]);
 });
 
 test('the operator talks to the Manager while the team works, and what it hands on runs beside the work', async t => {
@@ -381,17 +411,24 @@ test('a message the operator withdraws during its Manager turn is not handed on 
   assert.deepEqual((await flow.settled(id)).forManager, []);
 });
 
-test('a failed call stays failed when a letter from the team reaches the Manager: nothing retries it', async t => {
-  const { flow, id, requests } = await setup(t, [
+test('a failed turn holds up only its task: the rest goes on, and the project shows it failed once nothing else does', async t => {
+  const steps: Step[] = [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
     { role: 'engineer', throws: 'spawn codex ENOENT' },
-    { role: 'engineer', later: true, to: 'manager', letter: 'data2.csv parsed' },
-    { role: 'manager', to: 'planner', letter: 'Go on with the totals.' },
-  ]);
-  const project = await say(flow, id, 'Summarise data.csv and data2.csv');
-  assert.deepEqual([project.status, project.error], ['failed', 'spawn codex ENOENT']);
-  assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'engineer', 'manager']);
+    { role: 'engineer', later: true, to: 'planner', letter: 'data2.csv parsed' },
+    { role: 'planner', to: 'planner', letter: 'Waiting for data.csv.' },
+  ];
+  const { flow, id, requests } = await setup(t, steps);
+  const failed = await say(flow, id, 'Summarise data.csv and data2.csv');
+  assert.deepEqual([failed.status, failed.error, failed.failures], ['failed', 'spawn codex ENOENT', [{ role: 'engineer', task: 't1', error: 'spawn codex ENOENT' }]]);
+  assert.deepEqual(failed.tasks.map(task => task.status), ['open', 'closed']);
+  // The operator resumes the work: the failed task goes on, and nothing else is done again.
+  steps.push({ role: 'engineer', to: 'planner', letter: 'data.csv parsed' }, { role: 'planner', to: 'manager', letter: 'Both parsed.' }, report);
+  flow.resume(id);
+  const project = await flow.settled(id);
+  assert.deepEqual([project.status, project.error, project.failures], ['idle', null, []]);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'engineer', 'planner', 'engineer', 'planner', 'manager']);
 });
 
 test('questions wait side by side, and each answer goes to its own asker', async t => {
@@ -406,7 +443,8 @@ test('questions wait side by side, and each answer goes to its own asker', async
   assert.deepEqual([asking.status, asking.questions], ['asking', [
     { role: 'engineer', task: 't1', question: 'Which delimiter?' }, { role: 'engineer', task: 't2', question: 'Which encoding?' },
   ]]);
-  steps.push({ role: 'engineer', to: 'reviewer', letter: 'parsed 2' }, { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' });
+  steps.push({ role: 'engineer', to: 'reviewer', letter: 'parsed 2' }, { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' },
+    { role: 'planner', to: 'planner', letter: 'Waiting for t1.' });
   const one = await answer(flow, id, asking.questions[1]!, 'UTF-8');
   assert.deepEqual([one.status, one.questions.map(question => question.task)], ['asking', ['t1']]);
   assert.equal(requests[4]?.prompt, '## From the operator\nYou asked the operator: Which encoding?\nThey answered: UTF-8');
@@ -434,7 +472,7 @@ test('a task that cannot go on as briefed goes back to the Planner, and on to th
   const project = await say(flow, id, 'Summarise data.csv, in stages');
   assert.equal(project.status, 'idle');
   assert.deepEqual(project.tasks.map(task => [task.status, task.note]), [['closed', { from: 'engineer', text: 'The data has no totals column.' }]]);
-  assert.match(requests[3]?.prompt ?? '', /- t1 \[closed\] Parse data\.csv\n\n## Since your last turn\nFrom the Engineer, on task t1 \(Parse data\.csv\):\nThe data has no totals column\.$/);
+  assert.match(requests[3]?.prompt ?? '', /- t1 \[closed\] Parse data\.csv\nThe next task opened is t2\.\n\n## Since your last turn\nFrom the Engineer, on task t1 \(Parse data\.csv\):\nThe data has no totals column\.$/);
   assert.equal(requests[4]?.resume, 'manager-1');
   assert.equal(requests[4]?.prompt, 'From the Planner:\nNothing to total: the operator must name a column.');
 });

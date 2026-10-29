@@ -1,12 +1,13 @@
 // The flow: every turn ends in a letter to someone. The operator writes to the Manager, who
 // answers at once, whether or not the team is working. A letter to the Engineer opens a task,
 // whose brief it is; the Engineer and the Reviewer write to each other about it, and their letter
-// to anyone else closes it. Open tasks run side by side. The Planner reads its letters when no
-// task is open, and may open several at once. Nothing is done or finished: the work rests when no
-// letter waits for anyone but the operator. Where work goes is the addressee and nothing else; the
-// letter is passed on as written. A question to the operator holds up only its asker: the task, or
-// the Planner, waits for the answer while the rest of the work goes on. A failed turn is recorded
-// and the work stops, without a retry; a hand-off Argus refuses goes back to its writer once.
+// to anyone else closes it. Open tasks run side by side, each once the tasks it waits for have
+// closed, and the Planner reads its letters as they come, opening several tasks at once if it
+// likes. Nothing is done or finished: the work rests when no letter waits for anyone but the
+// operator. Where work goes is the addressee and nothing else; the letter is passed on as written.
+// A question to the operator, or a failed turn, holds up only its role: the task, or the Planner,
+// waits for the operator while the rest of the work goes on. Nothing retries a failed turn; a
+// hand-off Argus refuses goes back to its writer once.
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
@@ -76,12 +77,13 @@ export class Flow {
     this.run(project);
   }
 
-  /** After a failed call the operator writes or resumes: the work goes on, and the letters a
+  /** After a failed call the operator writes or resumes: the failed turns go on, and the letters a
    * failed or interrupted Manager turn left unread go to the Manager again. */
   private retry(project: Project): void {
+    if (project.failures?.length) Object.assign(project, { failures: [], error: null });
     if (project.status === 'failed') this.status(project, 'working');
     for (const letter of project.forManager ?? []) {
-      if (!this.handing.has(letter)) this.handOver(project, letter).catch(error => this.status(project, 'failed', String(error)));
+      if (!this.handing.has(letter)) this.handOver(project, letter).catch(error => this.fail(project, 'manager', null, String(error)));
     }
   }
 
@@ -117,21 +119,23 @@ export class Flow {
     work.done = this.carryOn(project, work).finally(() => this.works.delete(project.id));
   }
 
-  /** Every open task goes on in its own turns, one opened meanwhile at once, but for one waiting for
-   * the operator's answer. With none open, the Planner reads its letters, unless it waits too. */
+  /** Every open task goes on in its own turns once the tasks it waits for have closed, and the
+   * Planner reads its letters as they come, all side by side; what is held up waits for the operator. */
   private async carryOn(project: Project, work: { wake: () => void }): Promise<void> {
-    const running = new Map<Task, Promise<void>>();
+    const running = new Map<Task | 'planner', Promise<void>>();
+    const start = (who: Task | 'planner', go: () => Promise<void>): void => { running.set(who, go().finally(() => running.delete(who))); };
     for (;;) {
       if (this.going(project)) {
-        for (const task of openTasks(project)) {
-          if (!running.has(task) && !waits(project, task)) running.set(task, this.carry(project, task).finally(() => running.delete(task)));
-        }
+        for (const task of openTasks(project)) if (!running.has(task) && ready(project, task)) start(task, () => this.carry(project, task));
+        if (!running.has('planner') && project.inbox.length && !held(project, null)) start('planner', () => this.plan(project));
       }
-      if (running.size) await Promise.race([...running.values(), new Promise<void>(resolve => { work.wake = resolve; })]);
-      else if (!this.going(project)) break;
-      // With none under way, every task still open waits for an answer.
-      else if (project.inbox.length && !project.questions.length) await this.plan(project);
-      else this.status(project, project.questions.length ? 'asking' : 'idle');
+      if (!running.size) break;
+      await Promise.race([...running.values(), new Promise<void>(resolve => { work.wake = resolve; })]);
+    }
+    // At rest, what still waits is for the operator: a failed turn to resume, or a question.
+    if (this.going(project)) {
+      const failed = Boolean(project.failures?.length);
+      this.status(project, failed ? 'failed' : project.questions.length ? 'asking' : 'idle', failed ? project.error : null);
     }
     this.store.save(project);
   }
@@ -141,7 +145,7 @@ export class Flow {
   }
 
   private async carry(project: Project, task: Task): Promise<void> {
-    while (task.status === 'open' && !waits(project, task) && this.going(project)) await this.work(project, task);
+    while (task.status === 'open' && ready(project, task) && this.going(project)) await this.work(project, task);
   }
 
   /** The Manager's turns on a project come one after another, in the order their letters came. */
@@ -226,10 +230,11 @@ export class Flow {
     const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project)))?.handoff;
     if (!handoff) return;
     project.inbox.splice(0, taken);
-    const { to, letters } = handoff;
-    if (to === 'engineer') for (const letter of letters) this.open(project, 'planner', letter);
+    const { to, letters, after } = handoff;
+    // A letter to itself opens nothing: the Planner reads on when the next letter comes.
+    if (to === 'engineer') letters.forEach((letter, at) => this.open(project, 'planner', letter, after?.[at]));
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
-    else await this.writeToManager(project, handedTo('planner', null, read(handoff)));
+    else if (to === 'manager') await this.writeToManager(project, handedTo('planner', null, read(handoff)));
   }
 
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
@@ -259,7 +264,7 @@ export class Flow {
       // The call never ran to an end of its own: it is recorded as ended, failed.
       const error = thrown instanceof Error ? thrown.message : String(thrown);
       this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
-      if (!signal?.aborted) this.status(project, 'failed', error);
+      if (!signal?.aborted) this.fail(project, role, task, error);
       return null;
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
@@ -277,16 +282,26 @@ export class Flow {
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
-    if (!signal?.aborted) {
-      this.status(project, 'failed', completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`);
-    }
+    if (!signal?.aborted) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`);
     return null;
   }
 
-  /** A letter to the Engineer opens a task; its first line names it. */
-  private open(project: Project, from: Task['from'], letter: string): void {
+  /** A failed turn holds up its role, on its task if it was on one, and the rest of the work goes
+   * on; the project shows it failed once nothing else does. */
+  private fail(project: Project, role: Role, task: Task | null, error: string): void {
+    Object.assign(project, { failures: [...project.failures ?? [], { role, task: task?.id ?? null, error }], error });
+    if (this.works.has(project.id)) this.store.save(project);
+    else this.status(project, 'failed', error);
+  }
+
+  /** A letter to the Engineer opens a task; its first line names it. It waits only for tasks opened
+   * before it, so no tasks wait for each other in a circle. */
+  private open(project: Project, from: Task['from'], letter: string, after: string[] = []): void {
     const title = letter.split('\n')[0]!.slice(0, 100);
-    const task: Task = { id: `t${project.tasks.length + 1}`, title, from, objective: letter, status: 'open', holder: 'engineer', note: null };
+    const waits = [...new Set(after)].filter(id => project.tasks.some(task => task.id === id));
+    const task: Task = {
+      id: `t${project.tasks.length + 1}`, title, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},
+    };
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
   }
@@ -334,5 +349,10 @@ type ManagerTurn = { signal?: AbortSignal | undefined; operator?: boolean };
 /** Whether the team has had work: a task, or a letter to the Planner. */
 const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;
 
-/** Whether the task waits for the operator's answer to its question. */
-const waits = (project: Project, task: Task): boolean => project.questions.some(question => question.task === task.id);
+/** Whether a question or a failed turn holds up the task, or with none, the Planner: it waits for the operator. */
+const held = ({ questions, failures = [] }: Project, task: Task | null): boolean =>
+  [...questions, ...failures].some(hold => task ? hold.task === task.id : hold.role === 'planner');
+
+/** Whether the task's next turn can start: nothing holds it up, and the tasks it waits for have closed. */
+const ready = (project: Project, task: Task): boolean => !held(project, task)
+  && (task.after ?? []).every(id => project.tasks.find(other => other.id === id)?.status === 'closed');

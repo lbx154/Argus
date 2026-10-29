@@ -40,31 +40,37 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
   schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string;
 };
-const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.' };
+const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.', open: [] };
 
 test('a hand-off is a letter to one of the places its role can write to', () => {
-  assert.deepEqual(schemaErrors({ to: 'done', letter: '', extra: 1 }, formSchema('engineer')), [
+  assert.deepEqual(schemaErrors({ to: 'done', letter: '', open: [], extra: 1 }, formSchema('engineer')), [
     'to must be one of ["reviewer","engineer","planner","manager","operator"]', 'letter must have length >= 1', 'extra is not allowed',
   ]);
   assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required', 'open is required']);
-  // A result the Manager hands the operator names its files; no other form has the field.
+  // A letter that hands over a result names its files; the Planner's letters hand over none.
   const report = { to: 'operator', letter: 'The report is done.', open: ['report/index.html', 'figures/a.png'] };
   assert.deepEqual(judge('manager', formSchema('manager'), report), { form: 'manager', to: 'operator', letters: ['The report is done.'], open: report.open });
   assert.deepEqual(judge('manager', formSchema('manager'), { ...report, open: [] }), { form: 'manager', to: 'operator', letters: ['The report is done.'] });
-  assert.deepEqual(schemaErrors({ ...handoff, open: [] }, formSchema('engineer')), ['open is not allowed']);
+  assert.deepEqual(judge('review', formSchema('review', 'planner'), { ...report, to: 'planner' }),
+    { form: 'review', to: 'planner', letters: ['The report is done.'], open: report.open });
+  assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [] }], open: [] }, formSchema('plan')), ['open is not allowed']);
   // A task's form offers its giver: the Planner, which never had a task the Manager gave, is not on its form.
   for (const form of ['engineer', 'review'] as const) {
     assert.deepEqual([formSchema(form, 'manager'), formSchema(form, 'planner')].map(({ properties }) => properties!.to!.enum!.includes('planner')), [false, true]);
   }
-  // The Planner's letters to the Engineer open a task each.
+  // The Planner's letters to the Engineer open a task each, waiting for the tasks each names.
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [] }, formSchema('plan')), ['letters must have 1 or more items']);
+  const plan = { to: 'engineer', letters: [{ letter: 'Train the baseline', after: [] }, { letter: 'Compare with it', after: ['t3'] }] };
+  assert.deepEqual(judge('plan', formSchema('plan'), plan), { form: 'plan', to: 'engineer', letters: ['Train the baseline', 'Compare with it'], after: [[], ['t3']] });
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'manager', letters: [{ letter: 'Done.', after: [] }] }), { form: 'plan', to: 'manager', letters: ['Done.'] });
   // A letter that opens a task names it in its first line, the title the progress map shows.
   for (const form of ['manager', 'plan'] as const) assert.match(String(formSchema(form).properties!.to!.description), /opens a task, [^;]*first line, a short title/);
   // Every field is required and none other allowed: the strict shape OpenAI's structured outputs take.
-  for (const form of ['manager', 'plan', 'engineer', 'review'] as const) {
-    const { properties, required, additionalProperties } = formSchema(form);
-    assert.deepEqual([required, additionalProperties], [Object.keys(properties!), false]);
-  }
+  const strict = ({ properties, required, additionalProperties, items }: ReturnType<typeof formSchema>): void => {
+    if (properties) assert.deepEqual([required, additionalProperties], [Object.keys(properties), false]);
+    for (const inner of [...Object.values(properties ?? {}), ...items ? [items] : []]) strict(inner);
+  };
+  for (const form of ['manager', 'plan', 'engineer', 'review'] as const) strict(formSchema(form));
 });
 
 test('under bubblewrap a turn writes the directories it is given to write only when its role writes', { skip: process.platform !== 'linux' && 'Linux only' }, () => {
@@ -147,9 +153,9 @@ for (const backend of BACKENDS) {
   });
 
   test(`${backend}: a refused form completes the turn with no hand-off and says why`, async () => {
-    const missing = await call(backend, { output: { to: 'reviewer' } });
+    const missing = await call(backend, { output: { to: 'reviewer', open: [] } });
     assert.deepEqual([missing.completed, missing.handoff, missing.error], [true, null, 'letter is required']);
-    const misaddressed = await call(backend, { output: { to: 'planner', letter: 'Accepted.' } }, { giver: 'manager' });
+    const misaddressed = await call(backend, { output: { to: 'planner', letter: 'Accepted.', open: [] } }, { giver: 'manager' });
     assert.deepEqual([misaddressed.handoff, misaddressed.error], [null, 'to must be one of ["reviewer","engineer","manager","operator"]']);
     assert.deepEqual(seen(backend).schema.properties.to?.enum, ['reviewer', 'engineer', 'manager', 'operator']);
   });

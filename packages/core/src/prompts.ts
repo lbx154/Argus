@@ -91,8 +91,15 @@ export function taskPrompt(project: Project, task: Task, resumed: boolean): stri
 }
 
 export function plannerPrompt(project: Project): string {
-  const tasks = project.tasks.map(task => `- ${task.id} [${task.status === 'open' ? `open, with the ${NAMES[task.holder]}` : 'closed'}] ${task.title}`);
-  return join(section('Tasks', tasks.join('\n') || '(none yet)'), section('Since your last turn', project.inbox.join('\n\n')));
+  const open = new Set(project.tasks.filter(task => task.status === 'open').map(task => task.id));
+  const state = (task: Task): string => {
+    if (task.status === 'closed') return 'closed';
+    const waits = (task.after ?? []).filter(id => open.has(id));
+    return waits.length ? `open, waits for ${waits.join(', ')}` : `open, with the ${NAMES[task.holder]}`;
+  };
+  const tasks = project.tasks.map(task => `- ${task.id} [${state(task)}] ${task.title}`);
+  return join(section('Tasks', [...tasks, `The next task opened is t${project.tasks.length + 1}.`].join('\n')),
+    section('Since your last turn', project.inbox.join('\n\n')));
 }
 
 /** A letter that reaches the Planner or the Manager from another role. */
