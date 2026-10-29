@@ -90,8 +90,10 @@ export interface AgentResult {
 }
 
 /** One backend turn. `close` ends the sessions kept under keys that start with its prefix, and all
- * their CLIs started; `models` names the models a backend offers, its default marked. */
+ * their CLIs started; `steer` puts a letter into the turn under way in a session, false when none
+ * is or its backend cannot take one; `models` names the models a backend offers, its default marked. */
 export type CallAgent = ((request: AgentRequest) => Promise<AgentResult>) & {
   close?: (prefix: string) => Promise<void>;
+  steer?: (session: string, text: string) => Promise<boolean>;
   models?: (backend: Backend, cwd: string) => Promise<{ model: string; default: boolean }[]>;
 };

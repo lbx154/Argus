@@ -12,7 +12,7 @@
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Project, Question, Status, Store, Task } from './store.js';
-import { answered, handedTo, instructions, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, handedTo, instructions, letterPrompt, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep } from './serve/files.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
@@ -238,15 +238,18 @@ export class Flow {
     project.inbox.splice(0, taken);
     const { to, letters, tasks } = handoff;
     // A letter to itself opens nothing: the Planner reads on when the next letter comes; nor does
-    // one to an open task, which its holder reads at their next turn.
+    // one to an open task, which its holder reads as soon as they can.
     if (to === 'engineer') {
       const opened = new Map<string, string>();
-      letters.forEach((letter, at) => {
+      for (const [at, letter] of letters.entries()) {
         const { task: id = '', after = [] } = tasks?.[at] ?? {};
         const open = openTasks(project).find(task => task.id === id);
-        if (open) (open.unread ??= []).push({ from: 'planner', text: letter });
-        else opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
-      });
+        if (!open) opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
+        // In the holder's turn under way, where its backend can take a letter; else at their next.
+        else if (!await this.callAgent.steer?.(`${project.id}/${open.id}.${open.holder}`, letterPrompt('planner', letter))) {
+          (open.unread ??= []).push({ from: 'planner', text: letter });
+        }
+      }
       this.store.save(project);
     }
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));

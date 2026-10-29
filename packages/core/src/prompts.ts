@@ -92,6 +92,9 @@ export const rewritePrompt = (draft: string): string => join(
   "Rewrite the operator's draft below as one clear paragraph the team can carry out as it stands. Keep the operator's language and intent, and add no requirement they did not state. Your letter, to the operator, is the rewritten paragraph alone: they read it, and send it as their own.",
   section('Draft', draft));
 
+/** A letter put into a turn under way. */
+export const letterPrompt = (from: Note['from'], text: string): string => section(`From the ${NAMES[from]}, during your turn`, text);
+
 /** The Engineer's or Reviewer's turn on `task`, whichever holds it. */
 export function taskPrompt(project: Project, task: Task, resumed: boolean): string {
   const note = join(task.note && section(`From the ${NAMES[task.note.from]}`, task.note.text),

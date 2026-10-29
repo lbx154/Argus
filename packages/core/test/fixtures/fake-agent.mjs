@@ -67,6 +67,8 @@ if (cli === 'codex') {
   // JSON-RPC over stdin and stdout, as the app-server speaks it.
   let thread = null;
   let instructions;
+  /** For a turn that waits for a letter: how it goes on once one comes. */
+  let steerable = null;
   const reply = (id, result) => emit({ id, result });
   const notify = (method, params) => emit({ method, params: { threadId: thread, ...params } });
   createInterface({ input: process.stdin }).on('line', line => {
@@ -77,12 +79,25 @@ if (cli === 'codex') {
       instructions = params.developerInstructions ?? undefined;
       return reply(id, { thread: { id: thread }, model: 'gpt-5.5' });
     }
+    if (method === 'turn/steer') {
+      if (!steerable || params.expectedTurnId !== 'turn-1') return emit({ id, error: { code: -32600, message: 'no active turn' } });
+      reply(id, { turnId: 'turn-1' });
+      return steerable(params.input[0].text);
+    }
     if (method !== 'turn/start') return;
     reply(id, { turn: { id: 'turn-1', status: 'inProgress' } });
     const scenario = scenarioOf(params.input[0].text);
-    note({ schema: params.outputSchema, instructions, model: params.model ?? undefined });
+    const seen = { schema: params.outputSchema, instructions, model: params.model ?? undefined };
+    note(seen);
     leave(scenario);
     if (scenario.hang) return;
+    if (scenario.steer) {
+      steerable = steered => { steerable = null; note({ ...seen, steered }); end(scenario); };
+      return;
+    }
+    end(scenario);
+  });
+  const end = scenario => {
     const began = new Date(parseInt(thread.replace(/-/g, '').slice(0, 12), 16));
     const pad = value => String(value).padStart(2, '0');
     const day = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions',
@@ -101,7 +116,7 @@ if (cli === 'codex') {
     notify('item/completed', { item: { id: 'item_2', type: 'fileChange', changes: [{ path: 'parser.js', kind: 'update' }], status: 'completed' } });
     notify('item/completed', { item: { id: 'item_3', type: 'agentMessage', text: answerOf(scenario.output) } });
     notify('turn/completed', { turn: { id: 'turn-1', status: 'completed', error: null } });
-  });
+  };
 } else if (cli === 'claude') {
   // A user message a line, each answered by a turn ending in a result, whose cost is the session's so far.
   const session = (args.includes('--resume') && option('--resume')) || randomUUID();

@@ -29,6 +29,8 @@ export interface Conversation {
    * on a CLI readies it for the session first, with the request that started it; `request` is
    * this turn's. */
   turn(cli: Cli, prompt: string, turn: { request: AgentRequest; onStep: (step: Step | null) => void; started: number }): Promise<TurnEnd>;
+  /** Puts `text` into the turn under way, which reads it at its next step: false when none is. */
+  steer?(cli: Cli, text: string): Promise<boolean>;
 }
 
 /** How a turn ended; `output` is its final answer, the form as filled in. */
@@ -131,6 +133,10 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
 }, {
   /** Ends every CLI kept under a key that starts with `prefix`, and all they started. */
   close: (prefix: string): Promise<void> => Promise.all([...live.keys()].filter(key => key.startsWith(prefix)).map(key => end(key))).then(() => undefined),
+  steer: async (key: string, text: string): Promise<boolean> => {
+    const kept = live.get(key);
+    return !!kept && !kept.cli.gone && (await kept.conversation.steer?.(kept.cli, text) ?? false);
+  },
   models,
 });
 

@@ -30,6 +30,8 @@ export const codex: StartBackend = (request, { confined, schema }) => {
   let thread = request.resume ?? null;
   let ready = false;
   let model: string | null = null;
+  /** The turn under way, which a letter can still reach. */
+  let running: unknown = null;
   return {
     args, instructed: true,
     async turn(cli, prompt, { request: now, onStep, started }) {
@@ -71,14 +73,22 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         // The model and effort of this turn and those after it: a change needs no new app-server.
         model: now.model ?? null, effort: now.effort ?? null,
       });
-      turnId = isJsonObject(turn) ? turn.id : null;
+      running = turnId = isJsonObject(turn) ? turn.id : null;
       const finished = await ended;
+      running = null;
       const sessions = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions');
       const counted = codexUsage(confined ? privatePath(sessions, request.cwd) : sessions, thread!, started);
       return {
         threadId: thread, completed: finished && status === 'completed', output: form(text), model: counted.model ?? model ?? request.model ?? null, usage: counted.usage,
         error: !finished ? cli.why() : status === 'completed' ? null : error ?? `Codex reported the turn ${status}.`,
       };
+    },
+    async steer(cli, text) {
+      if (running === null) return false;
+      try {
+        await cli.request('turn/steer', { threadId: thread, expectedTurnId: running, input: [{ type: 'text', text, text_elements: [] }] });
+        return true;
+      } catch { return false; }
     },
   };
 };

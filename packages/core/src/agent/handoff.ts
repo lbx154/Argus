@@ -21,7 +21,7 @@ const TO: Record<Form, Record<string, string>> = {
     operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; each starts once the tasks it waits for have closed, and those that wait for none run side by side at once. A letter naming an open task opens none: whoever holds that task reads it at their next turn',
+    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; each starts once the tasks it waits for have closed, and those that wait for none run side by side at once. A letter naming an open task opens none: whoever holds that task reads it as soon as they can, in the turn under way or their next',
     planner: 'nothing to open or tell now: the tasks under way go on, and you read on when the next letter comes',
     manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
     operator: OPERATOR,
@@ -44,7 +44,7 @@ const TO: Record<Form, Record<string, string>> = {
 const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
 const LETTERS = 'Your letters, each passed on as written: to the Engineer, one for each task; to anyone else, one. Each reader sees the workspace and its letter, not your conversation.';
 const AFTER = 'The tasks this one waits for, by id: an open or closed one, or one of these letters\' tasks above it, which take the next free ids in order. It starts once they have all closed. Empty when it can start now, and in a letter to anyone else.';
-const TASK = 'The open task this letter is for, by id: whoever holds it reads the letter at their next turn, and no task is opened. Empty for a letter that opens a task, and in a letter to anyone else.';
+const TASK = 'The open task this letter is for, by id: whoever holds it reads the letter as soon as they can, in the turn under way or their next, and no task is opened. Empty for a letter that opens a task, and in a letter to anyone else.';
 // The result the operator opens: shown beside the letter as written, without a check.
 const OPEN = 'What the operator opens to see the result your letter hands over, if it hands one over: the paths of its files, relative to the workspace, the one to open first first; the letter\'s first line names the result, a short title. Empty when it hands over none.';
 

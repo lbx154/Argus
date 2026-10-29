@@ -33,7 +33,7 @@ export interface Task {
   note: Note | null;
   /** The tasks it waits for: it starts once they have all closed. */
   after?: string[];
-  /** Letters to whoever holds it, written while they worked: they read them at their next turn. */
+  /** Letters to whoever holds it, written while they worked, that their turn could not take: they read them at their next. */
   unread?: Note[];
 }
 

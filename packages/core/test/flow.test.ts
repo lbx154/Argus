@@ -62,7 +62,7 @@ async function setup(t: TestContext, steps: Step[], controller?: AbortController
   const flow = new Flow(store, callAgent, controller ? { signal: controller.signal } : {});
   const { id } = store.create({ workdir: home, request: 'the request', backend: 'codex', model: null });
   const events = (): FlowEvent[] => readFileSync(join(store.dir(id), 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line) as FlowEvent);
-  return { home, store, flow, id, requests, events };
+  return { home, store, flow, id, requests, events, callAgent };
 }
 
 /** The operator's message or answer, and the project once the work it set going rests. */
@@ -393,6 +393,30 @@ test("the Planner writes to a task under way, and its holder reads the letter at
   const project = await flow.settled(id);
   assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.unread], ['idle', 1, []]);
   assert.equal(requests[5]?.prompt, '## From the Engineer\nStill training.\n\n## From the Planner, since the task\'s last turn\nSwitch to the newer model now.');
+});
+
+test("a letter to a task under way goes into its holder's turn at once, where the turn can take one", async t => {
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests, callAgent } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Train the baseline' },
+    { role: 'engineer', waits: held, to: 'planner', letter: 'Trained, on the newer model.' },
+    { role: 'manager', to: 'planner', letter: 'The operator wants the newer model.' },
+    { role: 'planner', to: 'engineer', letters: ['Switch to the newer model now.'], tasks: [{ task: 't1', after: [] }] },
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ]);
+  const steered: string[][] = [];
+  Object.assign(callAgent, { steer: async (session: string, text: string) => { steered.push([session, text]); return true; } });
+  await flow.say(id, 'Train a baseline');
+  while (requests.length < 3) await new Promise(resolve => setImmediate(resolve));
+  await flow.say(id, 'Use the newer model');
+  while (!steered.length) await new Promise(resolve => setImmediate(resolve));
+  release();
+  const project = await flow.settled(id);
+  assert.deepEqual(steered, [[`${id}/t1.engineer`, '## From the Planner, during your turn\nSwitch to the newer model now.']]);
+  assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.unread ?? []], ['idle', 1, []]);
 });
 
 test('the operator talks to the Manager while the team works, and what it hands on runs beside the work', async t => {

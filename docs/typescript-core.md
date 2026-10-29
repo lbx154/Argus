@@ -234,9 +234,12 @@ only `cmd.exe` runs; the agent layer runs the file the shim names instead, a scr
 Node.
 
 A session ends, and everything its CLI started with it, when its task closes, its project
-stops (once nothing is under way), Argus exits, a turn on it is stopped, or the CLI exits on its
-own; the next turn starts a new CLI, which resumes the session from the backend's record. A turn
-that asks for other settings (a model, an effort) does the same. Ending a CLI ends what it
+stops or comes to rest with no question or failure waiting in it, Argus exits, a turn on it is
+stopped, or the CLI exits on its own; the next turn starts a new CLI, which resumes the session
+from the backend's record. A turn that asks for other settings does the same, except that Codex
+takes a model and an effort with each turn. A letter the Planner writes to a task under way goes
+into its holder's turn at once where the backend takes one (Codex's `turn/steer`), else waits on
+the task for their next turn. Ending a CLI ends what it
 started however it detached (`nohup … &`, `setsid`): the CLI's environment carries
 `ARGUS_TURN`, a value of its own that whatever it starts inherits, and the runtime ends what
 carries it or stays in the CLI's process group (`executeProcess`); under bubblewrap the sandbox

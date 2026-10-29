@@ -39,6 +39,7 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
 });
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
   schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string; run: string; model?: string;
+  steered?: string;
 };
 const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.', open: [] };
 
@@ -238,6 +239,19 @@ for (const backend of ['codex', 'claude'] as const) {
     assert.deepEqual(jobs(), ['started\n', 'started\n']);
   });
 }
+
+test('codex: a letter reaches the turn under way in a session, and none reaches a session with no turn under way', async t => {
+  const session = 'p-test/t2.engineer';
+  t.after(() => callAgent.close!('p-test/'));
+  assert.equal(await callAgent.steer!(session, 'early'), false);
+  const pending = call('codex', { output: handoff, steer: true }, { session });
+  for (let waited = 0; !await callAgent.steer!(session, '## From the Planner\nSwitch models.'); waited += 50) {
+    assert.ok(waited < 10_000, 'the turn never took the letter');
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.deepEqual([(await pending).handoff?.to, seen('codex').steered], ['reviewer', '## From the Planner\nSwitch models.']);
+  assert.equal(await callAgent.steer!(session, 'late'), false);
+});
 
 test('stopping a turn ends what it started, however it was detached', { skip: unseen, timeout: 30_000 }, async () => {
   const server = createServer().listen(0, '127.0.0.1').unref();
