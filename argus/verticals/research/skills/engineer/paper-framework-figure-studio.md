@@ -168,7 +168,7 @@ EXPORT=$(find "$ARGUS_SKILL_HOME" . -name pptx_export.py -path '*figure_spec_scr
 ```
 
 It reads the PPTX with `pptx_to_svg.py`, renders the slide in the browser,
-keeps the slide SVG under `paper/figures/src/<name>/` and records provenance.
+and keeps the slide SVG under `paper/figures/src/<name>/`.
 The PDF's producer then says Skia/PDF; a PDF beside a PPTX with any other
 producer (pdfTeX, Ghostscript, cairo, matplotlib) is reported by `figure_lint`
 as not exported from the PPTX. Open `<name>.png` after every export: that is

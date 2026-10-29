@@ -85,8 +85,8 @@ the data, bars from 30, seeds averaged into one bar, an in-plot title), so
 4. **`save` writes what the manuscript and the review need**: `<stem>.pdf`
    (TrueType fonts, embed this), `<stem>.png` at manuscript width (open it and
    look), `paper/figures/src/<stem>/facts.json` (what the figure encodes:
-   repeats per series, axis origin, legend placement, missing points) and a
-   provenance entry. `inputs=` names the results files the figure came from.
+   repeats per series, axis origin, legend placement, missing points).
+   `inputs=` names the results files the figure came from.
 
 5. **Look at the PNG at final size** before the figure enters the draft:
    clipping, crowded ticks, labels covering dots, panels that compare methods
@@ -172,8 +172,7 @@ vertical's browser renderer, with the paper theme applied by
 `figure_spec_scripts/echarts_figure.py` (palette, axes, typography at a stated
 point size, the method under test emphasised, error bars from an `error`
 list). The editable source is `paper/figures/src/<id>/option.json`; the export
-is `paper/figures/<id>.pdf` with embedded TrueType fonts and a provenance
-record:
+is `paper/figures/<id>.pdf` with embedded TrueType fonts:
 
 ```bash
 HELPER=$(find "$ARGUS_SKILL_HOME" . -name echarts_figure.py -path '*figure_spec_scripts*' 2>/dev/null | head -1)

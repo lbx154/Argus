@@ -453,72 +453,6 @@ def write_data_domain(
     return path
 
 
-def revise_data_domain_stages(
-    project_root: object,
-    name: str,
-    *,
-    stages: list[str] | tuple[str, ...],
-    reason: str = "",
-) -> Path:
-    """Refine one existing project domain without creating a competing domain."""
-    path = _domain_path(project_root, name)
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError(f"data domain {name!r} is not an object")
-    current = DataDomain(payload)
-    if not current.STAGE_ORDER:
-        raise ValueError(f"data domain {name!r} has no valid stages")
-    revised = list(dict.fromkeys(
-        str(stage or "").strip().lower()
-        for stage in stages
-        if str(stage or "").strip()
-    ))
-    if len(revised) < 2 or any(
-        not is_valid_domain_name(stage) for stage in revised
-    ):
-        raise ValueError("a revised data domain needs at least 2 valid stage slugs")
-    if revised == list(current.STAGE_ORDER):
-        return path
-
-    from datetime import datetime, timezone
-
-    payload["adapted_from_stages"] = list(current.STAGE_ORDER)
-    payload["stages"] = revised
-    payload["checklist_stage_order"] = revised
-    payload["adapted_at"] = datetime.now(timezone.utc).isoformat()
-    payload["adapted_by"] = "manager"
-    payload["adaptation_reason"] = str(reason or "").strip()[:600]
-    checklist = payload.get("checklist")
-    if isinstance(checklist, dict):
-        payload["checklist"] = {
-            stage: items
-            for stage, items in checklist.items()
-            if stage in revised
-        }
-    _atomic_write_json(path, payload)
-    _update_index(
-        project_root,
-        name,
-        {
-            key: payload[key]
-            for key in (
-                "stages",
-                "checklist_stage_order",
-                "completion_gate",
-                "created_by",
-                "created_at",
-                "status",
-                "purpose",
-                "promoted",
-                "adapted_at",
-                "adaptation_reason",
-            )
-            if key in payload
-        },
-    )
-    return path
-
-
 def promote_data_domain(
     project_root: object,
     learned_root: object,
@@ -617,7 +551,6 @@ __all__ = [
     "migrate_data_domains",
     "promote_data_domain",
     "record_data_domain_failure",
-    "revise_data_domain_stages",
     "write_data_domain",
     "mark_promoted",
 ]

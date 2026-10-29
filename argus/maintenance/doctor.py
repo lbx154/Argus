@@ -123,14 +123,6 @@ def _probe_web(host: str, port: int) -> tuple[str, dict[str, Any]]:
         return "occupied_unresponsive", {}
 
 
-def _package_directory(root: Path) -> Path | None:
-    """``argus/`` in a current checkout; ``argus_skill/`` in one from before the rename."""
-    for name in ("argus", "argus_skill"):
-        if (root / name).is_dir():
-            return root / name
-    return None
-
-
 def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
     checkout = context.checkout
     if checkout is None:
@@ -147,8 +139,7 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
             evidence={"install_mode": context.install_mode},
         )]
     root = checkout.expanduser().resolve()
-    package = _package_directory(root)
-    valid = (root / "pyproject.toml").is_file() and package is not None
+    valid = (root / "pyproject.toml").is_file() and (root / "argus").is_dir()
     findings = [_finding(
         "ARGUS-INSTALL-001", "install", valid,
         "source_checkout" if valid else "broken_checkout",
@@ -160,7 +151,7 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
     if not valid:
         return findings
 
-    manifest = (package or root / "argus") / "release_manifest.json"
+    manifest = root / "argus" / "release_manifest.json"
     web = root / "frontend" / "web" / "dist" / "index.html"
     tui = root / "frontend" / "tui" / "bundle" / "argus.mjs"
     missing = [str(path.relative_to(root)) for path in (manifest, web, tui) if not path.is_file()]

@@ -26,26 +26,13 @@ from argus.tools.image_api import (
     _redact,
 )
 from argus.tools.image_api import review_image as _generic_review_image
-from argus.verticals.research.venue_profiles import (
-    VenueProfile,
-    resolve_venue_profile,
-)
 
 
 def _review_prompt(
     *,
     original_prompt: str,
     rubric: str,
-    venue_profile: VenueProfile | None = None,
 ) -> str:
-    figure_persona = (
-        venue_profile.figure_style_persona
-        if venue_profile is not None
-        else "top-tier academic venue"
-    )
-    reviewer_persona = (
-        venue_profile.reviewer_persona if venue_profile is not None else "venue"
-    )
     # When the caller supplies a real rubric (as the AI-figure validator does),
     # that rubric is authoritative: it defines the reviewer's task, the exact
     # pass/fail criteria, AND the exact JSON fields to emit (e.g.
@@ -56,7 +43,7 @@ def _review_prompt(
     # rubric is supplied, the generic schema below is used.
     if rubric and rubric.strip():
         return (
-            f"You are reviewing an academic paper figure for a {figure_persona} "
+            "You are reviewing an academic paper figure for a top-tier academic venue "
             "submission. Review the rendered raster you "
             "are shown, and read every label directly from the image rather than "
             "trusting the prompt text.\n\n"
@@ -75,7 +62,7 @@ def _review_prompt(
             f"Rubric:\n{rubric}"
         )
     return (
-        f"You are reviewing an academic paper figure for a {figure_persona} submission. "
+        "You are reviewing an academic paper figure for a top-tier academic venue submission. "
         "Your sole task is to judge whether the figure effectively communicates "
         "the paper's method to a reader and is ready for submission. Minor colour "
         "or spacing preferences are not quality issues, but connector geometry, "
@@ -87,7 +74,7 @@ def _review_prompt(
         "4. Do all declared arrows have correct source, target, direction, branch "
         "label, and node-boundary termination, without penetrating unrelated nodes or text?\n"
         "5. Are all elements non-overlapping, unclipped, and readable at final paper size?\n"
-        f"6. Would a {reviewer_persona} reviewer understand the method from this figure and its caption?\n\n"
+        "6. Would a venue reviewer understand the method from this figure and its caption?\n\n"
         "Return JSON with:\n"
         "- score_1_to_5: your advisory overall impression of the figure\n"
         "- major_issues: semantic errors plus connector penetration, overlap, "
@@ -99,7 +86,7 @@ def _review_prompt(
         "semantically correct and submission-ready, otherwise 'regenerate' — with "
         "your rationale in major_issues.\n\n"
         f"Original figure prompt:\n{original_prompt or '(not provided)'}\n\n"
-        f"Rubric:\n{rubric or f'Does this figure effectively communicate the paper method to a {reviewer_persona} reviewer?'}"
+        f"Rubric:\n{rubric or 'Does this figure effectively communicate the paper method to a venue reviewer?'}"
     )
 
 
@@ -109,12 +96,11 @@ def review_image(
     out: Path | None = None,
     prompt: str = "",
     rubric: str = "",
-    venue_profile: VenueProfile | None = None,
     env: Mapping[str, str] | None = None,
     timeout: float | None = _DEFAULT_TIMEOUT_SECONDS,
     max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> dict[str, Any]:
-    """Paper-figure vision review: build the venue-aware paper prompt, then
+    """Paper-figure vision review: build the paper prompt, then
     call the generic ``tools.image_api`` reviewer to actually talk to the
     model.
     """
@@ -122,7 +108,6 @@ def review_image(
     review_instruction = _review_prompt(
         original_prompt=original_prompt,
         rubric=rubric,
-        venue_profile=venue_profile,
     )
     target = out or image.with_suffix(image.suffix + ".review.json")
     result = _generic_review_image(
@@ -137,18 +122,6 @@ def review_image(
     result["rubric"] = rubric
     _atomic_write_json(target, result)
     return result
-
-
-def _resolve_optional_venue(project_root: Path) -> VenueProfile | None:
-    """Best-effort venue resolution for review persona wording.
-
-    A project without a researched venue profile still gets a useful figure
-    review — the persona just stays generic.
-    """
-    try:
-        return resolve_venue_profile(project_root)
-    except Exception:  # noqa: BLE001 — persona is a nicety, never a blocker
-        return None
 
 
 def _print_json(data: dict[str, Any]) -> None:
@@ -172,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         "--project-root",
         type=Path,
         default=Path("."),
-        help="project whose researched venue profile shapes the reviewer persona",
+        help="accepted for older commands; not used",
     )
     rev.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SECONDS)
     rev.add_argument("--max-retries", type=int, default=_DEFAULT_MAX_RETRIES)
@@ -186,7 +159,6 @@ def main(argv: list[str] | None = None) -> int:
                 out=args.out,
                 prompt=prompt,
                 rubric=args.rubric,
-                venue_profile=_resolve_optional_venue(args.project_root),
                 timeout=args.timeout,
                 max_retries=int(args.max_retries),
             ))

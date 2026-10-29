@@ -3,12 +3,11 @@
 No machine in this fleet has PowerPoint or LibreOffice, so until this script
 existed every "exported from the PPTX" PDF had actually come from TikZ, cairo
 or Ghostscript. The tests stub the two external steps (pptx_to_svg and the
-browser) and check the page, the sizes, the outputs and the provenance.
+browser) and check the page, the sizes, and the outputs.
 """
 from __future__ import annotations
 
 import importlib.util
-import json
 from pathlib import Path
 
 import pytest
@@ -40,7 +39,7 @@ def test_slide_size_comes_from_the_svg_root(mod) -> None:
         mod.slide_size_px("<html/>")
 
 
-def test_export_writes_pdf_png_page_and_provenance_from_the_pptx(mod, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_export_writes_pdf_png_and_page_from_the_pptx(mod, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     figures = tmp_path / "paper" / "figures"
     figures.mkdir(parents=True)
     (figures / "fig1_method.pptx").write_bytes(b"PK stub")
@@ -82,11 +81,6 @@ def test_export_writes_pdf_png_page_and_provenance_from_the_pptx(mod, tmp_path: 
     assert all(c[c.index("--width") + 1] == "960" and c[c.index("--height") + 1] == "432" for c in calls)
     scale = float(calls[1][calls[1].index("--device-scale-factor") + 1])
     assert scale == round((170 / 25.4 * mod.PNG_DPI) / 960, 2)
-    manifest = json.loads((figures / "FIGURE_PROVENANCE.json").read_text(encoding="utf-8"))
-    entry = manifest["figures"][0]
-    assert entry["figure_id"] == "fig1_method" and entry["renderer"] == "pptx-browser"
-    assert entry["output_path"] == "paper/figures/fig1_method.pdf"
-    assert entry["command"] == "pptx_export.py --pptx paper/figures/fig1_method.pptx"
 
 
 def test_slide_out_of_range_and_missing_pptx_are_errors(mod, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

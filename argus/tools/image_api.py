@@ -22,7 +22,6 @@ import sys
 import time
 import urllib.error
 import urllib.request
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -32,6 +31,7 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
+from ..core.atomic_replace import write_atomic
 from .capability_vault import ModelApiGrant, ModelApiRoute, load_model_api_route
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -299,56 +299,15 @@ def _extract_image_bytes(
     raise ImageToolError("image response missing b64_json or url")
 
 
-def _atomic_replace(
-    source: Path,
-    destination: Path,
-    *,
-    platform_name: str | None = None,
-) -> None:
-    """Replace a file atomically, tolerating brief Windows sharing races."""
-    platform_name = os.name if platform_name is None else platform_name
-    attempts = 6 if platform_name == "nt" else 1
-    for attempt in range(attempts):
-        try:
-            os.replace(source, destination)
-            return
-        except PermissionError:
-            if attempt >= attempts - 1:
-                raise
-            time.sleep(0.01 * (2**attempt))
-
-
-def _atomic_write(path: Path, data: bytes, *, force: bool) -> None:
+def _atomic_write(path: Path, data: bytes | str, *, force: bool) -> None:
     if path.exists() and not force:
         raise ImageToolError(f"{path} already exists; pass --force to overwrite")
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    try:
-        tmp.write_bytes(data)
-        _atomic_replace(tmp, path)
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+    write_atomic(path, data)
 
 
 def _atomic_write_json(path: Path, data: dict[str, Any], *, force: bool = True) -> None:
-    if path.exists() and not force:
-        raise ImageToolError(f"{path} already exists; pass --force to overwrite")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
-    try:
-        tmp.write_text(
-            json.dumps(data, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        _atomic_replace(tmp, path)
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+    _atomic_write(path, json.dumps(data, indent=2, sort_keys=True) + "\n", force=force)
 
 
 def _sidecar_path(out: Path) -> Path:

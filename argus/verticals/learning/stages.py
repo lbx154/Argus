@@ -12,7 +12,6 @@ from ...skills.stage_machine import ChecklistItem
 
 STAGE_ORDER = ["ingest", "study", "curate", "review"]
 completion_gate = "none"
-PROTECTED_SKILL_TAGS: frozenset[str] = frozenset()
 
 
 def stage_completion_issues(stage: str, project_root: Path) -> tuple[str, ...]:
@@ -88,7 +87,6 @@ def role_banner(role: str) -> str:
 __all__ = [
     "CHECKLIST_ITEMS",
     "CHECKLIST_STAGE_ORDER",
-    "PROTECTED_SKILL_TAGS",
     "STAGE_ORDER",
     "completion_gate",
     "role_banner",

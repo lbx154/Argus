@@ -12,12 +12,9 @@ principle-level analysis rather than an experiment report or a numerical gate.
 """
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import pytest
-
-from argus.verticals.research import venue_profiles
 
 SKILLS = (
     Path(__file__).resolve().parents[1]
@@ -60,15 +57,6 @@ def test_reference_count_is_not_a_hard_blocker() -> None:
     # The real citation gate stays: entries must resolve and be genuine.
     assert "unresolved citations" in blockers
     assert "fabricated" in blockers
-
-
-def test_venue_profiles_no_longer_carry_a_bibliography_quota() -> None:
-    # These fields existed but had no consumer, so a venue that set 15 was
-    # still judged against the skills' hard-coded 35.
-    fields = {f.name for f in dataclasses.fields(venue_profiles.VenueProfile)}
-
-    assert "min_verified_bib_entries" not in fields
-    assert "min_cited_keys" not in fields
 
 
 # -- page budget is a ceiling, not a quota ----------------------------------

@@ -2,7 +2,7 @@
 
 Offline: the renderer is replaced by a stub that writes the expected files, so
 the tests cover the theme, the editable source layout, error bars from data,
-locating the local ECharts bundle and provenance bookkeeping.
+and locating the local ECharts bundle.
 """
 from __future__ import annotations
 
@@ -87,10 +87,6 @@ def test_source_layout_and_render_through_a_stub_renderer(mod, tmp_path: Path, m
     assert [Path(c[c.index("--output") + 1]).name for c in calls] == ["fig2_error.pdf", "fig2_error.svg"]
     width = int(calls[0][calls[0].index("--width") + 1])
     assert width == round(84 * 96 / 25.4)
-    manifest = json.loads((tmp_path / "paper" / "figures" / "FIGURE_PROVENANCE.json").read_text(encoding="utf-8"))
-    entry = manifest["figures"][0]
-    assert entry["figure_id"] == "fig2_error" and entry["renderer"] == "echarts-browser"
-    assert entry["output_path"] == "paper/figures/fig2_error.pdf"
 
 
 def test_cli_reads_settings_from_the_spec(mod, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
