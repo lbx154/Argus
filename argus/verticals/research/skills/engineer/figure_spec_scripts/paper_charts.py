@@ -664,10 +664,11 @@ def save(
     project_root: str | Path | None = None,
     png_dpi: int = PNG_DPI,
 ) -> dict[str, str]:
-    """Write ``<stem>.pdf`` and ``<stem>.png``, the facts file, and the provenance entry.
+    """Write ``<stem>.pdf`` and ``<stem>.png`` and the facts file.
 
-    ``inputs`` are the results files the figure was drawn from (recorded, not
-    read). ``source`` is the analysis script (defaults to the running script).
+    ``inputs`` are the results files the figure was drawn from (recorded in
+    the facts file, not read). ``role`` and ``source`` are accepted so older
+    analysis scripts keep working; nothing reads them.
     """
     import matplotlib.pyplot as plt
 
@@ -696,7 +697,6 @@ def save(
     facts_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     plt.close(fig)
     written = {"pdf": str(pdf), "png": str(png), "facts": str(facts_path)}
-    _register(root, stem_path, pdf, source, inputs, role, facts_path)
     return written
 
 
@@ -705,30 +705,6 @@ def _project_root_for(stem_path: Path) -> Path:
         if (parent / "paper").is_dir() and (parent / "paper" / "main.tex").is_file():
             return parent
     return Path.cwd()
-
-
-def _register(root: Path, stem_path: Path, pdf: Path, source: str | Path | None, inputs: Sequence[str | Path], role: str, facts_path: Path) -> None:
-    script = Path(source) if source is not None else Path(sys.argv[0]) if sys.argv and sys.argv[0] else None
-    if script is None or not script.is_file():
-        return
-    try:
-        from argus.verticals.research.figure_provenance import register_figure
-    except ImportError:  # the project venv has no argus: the facts file is the record
-        return
-    try:
-        register_figure(
-            project_root=root,
-            figure_id=stem_path.name,
-            role=role,
-            renderer=RENDERER,
-            source_path=script,
-            output_path=pdf,
-            inputs=[Path(p) for p in inputs if Path(p).is_file()],
-            render_metadata_path=facts_path,
-            command=" ".join(sys.argv[:3]),
-        )
-    except Exception as exc:  # noqa: BLE001 - provenance is bookkeeping, the figure exists
-        print(f"figure provenance not recorded: {exc}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------

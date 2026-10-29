@@ -331,8 +331,9 @@ def render_chart(
     role: str = "result",
     timeout_ms: int = 120_000,
 ) -> dict[str, str]:
-    """Theme, write the editable source, render every format, record provenance.
+    """Theme, write the editable source, render every format.
 
+    ``role`` is accepted so older callers keep working; nothing reads it.
     Returns the written paths keyed by kind (``option``, ``html``, ``pdf``, ``svg``).
     """
     root = Path(project_root).resolve()
@@ -358,24 +359,6 @@ def render_chart(
             ]
         )
         written[fmt] = str(output)
-    try:
-        from argus.verticals.research.figure_provenance import register_figure
-
-        primary = Path(written.get("pdf") or written.get("svg") or written["html"])
-        metadata = primary.with_name(primary.name + ".render.json")
-        register_figure(
-            project_root=root,
-            figure_id=figure_id,
-            role=role,
-            renderer="echarts-browser",
-            source_path=html_path,
-            output_path=primary,
-            inputs=[option_path],
-            render_metadata_path=metadata if metadata.is_file() else None,
-            command=f"echarts_figure.py --id {figure_id}",
-        )
-    except Exception as exc:  # noqa: BLE001 - provenance is bookkeeping, the figure exists
-        print(f"figure provenance not recorded: {exc}", file=sys.stderr)
     return written
 
 
@@ -398,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height-mm", type=float, default=None)
     parser.add_argument("--font-pt", type=float, default=None)
     parser.add_argument("--ours", default=None, help="series name to emphasise as the method under test")
-    parser.add_argument("--role", default="result", help="provenance role: mechanism, result, ablation, ...")
+    parser.add_argument("--role", default="result", help="accepted for older commands; not used")
     parser.add_argument("--no-svg", action="store_true", help="export the PDF only")
     parser.add_argument("--echarts-js", default=None, help="local echarts.min.js to use")
     parser.add_argument("--timeout-ms", type=int, default=120_000)

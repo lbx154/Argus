@@ -14,8 +14,8 @@ page, and renders it through the vertical's browser renderer:
 
 writes ``paper/figures/fig1_method.pdf`` (vector, producer Skia/PDF) and
 ``paper/figures/fig1_method.png`` (raster, for inspection at manuscript
-width), keeps the slide SVG and page under ``paper/figures/src/<stem>/``,
-and records provenance. ``figure_lint`` reports a method-figure PDF whose
+width), and keeps the slide SVG and page under ``paper/figures/src/<stem>/``.
+``figure_lint`` reports a method-figure PDF whose
 producer is not an export chain (TeX, matplotlib, Ghostscript, cairo)
 beside a PPTX, so this is the only route that satisfies the stem rule.
 """
@@ -147,8 +147,9 @@ def export_pptx(
     role: str = "method",
     timeout_ms: int = 120_000,
 ) -> dict[str, Any]:
-    """Export ``<stem>.pdf`` and ``<stem>.png`` beside the PPTX; record provenance.
+    """Export ``<stem>.pdf`` and ``<stem>.png`` beside the PPTX.
 
+    ``role`` is accepted so older callers keep working; nothing reads it.
     Returns the written paths and the slide's physical size in millimetres.
     """
     root = Path(project_root).resolve()
@@ -192,23 +193,6 @@ def export_pptx(
         "width_mm": round(width_px / PX_PER_MM, 1),
         "height_mm": round(height_px / PX_PER_MM, 1),
     }
-    try:
-        from argus.verticals.research.figure_provenance import register_figure
-
-        metadata = pdf_path.with_name(pdf_path.name + ".render.json")
-        register_figure(
-            project_root=root,
-            figure_id=stem,
-            role=role,
-            renderer=RENDERER,
-            source_path=pptx_path,
-            output_path=pdf_path,
-            inputs=[svg_path, html_path],
-            render_metadata_path=metadata if metadata.is_file() else None,
-            command=f"pptx_export.py --pptx {pptx_path.relative_to(root).as_posix() if pptx_path.is_relative_to(root) else pptx_path}",
-        )
-    except Exception as exc:  # noqa: BLE001 - provenance is bookkeeping, the export exists
-        print(f"figure provenance not recorded: {exc}", file=sys.stderr)
     return written
 
 
