@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
+import { statSync } from 'node:fs';
 import { appendFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -53,21 +54,23 @@ async function setup(t: TestContext, token?: string) {
   return { home, store, requests, call, send, get, create, busy };
 }
 
-test('a project works in an existing directory, set when it is made or later, while nothing is under way on it', async t => {
+test('a project works in a directory, made if it is new, set when the project is made or later, while nothing is under way on it', async t => {
   const { home, store, send, get, create, busy } = await setup(t);
   const repo = join(home, 'repo');
   await mkdir(repo);
   assert.ok((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.workdir.v1'));
   const sid = await create({ workdir: repo });
   assert.equal(store.load(sid).workdir, repo);
-  assert.equal((await send('POST', '/api/daemons', { workdir: join(home, 'missing') })).status, 400);
+  const made = await create({ workdir: join(home, 'new', 'dir') });
+  assert.equal(store.load(made).workdir, join(home, 'new', 'dir'));
+  assert.ok(statSync(join(home, 'new', 'dir')).isDirectory());
 
   const other = join(home, 'other');
   await mkdir(other);
   const fresh = await create();
   assert.equal(store.load(fresh).workdir, join(home, 'workspaces', fresh));
   store.save({ ...store.load(fresh), sessions: { manager: 'thread' } });
-  for (const workdir of ['', join(home, 'missing'), join(home, 'web', 'manifest.webmanifest')]) {
+  for (const workdir of ['', join(home, 'web', 'manifest.webmanifest')]) {
     assert.equal((await send('POST', `/api/projects/${fresh}/workdir`, { workdir })).status, 400, workdir);
   }
   assert.deepEqual(await (await send('POST', `/api/projects/${fresh}/workdir`, { workdir: other })).json(), { ok: true, workdir: other });

@@ -141,9 +141,10 @@ for (const backend of BACKENDS) {
   test(`${backend}: the role's steps are told as its turn goes on: what it says, runs and changes`, async () => {
     const steps: Step[] = [];
     await call(backend, { output: handoff }, { onStep: step => steps.push(step) });
-    // Not what only reads, a subagent's work, or the form the turn ends with.
+    // Not what only reads, or the form the turn ends with; what a subagent runs is the role's, its words its own.
     assert.deepEqual(steps, [
       { kind: 'message', text: 'Working on it.' }, { kind: 'command', text: 'npm test' }, { kind: 'edit', text: 'parser.js' },
+      ...backend === 'codex' || backend === 'claude' ? [{ kind: 'command', text: 'npm run lint' }] : [],
     ]);
   });
 

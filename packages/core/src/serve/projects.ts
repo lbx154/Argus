@@ -4,7 +4,7 @@
 // changed where it is held: by the work under way on it, or on disk. Its directory and backend
 // change only while nothing is under way, since the calls under way work in them.
 
-import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { ProjectCostRow } from '@argus/contracts';
@@ -33,10 +33,14 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
   },
 };
 
-/** The directory a request names, `~` for home; '' when it names none. It must exist. */
+/** The directory a request names, `~` for home, made if it is new; '' when it names none. */
 export function directory(asked: string): string {
   const path = asked && resolve(asked.replace(/^~(?=$|\/)/, homedir()));
-  if (path && !statSync(path, { throwIfNoEntry: false })?.isDirectory()) throw new HttpError(400, `workdir is not a directory: ${path}`);
+  try {
+    if (path) mkdirSync(path, { recursive: true });
+  } catch (error) {
+    throw new HttpError(400, `${path} cannot be the working directory: ${error instanceof Error ? error.message : String(error)}`);
+  }
   return path;
 }
 

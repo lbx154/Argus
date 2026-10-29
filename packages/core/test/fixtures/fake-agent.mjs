@@ -116,6 +116,9 @@ if (cli === 'codex') {
     notify('item/started', { item: { id: 'item_1', type: 'commandExecution', command: 'npm test', status: 'inProgress' } });
     notify('item/completed', { item: { id: 'item_1', type: 'commandExecution', command: 'npm test', exitCode: 0, status: 'completed' } });
     notify('item/completed', { item: { id: 'item_2', type: 'fileChange', changes: [{ path: 'parser.js', kind: 'update' }], status: 'completed' } });
+    // A subagent, on a thread of its own.
+    notify('item/completed', { threadId: 'subagent', item: { id: 'item_0', type: 'agentMessage', text: 'Subagent at work.' } });
+    notify('item/started', { threadId: 'subagent', item: { id: 'item_1', type: 'commandExecution', command: 'npm run lint', status: 'inProgress' } });
     notify('item/completed', { item: { id: 'item_3', type: 'agentMessage', text: answerOf(scenario.output) } });
     notify('turn/completed', { turn: { id: 'turn-1', status: 'completed', error: null } });
   };
@@ -153,8 +156,7 @@ if (cli === 'codex') {
     const said = (content, more = {}) => emit({ type: 'assistant', session_id: session, message: { role: 'assistant', content }, ...more });
     said([{ type: 'text', text: 'Working on it.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
       { type: 'tool_use', name: 'Read', input: { file_path: 'README.md' } }, { type: 'tool_use', name: 'Edit', input: { file_path: 'parser.js' } }]);
-    // A subagent's message is its own.
-    said([{ type: 'text', text: 'Subagent at work.' }], { parent_tool_use_id: 'toolu_1' });
+    said([{ type: 'text', text: 'Subagent at work.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm run lint' } }], { parent_tool_use_id: 'toolu_1' });
     const output = scenario.output;
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answerOf(output), ...typeof output === 'object' ? { structured_output: output } : {} });

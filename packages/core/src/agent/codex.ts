@@ -56,17 +56,21 @@ export const codex: StartBackend = (request, { confined, schema }) => {
       let text = '';
       let error: string | null = null;
       let status = '';
-      // This turn's events only: the thread's own, and once this turn is named, none of another's.
+      // This turn's events only: once it is named, none of another turn of the thread's. The CLI
+      // runs this session alone, so another thread on it is a subagent the turn started: what it
+      // runs and edits are the role's steps, though its words and its end are its own.
       let turnId: unknown = null;
       const ended = cli.until(({ method, params }) => {
-        if (!isJsonObject(params) || params.threadId !== thread) return false;
+        if (!isJsonObject(params)) return false;
+        const own = params.threadId === thread;
         const of = isJsonObject(params.turn) ? params.turn.id : params.turnId;
-        if (turnId !== null && of !== undefined && of !== turnId) return false;
+        if (own && turnId !== null && of !== undefined && of !== turnId) return false;
         const item = isJsonObject(params.item) ? params.item : {};
         if (method === 'item/started' && item.type === 'commandExecution') onStep(used(item.type, item));
         else if (method === 'item/completed' && item.type === 'fileChange' && Array.isArray(item.changes)) {
           for (const { path } of item.changes.filter(isJsonObject)) onStep(typeof path === 'string' ? { kind: 'edit', text: path } : null);
-        } else if (method === 'item/completed' && item.type === 'agentMessage') onStep(said(text = String(item.text ?? '')));
+        } else if (!own) return false;
+        else if (method === 'item/completed' && item.type === 'agentMessage') onStep(said(text = String(item.text ?? '')));
         else if (method === 'error' && isJsonObject(params.error) && params.willRetry !== true) error = String(params.error.message ?? error);
         else if (method === 'turn/completed' && isJsonObject(params.turn)) {
           status = String(params.turn.status);

@@ -45,10 +45,12 @@ export const claude: StartBackend = (request, { confined, schema }) => {
           mine = event.type === 'user' && event.uuid === uuid;
           return false;
         }
-        // A subagent's messages are its own; the role's steps are in its own.
-        const content = event.type === 'assistant' && !event.parent_tool_use_id && isJsonObject(event.message) && Array.isArray(event.message.content)
+        // What a subagent runs and edits are the role's steps; its words are its own.
+        const content = event.type === 'assistant' && isJsonObject(event.message) && Array.isArray(event.message.content)
           ? event.message.content.filter(isJsonObject) : [];
-        for (const part of content) onStep(part.type === 'text' ? said(part.text) : part.type === 'tool_use' ? used(part.name, part.input) : null);
+        for (const part of content) {
+          onStep(part.type === 'text' && !event.parent_tool_use_id ? said(part.text) : part.type === 'tool_use' ? used(part.name, part.input) : null);
+        }
         if (event.type !== 'result') return false;
         result = event;
         return true;
