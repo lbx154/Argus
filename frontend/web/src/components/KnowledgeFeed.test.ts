@@ -6,10 +6,10 @@ const roots: Record<string, string> = { project: '.autors/proj/wiki', 'vertical/
 const page = (name: string, updated_at: number, scope: WikiScope, vertical = '', extra: Partial<WikiLibraryItem> = {}): WikiLibraryItem => ({
   scope, vertical, root: roots[scope === 'vertical' ? `vertical/${vertical}` : scope],
   path: `pages/${name.toLowerCase().replace(/\s+/g, '-')}.md`, title: name, description: `About ${name}`, updated_at,
-  kind: 'page', source: '', created: '', reuse_count: 0, ...extra,
+  kind: 'page', source: '', created: '', ...extra,
 });
 const items = [
-  page('Fused epilogue', 60, 'project', 'research', { kind: 'fact', source: 's-one/m1', created: '2026-09-17', reuse_count: 2 }),
+  page('Fused epilogue', 60, 'project', 'research', { kind: 'fact', source: 's-one/m1', created: '2026-09-17' }),
   page('Baseline table', 50, 'vertical', 'research'),
   page('Lean tactics', 45, 'vertical', 'math', { kind: 'lesson', path: 'pages/lessons/20260917-lean-tactics.md', source: 's-two/m7', created: '2026-09-17' }),
   page('Cluster etiquette', 40, 'global', '', { kind: 'survey', source: 'chat/s-one' }),

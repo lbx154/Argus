@@ -152,8 +152,6 @@ export interface WikiLibraryItem {
   source: string;
   /** ISO date the page was written; empty when unknown. */
   created: string;
-  /** How many times the host handed this page to a role as recalled knowledge. */
-  reuse_count: number;
 }
 /** One knowledge library (global, one vertical, or the project): INDEX.md plus its pages. */
 export interface WikiLibrary {

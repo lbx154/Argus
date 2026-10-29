@@ -17,7 +17,7 @@ const custom = { ...builtin, library: 'project:learned', source: 'project', scop
   name: 'Operator original title', description: 'Do not rewrite this description', updated_at: 2 } as SkillLibraryItem;
 const wiki: WikiLibraryItem = { scope: 'private', vertical: '', root: '/synthetic/private-notes', path: 'notes/example.md',
   title: 'Original personal note', description: 'Original evidence summary', kind: 'note', source: 'synthetic conversation',
-  created: '2026-09-18', updated_at: 3, reuse_count: 0 };
+  created: '2026-09-18', updated_at: 3 };
 let client: QueryClient, view: ReactTestRenderer | undefined;
 const content = (node: ReactTestInstance): string => node.children.map(child => typeof child === 'string' ? child : content(child)).join('');
 const settle = async () => { await act(async () => { await vi.advanceTimersByTimeAsync(5); }); };
