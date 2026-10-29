@@ -127,8 +127,10 @@ test('the Manager answers directly', async t => {
   assert.equal(request?.prompt, '## Message\nWhat is 6 times 7?');
   assert.match(request?.instructions ?? '', /^You are the Argus Manager[\s\S]*## Where things are\n/);
   const skill = join(SKILLS, 'research', 'SKILL.md');
-  assert.ok(request?.instructions?.includes('\n- research: Research that ends in a claim others should trust: the pitfalls past projects hit, '
-    + `and what good evidence looks like (${skill})\n`));
+  assert.ok(request?.instructions?.includes('\n- research: Research that ends in a result worth publishing: where to start, how to use the machine, '
+    + `and the few setup errors that quietly ruin a result (${skill})\n`));
+  // Every role writes for a person, and knows the machine.
+  assert.match(request?.instructions ?? '', /## Writing for a person\n[\s\S]*\nThe machine: \d+ CPU cores, \d+ GiB of memory/);
   // A project with no work rests, and an answer leaves it resting.
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });

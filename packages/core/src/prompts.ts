@@ -52,13 +52,13 @@ export function renameSkills(home: string): void {
   }
 }
 
-const rules = (role: Role): string => readFileSync(new URL(`../prompts/${role}.md`, import.meta.url), 'utf8').trim();
+const rules = (name: Role | 'writing'): string => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim();
 const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
 
-/** A role's standing instructions: its rules, and where the work, Argus's record of it and the
- * skills are, and the date. */
-export const instructions = (role: Role, project: Project, store: Store): string => join(rules(role), where(project, store));
+/** A role's standing instructions: its rules, how every role writes, and where the work, Argus's
+ * record of it and the skills are, the date and the machine. */
+export const instructions = (role: Role, project: Project, store: Store): string => join(rules(role), rules('writing'), where(project, store));
 
 function where(project: Project, store: Store): string {
   const library = skillsHome(store.home);
