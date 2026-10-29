@@ -1,4 +1,4 @@
-# Web request cancellation
+# Web work controls and request lifetimes
 
 ## Workbench navigation and runtime controls
 
@@ -13,9 +13,9 @@ second composer inside runtime controls.
 
 Runtime controls reads device telemetry while visible and keeps maintenance,
 recovery, and diagnostics collapsed until needed. Opening the page does not
-check/apply source updates, restart a daemon, or submit work. Safe pause drains
-current work, and maintenance commands retain command revisions and explicit
-confirmation. Read-only views cannot execute controls.
+check/apply source updates, restart a daemon, or submit work. Stop interrupts
+current work immediately. Maintenance commands retain command revisions and
+explicit confirmation. Read-only views cannot execute controls.
 
 Each GPU card displays the host's original device index, reported model,
 compute utilization, memory usage, and Argus reservation state. Computing,
@@ -29,39 +29,24 @@ The attachment button uses the existing Argus mark while retaining its Add files
 label and file-picker behavior. Core transitions use brief opacity/transform
 feedback, do not replay on every streamed fragment, and honor reduced motion.
 
-The composer stops its current Manager request on the server. Every submission
-has a fresh `request_id`; `POST /api/projects/{sid}/message/cancel` targets that
-identity. The cancellation POST has its own connection lifetime and a five-second
-client deadline. Closing the SSE reader alone does not communicate cancellation.
-WebAPI protocol 1.16 advertises `manager.request-cancel.v1`; the matching frontend
-requires it, so a new Stop button cannot silently target an older server that
-only understands browser disconnection. Update the tenant backends and portal
-frontend together during release.
+The TypeScript cockpit has one Stop control for the selected project. After
+confirmation, `POST /api/projects/{sid}/daemon/stop` interrupts every call under
+way, including the Manager's reply. Files, records and interrupted messages
+are kept; Resume (`POST /api/projects/{sid}/daemon/start`) continues the work.
+The server exposes `daemon.resumable` when there is work to take up.
 
-The trial portal reserves connections for cancellation and daemon Stop, separate
-from model-backed messages, snapshot reads and objective changes. Cancellation
-in the WebAPI is memory-only and does not wait for the Manager session lock or a
-shared HTTP worker. The request callback reaches the run gateway and the provider
-process through `RunnerOptions.external_interrupt_reason_provider`.
+A send still waiting for its attachments is cancelled locally because its
+message has not reached the server; its text and attachments remain in the
+composer. Changing projects only detaches the browser conversation and leaves
+server work running. Closing the SSE reader alone does not stop that work.
 
-The app owns a bounded request registry. Cancellation arriving before submission
-leaves a short-lived marker; a late cancellation cannot stop another request.
-Active requests are never evicted. Finished identities and early cancellations
-remain for 120 seconds; when retained capacity is full, admission fails explicitly.
-IDs are single-use and clients must not replay a failed message POST automatically.
-The registry is process-local, matching the current single-process WebAPI runtime.
+Keyboard help lists the available shortcuts. Read-only presentation links use
+`?kiosk=1`.
 
-The worker owns completion of its cancellation lease. If an HTTP coroutine exits
-while its synchronous provider thread is still running, that thread remains
-cancellable. A cancelled request still waiting for a worker slot cannot enter the
-Manager later. Streaming and ordinary message delivery use the same startup
-checks: only pending work can restart an executor, and a newer Stop or objective
-change invalidates an older handoff. Startup and its acknowledgement share the
-daemon command execution lock; model calls and slow status reads stay outside it.
+## Legacy Python runtime
 
-Stopping a reply cancels the foreground request. Work already handed to the team
-has its separate task/daemon Stop controls. Changing the selected project only
-detaches its browser conversation; it does not implicitly cancel project work.
+The following sections describe request lifetimes in the Python runtime, which
+continues serving existing projects separately from the TypeScript core.
 
 ## Dispatch confirmation
 
@@ -193,8 +178,7 @@ protocol before making intake cancellation-aware.
 threads are running or queued. `test_message_stop_delivery.py` covers provider
 interruption, stale handoffs, resolved questions and paused/completed task replay
 through both HTTP message transports. Trial proxy tests hold ordinary connections
-open while forwarding cancellation on the reserved pool. Frontend tests cover
-independent cancellation, its deadline and request IDs on plain HTTP.
+open while forwarding cancellation on the reserved pool.
 
 `test_dispatch_receipt_truth.py` drives the real Manager/canonical Backlog through
 both HTTP transports with deterministic classification and startup, including

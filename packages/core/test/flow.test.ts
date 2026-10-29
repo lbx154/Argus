@@ -499,14 +499,6 @@ test("the operator's message outlasts a Manager turn the process stopped, and re
   assert.deepEqual(events().filter(event => event.type === 'message' || event.type === 'handoff').map(event => event.type), ['message', 'handoff']);
 });
 
-test('a message the operator withdraws during its Manager turn is not handed on again', async t => {
-  const { flow, id } = await setup(t, [{ role: 'manager', interrupt: true }]);
-  const withdrawn = new AbortController();
-  withdrawn.abort();
-  assert.equal(await flow.say(id, 'never mind', withdrawn.signal), null);
-  assert.deepEqual((await flow.settled(id)).forManager, []);
-});
-
 test('a failed turn holds up only its task: the rest goes on, and the project shows it failed once nothing else does', async t => {
   const steps: Step[] = [
     { role: 'manager', to: 'planner', letter: brief },

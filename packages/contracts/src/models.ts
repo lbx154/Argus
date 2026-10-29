@@ -30,8 +30,6 @@ export interface DaemonHealth {
 export interface Daemon {
   alive: boolean;
   pid: number | null;
-  /** A pause-after-current-task request is still being honoured. */
-  draining?: boolean;
   /** Nothing is under way, and Resume has work to take up. */
   resumable?: boolean;
   liveness_source?: 'pid_lock' | 'namespace_heartbeat' | 'none' | string;

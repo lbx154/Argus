@@ -50,14 +50,14 @@ describe('progress health', () => {
     expect(progressHealth(snapshot(backlog, false, restarted), accepted + 45 * 3600)).toBeNull();
   });
 
-  it('renders a dismissible banner with the two remedies', () => {
-    const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1" onPause={() => undefined} onAdjust={() => undefined}
+  it('renders a dismissible banner with a way to adjust the request', () => {
+    const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1" onAdjust={() => undefined}
       health={{ problem: 'repeated_failures', key: 'failures:d', failures: 3, hoursWithoutAccepted: 0, latestFailure: { title: '训练', reason: 'OOM' } }} />);
     expect(html).toContain('最近 3 个任务都没有完成');
     expect(html).toContain('最近一次：训练');
     expect(html).toContain('<details');
     expect(html).toMatch(/<pre[^>]*>OOM<\/pre>/);
-    expect(html).toContain('当前任务完成后暂停');
+    expect(html).toContain('在对话里调整要求');
     expect(html).toContain('知道了');
   });
 });

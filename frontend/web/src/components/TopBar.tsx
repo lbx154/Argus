@@ -69,7 +69,7 @@ export function TopBar({
     || snap.session.objective
     || '', snap.session.workdir, snap.session.cwd);
   const degraded = Boolean(snap.partial || snap.observability?.slo.status === 'degraded');
-  const phase = teamPhase(work, snap);
+  const phase = teamPhase(work);
   // A project nobody has written to yet has finished nothing: it waits for the person (rule 6).
   const untouched = isFreshProject(snap) && phase === 'done' && !events.length && !focus;
   const statusWords = !streamOk ? t('common.reconnecting') : snapshotStale ? t('common.stale')

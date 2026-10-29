@@ -5,8 +5,6 @@ import { shortcut } from '../lib/format';
 const BINDINGS: { keys: string; desc: string }[] = [
   { keys: shortcut('K'), desc: 'help.palette' },
   { keys: shortcut('B'), desc: 'help.sessions' },
-  { keys: shortcut('T'), desc: 'help.reasoning' },
-  { keys: shortcut('.'), desc: 'help.kiosk' },
   { keys: `/ · ${shortcut('J')}`, desc: 'help.composer' },
   { keys: '@ / #', desc: 'help.mention' },
   { keys: 'Tab', desc: 'help.acceptSuggestion' },

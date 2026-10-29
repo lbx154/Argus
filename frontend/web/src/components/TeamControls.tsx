@@ -11,9 +11,8 @@ import { Modal } from './Modal';
 /** The four states a person asks about: is the team working, waiting on me, paused, or done? */
 export type TeamPhase = 'running' | 'waiting_you' | 'paused' | 'stopped' | 'done' | 'unknown';
 
-export function teamPhase(status: WorkStatus, snapshot?: Snapshot): TeamPhase {
+export function teamPhase(status: WorkStatus): TeamPhase {
   if (status.reason === 'operator_input') return 'waiting_you';
-  if (snapshot?.daemon.alive && snapshot.daemon.draining) return 'running';
   if (status.state === 'running' || status.state === 'waiting') return 'running';
   if (status.state === 'paused') return 'paused';
   if (status.state === 'idle') return 'done';

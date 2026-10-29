@@ -263,7 +263,7 @@ export function MapComposer({
         task: [zh ? "任务已进入地图" : "Your task is on the map", zh ? "跟随地图，查看执行进展" : "Follow its progress on the map"],
         message: [zh ? `${applicationBrand().name} 已回复` : `${applicationBrand().name} replied`, zh ? "在对话中查看回复" : "Open the conversation to read it"],
         error: [zh ? "发送没有成功" : "Message could not be sent", zh ? "草稿已保留，可以重试" : "Your draft is ready to retry"],
-        cancelled: [zh ? "正在停止本次回复" : "Stopping this reply", zh ? "可以发送新消息" : "You can send another message"],
+        cancelled: [zh ? "已取消发送" : "Sending cancelled", zh ? "可以发送新消息" : "You can send another message"],
       }[dispatchStatus]
     : undefined;
   const queuedCopy = [

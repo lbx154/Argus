@@ -185,17 +185,14 @@ export default function App() {
     resizeSidebar,
     rightPanelOpen,
     rightWidth,
-    setKiosk,
     setLeftWidth,
     setMapFull,
     setMobileView,
     setRightPanelOpen,
     setRightWidth,
-    setShowReasoning,
     setSidebarOpen,
     setWorkspaceView,
     shellRef,
-    showReasoning,
     sidebarOpen,
     sidebarShown,
     themeMode,
@@ -751,9 +748,7 @@ export default function App() {
   useGlobalKeyboardShortcuts({
     focusComposer: () => setComposerFocus((value) => value + 1),
     openHelp: () => setOverlay('help'),
-    toggleKiosk: () => setKiosk((value) => !value),
     togglePalette: () => setOverlay((current) => current === 'palette' ? 'none' : 'palette'),
-    toggleReasoning: () => setShowReasoning((value) => !value),
     toggleSidebarCollapse: toggleSidebar,
   });
 
@@ -1236,7 +1231,7 @@ export default function App() {
                     missionView={missionView}
                     events={activityEvents}
                     connected={connected && !snapQ.isError}
-                    showReasoning={showReasoning}
+                    showReasoning={false}
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}

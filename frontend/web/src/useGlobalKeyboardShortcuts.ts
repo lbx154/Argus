@@ -3,18 +3,14 @@ import { useEffect } from 'react';
 interface UseGlobalKeyboardShortcutsOptions {
   focusComposer: () => void;
   openHelp: () => void;
-  toggleKiosk: () => void;
   togglePalette: () => void;
-  toggleReasoning: () => void;
   toggleSidebarCollapse: () => void;
 }
 
 export function useGlobalKeyboardShortcuts({
   focusComposer,
   openHelp,
-  toggleKiosk,
   togglePalette,
-  toggleReasoning,
   toggleSidebarCollapse,
 }: UseGlobalKeyboardShortcutsOptions) {
   useEffect(() => {
@@ -25,12 +21,6 @@ export function useGlobalKeyboardShortcuts({
       if (mod && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         togglePalette();
-      } else if (mod && event.key.toLowerCase() === 't') {
-        event.preventDefault();
-        toggleReasoning();
-      } else if (mod && event.key === '.') {
-        event.preventDefault();
-        toggleKiosk();
       } else if (mod && event.key.toLowerCase() === 'b') {
         event.preventDefault();
         toggleSidebarCollapse();
@@ -47,5 +37,5 @@ export function useGlobalKeyboardShortcuts({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [focusComposer, openHelp, toggleKiosk, togglePalette, toggleReasoning, toggleSidebarCollapse]);
+  }, [focusComposer, openHelp, togglePalette, toggleSidebarCollapse]);
 }

@@ -18,14 +18,14 @@ interface Active { flow: Flow; controller: AbortController; since: number; calls
  * knows of it with none: its record edited, a message request begun or ended, its run over. */
 export class Runs {
   private readonly active = new Map<string, Active>();
-  /** Message requests whose Manager turn has not ended, by project; the value cancels one. */
-  private readonly requests = new Map<string, Map<string, () => void>>();
+  /** Message requests whose Manager turn has not ended, by project. */
+  private readonly requests = new Map<string, Set<string>>();
 
   constructor(private readonly store: Store, readonly callAgent: CallAgent, readonly changed: (id: string, event?: FlowEvent) => void) {}
 
   live(id: string): Live {
     const active = this.active.get(id);
-    return { since: active?.since ?? null, calls: active?.calls ?? [], requests: [...this.requests.get(id)?.keys() ?? []] };
+    return { since: active?.since ?? null, calls: active?.calls ?? [], requests: [...this.requests.get(id) ?? []] };
   }
 
   /** The answer goes to whoever asked; it throws when the question was answered meanwhile. */
@@ -45,19 +45,17 @@ export class Runs {
     this.changed(id);
   }
 
-  /** Stop the work, recorded so that nothing but the operator starts it again: the calls under way
-   * end, or with `now` are interrupted. Whether any was under way. */
-  stop(id: string, now: boolean): boolean {
+  /** Stop the work and interrupt every call under way; only the operator starts it again. */
+  stop(id: string): void {
     const active = this.active.get(id);
     if (active) {
       active.flow.stop(id);
-      if (now) active.controller.abort();
+      active.controller.abort();
     }
     else {
       this.edit(id, project => { if (project.status === 'working') project.status = 'stopped'; });
       void this.callAgent.close?.(`${id}/`);
     }
-    return active !== undefined;
   }
 
   /** Interrupt every project's calls, wait until the work has wound down and written its record, and end every session. */
@@ -68,25 +66,17 @@ export class Runs {
     await this.callAgent.close?.('');
   }
 
-  cancel(id: string, request: string): boolean {
-    const cancel = this.requests.get(id)?.get(request);
-    cancel?.();
-    return cancel !== undefined;
-  }
-
   /** The operator's message. Its frames follow the Manager's turn and end with the reply; the
    * team's work it starts, or that was under way, goes on after the stream has ended. */
   async message(id: string, text: string, request: string, send: (frame: Frame) => void): Promise<Frame> {
-    const requests = this.requests.get(id) ?? new Map<string, () => void>();
+    const requests = this.requests.get(id) ?? new Set<string>();
     this.requests.set(id, requests);
     if (requests.has(request)) return { type: 'error', error: 'This request is already under way.' };
-    const controller = new AbortController();
-    requests.set(request, () => controller.abort());
+    requests.add(request);
     this.changed(id);
     send({ type: 'phase', role: 'manager', label: 'Manager' });
     try {
-      const handoff = await this.start(id, flow => flow.say(id, text, controller.signal));
-      if (controller.signal.aborted) return { type: 'done', result: { kind: 'cancelled', reply: null } };
+      const handoff = await this.start(id, flow => flow.say(id, text));
       // A turn that failed says why; one the work's stop cut off ends, its message waiting for Resume.
       if (!handoff) {
         const { error } = this.store.load(id);

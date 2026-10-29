@@ -9,7 +9,7 @@ import type { AgentRequest, CallAgent } from '../src/types.js';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 
-/** A cockpit whose Manager answers at once, or, to a message that says `<hang>`, once it is cancelled. */
+/** A cockpit whose Manager answers at once, except its first `<hang>` turn, which waits for Stop. */
 async function setup(t: TestContext, token?: string) {
   const home = await mkdtemp(join(tmpdir(), 'argus-projects-'));
   t.after(() => rm(home, { recursive: true, force: true }));
@@ -17,9 +17,13 @@ async function setup(t: TestContext, token?: string) {
   await mkdir(web);
   await writeFile(join(web, 'manifest.webmanifest'), '{"name":"Argus"}');
   const requests: AgentRequest[] = [];
+  const held = new Set<string>();
   const callAgent: CallAgent = async request => {
     requests.push(request);
-    if (request.prompt.includes('<hang>')) await new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
+    if (request.prompt.includes('<hang>') && !held.has(request.cwd)) {
+      held.add(request.cwd);
+      await new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
+    }
     const handoff = request.signal?.aborted ? null : { form: request.form, to: 'operator', letters: ['Hello.'] };
     return { callId: 'c', threadId: 'thread', completed: Boolean(handoff), error: handoff ? null : 'interrupted', handoff, model: null, usage: null, ms: 1 };
   };
@@ -38,7 +42,7 @@ async function setup(t: TestContext, token?: string) {
     return await response.json() as T;
   };
   const create = async (body = {}): Promise<string> => (await (await send('POST', '/api/daemons', body)).json() as { sid: string }).sid;
-  /** A Manager turn under way on the project until the returned function cancels it. */
+  /** A Manager turn under way on the project until the returned function stops the project. */
   const busy = async (sid: string): Promise<() => Promise<void>> => {
     const reply = send('POST', `/api/projects/${sid}/message/stream`, { text: '<hang>', request_id: 'r' });
     for (let tries = 0; !(await get<Snapshot>(`/api/projects/${sid}/snapshot`)).daemon.alive; tries++) {
@@ -46,7 +50,7 @@ async function setup(t: TestContext, token?: string) {
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     return async () => {
-      await send('POST', `/api/projects/${sid}/message/cancel`, { request_id: 'r' });
+      await send('POST', `/api/projects/${sid}/daemon/stop`);
       await (await reply).text();
       while ((await get<Snapshot>(`/api/projects/${sid}/snapshot`)).daemon.alive) await new Promise(resolve => setTimeout(resolve, 10));
     };
@@ -78,9 +82,9 @@ test('a project works in a directory, made if it is new, set when the project is
   assert.deepEqual([store.load(fresh).workdir, store.load(fresh).sessions], [other, {}]);
   assert.equal((await get<Snapshot>(`/api/projects/${fresh}/snapshot`)).session.workdir, other);
 
-  const cancel = await busy(fresh);
+  const stop = await busy(fresh);
   assert.equal((await send('POST', `/api/projects/${fresh}/workdir`, { workdir: repo })).status, 409);
-  await cancel();
+  await stop();
   assert.equal((await send('POST', `/api/projects/${fresh}/workdir`, { workdir: repo })).status, 200);
   assert.equal((await send('POST', '/api/projects/p-00000000/workdir', { workdir: repo })).status, 404);
 });
@@ -140,10 +144,10 @@ test('a project has its own backend, model and effort, which the settings change
   assert.deepEqual([requests[1]!.model, requests[1]!.effort], [undefined, undefined]);
 
   // While work is under way the model changes in the record the work holds, for the calls after.
-  const cancel = await busy(sid);
+  const stop = await busy(sid);
   assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-sonnet-4-5')).status, 200);
   assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'codex')).status, 409);
-  await cancel();
+  await stop();
   assert.deepEqual([store.load(sid).model, store.load(sid).backend], ['claude-sonnet-4-5', 'claude']);
 });
 
@@ -162,10 +166,10 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   const task = { id: 't1', title: 'Column totals of data.csv', from: 'manager' as const, objective: '', status: 'closed' as const, holder: 'engineer' as const, note: null };
   store.save({ ...store.load(sid), tasks: [task] });
   assert.equal((await row())?.display_name, 'Column totals of data.csv');
-  const cancel = await busy(sid);
+  const stop = await busy(sid);
   assert.equal((await send('PATCH', `/api/projects/${sid}`, { name: 'Later' })).status, 200);
   assert.equal((await row())?.label, 'Later');
-  await cancel();
+  await stop();
   assert.equal(store.load(sid).name, 'Later');
 
   assert.deepEqual(await get('/api/browser-state/organization'), { value: {}, revision: 0 });
@@ -231,13 +235,15 @@ test('resetting the conversation gives the Manager a new session, and keeps the 
   const P = `/api/projects/${sid}`;
   await (await send('POST', `${P}/message`, { text: 'Hi' })).json();
   assert.equal(store.load(sid).sessions.manager, 'thread');
-  const cancel = await busy(sid);
+  const stop = await busy(sid);
   assert.deepEqual(await (await send('POST', `${P}/reset`)).json(), { ok: true });
-  await cancel();
+  await stop();
   assert.deepEqual(store.load(sid).sessions, {});
   assert.equal(store.load(sid).request, 'Hi');
   await (await send('POST', `${P}/message`, { text: 'Hi again' })).json();
-  assert.deepEqual(requests.map(request => request.resume), [undefined, 'thread', undefined]);
+  // Stop keeps the interrupted message: it is taken up in a new session before the next message.
+  assert.deepEqual(requests.map(request => request.resume), [undefined, 'thread', undefined, 'thread']);
+  assert.deepEqual(store.load(sid).forManager, []);
 });
 
 test('the cockpit is served beyond this machine only with a token', async t => {

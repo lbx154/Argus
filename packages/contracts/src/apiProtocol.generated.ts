@@ -6,7 +6,6 @@ export const SNAPSHOT_SCHEMA_VERSION = 7;
 export const REQUIRED_API_CAPABILITIES = [
   "daemon.command.v1",
   "manager.sse.v1",
-  "manager.request-cancel.v1",
   "release.identity.v1",
   "snapshot.schema.v1"
 ] as const;

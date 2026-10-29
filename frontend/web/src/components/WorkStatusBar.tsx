@@ -18,7 +18,7 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now() / 1000), 10_000); return () => window.clearInterval(timer); }, []);
   const raw = currentWorkStatus(snapshot, view, events, now);
   const status = { ...raw, title: relativizeWorkspacePaths(raw.title, snapshot?.session.workdir, snapshot?.session.cwd) };
-  const phase = teamPhase(status, snapshot);
+  const phase = teamPhase(status);
   // Compact (chat header) keeps one line; only a step that needs the person adds a hint.
   const actionable = status.reason === 'operator_input';
   const next = compact && !actionable ? '' : actionable

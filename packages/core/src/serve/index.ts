@@ -226,10 +226,6 @@ export async function serve(options: ServeOptions): Promise<Served> {
       return { original, rewritten: rewritten || original, changes: [], questions: [], error: rewritten ? '' : error || 'The Manager wrote no rewrite.',
         ...rewritten ? {} : { error_code: 'rewrite_failed' } };
     }],
-    ['POST', /^\/api\/projects\/([^/]+)\/message\/cancel$/, async ({ params: [id], body }) => {
-      const requested = runs.cancel(project(id!).id, String((await body()).request_id ?? ''));
-      return { requested, status: requested ? 'cancelled' : 'finished' };
-    }],
     ['POST', /^\/api\/projects\/([^/]+)\/message$/, async context => {
       const { domain_answer: card } = await context.body();
       if (card && typeof card === 'object') {
@@ -252,10 +248,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ['POST', /^\/api\/projects\/([^/]+)\/daemon\/stop$/, async ({ params: [id], body }) => {
       const asked = await body();
       const { id: sid } = project(id!);
-      // After the current step, the calls under way end; else they are interrupted.
-      const after = Boolean(asked.after_current || asked.drain);
-      const draining = runs.stop(sid, !after);
-      return after ? { ...command(sid, asked), draining } : command(sid, asked);
+      runs.stop(sid);
+      return command(sid, asked);
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/artifacts$/, ({ params: [id] }) => ({ artifacts: artifacts(project(id!)) })],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact$/, ({ params: [id], url }) => {

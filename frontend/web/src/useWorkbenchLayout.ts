@@ -26,12 +26,7 @@ function storedBoolean(key: string, fallback: boolean): boolean {
 
 export function useWorkbenchLayout() {
   const params = new URLSearchParams(window.location.search);
-  const [kiosk, setKiosk] = useState(params.get('kiosk') === '1');
-  // Match the operator knob and TUI privacy default: reasoning is opt-in.
-  // Users can show it with Ctrl/⌘+O and the choice survives reloads.
-  const [showReasoning, setShowReasoning] = useState(
-    () => storedBoolean('argus.reasoning.visible.v1', false),
-  );
+  const kiosk = params.get('kiosk') === '1';
   const [workspaceView, setWorkspaceViewState] = useState<WorkspaceView>(() => {
     const requested = params.get('view');
     if (requested === 'mission') return 'activity';
@@ -81,10 +76,6 @@ export function useWorkbenchLayout() {
     writeLocalStorage('argus.sidebar.width.v2', String(leftWidth));
     writeLocalStorage('argus.preview.width.v2', String(rightWidth));
   }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
-
-  useEffect(() => {
-    writeLocalStorage('argus.reasoning.visible.v1', String(showReasoning));
-  }, [showReasoning]);
 
   const openPreview = useCallback(() => {
     setRightPanelOpen(true);
@@ -186,18 +177,15 @@ export function useWorkbenchLayout() {
     resizeSidebar,
     rightPanelOpen,
     rightWidth,
-    setKiosk,
     setLeftWidth,
     // Presentation mode never folds into full canvas, so it offers no toggle.
     setMapFull: kiosk ? undefined : setMapFull,
     setMobileView,
     setRightPanelOpen,
     setRightWidth,
-    setShowReasoning,
     setSidebarOpen,
     setWorkspaceView,
     shellRef,
-    showReasoning,
     sidebarOpen,
     sidebarShown,
     themeMode,

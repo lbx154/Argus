@@ -81,6 +81,9 @@ export async function startSessionFixture(options = {}) {
       }
       const trace = { method, path: url.pathname + url.search, sid, endpoint };
       state.trace.push(trace);
+      if (method === 'GET' && url.pathname === '/api/application-brand') return json(response, {
+        schema: 1, id: 'argus', name: 'Argus', tagline: 'Synthetic fixture', terminal_wordmark: 'argus', assets: {},
+      });
       if (request.headers.authorization !== `Bearer ${FIXTURE_AUTH}`) return json(response, { error: 'Synthetic pairing required' }, 401);
       if (method !== 'GET' && (method !== 'POST' || !state.allowWrites.has(`${sid}:${endpoint}`))) {
         state.unexpected.push(trace);
@@ -100,6 +103,7 @@ export async function startSessionFixture(options = {}) {
         if (extra) return json(response, extra.body, extra.status ?? 200);
       }
       if (method === 'GET' && url.pathname === '/api/projects') return json(response, { projects: rows.filter(row => !state.deleted.has(row.id)), local_cwd: root });
+      if (method === 'GET' && url.pathname === '/api/browser-state/organization') return json(response, { value: {}, revision: 0 });
       if (method === 'GET' && url.pathname === '/api/projects/costs') return json(response, { projects: [], generated_at: 1 });
       if (method === 'GET' && url.pathname === '/api/system/resources') return json(response, { schema_version: 1, state: 'ready', cpu: {}, memory: {}, disk: {} });
       if (method === 'GET' && url.pathname === '/api/map-datasets') return json(response, { datasets: [] });
@@ -117,6 +121,11 @@ export async function startSessionFixture(options = {}) {
       if (!snapshots.has(sid) || state.deleted.has(sid)) return json(response, { error: 'Synthetic session deleted' }, 404);
       if (state.forbidden.has(sid)) return json(response, { error: 'Synthetic session permission denied' }, 403);
       if (method === 'GET') {
+        if (endpoint === '/stream') {
+          response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
+          response.write(': synthetic stream\n\n');
+          return;
+        }
         if (endpoint === '/snapshot') return json(response, snapshots.get(sid));
         if (endpoint === '/artifacts') return json(response, { artifacts: state.missing.has(sid) || state.unlisted.has(sid) ? [] : [files.get(sid)] });
         if (endpoint === '/artifact') {
@@ -149,10 +158,6 @@ export async function startSessionFixture(options = {}) {
         }
         trace.body = JSON.parse(body.toString() || '{}');
         if (endpoint === '/prompt/rewrite') return json(response, state.rewriteResults.get(sid) || { original: trace.body.text, rewritten: `${sid} synthetic rewrite`, changes: [], questions: [], error: '' });
-        if (endpoint === '/message/cancel') {
-          snapshots.get(sid).manager_requests = [];
-          return json(response, { requested: true, status: 'cancelled' });
-        }
         if (endpoint === '/message/stream') {
           response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
           if (state.streamMode === 'error') return response.end('data: {"type":"error","error":"Synthetic disconnect after acceptance"}\n\n');

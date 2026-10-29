@@ -39,14 +39,13 @@ export class Flow {
   constructor(readonly store: Store, private readonly callAgent: CallAgent, private readonly options: FlowOptions = {}) {}
 
   /** The operator's message. The Manager reads it in its next turn, and what its letter hands on
-   * joins the work; like a letter from the team it waits in the record until a turn takes it, or
-   * `signal` withdraws it. Resolves with the Manager's hand-off, or null when the turn failed or
-   * was interrupted. */
-  say(id: string, text: string, signal?: AbortSignal): Promise<HandOff | null> {
+   * joins the work; like a letter from the team it waits in the record until a turn takes it.
+   * Resolves with the Manager's hand-off, or null when the turn failed or was interrupted. */
+  say(id: string, text: string): Promise<HandOff | null> {
     const project = this.project(id);
     project.request ||= text;
     this.retry(project);
-    return this.writeToManager(project, text, { signal, operator: true });
+    return this.writeToManager(project, text, { operator: true });
   }
 
   /** The operator's answer to one of the open questions goes to whoever asked it. */
@@ -166,12 +165,12 @@ export class Flow {
     return next;
   }
 
-  private async managerTurn(project: Project, message: string, { signal, operator }: ManagerTurn): Promise<HandOff | null> {
-    if (signal?.aborted) return null;
+  private async managerTurn(project: Project, message: string, { operator }: ManagerTurn): Promise<HandOff | null> {
+    if (this.options.signal?.aborted) return null;
     // The operator's message is recorded when the Manager takes it up, so the letter that follows is its reply.
     if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(message, resumed), { signal }))?.handoff ?? null;
+      resumed => managerPrompt(message, resumed)))?.handoff ?? null;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
       // The project's request is the message that first set the team working; till then, the first one.
@@ -228,7 +227,7 @@ export class Flow {
     try {
       const handoff = await this.manager(project, letter, turn);
       const at = project.forManager?.indexOf(letter) ?? -1;
-      if ((handoff || turn.signal?.aborted) && at >= 0) {
+      if (handoff && at >= 0) {
         project.forManager!.splice(at, 1);
         this.store.save(project);
       }
@@ -271,10 +270,9 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { signal?: AbortSignal | undefined; refused?: string } = {}): Promise<AgentResult | null> {
+                     turn: { refused?: string } = {}): Promise<AgentResult | null> {
     const { refused } = turn;
-    const signals = [this.options.signal, turn.signal].filter(signal => signal !== undefined);
-    const signal = signals.length ? AbortSignal.any(signals) : undefined;
+    const { signal } = this.options;
     if (signal?.aborted) return null;
     const key = task ? `${task.id}.${role}` : role;
     const resume = project.sessions[key];
@@ -387,8 +385,8 @@ export const firstLine = (text: string): string => text.split('\n')
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
-/** A Manager turn on the operator's message, which `signal` withdraws, or on a letter from the team. */
-type ManagerTurn = { signal?: AbortSignal | undefined; operator?: boolean };
+/** A Manager turn on the operator's message, or on a letter from the team. */
+type ManagerTurn = { operator?: boolean };
 
 /** Whether the team has had work: a task, or a letter to the Planner. */
 const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;

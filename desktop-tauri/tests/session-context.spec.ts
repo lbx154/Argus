@@ -143,9 +143,9 @@ test('A1: late rewrites stay with their original sid and do not replace a newer 
   await select('A'); await expect(input()).toHaveValue('same text');
 });
 
-test('A1: stopping an old upload preserves a newly attached same-named File and keeps cancellation request identity', async ({ page }) => {
+test('A1: stopping an old upload preserves a newly attached same-named File', async ({ page }) => {
   const gate = deferred(); fixture.state.delays.set('s-A:/attachments', gate.promise);
-  for (const endpoint of ['/attachments', '/message/cancel', '/message/stream']) fixture.state.allowWrites.add(`s-A:${endpoint}`);
+  for (const endpoint of ['/attachments', '/message/stream']) fixture.state.allowWrites.add(`s-A:${endpoint}`);
   fixture.state.streamMode = 'done';
   await open(page, 's-A');
   await input().fill('old draft');
@@ -153,8 +153,9 @@ test('A1: stopping an old upload preserves a newly attached same-named File and 
   await files.setInputFiles({ name: 'report.md', mimeType: 'text/markdown', buffer: Buffer.from('old A attachment') });
   await input().press('Enter');
   await expect.poll(() => writes().length).toBe(1);
-  await frame.locator('.conversation-composer .map-send.is-pending').click();
-  await expect.poll(() => writes().filter((row: { endpoint: string }) => row.endpoint === '/message/cancel').length).toBe(1);
+  await frame.locator('[data-stop-work]').first().click();
+  await frame.locator('[data-stop-confirm]').click();
+  expect(writes().map((row: { endpoint: string }) => row.endpoint)).toEqual(['/attachments']);
   // The existing composer forbids new attachments while its local upload
   // submit is still unwinding. Remount via ordinary selection, then attach a
   // genuinely new File while the previous operation's response is still held.
@@ -168,10 +169,7 @@ test('A1: stopping an old upload preserves a newly attached same-named File and 
   await input().press('Enter');
   await expect.poll(() => writes().filter((row: { endpoint: string }) => row.endpoint === '/message/stream').length).toBe(1);
   expect(writes().filter((row: { endpoint: string }) => row.endpoint === '/attachments').at(-1).files).toEqual([{ name: 'report.md', text: 'replacement A attachment' }]);
-  const cancel = writes().find((row: { endpoint: string }) => row.endpoint === '/message/cancel');
   const send = writes().find((row: { endpoint: string }) => row.endpoint === '/message/stream');
-  expect(cancel.body.request_id).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
-  expect(send.body.request_id).not.toBe(cancel.body.request_id);
   expect(send.body.text).toBe('new draft');
 });
 
