@@ -114,12 +114,9 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: nul
           fold.asked = null;
         } else if (event.role === 'planner') {
           row('life.planner.verdict', { status: event.to, enqueued_tasks: event.to === 'engineer' ? 1 : 0 });
-        } else if (event.role === 'engineer' && event.to === 'reviewer') {
-          row('engineer.progress', { kind: 'agent_message', agent_layer: 'engineer', text: event.letter, ...where });
         } else {
-          row('round.review.completed', {
-            status: event.to, reason: event.letter, review_source: event.role === 'reviewer' ? 'reviewer' : 'engineer_handoff', ...where,
-          });
+          // A letter between the team's roles reads as what its writer said: a verdict is in its words.
+          row('engineer.progress', { kind: 'agent_message', agent_layer: event.role, text: event.letter, ...where });
         }
         break;
       case 'task.added':

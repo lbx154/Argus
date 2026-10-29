@@ -171,7 +171,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(events.map(event => event.type), [
     'ui.operator', 'provider.request.started', 'provider.request.completed', 'ui.argus', 'life.mission.started',
     'provider.request.started', 'engineer.progress', 'provider.request.completed', 'engineer.progress',
-    'provider.request.started', 'provider.request.completed', 'round.review.completed',
+    'provider.request.started', 'provider.request.completed', 'engineer.progress',
   ]);
   // What the Engineer said as its turn went on is in the feed while it works.
   assert.deepEqual(events.find(event => event.type === 'engineer.progress'), { ...events.find(event => event.type === 'engineer.progress'),
