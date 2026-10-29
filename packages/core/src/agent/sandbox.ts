@@ -175,6 +175,11 @@ export function confine(argv: string[], request: AgentRequest): string[] {
     mkdirSync(copy, { recursive: true, mode: 0o700 });
     mounts.push(...namedAs(dir).map((target): [string, string, boolean] => [copy, target, true]));
   }
+  // What a role downloads (a model, a package, a browser) the next project's roles find: they share
+  // one cache, Argus's own, not the machine's, which may hold its owner's tokens.
+  const cache = join(real(argusHome()), 'cache');
+  mkdirSync(cache, { recursive: true, mode: 0o700 });
+  mounts.push(...namedAs(join(homedir(), '.cache')).map((target): [string, string, boolean] => [cache, target, true]));
   const bind = (path: string, writable: boolean): void => {
     mounts.push(...namedAs(path).map((target): [string, string, boolean] => [real(path), target, writable]));
   };
@@ -190,6 +195,6 @@ export function confine(argv: string[], request: AgentRequest): string[] {
     '--proc', '/proc', '--dev-bind', '/dev', '/dev', '--tmpfs', '/dev/shm', '--tmpfs', '/tmp',
     ...ordered.flatMap(([source, target, writable]) => [writable ? '--bind-try' : '--ro-bind-try', source, target]),
     // The sandbox ends with the CLI, and everything in it: a session's CLI outlives what it started.
-    '--setenv', 'TMPDIR', '/tmp', '--chdir', cwd, '--', executable, ...args,
+    '--setenv', 'TMPDIR', '/tmp', '--setenv', 'XDG_CACHE_HOME', join(homedir(), '.cache'), '--chdir', cwd, '--', executable, ...args,
   ];
 }

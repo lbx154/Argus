@@ -223,6 +223,9 @@ each); Pi from each assistant message's `usage`, with `cost.total` as the cost.
 Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system directories
 read-only, the workdir and the task's write directories writable, a private home per workdir
 with the CLI's login file passed through, and only the environment the CLI needs to sign in.
+Its `~/.cache` is one every project's roles share (`$ARGUS_HOME/cache`), so a model, package or
+browser one project downloads the next finds; the machine's own cache, which may hold tokens,
+stays out.
 Without `bwrap` (macOS, Windows) the CLI's own sandbox mode is used: Codex's
 `workspace-write`, on Windows its sandbox that needs no administrator
 (`windows.sandbox="unelevated"`); Claude Code's `acceptEdits`, edits without commands.

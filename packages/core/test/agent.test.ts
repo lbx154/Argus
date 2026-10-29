@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -87,6 +87,11 @@ test('under bubblewrap a turn writes the directories it is given to write only w
     return argv[argv.lastIndexOf(skills) - 2];
   };
   assert.deepEqual([bound('write'), bound('read')], ['--bind-try', '--ro-bind-try']);
+  // Every project's roles share Argus's cache, in place of the machine's.
+  const argv = confine(['codex'], { backend: 'codex', role: 'engineer', form: 'engineer', prompt: '', cwd: work, access: 'read', callsDir: '', usageFile: '' });
+  const cache = join(homedir(), '.cache');
+  assert.deepEqual(argv.slice(argv.indexOf(cache) - 2, argv.indexOf(cache) + 1), ['--bind-try', join(root, 'argus', 'cache'), cache]);
+  assert.equal(argv[argv.indexOf('XDG_CACHE_HOME') + 1], cache);
 });
 
 test('under bubblewrap codex reads the files its config names, however the config quotes them', { skip: process.platform !== 'linux' && 'Linux only' }, t => {
