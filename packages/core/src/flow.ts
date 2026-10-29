@@ -159,6 +159,8 @@ export class Flow {
       resumed => managerPrompt(project, this.store, message, resumed), { signal }))?.handoff ?? null;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
+      // The project's request is the message that first set the team working; till then, the first one.
+      if (operator && !begun(project)) project.request = message;
       const letter = read(handoff);
       if (handoff.to === 'engineer') this.open(project, 'manager', letter);
       else project.inbox.push(handedTo('manager', null, letter));
@@ -318,6 +320,9 @@ const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
 /** A Manager turn on the operator's message, which `signal` withdraws, or on a letter from the team. */
 type ManagerTurn = { signal?: AbortSignal | undefined; operator?: boolean };
+
+/** Whether the team has had work: a task, or a letter to the Planner. */
+const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;
 
 /** Whether the task waits for the operator's answer to its question. */
 const waits = (project: Project, task: Task): boolean => project.questions.some(question => question.task === task.id);

@@ -68,6 +68,25 @@ const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
 
+test("the project's request is the message that first set the team working, not a greeting before it", async t => {
+  const { flow, id } = await setup(t, [
+    { role: 'manager', to: 'operator', letter: 'Hello! What shall we work on?' },
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+    { role: 'manager', to: 'engineer', letter: 'Export the totals as a PDF' },
+    { role: 'engineer', to: 'reviewer', letter: 'PDF added' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  // A project made on the page has no request till its first message.
+  flow.edit(id, project => { project.request = ''; });
+  assert.equal((await say(flow, id, 'Hello')).request, 'Hello');
+  assert.equal((await say(flow, id, 'Make me a CSV summary tool')).request, 'Make me a CSV summary tool');
+  assert.equal((await say(flow, id, 'Also export a PDF')).request, 'Make me a CSV summary tool');
+});
+
 test('the Manager answers directly', async t => {
   const { home, store, flow, id, requests, events } = await setup(t, [{ role: 'manager', to: 'operator', letter: '42' }]);
   const project = await say(flow, id, 'What is 6 times 7?');
