@@ -287,19 +287,26 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
 export function progressMap(store: Store, project: Project, after: number) {
   const added = new Map<string, number>();
   const closed = new Map<string, number>();
+  const actions = new Map<string, BacklogItem['latest_action']>();
+  /** The files each task's latest letter handed over: once it has closed, its result. */
+  const opened = new Map<string, string[]>();
   const letters: Record<string, unknown>[] = [];
   const events = readEvents(store, project.id);
   events.forEach((event, line) => {
     if (event.type === 'task.added') added.set(event.task.id, seconds(event.ts));
     else if (event.type === 'task.closed') closed.set(event.task, seconds(event.ts));
-    else if (event.type === 'handoff' && event.task && line >= after) {
-      letters.push({ id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter });
+    else if (event.type === 'step' && event.task) actions.set(event.task, { role: event.role, kind: event.kind, text: event.text, ts: seconds(event.ts) });
+    else if (event.type === 'handoff' && event.task) {
+      opened.set(event.task, event.open ?? []);
+      actions.set(event.task, { role: event.role, kind: 'message', text: event.letter, ts: seconds(event.ts) });
+      if (line >= after) letters.push({ id: `e${line}`, item_id: event.task, type: 'handoff', ts: seconds(event.ts), role: event.role, to: event.to, text: event.letter });
     }
   });
   const tasks = backlog(project).map((item, index) => {
     const question = asked(project, item.id);
     return {
       ...item, ts: added.get(item.id), started_ts: added.get(item.id), finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
+      latest_action: actions.get(item.id), result_paths: closed.has(item.id) ? opened.get(item.id) ?? [] : [],
       ...(question ? { pending_question: question.question } : {}),
     };
   });

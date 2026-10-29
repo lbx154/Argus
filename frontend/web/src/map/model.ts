@@ -5,7 +5,7 @@ import { internalRecordsOnly } from "../lib/workStatus";
 export interface MapTask
   extends Pick<
     BacklogItem,
-    "id" | "title" | "objective" | "status" | "deps" | "pending_question"
+    "id" | "title" | "objective" | "status" | "deps" | "pending_question" | "latest_action" | "result_paths"
   > {
   revision?: string;
   content_revision?: string;

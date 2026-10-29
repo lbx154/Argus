@@ -775,6 +775,7 @@
 }
 .argus-map .macro-summary .map-card > :not(h3):not(.map-card-top),
 .argus-map .macro-summary .map-card .map-card-number { opacity: var(--near); }
+.argus-map .macro-summary .map-card > .map-card-state:has(.map-card-now) { opacity: 1; }
 .argus-map .macro-summary .map-card h3 .macro-note-badge { opacity: var(--near); }
 
 /* Full canvas: the toolbar is a few quiet floating icons until pointed at. */

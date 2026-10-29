@@ -83,9 +83,8 @@ import { MapRelationEdge } from "./MapRelationEdge";
 import { MapHistoryChoice } from "./MapHistoryChoice";
 import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
 import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
-import { taskNow } from "../lib/liveActivity";
 import { taskFigures } from "./cardFigure";
-import { MapCardFigureContext, MapCardNowContext } from "./cardContext";
+import { MapCardFigureContext } from "./cardContext";
 import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
@@ -700,7 +699,6 @@ export function MapCanvas({
           hovered: n.id === hoverId,
           arriving,
           revealing: replaying,
-          phase: activePhase && ACTIVE.has(n.data.task.status) ? activePhase : undefined,
           growthDelay: growth.cards[n.id],
           dispatchState: flight?.result?.type === 'task' && flight.result.taskId === n.data.task.id && !composer.historical
             ? flight.landed ? 'landed' : 'receiving'
@@ -747,7 +745,6 @@ export function MapCanvas({
       hoverId,
       arriving,
       replaying,
-      activePhase,
     ],
   );
   const edges: Edge[] = useMemo(
@@ -2310,15 +2307,8 @@ export const MapPanel = memo(function MapPanel({
      source, zh, t, snapshot.roles, snapshot.daemon.alive, snapshot.manager_requests, snapshot.last_call,
      readOnly, onOpenSettings, events, connected, onPauseTeam, onResumeTeam, teamBusy],
   );
-  // What the running task is doing and each task's figure, for the cards.
-  // Contexts, not node data: a poll re-renders the line and the picture only.
+  // Each task's figure, loaded separately from the map's task projection.
   const workspace = snapshot.session.workdir || snapshot.session.cwd || '';
-  const cardNow = useMemo(() => {
-    const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
-    if (!snapshot.daemon.alive || status.state !== 'running' || !status.taskId) return null;
-    const since = currentWorkStartedAt(snapshot, snapshot.mission_view, status.taskId);
-    return { taskId: status.taskId, ...taskNow(events, status.taskId, since, locale, workspace) };
-  }, [snapshot, events, locale, workspace]);
   const cardFigures = useMemo(() => ({
     sid: snapshot.session.id,
     figures: taskFigures(deliveries ?? [], artifacts ?? [], events, workspace),
@@ -2331,7 +2321,6 @@ export const MapPanel = memo(function MapPanel({
     window.history.replaceState(null, "", url);
   };
   return (
-    <MapCardNowContext.Provider value={cardNow}>
     <MapCardFigureContext.Provider value={cardFigures}>
     <section
       ref={sectionRef}
@@ -2489,6 +2478,5 @@ export const MapPanel = memo(function MapPanel({
       )}
     </section>
     </MapCardFigureContext.Provider>
-    </MapCardNowContext.Provider>
   );
 });

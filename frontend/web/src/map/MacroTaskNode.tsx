@@ -75,8 +75,6 @@ export type MacroData = MapCard & {
   arriving?: boolean;
   /** A replay is revealing cards in order. */
   revealing?: boolean;
-  /** The role at work on this card right now, when the session is live. */
-  phase?: string;
   readOnly: boolean;
   source: string;
   quote: (ref: CardReference) => void;
@@ -499,7 +497,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               {data.conclusion && (
                 <p className="map-card-conclusion" data-testid="map-card-conclusion" title={data.conclusion}>{data.conclusion}</p>
               )}
-              {isLastPart && data.live && !data.paused && ACTIVE.has(task.status) && <CardNow taskId={task.id} zh={zh} />}
+              {isLastPart && <CardNow task={task} zh={zh} />}
             </div>
             {isLastPart && <CardFigure taskId={task.id} title={title} />}
           </div>
@@ -532,7 +530,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             return (
               <div className="map-card-stages">
                 {live
-                  ? <LiveLine role={data.phase ?? task.role} since={task.started_ts} zh={zh} />
+                  ? <LiveLine role={task.role} since={task.started_ts} zh={zh} />
                   : isLastPart && chip ? null
                   : <span className="map-card-recorded">{isLastPart ? taskStateLabel : (zh ? "历史记录 · 非当前执行" : "History · not current execution")}</span>}
               </div>
@@ -552,6 +550,15 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </span>
           </div>
         </button>
+        {isLastPart && task.status === 'done' && !!task.result_paths?.length && onOpenArtifact && (
+          <div className="map-card-results nodrag nopan">
+            {task.result_paths.map((path, index) => (
+              <button key={path} type="button" title={path} onClick={() => onOpenArtifact(path)}>
+                {index === 0 ? (zh ? '打开结果' : 'Open results') : path.split('/').pop()}
+              </button>
+            ))}
+          </div>
+        )}
         {/* A plan waiting for the person starts from its own card, with the
             chat confirm card's action. */}
         {isLastPart && launch.start && launch.itemId === task.id && !data.readOnly && (

@@ -23,6 +23,8 @@ interface Step {
   until?: Promise<unknown>;
   /** What the role says as its turn goes on. */
   says?: string;
+  progress?: import('../src/types.js').Step[];
+  open?: string[];
 }
 
 function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[]; closed: string[] } {
@@ -36,6 +38,7 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[];
     assert.equal(request.role, step.role);
     for (const [name, body] of Object.entries(step.files ?? {})) await writeFile(join(request.cwd, name), body);
     if (step.says) request.onStep?.({ kind: 'message', text: step.says });
+    for (const progress of step.progress ?? []) request.onStep?.(progress);
     const interrupted = new Promise(resolve => request.signal?.addEventListener('abort', resolve, { once: true }));
     await Promise.race([step.until, interrupted]);
     if (step.hang) {
@@ -43,7 +46,7 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[];
       return { callId: 'c', threadId: null, completed: false, error: 'interrupted', handoff: null, model: 'fake', usage: null, ms: 1 };
     }
     const handoff: HandOff | null = step.to === undefined ? null
-      : { form: request.form, to: step.to, letters: [step.letter ?? `${step.role} to ${step.to}`] };
+      : { form: request.form, to: step.to, letters: [step.letter ?? `${step.role} to ${step.to}`], ...step.open ? { open: step.open } : {} };
     const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
     await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, role: request.role, backend: request.backend, model: 'fake-model', tokens, cost_usd: 0.01 })}\n`);
     return {
@@ -243,10 +246,62 @@ test('a refused form goes back to the Manager within the same message', async t 
   assert.deepEqual(reply.at(-1), { type: 'done', result: { kind: 'chat', reply: 'Hello.' } });
 });
 
-interface MapTask { id: string; title: string; status: string; role: string; ts: number; finished_ts: number | null; pending_question?: string }
+interface MapTask { id: string; title: string; status: string; role: string; ts: number; finished_ts: number | null; pending_question?: string;
+  latest_action?: import('@argus/contracts').BacklogItem['latest_action']; result_paths: string[] }
 interface MapLetter { id: string; item_id: string; type: string; role: string; to: string; text: string }
 interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string; history_cursor: string }
 interface Trace { task_id: string; groups: { call_id: string; role: string; output: string; entries: { kind: string; text: string }[] }[] }
+
+test('map updates carry each task’s holder, latest action and only its closing handoff’s files', async t => {
+  let releaseEngineer = (): void => {};
+  let releaseReviewer = (): void => {};
+  const engineer = new Promise<void>(resolve => { releaseEngineer = resolve; });
+  const reviewer = new Promise<void>(resolve => { releaseReviewer = resolve; });
+  t.after(() => { releaseEngineer(); releaseReviewer(); });
+  const { store, get, post } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: brief },
+    { role: 'engineer', to: 'reviewer', letter: 'Ready to check.', until: engineer,
+      progress: [{ kind: 'command', text: 'node totals.mjs' }], open: ['draft.md'] },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted. Ignore guessed.md in this letter.', until: reviewer,
+      says: 'Checking the totals.', open: ['report.md', 'data.csv'], files: { 'report.md': '# Totals', 'data.csv': 'a,b\n1,2' } },
+    { role: 'manager', to: 'operator', letter: 'All done.', open: ['unrelated.md'] },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Total the columns', request_id: 'r1' }));
+  const first = await eventually(() => get<ProgressMap>(`${P}/map`), map => map.tasks[0]?.latest_action?.kind === 'command');
+  assert.equal(first.tasks[0]!.role, 'engineer');
+  assert.deepEqual(first.tasks[0]!.latest_action, { role: 'engineer', kind: 'command', text: 'node totals.mjs', ts: first.tasks[0]!.latest_action!.ts });
+  assert.deepEqual(first.tasks[0]!.result_paths, []);
+  // Later activity from another task or the Manager must not replace this task's action.
+  store.append(sid, { type: 'step', role: 'engineer', task: 't2', kind: 'command', text: 'unrelated command' });
+  store.append(sid, { type: 'step', role: 'manager', kind: 'message', text: 'unrelated message' });
+  assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${first.cursor}`)).tasks[0]!.latest_action, first.tasks[0]!.latest_action);
+  releaseEngineer();
+  const checking = await eventually(() => get<ProgressMap>(`${P}/map?after=${first.cursor}`), map => map.tasks[0]?.latest_action?.text === 'Checking the totals.');
+  assert.equal(checking.tasks[0]!.role, 'reviewer');
+  assert.equal(checking.tasks[0]!.latest_action!.role, 'reviewer');
+  assert.deepEqual(checking.tasks[0]!.result_paths, []);
+  releaseReviewer();
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
+  const done = await get<ProgressMap>(`${P}/map?after=${checking.cursor}`);
+  assert.equal(done.tasks[0]!.status, 'done');
+  assert.deepEqual(done.tasks[0]!.result_paths, ['report.md', 'data.csv']);
+  assert.equal(done.tasks[0]!.latest_action!.text, 'Accepted. Ignore guessed.md in this letter.');
+  const unchanged = await get<ProgressMap>(`${P}/map?after=${done.cursor}`);
+  assert.deepEqual(unchanged.events, []);
+  assert.deepEqual(unchanged.tasks, done.tasks);
+});
+
+test('a closing handoff without files clears earlier open files and does not infer a path from its letter', async t => {
+  const { store, get } = await setup(t, []);
+  const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  store.save({ ...project, tasks: [{ id: 't1', title: 'T', objective: '', from: 'manager', status: 'closed', holder: 'reviewer', note: null }] });
+  store.append(project.id, { type: 'handoff', task: 't1', role: 'engineer', to: 'reviewer', letter: 'Draft.', open: ['draft.md'] });
+  store.append(project.id, { type: 'handoff', task: 't1', role: 'reviewer', to: 'manager', letter: 'See report.md.' });
+  store.append(project.id, { type: 'task.closed', task: 't1' });
+  assert.deepEqual((await get<ProgressMap>(`/api/projects/${project.id}/map`)).tasks[0]!.result_paths, []);
+});
 
 test('the map shows each task and the letters written about it, and a task its calls and their raw output', async t => {
   const { home, get, post } = await setup(t, [

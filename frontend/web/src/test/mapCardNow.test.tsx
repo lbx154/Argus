@@ -1,6 +1,14 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { NodeProps } from '@xyflow/react';
+import type { MacroData, MacroNode } from '../map/MacroTaskNode';
+import type { Dataset, MapTask } from '../map/model';
 import type { ArtifactInfo, DeliveryReceipt, EventMsg } from '../../../core/src/types';
+
+vi.mock('@xyflow/react', async original => ({
+  ...await original<typeof import('@xyflow/react')>(), Handle: () => null,
+  useStore: (select: (state: { transform: number[] }) => unknown) => select({ transform: [0, 0, 1] }),
+}));
 
 const artifactBlob = vi.fn(async () => new Blob(['png']));
 vi.mock('../api', async (importOriginal) => {
@@ -13,11 +21,12 @@ vi.mock('../i18n', async (importOriginal) => {
   return { ...actual, useI18n: () => ({ locale: 'zh-CN', setLocale: vi.fn(), t }) };
 });
 
-const { taskNow } = await import('../lib/liveActivity');
 const { taskFigures } = await import('../map/cardFigure');
 const { CardNow } = await import('../map/LiveLine');
-const { CardFigure } = await import('../map/MacroTaskNode');
-const { MapCardFigureContext, MapCardNowContext } = await import('../map/cardContext');
+const { CardFigure, MacroTaskNode, MapArtifactContext } = await import('../map/MacroTaskNode');
+const { mergeMapProgress } = await import('../map/incremental');
+const { layoutSubmap } = await import('../map/submap');
+const { MapCardFigureContext } = await import('../map/cardContext');
 
 const WS = '/tenant/state/workspaces/s-1';
 // Trimmed from the 2026-10-28 CartPole trial run, round 2 of task 1f5b.
@@ -38,26 +47,46 @@ const image = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop
 let tree: ReactTestRenderer | undefined;
 afterEach(() => { act(() => tree?.unmount()); tree = undefined; artifactBlob.mockClear(); });
 
-describe('what a running task’s map card says it is doing', () => {
-  it('reads the newest thing said and the command still running', () => {
-    const now = taskNow(events, 't1', 90, 'zh-CN', WS);
-    expect(now.said?.text).toBe('15次正式运行均已完成，累计900,000次训练交互。');
-    expect(now.said?.role).toBe('engineer');
-    expect(now.running?.text).toContain('analysis.py');
-    // Something after the command means it is no longer the thing under way.
-    const later = taskNow([...events, { type: 'engineer.progress', kind: 'reasoning', item_id: 't1', ts: 140, text: '…' }],
-      't1', 90, 'zh-CN', WS);
-    expect(later.running).toBeNull();
+describe('the task holder, latest action and results on the map card', () => {
+  const task: MapTask = { id: 't1', title: 'Totals', objective: '', status: 'in_progress', role: 'engineer',
+    latest_action: { role: 'engineer', kind: 'command', text: 'node totals.mjs', ts: 1 } };
+  const card = (value: MapTask): NodeProps<MacroNode> => ({ id: value.id, data: {
+    id: value.id, task: value, ordinal: 1, part: 1, partCount: 1, start: 1, end: 0, totalSteps: 0,
+    layout: layoutSubmap(value, [], true, []), frame: { width: 1440, height: 900, scale: 1 },
+    canvasSize: { width: 1440, height: 960 }, zh: true, focused: false, detailed: false, live: true,
+    source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(),
+  } as MacroData } as NodeProps<MacroNode>);
+
+  it('refreshes the holder and latest command or message through the existing map merge', () => {
+    const first: Dataset = { id: 'live:p', kind: 'live', title: '', description: '', read_only: false, tasks: [task], events: [] };
+    act(() => { tree = create(<MacroTaskNode {...card(first.tasks[0])} />); });
+    expect(tree!.root.findByProps({ 'data-testid': 'map-card-owner' }).children.join('')).toBe('负责人：工程师');
+    expect(tree!.root.findByProps({ 'data-testid': 'map-card-action' }).props.title).toBe('node totals.mjs');
+    const next = mergeMapProgress(first, { ...first, incremental: true, tasks: [{ ...task, role: 'reviewer',
+      latest_action: { role: 'reviewer', kind: 'message', text: '正在核对总数。', ts: 2 } }] });
+    act(() => tree!.update(<MacroTaskNode {...card(next.tasks[0])} />));
+    expect(tree!.root.findByProps({ 'data-testid': 'map-card-owner' }).children.join('')).toBe('负责人：审阅者');
+    expect(tree!.root.findByProps({ 'data-testid': 'map-card-action' }).props.title).toBe('正在核对总数。');
+    act(() => tree!.update(<CardNow task={{ id: 't2', title: 'Other', objective: '', status: 'pending' }} zh />));
+    expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-now' })).toHaveLength(0);
   });
 
-  it('shows those lines on the card of the task they belong to only', () => {
-    const value = { taskId: 't1', ...taskNow(events, 't1', 90, 'zh-CN', WS) };
-    act(() => { tree = create(<MapCardNowContext.Provider value={value}><CardNow taskId="t1" zh /></MapCardNowContext.Provider>); });
-    const said = tree!.root.findByProps({ 'data-testid': 'map-card-said' });
-    expect(said.findByType('b').children.join('')).toBe('工程师：');
-    expect(tree!.root.findByProps({ 'data-testid': 'map-card-running' }).props.title).toContain('analysis.py');
-    act(() => tree!.update(<MapCardNowContext.Provider value={value}><CardNow taskId="t2" zh /></MapCardNowContext.Provider>));
-    expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-now' })).toHaveLength(0);
+  it('opens every file from the closing handoff with the existing preview callback, in order', () => {
+    const open = vi.fn();
+    const first: Dataset = { id: 'live:p', kind: 'live', title: '', description: '', read_only: false, tasks: [task], events: [] };
+    const next = mergeMapProgress(first, { ...first, incremental: true, tasks: [{ ...task, status: 'done', result_paths: ['report.md', 'data.csv'] }] });
+    const shown = (value: MapTask) => <MapArtifactContext.Provider value={{ onOpenArtifact: open }}><MacroTaskNode {...card(value)} /></MapArtifactContext.Provider>;
+    act(() => { tree = create(shown(first.tasks[0])); });
+    expect(tree!.root.findAllByProps({ title: 'report.md' })).toHaveLength(0);
+    act(() => tree!.update(shown(next.tasks[0])));
+    const result = tree!.root.findByProps({ title: 'report.md' });
+    expect(result.children.join('')).toBe('打开结果');
+    act(() => result.props.onClick());
+    act(() => tree!.root.findByProps({ title: 'data.csv' }).props.onClick());
+    expect(open.mock.calls).toEqual([['report.md'], ['data.csv']]);
+    expect(result.parent?.type).toBe('div');
+    act(() => tree!.update(shown({ ...task, status: 'done', latest_action: { role: 'reviewer', kind: 'message', text: 'See report.md', ts: 3 }, result_paths: [] })));
+    expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('打开结果'))).toHaveLength(0);
   });
 });
 
