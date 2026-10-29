@@ -33,6 +33,13 @@ REFERENCE_CHANGES = [
     ("continuity_capsule", '"manager-supervision/latest.json": {"status": "observed"}', ""),
     ("continuity_capsule", f'"{SUPERVISION}": {{"status": "observed"}}, ', f'"{SUPERVISION}": {{"status": "observed"}}'),
     ("continuity_evidence", '{"path": "manager-supervision/latest.json", "status": "observed"}, ', ""),
+    # The Manager is told plainly when no daemon runs (PR #391), so it does not
+    # report the team as working.
+    *(
+        (name, '"health": "stopped"}', '"health": "stopped", "working": "no: no daemon is running for this project, '
+         'so no task is being executed; a task listed as running is stopped until a daemon starts"}')
+        for name in ("manager_observation", "manager_observation_before_rounds")
+    ),
 ]
 
 

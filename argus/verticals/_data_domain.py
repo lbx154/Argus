@@ -18,10 +18,9 @@ it. ``role_banners`` may map role names to separate prompt contracts; the legacy
 the per-stage checklist at runtime via :mod:`argus.skills.checklist_store`)
 and ``completion_gate="none"`` so it does not demand the paper submission gate.
 
-Hybrid lifecycle: a data domain that proves out is later PROMOTED into a real
-``argus/verticals/<name>/`` package by
-:mod:`argus.manager.domain_tidy`; after promotion ``load_vertical`` resolves
-the Python package first, so the data domain becomes inert (idempotent).
+If a real ``argus/verticals/<name>/`` package of the same name exists,
+``load_vertical`` resolves the Python package first and the data domain is
+inert.
 
 All reads are FAIL-OPEN: a missing / corrupt / malformed domain yields ``None``
 (or an empty listing) and never raises, so resolution and prompt building can
