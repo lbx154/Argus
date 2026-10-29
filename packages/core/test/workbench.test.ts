@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import test, { type TestContext } from 'node:test';
 import { chmod, mkdir, mkdtemp, readFile, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -436,6 +436,22 @@ test('search keeps a backtick-quoted path with spaces whole', async t => {
   assert.ok(results[0]!.snippet.startsWith('`/research/My Project/'), results[0]!.snippet);
   const path = fixture.request.slice(fixture.request.indexOf('`'), fixture.request.lastIndexOf('`') + 1);
   assert.ok(results[0]!.snippet.includes(path), results[0]!.snippet);
+});
+
+// Reviewer reproduction: a hit inside a long run without spaces quoted the whole 790,000-character letter,
+// and a search past its last result read every older project still.
+test('search quotes near the hit and stops reading once its results are full', async t => {
+  const { store, project, get } = await setup(t);
+  // The project set up first is the older, searched last; its record cannot be read.
+  rmSync(join(store.dir(project.id), 'events.jsonl'), { force: true });
+  mkdirSync(join(store.dir(project.id), 'events.jsonl'));
+  const newer = store.create({ request: 'newer', workdir: project.workdir, backend: 'codex', model: null });
+  const blob = JSON.stringify({ rows: Array.from({ length: 5_000 }, (_, i) => ({ id: i, tag: i === 2_500 ? 'needle' : 'hay' })) });
+  for (let i = 0; i < 51; i += 1) store.append(newer.id, { type: 'handoff', role: 'engineer', task: 't1', to: 'reviewer', letter: blob });
+  const { results, partial, errors } = await get<{ results: { snippet: string }[]; partial: boolean; errors: string[] }>('/api/search?q=needle');
+  assert.equal(results.length, 50);
+  assert.ok(results.every(hit => hit.snippet.length <= 2_000 && hit.snippet.includes('needle')));
+  assert.deepEqual([partial, errors], [true, []]);
 });
 
 test('recorded deliveries count occurrences per file and preview their saved text through every result route', async t => {

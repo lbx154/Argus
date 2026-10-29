@@ -38,9 +38,9 @@ export function directory(asked: string): string {
   const path = asked && resolve(asked.replace(/^~(?=$|\/)/, homedir()));
   try {
     // Each missing folder in turn, from the nearest that exists: Node's recursive mkdir never returns
-    // for a path under /proc.
+    // for a path under /proc. A root that does not exist (a drive, a share) is its own parent.
     const missing: string[] = [];
-    for (let dir = path; dir && !existsSync(dir); dir = dirname(dir)) missing.unshift(dir);
+    for (let dir = path, below = ''; dir !== below && !existsSync(dir); below = dir, dir = dirname(dir)) missing.unshift(dir);
     for (const dir of missing) mkdirSync(dir);
     if (path && !statSync(path).isDirectory()) throw new HttpError(400, `${path} is a file, not a directory`, 'workdir_not_directory');
     if (path) accessSync(path, constants.R_OK | constants.W_OK | constants.X_OK);

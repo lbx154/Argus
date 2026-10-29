@@ -4,7 +4,7 @@
 import { NAMES } from '../prompts.js';
 import type { Note, Project, Store } from '../store.js';
 import { HttpError, type Handler } from './index.js';
-import { named as projectName, progressMap, readEvents, readRecord, conversationRows } from './views.js';
+import { named as projectName, progressMap, readEvents, projectRecord, conversationRows } from './views.js';
 
 const RESULTS = 50;
 const EXCERPT = 32_000;
@@ -48,7 +48,8 @@ function snippet(text: string, hit: number): string {
     if (opening < start && start < closing) start = opening;
     if (opening < finish && finish < closing) finish = closing;
   }
-  return text.slice(start, finish).trim();
+  // However long the word or span, the quote stays near what was found.
+  return text.slice(Math.max(start, hit - 1_000), Math.min(finish, hit + 1_000)).trim();
 }
 
 /** What holds every word asked, newest project first: a project's request, its conversation, and
@@ -60,6 +61,7 @@ function search(store: Store, query: string) {
   const errors: string[] = [];
   let partial = false;
   for (const project of store.list().reverse()) {
+    if (partial) break;
     const title = projectName(project) || project.id;
     const match = (text: string, kind: string, more: Record<string, unknown> = {}): void => {
       const folded = text.toLowerCase();
@@ -74,7 +76,8 @@ function search(store: Store, query: string) {
     };
     try {
       const events = readEvents(store, project.id);
-      const dialogue = conversationRows(readRecord(store, project.id), project, { since: null, calls: [], requests: [] }).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus');
+      // Folded once here, not kept: a search reads every project, and the open ones are kept already.
+      const dialogue = conversationRows(projectRecord(events), project, { since: null, calls: [], requests: [] }).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus');
       // The request is the first operator message, also kept on project.json. Prefer its
       // conversation entry so opening the hit can locate that message. Independent messages
       // (even identical words), and the same words from another speaker, remain separate.
