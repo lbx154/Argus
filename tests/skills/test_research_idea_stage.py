@@ -64,7 +64,52 @@ def test_a_broad_paper_idea_is_the_agents_own_work(tmp_path: Path) -> None:
     assert prompt_blocks == []
     assert events == []
     assert not (tmp_path / ".argus" / "teams").exists()
+
+
+def test_idea_closes_on_the_research_notes_not_on_an_intermediate_task(tmp_path: Path) -> None:
+    """s-dacac579: an accepted route assessment closed Idea with no route selected."""
+    _state(tmp_path, workflow_mode="staged")
+    [issue] = stage_completion_issues("idea", tmp_path)
+    assert "RESEARCH_NOTES.md" in issue
+
+    (tmp_path / "RESEARCH_NOTES.md").write_text("   \n", encoding="utf-8")
+    assert stage_completion_issues("idea", tmp_path) != ()
+
+    (tmp_path / "RESEARCH_NOTES.md").write_text(
+        "# Research notes — Idea stage\n\nSelected route: segmentation.\n", encoding="utf-8",
+    )
     assert stage_completion_issues("idea", tmp_path) == ()
+
+
+def test_a_direct_idea_only_request_needs_no_research_notes(tmp_path: Path) -> None:
+    _state(tmp_path, workflow_mode="direct")
+    assert stage_completion_issues("idea", tmp_path) == ()
+
+
+def test_a_planner_stage_request_cannot_leave_idea_without_a_selected_route(
+    tmp_path: Path,
+) -> None:
+    """s-dacac579 22:54: a Planner ADVANCE_TO_STAGE=experiment after an accepted
+    literature review moved Idea on with no route recorded."""
+    import pytest
+
+    from argus.life.supervisor._planning_cycle_enqueue import _apply_planner_stage_request
+    from argus.skills.stage_machine import StageCompletionError, current_stage
+
+    _state(tmp_path, workflow_mode="staged")
+    with pytest.raises(StageCompletionError, match="RESEARCH_NOTES.md"):
+        _apply_planner_stage_request(
+            state_root=tmp_path, requested_stage="experiment",
+            reason="review accepted", evidence_root=tmp_path,
+        )
+    assert current_stage(tmp_path) == "idea"
+
+    (tmp_path / "RESEARCH_NOTES.md").write_text("Selected route: segmentation.\n", encoding="utf-8")
+    _apply_planner_stage_request(
+        state_root=tmp_path, requested_stage="experiment",
+        reason="route selected and reviewed", evidence_root=tmp_path,
+    )
+    assert current_stage(tmp_path) == "experiment"
 
 
 def test_locked_and_direct_ideas_use_only_the_playbook(tmp_path: Path) -> None:

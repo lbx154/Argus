@@ -142,3 +142,30 @@ def test_preloaded_research_context_says_when_to_reopen_its_file(tmp_path: Path)
         assert "marked truncated or omits a value you need" in block
     (tmp_path / "paper" / "REVIEW.md").unlink()
     assert "currently absent or empty" in active_research_context("review", tmp_path)
+
+
+def test_planner_in_experiment_without_a_route_plans_the_selection_in_one_step(
+    tmp_path: Path,
+) -> None:
+    """s-dacac579 23:58-00:03: with no route recorded, the Experiment Planner idled
+    three times asking for the stage mismatch to be fixed before it planned the
+    selection itself. The prompt names that move."""
+    from argus.verticals.research.prompt_policy import render_role_prompt_context
+
+    def planner(stage: str) -> str:
+        return render_role_prompt_context(
+            role="planner", operation="plan", stage=stage, scope="", project_root=tmp_path,
+        )
+
+    block = planner("experiment")
+    assert "## No selected route" in block
+    assert "plan the selection as this stage's first task" in block
+    assert "do not idle or hand it to the Manager" in block
+    assert "## No selected route" not in planner("idea")
+    for role in ("engineer", "reviewer"):
+        assert "## No selected route" not in render_role_prompt_context(
+            role=role, operation="evaluate", stage="experiment", scope="", project_root=tmp_path,
+        )
+
+    (tmp_path / RESEARCH_NOTES_FILENAME).write_text("Selected route: segmentation.\n", encoding="utf-8")
+    assert "## No selected route" not in planner("experiment")

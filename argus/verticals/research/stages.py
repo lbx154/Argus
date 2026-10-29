@@ -55,7 +55,8 @@ STAGE_CHECKLISTS: dict[str, tuple[ChecklistItem, ...]] = {
                 "aside every other route. For a staged direction the operator has fixed, "
                 "the research notes instead examine and position the supplied idea "
                 "without inventing routes that were set aside. The notes replace the "
-                "previous text rather than accumulating history. A route with a "
+                "previous text rather than accumulating history; Idea closes on them, "
+                "not on an accepted survey or route assessment. A route with a "
                 "meaningful delta from its closest work passes with the overlap and "
                 "other open questions listed as risks for Experiment. A direct Idea-only "
                 "request returns its independently reviewed result without writing "
@@ -519,6 +520,29 @@ def _paper_stage_skipped(state_root: Path) -> bool:
         return False
 
 
+def _idea_issue(project_root: Path, state_root: Path) -> tuple[str, ...]:
+    """Idea's own deliverable: the research notes that carry the route on.
+
+    An accepted task inside Idea (a source survey, an independent route
+    assessment) is not the stage's output; the notes that name the selected
+    route, or position the operator's fixed direction, are. Whether they say
+    enough is the Reviewer's judgment; that they exist is a fact. A direct
+    Idea-only request returns its reviewed result without writing them.
+    """
+    from ...skills.vertical_select import resolve_workflow_mode
+    from .notes import read_research_notes
+
+    if resolve_workflow_mode(state_root) == "direct":
+        return ()
+    if read_research_notes(project_root).strip():
+        return ()
+    return (
+        "RESEARCH_NOTES.md is missing or empty: Idea closes when the project-root "
+        "research notes record the selected route (or position the operator's fixed "
+        "direction) for Experiment; plan the task that selects and writes them",
+    )
+
+
 def _review_document_issues(
     project_root: Path,
 ) -> tuple[str, ...]:
@@ -540,9 +564,11 @@ def stage_completion_issues(
 ) -> tuple[str, ...]:
     normalized = str(stage or "").strip().lower()
     root = Path(project_root)
-    if normalized in {"idea", "experiment"}:
-        # Idea and Experiment are judged on their evidence by the Reviewer and
-        # Manager; the research notes are context, not a completion condition.
+    if normalized == "idea":
+        return _idea_issue(root, Path(state_root or root))
+    if normalized == "experiment":
+        # Experiment is judged on its evidence by the Reviewer; its notes are
+        # written by the round that advances, not a completion condition.
         return ()
     if normalized == "paper":
         return _paper_issue(root)
@@ -684,7 +710,8 @@ _MANAGER_RESEARCH_STEWARDSHIP = (
     "reviewed; Review is terminal. A Reviewer acceptance resting on a claim narrower "
     "than METHOD.md states is not stage completion: hold and schedule the next rung "
     "of the diagnosis ladder, or, when no rung remains, the revision or stage package "
-    "the experiment.repair item allows. Judge the science, not the bookkeeping: a missing "
+    "the experiment.repair item allows. Judge the science, not the bookkeeping: outside "
+    "Idea, whose output is the selected route in the research notes, a missing "
     "or outdated research notes, review note, template detail, or file marker is "
     "repair work for the next round, never by itself a reason to hold a stage. A "
     "Reviewer judgment reached on the current mission is the current review of the "
