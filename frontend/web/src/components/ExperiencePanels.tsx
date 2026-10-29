@@ -174,7 +174,7 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
 }
 
 export interface ConversationRevision {
-  source: string; prompt: string; answer: string; mode: 'edit' | 'regenerate' | 'versions'; baseVersion: number;
+  source: string; prompt: string; answer: string; mode: 'edit' | 'versions'; baseVersion: number;
 }
 export function ConversationEditor({ sid, target, onClose, onCompose }: {
   sid: string; target: ConversationRevision; onClose: () => void;
@@ -205,51 +205,8 @@ export function ConversationEditor({ sid, target, onClose, onCompose }: {
       </section>}
       <Button variant="primary" disabled={!prompt.trim() || query.isPending || query.isError}
         onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 })}>
-        {target.mode === 'regenerate' ? zh ? '准备重新回答（仅对话）' : 'Prepare another answer (chat only)' : zh ? '放入对话草稿' : 'Put in chat draft'}
+        {zh ? '放入对话草稿' : 'Put in chat draft'}
       </Button>
-    </div>
-  </Modal>;
-}
-
-export function DeviceAccess({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const zh = useI18n().locale === 'zh-CN';
-  const [link, setLink] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
-  return <Modal open={open} onClose={onClose} label={zh ? '设备与登录' : 'Devices and sign-in'}>
-    <ModalHeader title={zh ? '设备与登录' : 'Devices and sign-in'} sub={zh ? '连接你的另一台设备，继续同一份工作' : 'Continue the same work on another device'} />
-    <div className="experience-panel">
-      <p className="text-ink-dim">{zh ? '配对后可共享项目、成果版本、已同步草稿和项目整理状态。' : 'Pairing shares projects, result editions, synced drafts and project organization.'}</p>
-      <div className="experience-section">
-      <h3>{zh ? '连接另一设备' : 'Connect another device'}</h3>
-      <p className="experience-caption">{zh ? '仅限你自己的设备。登录链接可访问这个私有空间，请勿转发。' : 'Use only on your own devices. The link grants access to this private space; do not share it.'}</p>
-      <Button variant="primary" disabled={busy} onClick={async () => {
-        setBusy(true); setError('');
-        try {
-          const issued = await api.pairingLink();
-          setLink(new URL(issued.path, window.location.href).toString());
-          setCopied(false);
-        } catch (problem) { setError(errorText(problem)); }
-        finally { setBusy(false); }
-      }}>{busy ? zh ? '正在处理…' : 'Working…' : zh ? '生成另一设备的单次登录链接' : 'Create a one-use sign-in link'}</Button>
-      {link && <><input className="experience-input" type="password" aria-label={zh ? '单次登录链接' : 'One-use sign-in link'} readOnly value={link} onFocus={event => event.target.select()} />
-        <Button onClick={async () => {
-          try { await navigator.clipboard.writeText(link); setCopied(true); setError(''); }
-          catch (problem) { setError(errorText(problem)); }
-        }}>{copied ? zh ? '已复制登录链接' : 'Sign-in link copied' : zh ? '复制登录链接' : 'Copy sign-in link'}</Button>
-        <small>{zh ? '1 小时内有效，仅可使用一次。' : 'Valid for one hour and one use.'}</small></>}
-      </div>
-      <div className="experience-section device-disconnect">
-      <div><h3>{zh ? '当前浏览器' : 'This browser'}</h3>
-        <p className="experience-caption">{zh ? '退出只断开本浏览器。' : 'Signing out disconnects only this browser.'}</p></div>
-      <Button variant="danger" disabled={busy} onClick={async () => {
-        setBusy(true); setError('');
-        try { await api.disconnectBrowser(); window.location.reload(); }
-        catch (problem) { setError(errorText(problem)); setBusy(false); }
-      }}>{zh ? '退出当前浏览器' : 'Sign out this browser'}</Button>
-      </div>
-      {error && <p role="alert" className="text-err">{error}</p>}
     </div>
   </Modal>;
 }

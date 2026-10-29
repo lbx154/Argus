@@ -1,9 +1,9 @@
 import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useWorkspaceTree } from './hooks';
+import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -41,7 +41,6 @@ import { TaskDetailModal } from './components/TaskDetailModal';
 import { currentWorkStatus } from './lib/workStatus';
 import { SplitHandle } from './components/SplitHandle';
 import { Modal } from './components/Modal';
-import { VerticalStore } from './components/VerticalStore';
 import { Landing } from './components/Landing';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
@@ -69,8 +68,7 @@ import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
-import { hostedTrialBuild } from './lib/verticalStore';
-import { ArtifactEditor, ConversationEditor, DeviceAccess, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
+import { ArtifactEditor, ConversationEditor, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
@@ -95,7 +93,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'learning' | 'verticals';
+type Overlay = 'none' | 'palette' | 'help' | 'doctor' | 'config' | 'identity' | 'transcript' | 'inspector' | 'learning';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -182,12 +180,12 @@ export default function App() {
   }, []);
   const openSkillLibrary = useCallback((item?: SkillLibraryItem, scope: SkillScope | 'recent' = 'recent') => {
     setLearningSelection(item ? { kind: 'skill', item } : null);
-    setLearningScope(item?.scope ?? (scope === 'recent' ? 'feed' : scope));
+    setLearningScope(item || scope !== 'recent' ? 'global' : 'feed');
     setOverlay('learning');
   }, []);
   const openWiki = useCallback((page?: WikiLibraryItem) => {
     setLearningSelection(page ? { kind: 'knowledge', item: page } : null);
-    setLearningScope(page?.scope === 'private' ? 'global' : page?.scope ?? 'feed');
+    setLearningScope(page ? 'global' : 'feed');
     setOverlay('learning');
   }, []);
   const {
@@ -250,7 +248,6 @@ export default function App() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ path: string; version?: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [devicesOpen, setDevicesOpen] = useState(false);
   const [conversationEditor, setConversationEditor] = useState<ConversationRevision | null>(null);
   const [revisionContext, setRevisionContext] = useState<ConversationRevision | null>(null);
   const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
@@ -416,27 +413,23 @@ export default function App() {
     if (!body || !sid) return;
     const operation = beginRewrite(sid);
     if (!operation) return;
+    const zh = locale === 'zh-CN';
+    /** The draft stays as it was; the notice says why, as the server or the network put it. */
+    const failed = (reason: string) => {
+      if (!finishRewrite(operation) || sidRef.current !== sid) return;
+      notify('error', `${zh ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged."}${reason ? `${zh ? '原因：' : ' Reason: '}${reason}` : ''}`);
+    };
     void api.rewritePrompt(sid, body).then(
       (result) => {
-        if (result.error || !result.rewritten.trim()) {
-          if (finishRewrite(operation) && sidRef.current === sid) {
-            notify('error', locale === 'zh-CN' ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged.");
-          }
-          return;
-        }
+        if (result.error || !result.rewritten.trim()) return failed(result.error);
         if (!finishRewrite(operation, result.rewritten) || sidRef.current !== sid) return;
         setComposerFocus((x) => x + 1);
-        const zh = locale === 'zh-CN';
         const open = result.questions.length
           ? `${zh ? ' 还想跟你确认：' : ' One thing to check: '}${result.questions.join(' · ')}`
           : '';
         notify('success', `${zh ? '改写好了，看一下再发送。' : 'Rewritten. Have a look, then send.'}${open}`);
       },
-      () => {
-        if (finishRewrite(operation) && sidRef.current === sid) {
-          notify('error', locale === 'zh-CN' ? '这次没改写成功，你的输入没有动。' : "Couldn't rewrite it this time; your text is unchanged.");
-        }
-      },
+      (error) => failed(errorText(error)),
     );
   }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
@@ -471,8 +464,6 @@ export default function App() {
   useEffect(() => subscribeDesktopNewChat(() => startNewSessionRef.current()), []);
 
 
-  const activeProjectRow = projects.find((project) => project.id === activeSid);
-  const activeProjectName = activeProjectRow ? activeProjectRow.display_name?.trim() || t('sidebar.unnamedSession') : '';
   const snapQ = useSnapshot(activeSid);
   const manageSnapQ = useSnapshot(manageTargetSid);
   const snap = snapQ.data;
@@ -555,7 +546,6 @@ export default function App() {
   const promptSources = useMemo<PromptSources | undefined>(() => loadedSid ? {
     sid: loadedSid, tasks: snap?.backlog ?? [], history: promptHistoryList, files: workspaceTreeQ.data?.entries,
     wantFiles: (want) => setTreeSid(want ? loadedSid : null),
-    continuePrompt: (text, signal) => api.completePrompt(loadedSid, text, signal),
   } : undefined, [loadedSid, snap?.backlog, promptHistoryList, workspaceTreeQ.data]);
   // Content kept from an earlier visit shows at once; until its first refresh
   // lands it is marked as updating rather than presented as live.
@@ -589,7 +579,6 @@ export default function App() {
       void transcriptQ.refetch();
     }
   }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
-  const journalQ = useJournal(activeSid, 20, overlay === 'inspector');
   // The map view follows the stream at a beat, not per token.
   const mapInput = useMemo(() => ({ sid: loadedSid, events, conversation: activityEvents }), [loadedSid, events, activityEvents]);
   const mapHistory = useThrottledValue(mapInput, 250);
@@ -643,12 +632,11 @@ export default function App() {
   const attention = useMemo(() => projectAttention({
     snapshot: loadedSid ? snap : undefined,
     view: missionView,
-    events: activityEvents,
     complete: operatorTaskComplete,
     delivery,
     health,
     zh: locale === 'zh-CN',
-  }), [loadedSid, snap, missionView, activityEvents, operatorTaskComplete, delivery, health, locale]);
+  }), [loadedSid, snap, missionView, operatorTaskComplete, delivery, health, locale]);
   const projectBusy = useMemo(() => {
     if (!snap?.daemon.alive) return false;
     const state = currentWorkStatus(snap, missionView, events).state;
@@ -828,12 +816,10 @@ export default function App() {
     manageStopDaemon,
     manageRenameProject,
     manageStartDaemon,
-    requestDispose,
     requestManageSession,
     requestPauseDaemon,
     requestStartDaemon,
     requestStopDaemon,
-    requestStopIteration,
     toggleContinuous,
   } = useProjectDaemonActions({
     actions,
@@ -859,7 +845,6 @@ export default function App() {
     activityEventsRef,
     notify,
     onClearEvents: (offset) => dispatchEventView({ kind: 'clear', offset }),
-    onDispose: requestDispose,
     onOpenConfig: () => setOverlay('config'),
     onOpenDoctor: () => setOverlay('doctor'),
     onOpenHelp: () => setOverlay('help'),
@@ -879,7 +864,6 @@ export default function App() {
     onSetTaskItemId: setTaskItemId,
     onSetWorkspaceView: setWorkspaceView,
     onShowArtifacts: openPreview,
-    onStopIteration: requestStopIteration,
     onStopWaiting: stopWaiting,
     refetchSnapshot: snapQ.refetch,
   }), [
@@ -889,8 +873,6 @@ export default function App() {
     openSkillLibrary,
     openRuntimeControls,
     renameCurrentProject,
-    requestDispose,
-    requestStopIteration,
     rewriteDraft,
     selectProject,
     snapQ.refetch,
@@ -1134,7 +1116,7 @@ export default function App() {
           }, {
             signal: controller.signal,
             attachments: attachmentRefs,
-            routeOverride: revision ? 'chat' : routeOverride,
+            routeOverride,
             requestId: serverRequestId,
             launch: launches && !revision && routeOverride !== 'chat' ? launchForMessage(launchSettings, askMode, freshProject) : undefined,
           });
@@ -1262,10 +1244,8 @@ export default function App() {
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
-      ...(hostedTrialBuild() ? [] : [{ id: 'device-access', label: locale === 'zh-CN' ? '设备与登录' : 'Devices and sign-in', group: t('palette.view'), run: () => setDevicesOpen(true) }]),
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
-      { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
       { id: 'help', label: t('help.title'), hint: '?', group: t('palette.view'), run: () => setOverlay('help') },
       {
         id: 'reasoning',
@@ -1378,7 +1358,6 @@ export default function App() {
           resumingId={resumingSid}
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenLearning={openLearningLibrary}
-          onOpenVerticals={() => setOverlay('verticals')}
           onOpenResults={() => {
             const selection = defaultDeliverySelection(deliveryHistory, missionView?.routing.vertical || '');
             if (selection) { openDelivery(selection.receipt, selection.path); setSidebarOpen(false); }
@@ -1386,8 +1365,8 @@ export default function App() {
           resultsCount={loadedSid ? deliveryHistory.length : 0}
           onNew={() => startNewSession()}
           onSearch={() => setSearchOpen(true)}
-          // The trial portal owns sign-in; device pairing is for self-hosted Argus.
-          onDevices={hostedTrialBuild() ? undefined : () => setDevicesOpen(true)}
+          // The trial portal owns sign-in; a token kept here is this browser's own.
+          onSignOut={import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' || !holdsToken() ? undefined : signOut}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
@@ -1498,7 +1477,6 @@ export default function App() {
                     historyStatus={historyStatus}
                     historyRefreshing={transcriptQ.isFetching}
                     refreshingKept={refreshingKept}
-                    onPauseWork={snap.daemon.alive && !kiosk ? requestPauseDaemon : undefined}
                     onResumeWork={kiosk || daemonBusy ? undefined : requestStartDaemon}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
@@ -1530,7 +1508,6 @@ export default function App() {
                     </div>}
                     <ChatBox
                       key={activeSid || 'no-session'}
-                      projectName={activeProjectName}
                       value={composerDraft}
                       attachments={composerAttachments}
                       onAttachmentsChange={changeComposerAttachments}
@@ -1566,6 +1543,14 @@ export default function App() {
                 <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1`}>
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
                     <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
+                      snapshot={loadedSid ? snap : undefined} failed={snapQ.isError} events={events} connected={connected && !snapQ.isError}
+                      refresh={() => void snapQ.refetch()}
+                      controls={{
+                        start: () => actions.startDaemon.mutateAsync().catch(() => null),
+                        stop: drain => actions.stopDaemon.mutateAsync(drain).catch(() => null),
+                        busy: actions.startDaemon.isPending || actions.stopDaemon.isPending,
+                        error: [actions.startDaemon.error, actions.stopDaemon.error].filter(Boolean).map(errorText)[0] ?? '',
+                      }}
                       onCompose={() => { setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1); }}
                       onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />
                   </Suspense>
@@ -1668,7 +1653,6 @@ export default function App() {
         setSearchTarget(result); selectProject(result.sid);
         setWorkspaceView('activity'); setMobileView('activity'); setSidebarOpen(false);
       }} />
-      <DeviceAccess open={devicesOpen} onClose={() => setDevicesOpen(false)} />
       {activeSid && editor && <ArtifactEditor key={`${activeSid}:${editor.path}:${editor.version ?? ''}`} sid={activeSid}
         path={editor.path} initialVersion={editor.version} onClose={() => setEditor(null)}
         onRequest={text => { if (composeContext(text)) setEditor(null); }} />}
@@ -1676,7 +1660,7 @@ export default function App() {
         target={conversationEditor} onClose={() => setConversationEditor(null)}
         onCompose={(text, target) => {
           if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
-          setComposerDraft(text); setRevisionContext(target); setRouteOverride('chat');
+          setComposerDraft(text); setRevisionContext(target);
           setConversationEditor(null); setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1);
         }} />}
       <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '知识与技能' : 'Knowledge & skills'} width="max-w-6xl">
@@ -1685,7 +1669,6 @@ export default function App() {
           projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
       </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
-      <VerticalStore open={overlay === 'verticals'} onClose={() => setOverlay('none')} />
       <KeybindingHelp open={overlay === 'help'} onClose={() => setOverlay('none')} />
       {activeSid && <DoctorModal sid={activeSid} open={overlay === 'doctor'} onClose={() => setOverlay('none')} />}
       {activeSid && (
@@ -1703,11 +1686,7 @@ export default function App() {
         <ProjectInspectorModal
           open={overlay === 'inspector'}
           snap={snap}
-          journal={journalQ.data ?? []}
-          busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
           onClose={() => setOverlay('none')}
-          onDispose={requestDispose}
-          onStop={requestStopIteration}
           onInspect={setTaskItemId}
         />
       ) : null}
@@ -1717,16 +1696,7 @@ export default function App() {
         reviewActivity={activeSid === loadedSid ? reviewActivity : undefined}
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />
-      <TaskDetailModal
-        sid={activeSid}
-        itemId={taskItemId}
-        onClose={() => setTaskItemId(null)}
-        onDone={(id) => requestDispose(id, 'done')}
-        onSkip={(id) => requestDispose(id, 'rm')}
-        onStop={requestStopIteration}
-        busy={actions.disposeBacklog.isPending || actions.stopBacklog.isPending}
-        readOnly={kiosk}
-      />
+      <TaskDetailModal sid={activeSid} itemId={taskItemId} onClose={() => setTaskItemId(null)} />
       <PendingReplyDialog
         reply={pendingReply}
         open={pendingReplyOpen}

@@ -1,4 +1,4 @@
-import { apiAuthHeaders } from './api';
+import { authHeaders } from '../api';
 
 export interface WorkspaceProfile {
   id: string;
@@ -53,38 +53,12 @@ export interface WorkspaceGit {
   ahead: number;
   behind: number;
   identity: { name: string; email: string; valid: boolean };
-  github: { authenticated: boolean; host: string; login: string; protocol: string; scopes: string[] };
-  publish_ready: boolean;
   truncated?: boolean;
-}
-
-export interface LiteraturePaper {
-  id: string;
-  title: string;
-  authors: string[];
-  year: number | null;
-  venue: string;
-  url: string;
-  abstract: string;
-  relevance: string;
-  topics: string[];
-  sourcePath: string;
-  retrievedAt: string;
-  evidenceStatus: 'verified_artifact' | 'metadata' | 'unresolved';
-  evidencePath?: string;
-  evidenceBytes?: number;
-}
-
-export interface LiteratureIndex {
-  papers: LiteraturePaper[];
-  sourceFiles: WorkspaceEntry[];
-  searchFiles: WorkspaceEntry[];
-  scannedFiles: number;
 }
 
 async function get<T>(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
   const query = new URLSearchParams(params);
-  const response = await fetch(`${path}?${query}`, { headers: apiAuthHeaders(), signal, cache: 'no-store' });
+  const response = await fetch(`${path}?${query}`, { headers: authHeaders(), signal, cache: 'no-store' });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: string; detail?: string };
     throw new Error(payload.detail || payload.error || `${path} failed (${response.status})`);
@@ -103,13 +77,11 @@ export const workspaceApi = {
     get<WorkspaceFile>('/api/v2/workspace/file', { ...context(sid, workspaceId), path }, signal),
   git: (sid: string, workspaceId: string, signal?: AbortSignal) =>
     get<WorkspaceGit>('/api/v2/workspace/git', context(sid, workspaceId), signal),
-  literature: (sid: string, workspaceId: string, signal?: AbortSignal) =>
-    get<LiteratureIndex>('/api/v2/workspace/literature', context(sid, workspaceId), signal),
   rawUrl: (sid: string, workspaceId: string, path: string) =>
     `/api/v2/workspace/raw?${new URLSearchParams({ ...context(sid, workspaceId), path })}`,
   /** Any regular workspace file as a download (credential-like names are refused). */
   downloadBlob: async (sid: string, workspaceId: string, path: string, signal?: AbortSignal) => {
-    const response = await fetch(`/api/v2/workspace/download?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: apiAuthHeaders(), signal, cache: 'no-store' });
+    const response = await fetch(`/api/v2/workspace/download?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: authHeaders(), signal, cache: 'no-store' });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { detail?: string };
       throw new Error(payload.detail || `download failed (${response.status})`);
@@ -117,7 +89,7 @@ export const workspaceApi = {
     return response.blob();
   },
   rawBlob: async (sid: string, workspaceId: string, path: string, signal?: AbortSignal) => {
-    const response = await fetch(`/api/v2/workspace/raw?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: apiAuthHeaders(), signal, cache: 'no-store' });
+    const response = await fetch(`/api/v2/workspace/raw?${new URLSearchParams({ ...context(sid, workspaceId), path })}`, { headers: authHeaders(), signal, cache: 'no-store' });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { detail?: string };
       throw new Error(payload.detail || `raw preview failed (${response.status})`);

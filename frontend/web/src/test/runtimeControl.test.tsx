@@ -19,17 +19,13 @@ let props: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: str
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   props = {
-    sid: 's-test', snapshot: snap, active: false, connected: true, snapshotUpdatedAt: 1, events: [],
-    project: { id: 's-test', label: 'Test project', objective: '', last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null },
-    refresh: vi.fn(), controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' }, navigate: vi.fn(), readOnly: false, onRestored: vi.fn(), onCompose: vi.fn(),
+    sid: 's-test', snapshot: snap, active: false, connected: true, events: [],
+    refresh: vi.fn(), controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' }, readOnly: false, onRestored: vi.fn(), onCompose: vi.fn(),
   };
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected unmocked request'); }));
   vi.stubGlobal('window', { confirm: vi.fn(() => true) });
   vi.spyOn(api, 'resources').mockResolvedValue({ schema_version: 1, enforcement: 'strict', accelerators: [] });
-  vi.spyOn(api, 'metrics').mockRejectedValue(new Error('synthetic metrics failure'));
   vi.spyOn(api, 'trash').mockResolvedValue({ entries: [], total: 0 });
-  vi.spyOn(api, 'sourceUpdateStatus').mockRejectedValue(new Error('synthetic unavailable source'));
-  vi.spyOn(api, 'checkSourceUpdate');
 });
 afterEach(() => { act(() => tree?.unmount()); tree = undefined; client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const element = () => <QueryClientProvider client={client}><RuntimeControlPage {...props} /></QueryClientProvider>;
@@ -65,15 +61,15 @@ describe('embedded runtime control page', () => {
     expect(button('Working…').props.disabled).toBe(true);
     expect(props.controls.start).not.toHaveBeenCalled();
   });
-  it('distinguishes queued work from an interrupted active task', async () => {
+  it('offers to resume work that stopped with a task not done, queued or under way', async () => {
     const task = { id: 'task-1', title: 'A task', objective: '', status: 'pending', priority: 1 };
-    props.snapshot = { ...snap, backlog: [task] };
-    await mount();
-    expect(button('Start work').props.disabled).toBe(false);
-    props.snapshot = { ...snap, backlog: [{ ...task, status: 'in_progress' }] };
-    await act(async () => tree!.update(element()));
-    expect(JSON.stringify(tree!.toJSON())).toContain('The current task is not running');
-    expect(button('Resume').props.disabled).toBe(false);
+    for (const status of ['pending', 'in_progress']) {
+      props.snapshot = { ...snap, backlog: [{ ...task, status }] };
+      if (tree) await act(async () => tree!.update(element()));
+      else await mount();
+      expect(JSON.stringify(tree!.toJSON())).toContain('The current task is not running');
+      expect(button('Resume').props.disabled).toBe(false);
+    }
   });
   it('is a page, not a modal, with no duplicate work composer or skill entry', () => {
     const html = renderToStaticMarkup(element());
@@ -82,15 +78,13 @@ describe('embedded runtime control page', () => {
     expect(html).not.toContain('<textarea');
     expect(html).not.toContain('Open skill library');
   });
-  it('only reads GPU data when active, and lazy loads advanced sections without automatic update checks', async () => {
+  it('only reads GPU data when active, and lazy loads the removed projects', async () => {
     await mount();
     expect(api.resources).not.toHaveBeenCalled();
     props.active = true;
     await act(async () => tree!.update(element()));
     expect(api.resources).toHaveBeenCalledTimes(1);
-    expect(api.metrics).not.toHaveBeenCalled();
     expect(api.trash).not.toHaveBeenCalled();
-    expect(api.checkSourceUpdate).not.toHaveBeenCalled();
   });
   it('keeps read-only and external controls disabled', async () => {
     props.readOnly = true;
@@ -101,7 +95,6 @@ describe('embedded runtime control page', () => {
     props.snapshot = { ...snap, daemon: { ...snap.daemon, alive: true, control_available: false } };
     await act(async () => tree!.update(element()));
     expect(button('Pause safely').props.disabled).toBe(true);
-    expect(button('Restart safely').props.disabled).toBe(true);
   });
   it('preserves safe drain when pausing and displays control errors', async () => {
     props.snapshot = { ...snap, daemon: { ...snap.daemon, alive: true } };
@@ -111,15 +104,15 @@ describe('embedded runtime control page', () => {
     expect(props.controls.stop).toHaveBeenCalledWith(true);
     expect(tree!.root.findAllByProps({ role: 'alert' }).some(node => node.children.includes('synthetic command failure'))).toBe(true);
   });
-  it('confirms maintenance and preserves revision, exposing rejected commands instead of success', async () => {
-    vi.spyOn(api, 'upgradeDaemon').mockResolvedValue({ rc: 1, command_status: 'rejected', error: 'revision conflict' } as Awaited<ReturnType<typeof api.upgradeDaemon>>);
+  it('confirms maintenance, exposing a rejected command instead of success', async () => {
+    vi.spyOn(api, 'resetManager').mockResolvedValue({ rc: 1, command_status: 'rejected', error: 'revision conflict' } as never);
     await mount();
     vi.mocked(window.confirm).mockReturnValueOnce(false);
-    await act(async () => button('Restart safely').props.onClick());
-    expect(api.upgradeDaemon).not.toHaveBeenCalled();
-    await act(async () => button('Restart safely').props.onClick());
-    expect(api.upgradeDaemon).toHaveBeenCalledWith('s-test', 7);
-    expect(tree!.root.findAllByProps({ role: 'status' }).some(node => node.children.includes('Safe restart requested.'))).toBe(false);
+    await act(async () => button('Reset conversation context').props.onClick());
+    expect(api.resetManager).not.toHaveBeenCalled();
+    await act(async () => button('Reset conversation context').props.onClick());
+    expect(api.resetManager).toHaveBeenCalledWith('s-test');
+    expect(tree!.root.findAllByProps({ role: 'status' }).some(node => node.children.includes('Conversation context reset.'))).toBe(false);
     expect(tree!.root.findAllByType('pre').some(node => node.children.join('').includes('revision conflict'))).toBe(true);
   });
 });

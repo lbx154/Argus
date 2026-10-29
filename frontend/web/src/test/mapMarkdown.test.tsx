@@ -2,7 +2,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import { MarkdownExcerpt } from '../components/MarkdownExcerpt';
 import { MarkdownContent } from '../components/MarkdownContent';
-import { JournalPanel } from '../components/JournalPanel';
 
 it('renders card formatting without exposing Markdown markers or nesting links/buttons', () => {
   const html = renderToStaticMarkup(<button><MarkdownExcerpt>{'## **验证结果**\n\n- `A*` 通过\n- [报告](REPORT.md)\n\n| 策略 | 耗时 |\n| --- | --- |\n| 最短路 | 12 |\n\nRESULT=30 组验证通过'}</MarkdownExcerpt></button>);
@@ -28,13 +27,4 @@ it('renders formulas on cards instead of raw LaTeX', () => {
   // The TeX source survives only as the MathML annotation, never as visible text.
   expect(html.replace(/<annotation[^>]*>.*?<\/annotation>/g, '')).not.toContain('\\mathbb');
   expect(html).toContain('再做投影');
-});
-
-it("shows a journal entry's summary, a role's own words, in its Markdown", () => {
-  // Trial s-f0e1b2f0: the project journal read "**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中…".
-  const html = renderToStaticMarkup(<JournalPanel entries={[{ id: 'j', ts: 1, kind: 'note', title: '为 sizefmt 添加整数 MiB 格式化函数',
-    summary: '**尚未实现：取整规则存在歧义。** `sizefmt/core.py` 中…', tags: [] }]} />);
-  expect(html).toContain('<strong>尚未实现：取整规则存在歧义。</strong>');
-  expect(html).toContain('<code>sizefmt/core.py</code>');
-  expect(html).not.toContain('**');
 });

@@ -23,11 +23,7 @@
 .experience-check input { width: 16px; height: 16px; accent-color: rgb(var(--ink)); }
 .experience-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px 24px; border-top: 1px solid rgb(var(--line)); background: rgb(var(--panel-raised)); }
 .experience-footer small { margin-left: auto; color: rgb(var(--ink-faint)); font-size: 12px; }
-.experience-section { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding-top: 20px; border-top: 1px solid rgb(var(--line)); }
-.experience-section h3, .conversation-version-reader h3 { color: rgb(var(--ink)); font-size: 15px; font-weight: 500; }
-.experience-section h3 + p { margin-top: 4px; }
-.device-disconnect { flex-direction: row; align-items: center; justify-content: space-between; gap: 20px; }
-.device-disconnect .brand-button { flex-shrink: 0; }
+.conversation-version-reader h3 { color: rgb(var(--ink)); font-size: 15px; font-weight: 500; }
 .experience-empty { display: flex; flex-direction: column; gap: 8px; padding: 32px 16px; text-align: center; color: rgb(var(--ink-dim)); }
 .experience-empty strong { color: rgb(var(--ink)); font-weight: 500; }
 .experience-empty p { margin: 0 auto; max-width: 440px; font-size: 13px; }
@@ -107,7 +103,6 @@
   .edition-pane pre { height: 120px; min-height: 100px; max-height: 20dvh; }
   .edition-pane textarea { font-size: 16px; line-height: 1.65; }
   .edition-save-status { flex-basis: 100%; margin-left: 0; }
-  .device-disconnect { flex-direction: column; align-items: flex-start; }
   .composer-options > summary, .conversation-tools button { min-height: 44px; }
   .conversation-tools button { min-width: 44px; }
   .conversation-tools button span { display: none; }

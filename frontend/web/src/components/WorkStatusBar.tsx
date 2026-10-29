@@ -19,18 +19,14 @@ export function WorkStatusBar({ snapshot, view, events = [], connected, compact 
   const status = { ...raw, title: relativizeWorkspacePaths(raw.title, snapshot?.session.workdir, snapshot?.session.cwd) };
   const phase = teamPhase(status, snapshot);
   // Compact (chat header) keeps one line; only a step that needs the person adds a hint.
-  const actionable = ['launch_confirm', 'operator_input', 'task_failed'].includes(status.reason);
-  const next = compact && !actionable ? '' : status.reason === 'launch_confirm'
-    ? zh ? '核对上方卡片里的理解和计划，点“开始执行”就开始。' : 'Check the plan in the card above; press Start to begin.'
-    : status.reason === 'operator_input'
+  const actionable = status.reason === 'operator_input';
+  const next = compact && !actionable ? '' : actionable
     ? zh ? '需要你的决定。查看下方问题，确认后继续。' : 'Your decision is needed. Review the question below to continue.'
-    : status.reason === 'task_failed'
-      ? zh ? '这一步没做完，已有文件和成果保留；可以在对话中调整要求或让它继续。' : 'This step did not finish; existing files and results are kept. Adjust the request or ask to continue in the conversation.'
-      : status.state === 'paused'
-        ? zh ? '当前没有继续执行。你可以调整要求，或在运行控制中查看恢复方式。' : 'Work is not continuing. Adjust the request or check runtime controls before resuming.'
-        : status.state === 'step_finished'
-          ? zh ? '可以查看文件与成果，或在下方提出新的要求。' : 'Review the files and results, or add your next request below.'
-          : '';
+    : status.state === 'paused'
+      ? zh ? '当前没有继续执行。你可以调整要求，或在运行控制中查看恢复方式。' : 'Work is not continuing. Adjust the request or check runtime controls before resuming.'
+      : status.state === 'idle' && status.activityAt !== null
+        ? zh ? '可以查看文件与成果，或在下方提出新的要求。' : 'Review the files and results, or add your next request below.'
+        : '';
   // A project nobody has written to yet has finished nothing: say it waits
   // for the person instead of "已完成 · 可以开始新任务" (rule 6).
   const untouched = isFreshProject(snapshot) && status.state === 'idle' && status.activityAgeSeconds === null

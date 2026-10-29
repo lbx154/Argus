@@ -9,17 +9,11 @@ import type {
   BacklogItem,
   Daemon,
   EventMsg,
-  GitDiffView,
   LaunchSettings,
   ProjectRow,
   ProjectCostRow,
   ProgressSourceRef,
-  Role,
   Snapshot,
-  VerticalAction,
-  VerticalManageResult,
-  VerticalOperation,
-  VerticalsPayload,
 } from '../../core/src/types';
 import { ApiError, ensureResponseOk } from '../../core/src/http';
 import { readerPreview, type ReaderPreview } from './map/copyMode';
@@ -42,24 +36,14 @@ export type {
   BacklogItem,
   Daemon,
   EventMsg,
-  GitDiffView,
   ProjectRow,
   ProjectCostRow,
   Role,
   Snapshot,
   UsageSummary,
-  VerticalAction,
-  VerticalCatalogStatus,
-  VerticalKind,
-  VerticalManageResult,
-  VerticalOperation,
-  VerticalRow,
-  VerticalsPayload,
 } from '../../core/src/types';
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
-/** Advertised by GET /api/meta once the backend serves the vertical store. */
-export const VERTICAL_STORE_CAPABILITY = 'verticals.store.v1';
 
 export type SkillScope = 'global' | 'vertical' | 'project';
 export interface SkillLibraryItem {
@@ -271,27 +255,6 @@ export type ResearchMethod =
     change_log: ResearchMethodChange[];
   };
 
-export interface JournalEntry {
-  id: string;
-  ts: number;
-  kind: string;
-  title: string;
-  summary: string;
-  tags: string[];
-  cost_usd?: number;
-  extra?: Record<string, unknown>;
-}
-export interface StatusView {
-  identity: string;
-  backlog_pending: BacklogItem[];
-  pending_questions: Array<Record<string, unknown>>;
-  journal: JournalEntry[];
-  continuous: { enabled: boolean; objective: string; done_reason?: string; done_at?: string };
-  inbox_pending: number;
-  daemon: Daemon;
-  roles: Role[];
-  active_role: string | null;
-}
 export interface DoctorCheck {
   name: string;
   ok: boolean;
@@ -330,11 +293,9 @@ export interface ConfigSnapshot {
   generated_at_utc: string;
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
-  /** Models the quick picker offers: the harness catalog, models that answered here recently, the current knobs. */
-  model_options?: Array<{ model: string; source: 'backend' | 'catalog' | 'configured' | 'seen' | 'current'; default?: boolean; last_used_at?: number; invalid?: boolean; offline?: boolean }>;
-  model_auto_resolves_to?: string;
-  /** What map text actually runs on; `note` says why a saved pin was set aside for auto. */
   how_to_change: string[];
+  /** Every backend there is, by its name for the page. */
+  backends?: Record<string, string>;
 }
 /** One row of the model chooser: every figure is from the price table or recorded calls. */
 export interface ModelChoice {
@@ -481,36 +442,6 @@ export interface TrashEntry {
   trash_path: string;
   trashed_at: number;
 }
-export interface MetricsSnapshot {
-  schema_version?: number;
-  slo?: { status?: string; [key: string]: unknown };
-  web?: Record<string, unknown>;
-  provider?: Record<string, unknown>;
-  daemon_commands?: Record<string, unknown>;
-  event_validation_failures?: number;
-  [key: string]: unknown;
-}
-export interface SourceUpdateStatus {
-  schema_version: number;
-  state: 'idle' | 'checking' | 'available' | 'current' | 'updating' | 'succeeded' | 'failed';
-  phase: string;
-  running: boolean;
-  source_root: string;
-  upstream: string;
-  current_revision: string;
-  upstream_revision: string;
-  branch: string;
-  dirty: boolean | null;
-  can_update: boolean;
-  update_available: boolean | null;
-  changed: boolean;
-  restart_required: boolean;
-  message: string;
-  error: string;
-  started_at: number | null;
-  checked_at: number | null;
-  updated_at: number;
-}
 
 const TOKEN_KEY = 'argus_web_token';
 let inMemoryToken: string | null = null;
@@ -550,6 +481,31 @@ export function adoptTokenFromUrl(): void {
     // Failure to scrub the address bar must not stop the app from loading.
   }
 }
+
+/** Open the page again with a pasted token, which `adoptTokenFromUrl` keeps, if the server takes
+ * it; whether it did. */
+export async function pairWithToken(credential: string): Promise<boolean> {
+  const response = await fetch('/api/meta', { headers: { Authorization: `Bearer ${credential}` } });
+  await ensureResponseOk(response, 'GET', '/api/meta');
+  if (!(await response.json() as ApiMeta).authentication?.authenticated) return false;
+  const page = new URL(window.location.href);
+  page.searchParams.set('token', credential);
+  window.location.replace(page);
+  return true;
+}
+
+/** Forget this browser's token and open the page again, unpaired: the server holds no session to end. */
+export function signOut(): void {
+  inMemoryToken = null;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Nothing was kept there.
+  }
+  window.location.reload();
+}
+
+export const holdsToken = (): boolean => Boolean(token());
 
 const token = (): string | null => {
   if (inMemoryToken) return inMemoryToken;
@@ -1031,7 +987,6 @@ export interface SearchResult {
 }
 
 export const api = {
-  pairingLink: () => postJson<{ path: string; expires_in: number }>('/api/pairing-links'),
   organization: () => getJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization'),
   organize: (sid: string, field: keyof ProjectPreference, value: boolean) =>
     postJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization', { sid, field, value }),
@@ -1041,15 +996,6 @@ export const api = {
     getJson<{ original: string; versions: Edition[] }>(P(sid, `/editions/${kind}?source=${encodeURIComponent(source)}`)),
   saveEdition: (sid: string, kind: 'artifact' | 'conversation', value: { source: string; content: string; note?: string; base_version: number; original?: string }) =>
     postJson<{ version: number; content: string }>(P(sid, `/editions/${kind}`), value),
-  connectBrowser: async (credential: string) => {
-    const response = await fetch('/api/browser-session', { method: 'POST', headers: { Authorization: `Bearer ${credential}` } });
-    await ensureResponseOk(response, 'POST', '/api/browser-session');
-  },
-  disconnectBrowser: async () => {
-    const response = await fetch('/api/browser-session', { method: 'DELETE', headers: authHeaders() });
-    await ensureResponseOk(response, 'DELETE', '/api/browser-session');
-    localStorage.removeItem(TOKEN_KEY);
-  },
   workflows: workflowClient(getJson, postJson),
   advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
   saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),
@@ -1062,13 +1008,6 @@ export const api = {
       if (selection.taskId) params.set('start_task', selection.taskId);
     }
     return getJson<import('./map/model').Dataset>(P(sid, '/map') + (params.size ? `?${params}` : ''), signal);
-  },
-  mapInfo: (sid: string, signal?: AbortSignal) => getJson<import('./map/incremental').MapHistoryInfo>(P(sid, '/map-info'), signal),
-  mapHistory: (sid: string, signal?: AbortSignal, after?: string, taskAfter?: string) => {
-    const params = new URLSearchParams();
-    if (after) params.set('after', after);
-    if (taskAfter) params.set('task_after', taskAfter);
-    return getJson<import('./map/model').Dataset>(P(sid, '/map-history') + (params.size ? `?${params}` : ''), signal);
   },
   mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
   /** One task's recorded trajectory: what each role thought, said, ran and changed. */
@@ -1155,11 +1094,6 @@ export const api = {
     );
     return requireSnapshotContract(value);
   },
-  status: (sid: string, signal?: AbortSignal) =>
-    getJson<StatusView>(P(sid, '/status'), signal),
-  journal: (sid: string, n = 20, signal?: AbortSignal) =>
-    getJson<{ journal: JournalEntry[] }>(P(sid, `/journal?n=${n}`), signal)
-      .then((r) => r.journal),
   doctor: (sid: string, signal?: AbortSignal) =>
     getJson<DoctorReport>(P(sid, '/doctor'), signal),
   config: (sid: string, signal?: AbortSignal) =>
@@ -1227,19 +1161,9 @@ export const api = {
   /** A mesh, glTF buffer or texture a registered model references, by the reference as written. */
   artifactModelAsset: (sid: string, path: string, ref: string, signal?: AbortSignal) =>
     getBlob(P(sid, `/artifact/model-asset?${new URLSearchParams({ path, ref })}`), signal),
-  gitDiff: (sid: string, signal?: AbortSignal) =>
-    getJson<GitDiffView>(P(sid, '/git-diff'), signal),
   deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>
     getJson<{ path: string; available: boolean; diff: string; truncated: boolean }>(
       P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
-  metrics: (signal?: AbortSignal) =>
-    getJson<MetricsSnapshot>('/api/metrics', signal),
-  sourceUpdateStatus: (signal?: AbortSignal) =>
-    getJson<SourceUpdateStatus>('/api/runtime/source-update', signal),
-  checkSourceUpdate: () =>
-    postJson<SourceUpdateStatus>('/api/runtime/source-update/check'),
-  applySourceUpdate: () =>
-    postJson<SourceUpdateStatus>('/api/runtime/source-update/apply'),
   resources: (signal?: AbortSignal) =>
     getJson<ResourceStatus>('/api/system/resources', signal),
   trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
@@ -1255,20 +1179,6 @@ export const api = {
   },
   restoreTrash: (trashId: string) =>
     postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
-
-  // Vertical store. Errors keep the service's own sentence in ApiError.detail,
-  // so a 409 such as "used by projects s-…" can be shown on the card as written.
-  verticals: (signal?: AbortSignal) =>
-    getJson<VerticalsPayload>('/api/verticals', signal),
-  refreshVerticalCatalog: () =>
-    postJson<VerticalsPayload>('/api/verticals/catalog/refresh'),
-  manageVertical: (name: string, action: VerticalAction, options: { force?: boolean } = {}) =>
-    postJson<VerticalManageResult>(
-      `/api/verticals/${encodeURIComponent(name)}/manage/${action}`,
-      options.force ? { force: true } : {},
-    ),
-  verticalOperation: (name: string, signal?: AbortSignal) =>
-    getJson<VerticalOperation>(`/api/verticals/${encodeURIComponent(name)}/operation`, signal),
 
   addTask: (sid: string, text: string) =>
     postJson<{ item: BacklogItem }>(P(sid, '/tasks'), { text }).then((r) => r.item),
@@ -1587,11 +1497,8 @@ export const api = {
    */
   rewritePrompt: (sid: string, text: string) =>
     postJson<PromptRewrite>(P(sid, '/prompt/rewrite'), { text }),
-  /** The light model's guess at how the line being typed ends; '' when it has none. Nothing is queued. */
-  completePrompt: (sid: string, text: string, signal: AbortSignal) =>
-    postJson<{ completion?: string }>(P(sid, '/prompt/rewrite'), { text, mode: 'complete' }, signal).then((reply) => reply.completion ?? ''),
-  setConfig: (sid: string, name: string, value: string, applyToRoles = false) =>
-    postJson<Record<string, unknown>>(P(sid, '/config/set'), applyToRoles ? { name, value, apply_to_roles: true } : { name, value }),
+  setConfig: (sid: string, name: string, value: string) =>
+    postJson<Record<string, unknown>>(P(sid, '/config/set'), { name, value }),
   setIdentity: (sid: string, text: string) =>
     postJson<{ ok: boolean }>(P(sid, '/identity'), { text }),
   resetManager: (sid: string) =>
@@ -1620,9 +1527,6 @@ export const api = {
       P(sid, '/workdir'),
       { workdir },
     ),
-  disposeBacklog: (sid: string, id: string, op: 'done' | 'skip' | 'rm') =>
-    postJson(P(sid, `/backlog/${encodeURIComponent(id)}/dispose`), { op }),
-  stopBacklog: (sid: string, id: string) => postJson(P(sid, `/backlog/${encodeURIComponent(id)}/stop`)),
   setContinuous: (sid: string, enabled: boolean, objective = '') =>
     postJson<ContinuousUpdateResult>(P(sid, '/continuous'), { enabled, objective }).then((result) => {
       if (!enabled) return result;
@@ -1647,18 +1551,6 @@ export const api = {
     command_id: commandId(),
     expected_revision: expectedRevision,
   }).then(requireDaemonCommand),
-  replaceDaemon: (sid: string, victimSid: string, resumeContinuous = false, expectedRevision?: number) =>
-    postJson(P(sid, '/daemon/replace'), {
-      victim_sid: victimSid,
-      resume_continuous: resumeContinuous,
-      command_id: commandId(),
-      expected_revision: expectedRevision,
-    }).then(requireDaemonCommand),
-  upgradeDaemon: (sid: string, expectedRevision?: number) =>
-    postJson(P(sid, '/daemon/upgrade'), {
-      command_id: commandId(),
-      expected_revision: expectedRevision,
-    }).then(requireDaemonCommand),
 };
 
 /** How the live event stream closed: `code` is the HTTP status that refused it, 0 for a lost

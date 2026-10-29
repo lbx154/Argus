@@ -24,15 +24,7 @@ import { requestFailureText } from '../lib/requestFailure';
 import { ADVISOR_CAPABILITY, useCapability } from '../lib/capabilities';
 import { AppearanceControls } from './AppearanceControls';
 import type { ThemeMode } from './TopBar';
-import {
-  BACKEND_OPTIONS,
-  backendLabel,
-  backendOption,
-  configuredBackend,
-  configuredBackendSource,
-  savedBackend,
-  type BackendOption,
-} from '../lib/backend';
+import { backendLabel, configuredBackend } from '../lib/backend';
 
 const KNOB_TEXT: Record<string, { label: string; doc: string }> = {
   ARGUS_SKILL_MAX_ACTIVE_DAEMONS: { label: 'settings.knob.activeDaemons', doc: 'settings.knob.activeDaemonsDoc' },
@@ -163,8 +155,7 @@ export function ConfigModal({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const advisor = useCapability(ADVISOR_CAPABILITY);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [quickModelValue, setQuickModelValue] = useState('');
-  const [pendingBackend, setPendingBackend] = useState<BackendOption | ''>('');
+  const [pendingBackend, setPendingBackend] = useState('');
   const [quickConfigBusy, setQuickConfigBusy] = useState(false);
   const [quickConfigMsg, setQuickConfigMsg] = useState('');
   const [quickConfigError, setQuickConfigError] = useState(false);
@@ -176,67 +167,23 @@ export function ConfigModal({
     if (!open) { setAdvancedOpen(false); setPickerOpen(false); }
   }, [open]);
   useEffect(() => {
-    if (!open || !data) return;
-    setQuickModelValue(data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_MODEL')?.value ?? '');
-    setPendingBackend('');
+    if (open && data) setPendingBackend('');
   }, [data, open]);
   const refreshSettings = async () => {
     await refetch();
     await queryClient.invalidateQueries({ queryKey: ['map-copy'] });
   };
   const currentBackend = configuredBackend(data);
-  const currentBackendSource = configuredBackendSource(data);
-  const currentSavedBackend = savedBackend(data);
-  // Nothing to send when the saved value already is this backend, or nothing is
-  // saved and this is the backend in effect: re-sending the effective one would
-  // save a choice the operator never made. A stale saved value that the
-  // environment hides still counts as something to change.
-  const backendUnchanged = (backend: BackendOption | '') => !backend || (currentSavedBackend
-    ? backendOption(currentSavedBackend) === backend
-    : backend === backendOption(currentBackend));
-  const backendTarget = pendingBackend || backendOption(currentBackend);
-  const setBackend = async (backend: BackendOption) => {
-    if (quickConfigBusy || backendUnchanged(backend)) return;
+  const backendTarget = pendingBackend || currentBackend;
+  const setBackend = async (backend: string) => {
+    if (quickConfigBusy || backend === currentBackend) return;
     setQuickConfigBusy(true);
     setQuickConfigMsg('');
     setQuickConfigError(false);
     try {
       await api.setConfig(sid, 'ARGUS_SKILL_RUNNER_BACKEND', backend);
       await refreshSettings();
-      setQuickConfigMsg(t('settings.backendSwitched', { backend: backendLabel(backend, t) }));
-    } catch (error) {
-      setQuickConfigError(true);
-      setQuickConfigMsg(requestFailureText(error, t).text);
-    } finally {
-      setQuickConfigBusy(false);
-    }
-  };
-  const setLightModel = async (model: string) => {
-    if (quickConfigBusy) return;
-    setQuickConfigBusy(true);
-    setQuickConfigMsg('');
-    setQuickConfigError(false);
-    try {
-      await api.setConfig(sid, 'ARGUS_SKILL_LIGHT_MODEL', model || 'auto');
-      await refreshSettings();
-      setQuickConfigMsg(model && model !== 'auto' ? t('settings.lightModelSet', { model }) : t('settings.lightModelAuto'));
-    } catch (error) {
-      setQuickConfigError(true);
-      setQuickConfigMsg(requestFailureText(error, t).text);
-    } finally {
-      setQuickConfigBusy(false);
-    }
-  };
-  const applyModel = async () => {
-    if (quickConfigBusy) return;
-    setQuickConfigBusy(true);
-    setQuickConfigMsg('');
-    setQuickConfigError(false);
-    try {
-      const chosen = quickModelValue.trim() || 'auto';
-      await api.setConfig(sid, 'ARGUS_SKILL_MODEL', chosen, true);
-      await refreshSettings();
-      setQuickConfigMsg(t('settings.modelAppliedToRoles', { model: chosen }));
+      setQuickConfigMsg(t('settings.backendSwitched', { backend: backendLabel(backend, data) }));
     } catch (error) {
       setQuickConfigError(true);
       setQuickConfigMsg(requestFailureText(error, t).text);
@@ -291,112 +238,34 @@ export function ConfigModal({
               <label className="flex flex-wrap items-center gap-2">
                 <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.backend')}</span>
                 <select
-                  value={pendingBackend || backendOption(currentBackend)}
+                  value={backendTarget}
                   disabled={quickConfigBusy}
-                  onChange={(event) => setPendingBackend(event.target.value as BackendOption)}
+                  onChange={(event) => setPendingBackend(event.target.value)}
                   aria-label={t('settings.backend')}
                   className="h-8 min-w-44 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
                 >
-                  {!backendOption(currentBackend) ? (
-                    <option value="" disabled>
-                      {currentBackend
-                        ? t('settings.backendUnsupported', { backend: currentBackend })
-                        : t('settings.backendUnavailable')}
-                    </option>
-                  ) : null}
-                  {BACKEND_OPTIONS.map((backend) => (
-                    <option key={backend.value} value={backend.value}>{t(backend.label)}</option>
-                  ))}
+                  {Object.entries(data.backends ?? {}).map(([backend, label]) => <option key={backend} value={backend}>{label}</option>)}
                 </select>
                 {/* A backend switch changes which models exist, so it only
                     takes effect on Apply, never on a stray dropdown change. */}
                 <button
                   type="button"
                   data-apply-backend
-                  onClick={() => { if (backendTarget) void setBackend(backendTarget); }}
-                  disabled={quickConfigBusy || backendUnchanged(backendTarget)}
+                  onClick={() => void setBackend(backendTarget)}
+                  disabled={quickConfigBusy || backendTarget === currentBackend}
                   className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40"
                 >
                   {t('settings.applyModel')}
                 </button>
-                {currentBackendSource && (
-                  <span className="text-[10px] text-ink-faint" data-backend-source={currentBackendSource}>
-                    {t(`settings.backendSource.${currentBackendSource}`)}
-                  </span>
-                )}
-                {!backendUnchanged(backendTarget) && (
-                  <span className="text-[10px] text-ink-dim" data-backend-change>
-                    {currentSavedBackend
-                      ? t('settings.backendWillReplace', { saved: backendLabel(currentSavedBackend, t), backend: backendLabel(backendTarget, t) })
-                      : t('settings.backendWillSave', { backend: backendLabel(backendTarget, t) })}
-                  </span>
-                )}
               </label>
               </details>
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.model')}</span>
-                <select
-                  value={quickModelValue || 'auto'}
-                  onChange={(event) => setQuickModelValue(event.target.value === 'auto' ? '' : event.target.value)}
-                  aria-label={t('settings.model')}
-                  className="h-8 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue"
-                >
-                  <option value="auto">
-                    {data.model_auto_resolves_to
-                      ? `auto → ${data.model_auto_resolves_to}`
-                      : t('settings.modelPlaceholder')}
-                  </option>
-                  {(() => {
-                    const rows = data.model_options ?? [];
-                    const invalid = new Set(rows.filter(option => option.invalid).map(option => option.model));
-                    const options = rows.map(option => option.model);
-                    const current = quickModelValue.trim();
-                    if (current && current !== 'auto' && !options.includes(current)) {
-                      options.unshift(current);
-                      invalid.add(current);
-                    }
-                    return options.map(model => (
-                      <option key={model} value={model}>
-                        {invalid.has(model) ? `${model} (${t('settings.modelUnavailable')})` : model}
-                      </option>
-                    ));
-                  })()}
-                </select>
-                <button type="button" onClick={() => void applyModel()} disabled={quickConfigBusy} className="h-8 shrink-0 rounded border border-line/70 px-2.5 text-xs font-medium text-ink-dim hover:border-blue/50 disabled:opacity-40">
-                  {t('settings.applyModel')}
-                </button>
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink" data-current-model>{data.roles[0]?.model || t('models.none')}</span>
                 <button type="button" data-open-model-picker onClick={() => setPickerOpen(true)} className="h-8 shrink-0 rounded border border-blue/35 bg-blue/8 px-2.5 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent">
-                  {t('models.compare')}
+                  {t('models.title')}
                 </button>
               </div>
-              {data.operator_knobs.some((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL') && <div className="mt-2 flex items-center gap-2">
-                <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.lightModel')}</span>
-                <select
-                  value={data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL')?.value || 'auto'}
-                  disabled={quickConfigBusy}
-                  onChange={(event) => void setLightModel(event.target.value)}
-                  aria-label={t('settings.lightModel')}
-                  className="h-8 min-w-0 flex-1 rounded border border-line bg-bg px-2 font-mono text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
-                >
-                  <option value="auto">{t('settings.lightModelAuto')}</option>
-                  {(() => {
-                    const options = (data.model_options ?? []).map(option => option.model);
-                    const current = data.operator_knobs.find((knob) => knob.name === 'ARGUS_SKILL_LIGHT_MODEL')?.value || '';
-                    if (current && current !== 'auto' && !options.includes(current)) options.unshift(current);
-                    return options.map(model => <option key={model} value={model}>{model}</option>);
-                  })()}
-                </select>
-              </div>}
-              {(data.model_options ?? []).some(option => option.offline) && (
-                <p className="mt-1 text-[10px] text-ink-faint" data-model-offline>{t('settings.modelOfflineList')}</p>
-              )}
-              {data.roles.some(role => role.model && quickModelValue.trim() && role.model !== quickModelValue.trim()) && (
-                <p className="mt-1.5 text-[10px] text-ink-faint" data-role-models>
-                  {t('settings.rolesRunning')}{' '}
-                  {data.roles.map(role => `${role.role} · ${role.model || 'auto'}`).join('，')}
-                  {' — '}{t('settings.applyUnifies')}
-                </p>
-              )}
               {quickConfigMsg && (
                 <div
                   role={quickConfigError ? 'alert' : 'status'}
@@ -519,9 +388,6 @@ export function ConfigModal({
                     </section>
                   )}
 
-                  <p className="text-[10px] text-ink-faint">
-                    {t('settings.footer')} <code>argus --config-help</code>.
-                  </p>
                 </div>
               )}
             </section>

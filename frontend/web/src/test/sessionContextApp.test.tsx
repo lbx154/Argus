@@ -26,7 +26,7 @@ const fixture = vi.hoisted(() => {
     idle,
     index: { ...idle, data: { projects: [] as unknown[], local_cwd: '/synthetic' } },
     snapshots: new Map<string, typeof idle & { data?: unknown; error?: Error }>(),
-    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'forceStopDaemon', 'pauseDaemon', 'updateProject', 'deleteProject', 'disposeBacklog', 'stopBacklog', 'setContinuous'].map(key => [key, mutation])),
+    actions: Object.fromEntries(['startDaemon', 'stopDaemon', 'forceStopDaemon', 'pauseDaemon', 'updateProject', 'deleteProject', 'setContinuous'].map(key => [key, mutation])),
     turns: [] as unknown[],
     events: [],
     artifacts: [],
@@ -38,8 +38,6 @@ vi.mock('../hooks', async importOriginal => ({
   useProjectCosts: () => fixture.idle,
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
-  useGitDiff: () => fixture.idle,
-  useJournal: () => fixture.idle,
   useTranscript: () => ({ ...fixture.idle, data: fixture.turns }),
   useEventStream: () => ({ events: fixture.events, connected: true }),
   useProjectActions: () => fixture.actions,
@@ -60,7 +58,6 @@ vi.mock('../components/KeybindingHelp', () => ({ KeybindingHelp: () => null }));
 vi.mock('../components/InfoModals', () => ({ DoctorModal: () => null, ConfigModal: () => null, IdentityModal: () => null, TranscriptModal: () => null }));
 vi.mock('../components/Modal', () => ({ Modal: () => null, ModalHeader: () => null }));
 vi.mock('../components/ProjectInspectorModal', () => ({ ProjectInspectorModal: () => null }));
-vi.mock('../components/VerticalStore', () => ({ VerticalStore: () => null }));
 vi.mock('../components/TaskDetailModal', () => ({ TaskDetailModal: () => null }));
 vi.mock('../components/MobileTabBar', () => ({ MobileTabBar: () => null }));
 vi.mock('../components/ConnectionProblemBanner', () => ({ ConnectionProblemBanner: () => null }));
@@ -133,7 +130,7 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
-  it('keeps conversation revisions in chat even if the route control is changed and preserves their original version', async () => {
+  it('sends a revised question as typed and keeps the answer as a version of the original', async () => {
     vi.spyOn(api, 'editions').mockResolvedValue({ original: '', versions: [] });
     const save = vi.spyOn(api, 'saveEdition').mockResolvedValue({ version: 1, content: 'Revised answer' });
     const stream = vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
@@ -142,10 +139,9 @@ describe('App session composer ownership', () => {
     const target = { source: 'original-question', prompt: 'Original question', answer: 'Original answer', mode: 'edit', baseVersion: 0 };
     await act(async () => { renderer.root.findByType(EventStream).props.onConversationAction(target); });
     act(() => renderer.root.findByType(ConversationEditor).props.onCompose('/task revised question', target));
-    act(() => props().onRouteOverrideChange!('task'));
     await act(async () => { expect(await props().onSend('/task revised question')).toBe(true); });
     expect(stream).toHaveBeenCalledWith('s-A', '/task revised question', expect.any(Object),
-      expect.objectContaining({ routeOverride: 'chat', launch: undefined }));
+      expect.objectContaining({ routeOverride: 'auto', launch: undefined }));
     expect(save).toHaveBeenCalledWith('s-A', 'conversation', expect.objectContaining({
       source: 'original-question', original: 'Original answer', content: 'Revised answer', note: '/task revised question',
     }));
@@ -297,6 +293,19 @@ describe('App session composer ownership', () => {
     type(''); type(text);
     await act(async () => rewrite.resolve({ original: 'same text', rewritten: 'stale rewrite', changes: [], questions: [], error: '' }));
     expect(props().value).toBe(text);
+  });
+
+  it.each([
+    ['the server', 'The Manager wrote no rewrite.', async () => ({ original: 'draft', rewritten: 'draft', changes: [], questions: [], error: 'The Manager wrote no rewrite.' })],
+    ['the network', 'connection reset', async () => { throw new Error('connection reset'); }],
+  ])('says why a rewrite failed when %s says so, and leaves the draft as it was', async (_, reason, outcome) => {
+    vi.spyOn(api, 'rewritePrompt').mockImplementation(outcome);
+    type('draft');
+    await act(async () => props().onRewrite!('draft'));
+    expect(props().value).toBe('draft');
+    const notice = JSON.stringify(renderer.toJSON());
+    expect(notice).toContain("Couldn't rewrite it this time; your text is unchanged.");
+    expect(notice).toContain(reason);
   });
 
   it('keeps the same draft on map/activity changes and resets only the existing route override on project changes', async () => {

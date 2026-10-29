@@ -88,12 +88,17 @@ test('a project has its own backend, model and effort, which the settings change
   assert.ok((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.config.v1'));
   const sid = await create();
   const P = `/api/projects/${sid}`;
-  const set = (name: string, value: string) => send('POST', `${P}/config/set`, { name, value, apply_to_roles: true });
-  type Config = { roles: { role: string; backend: string; model: string; reasoning_effort: string | null }[]; operator_knobs: { name: string; value: string }[] };
+  const set = (name: string, value: string) => send('POST', `${P}/config/set`, { name, value });
+  type Config = {
+    roles: { role: string; backend: string; model: string; reasoning_effort: string | null }[];
+    operator_knobs: { name: string; value: string }[]; backends: Record<string, string>;
+  };
   const config = await get<Config>(`${P}/config`);
   assert.deepEqual(config.roles.map(role => [role.role, role.backend, role.model, role.reasoning_effort]),
     ['manager', 'planner', 'engineer', 'reviewer'].map(role => [role, 'codex', '', null]));
   assert.deepEqual(config.operator_knobs.map(knob => [knob.name, knob.value]), [['ARGUS_SKILL_RUNNER_BACKEND', 'codex'], ['ARGUS_SKILL_MODEL', '']]);
+  // The backends the page offers are those there are.
+  assert.deepEqual(config.backends, { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' });
   type Choices = { backend: string; options: { model: string; source: string; default: boolean }[] };
   assert.deepEqual((await get<Choices>(`${P}/model-choices`)).options.map(({ model, source, default: chosen }) => [model, source, chosen]),
     [['gpt-a', 'backend', true], ['gpt-b', 'backend', false]]);
@@ -108,10 +113,11 @@ test('a project has its own backend, model and effort, which the settings change
   assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'claude')).status, 200);
   assert.deepEqual(store.load(sid).sessions, {}, 'a Codex session is no use to Claude');
   assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-opus-4-1')).status, 200);
-  for (const role of ['MANAGER', 'PLANNER', 'ENGINEER', 'REVIEWER']) assert.equal((await set(`ARGUS_SKILL_${role}_REASONING_EFFORT`, 'high')).status, 200);
-  // One model for every role, and nothing a backend's command line would read as an option.
+  assert.equal((await set('ARGUS_SKILL_REASONING_EFFORT', 'high')).status, 200);
+  // One model and effort for every role, and nothing a backend's command line would read as an option.
   for (const [name, value] of [['ARGUS_SKILL_ENGINEER_MODEL', 'gpt-5.5'], ['ARGUS_SKILL_LIGHT_MODEL', 'gpt-5.5'],
-    ['ARGUS_SKILL_MODEL', '--dangerously-skip-permissions'], ['ARGUS_SKILL_MANAGER_REASONING_EFFORT', 'very high']] as const) {
+    ['ARGUS_SKILL_MANAGER_REASONING_EFFORT', 'low'], ['ARGUS_SKILL_MODEL', '--dangerously-skip-permissions'],
+    ['ARGUS_SKILL_REASONING_EFFORT', 'very high']] as const) {
     assert.equal((await set(name, value)).status, 400, `${name}=${value}`);
   }
   assert.deepEqual((await get<Config>(`${P}/config`)).roles[2], {
@@ -126,7 +132,7 @@ test('a project has its own backend, model and effort, which the settings change
   await (await send('POST', `${P}/message`, { text: 'Hi' })).json();
   assert.deepEqual(requests.map(({ backend, model, effort }) => ({ backend, model, effort })), [{ backend: 'claude', model: 'claude-opus-4-1', effort: 'high' }]);
   assert.equal((await set('ARGUS_SKILL_MODEL', 'auto')).status, 200);
-  assert.equal((await set('ARGUS_SKILL_MANAGER_REASONING_EFFORT', '')).status, 200);
+  assert.equal((await set('ARGUS_SKILL_REASONING_EFFORT', '')).status, 200);
   await (await send('POST', `${P}/message`, { text: 'Hi again' })).json();
   assert.deepEqual([requests[1]!.model, requests[1]!.effort], [undefined, undefined]);
 

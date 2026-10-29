@@ -2,31 +2,11 @@ import { replaceEqualDeep } from "@tanstack/react-query";
 import type { Snapshot } from "../api";
 import type { Dataset } from "./model";
 
-export interface MapHistoryInfo {
-  task_count: number;
-  event_bytes: number;
-  requires_choice: boolean;
-  current_task_id: string | null;
-  current_task_ts: number;
-  current_event_ts: number;
-}
-
 export interface MapSelection {
   mode: "full" | "current" | "off";
   since?: number;
   eventSince?: number;
   taskId?: string;
-}
-
-export function parseMapSelection(raw: string | null): MapSelection | null {
-  try {
-    const value = JSON.parse(raw || "null");
-    if (!value || !["full", "current", "off"].includes(value.mode)) return null;
-    if (value.mode === "current" && ![value.since, value.eventSince].every(
-      (n) => typeof n === "number" && Number.isFinite(n) && n >= 0,
-    )) return null;
-    return value;
-  } catch { return null; }
 }
 
 export function mergeMapProgress(previous: Dataset | undefined, next: Dataset): Dataset {
@@ -48,11 +28,9 @@ export function mergeMapProgress(previous: Dataset | undefined, next: Dataset): 
 }
 
 export function livePollInterval(
-  approved: boolean,
   data: Pick<Dataset, "history_loading"> | undefined,
   snapshot: Snapshot,
 ): number | false {
-  if (!approved) return false;
   if (data?.history_loading) return 400;
   // SSE invalidation is the primary refresh trigger while work is active;
   // this interval is only a safety net for missed events.

@@ -61,7 +61,7 @@ describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
       .map((task) => task.id)).toEqual(["real"]);
   });
 
-  it("keeps the header from saying 已完成 beside a step that did not finish", () => {
+  it("keeps the header from saying 已完成 beside a step that did not finish, whatever files it owned", () => {
     const snapshot = (owns: string[]): Snapshot => ({
       session: { id: "s-7d7b7d22", display_name: "", objective: "", cwd: "/w", last_active: 1 },
       daemon: { alive: false, pid: null, uptime_seconds: null, backend: null }, roles: [], recent_events: [],
@@ -69,11 +69,10 @@ describe("closing steps after a reviewed survey (s-7d7b7d22)", () => {
     }) as Snapshot;
     const view = emptyMissionView();
     Object.assign(view.mission, { id: "last", status: "failed" });
-    const housekeeping = currentWorkStatus(snapshot([".argus/maintenance/review-progress-repair"]), view, [], 10);
-    expect(housekeeping.reason).toBe("");
-    expect([teamPhaseLabel(teamPhase(housekeeping), "zh-CN"), workStatusLabel(housekeeping, "zh-CN")]).toEqual(["已完成", "这一步已结束"]);
-    const failed = currentWorkStatus(snapshot(["report.md"]), view, [], 10);
-    expect([teamPhaseLabel(teamPhase(failed), "zh-CN"), workStatusLabel(failed, "zh-CN")]).toEqual(["已停止", "这一步执行未完成"]);
+    for (const owns of [[".argus/maintenance/review-progress-repair"], ["report.md"]]) {
+      const failed = currentWorkStatus(snapshot(owns), view, [], 10);
+      expect([teamPhaseLabel(teamPhase(failed), "zh-CN"), workStatusLabel(failed, "zh-CN")]).toEqual(["已暂停", "当前任务未在运行"]);
+    }
   });
 });
 

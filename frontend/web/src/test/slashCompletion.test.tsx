@@ -24,7 +24,7 @@ describe('slash completion menu', () => {
     }
 
     expect(selected).toBe(visible.length - 1);
-    expect(applyCompletion(visible[selected])).toBe('/find ');
+    expect(applyCompletion(visible[selected])).toBe('/cancel');
   });
 
   it('renders shared command names and usage', () => {
@@ -34,7 +34,7 @@ describe('slash completion menu', () => {
       <SlashCompletionMenu items={menu!.items} label="Slash command suggestions" selected={0} onSelect={() => undefined} />,
     );
     expect(html).toContain('/status');
-    expect(html).toContain('roles, queued work, journal, and health');
+    expect(html).toContain('roles, queued work and health');
     expect(html).toContain('role="listbox"');
     expect(html).toContain('aria-label="Slash command suggestions"');
   });
@@ -65,7 +65,7 @@ describe('slash completion menu', () => {
     );
     expect(html).toContain(`aria-controls="${SLASH_COMPLETION_LISTBOX_ID}"`);
     expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain(`aria-activedescendant="${slashCompletionOptionId('find')}"`);
+    expect(html).toContain(`aria-activedescendant="${slashCompletionOptionId('cancel')}"`);
     expect(html).toContain(`id="${SLASH_COMPLETION_LISTBOX_ID}"`);
     // Options stay out of the Tab order: the textarea answers the keys.
     expect(html.match(/role="option"/g)!.length).toBe(html.match(/role="option" tabindex="-1"/g)!.length);

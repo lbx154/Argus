@@ -2,12 +2,13 @@ import type { Role } from '../api';
 import { useI18n } from '../i18n';
 import { theme, effortColor } from '../lib/theme';
 import { AGENT_ROLES, agentRoleName, isAgentRole } from '../lib/agentRoles';
+import { EFFORTS } from '../lib/modelChoice';
 import { PanelHeader } from './primitives';
 
 /** age_s (seconds since the role's last event) → "now"/"Ns"/"Nm"/"Nh". */
-function ageLabel(age: number | null): string {
+function ageLabel(age: number | null, now: string): string {
   if (age == null) return '';
-  if (age < 3) return 'now';
+  if (age < 3) return now;
   if (age < 60) return `${Math.floor(age)}s`;
   if (age < 3600) return `${Math.floor(age / 60)}m`;
   return `${Math.floor(age / 3600)}h`;
@@ -48,13 +49,13 @@ export function RolesPanel({ roles }: { roles: Role[] }) {
               </div>
               <div className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={r.model}>{r.model || '—'}</div>
               <div className="flex items-center gap-1 text-right">
-                <span className="text-[10px]" style={{ color: r.active ? theme.ink : theme.inkFaint }}>{r.active ? r.status || 'active' : 'idle'}</span>
-                {r.active && ageLabel(r.age_s) && (
-                  <span className="text-[10px] tabular-nums text-ink-faint">· {ageLabel(r.age_s)}</span>
+                <span className="text-[10px]" style={{ color: r.active ? theme.ink : theme.inkFaint }}>{t(r.active ? 'roles.running' : 'roles.idle')}</span>
+                {r.active && ageLabel(r.age_s, t('roles.now')) && (
+                  <span className="text-[10px] tabular-nums text-ink-faint">· {ageLabel(r.age_s, t('roles.now'))}</span>
                 )}
                 {r.effort && (
                   <span className="text-[10px]" style={{ color: effortColor(r.effort) }}>
-                    · {r.effort}
+                    · {(EFFORTS as string[]).includes(r.effort) ? t(`models.effort.${r.effort}`) : r.effort}
                   </span>
                 )}
               </div>

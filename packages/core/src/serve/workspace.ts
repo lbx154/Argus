@@ -88,9 +88,8 @@ function tree(root: string) {
 const SAFE_GIT = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
 
 /** What git says of the workdir, read without changing anything; a workdir that is not a
- * repository of its own has nothing to say. Whether GitHub is signed in to is not looked up. */
+ * repository of its own has nothing to say. */
 async function git(root: string) {
-  const github = { authenticated: false, host: '', login: '', protocol: '', scopes: [] };
   const read = async (...args: string[]): Promise<string> => {
     try {
       return (await run('git', [...SAFE_GIT, ...args], { cwd: root, maxBuffer: GIT_BYTES, timeout: 10_000 })).stdout;
@@ -103,7 +102,7 @@ async function git(root: string) {
   const [name, email] = await Promise.all([read('config', 'user.name'), read('config', 'user.email')]);
   const identity = { name: name.trim(), email: email.trim(), valid: Boolean(name.trim() && email.trim()) };
   if (!existsSync(join(root, '.git'))) {
-    return { available: false, branch: '', status: '', diff: '', log: '', remotes: [], upstream: '', ahead: 0, behind: 0, identity, github, publish_ready: false };
+    return { available: false, branch: '', status: '', diff: '', log: '', remotes: [], upstream: '', ahead: 0, behind: 0, identity };
   }
   // Every filter the config defines runs nothing: an attribute naming one may be in .git/info/attributes.
   const filters = new Set([...(await read('config', '--name-only', '--get-regexp', '^filter\\.')).matchAll(/^filter\.(.+)\.[\w-]+$/gm)]
@@ -131,6 +130,6 @@ async function git(root: string) {
   return {
     available: true, branch, status: changes.join('\n'), diff, log, remotes: [...remotes.values()], upstream,
     ahead: Number(/ahead (\d+)/.exec(counts)?.[1] ?? 0), behind: Number(/behind (\d+)/.exec(counts)?.[1] ?? 0),
-    identity, github, publish_ready: false, truncated: diff.includes(CUT),
+    identity, truncated: diff.includes(CUT),
   };
 }

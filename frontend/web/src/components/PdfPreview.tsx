@@ -32,13 +32,11 @@ export function PdfPreview({
   name,
   className = '',
   onPageOrientation,
-  onRetry,
 }: {
   src: string;
   name: string;
   className?: string;
   onPageOrientation?: (orientation: 'portrait' | 'landscape') => void;
-  onRetry?: () => void;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -246,8 +244,7 @@ export function PdfPreview({
               type="button"
               onClick={() => {
                 resetPdfEngine();
-                if (onRetry) onRetry();
-                else setLoadAttempt((value) => value + 1);
+                setLoadAttempt((value) => value + 1);
               }}
               className="mt-3 rounded border border-line bg-panel px-3 py-1.5 text-ink hover:border-blue/50"
             >

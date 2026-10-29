@@ -9,7 +9,7 @@ const props = {
   projects: [{ id: 's-A', label: 'Synthetic session A', display_name: 'Synthetic session A', objective: '',
     last_active: 1, daemon_alive: false, daemon_pid: null, uptime_seconds: null, launch_cwd: '/synthetic', workdir: '/synthetic' }],
   activeId: 's-A', localCwd: '/synthetic', onSelect: vi.fn(), onManage: vi.fn(), onOpenPanel: vi.fn(),
-  onOpenLearning: vi.fn(), onOpenVerticals: vi.fn(), onOpenResults: vi.fn(), resultsCount: 2, onNew: vi.fn(), loading: false,
+  onOpenLearning: vi.fn(), onOpenResults: vi.fn(), resultsCount: 2, onNew: vi.fn(), loading: false,
   onToggleCollapse: vi.fn(), themeMode: 'light' as const, onCycleTheme: vi.fn(),
 };
 function markup(collapsed = false) {
@@ -18,13 +18,13 @@ function markup(collapsed = false) {
   finally { client.clear(); }
 }
 describe('top resource navigation', () => {
-  it('puts Results first and folds plugins, knowledge and the store under Advanced', () => {
+  it('puts Results first and folds plugins and knowledge under Advanced', () => {
     const html = markup();
     expect(html.indexOf('data-sidebar-resources')).toBeGreaterThan(0);
     expect(html).toContain('data-sidebar-results');
     expect(html.indexOf('data-sidebar-results')).toBeLessThan(html.indexOf('id="daemon-search"'));
     expect(html).toContain('aria-expanded="false"');
-    for (const label of ['aria-label="Plugins"', 'aria-label="Knowledge &amp; skills"', 'aria-label="Domain store"']) {
+    for (const label of ['aria-label="Plugins"', 'aria-label="Knowledge &amp; skills"']) {
       expect(html).not.toContain(label);
     }
     expect(html.indexOf('aria-label="Open settings"')).toBeGreaterThan(html.indexOf('Synthetic session A'));
@@ -33,7 +33,7 @@ describe('top resource navigation', () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
     try {
       const html = markup();
-      const labels = ['aria-label="Knowledge &amp; skills"', 'aria-label="Domain store"', 'aria-label="Plugins"'];
+      const labels = ['aria-label="Knowledge &amp; skills"', 'aria-label="Plugins"'];
       for (const label of labels) {
         expect(html).toContain(label);
         expect(html.indexOf(label)).toBeLessThan(html.indexOf('id="daemon-search"'));
@@ -43,10 +43,10 @@ describe('top resource navigation', () => {
       expect(html).not.toContain('aria-label="Learning feed"');
     } finally { vi.unstubAllGlobals(); }
   });
-  it('keeps a compact entry rail with Results, knowledge and the store', () => {
+  it('keeps a compact entry rail with Results and knowledge', () => {
     const html = markup(true);
     expect(html).toContain('aria-label="Expand projects"');
-    const labels = ['aria-label="Results"', 'aria-label="Knowledge &amp; skills"', 'aria-label="Domain store"'];
+    const labels = ['aria-label="Results"', 'aria-label="Knowledge &amp; skills"'];
     for (const label of labels) expect(html).toContain(label);
     expect(labels.map(label => html.indexOf(label))).toEqual(labels.map(label => html.indexOf(label)).sort((a, b) => a - b));
     expect(html).not.toContain('id="daemon-search"');

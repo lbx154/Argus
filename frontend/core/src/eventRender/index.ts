@@ -215,7 +215,7 @@ function progress(event: TypedArgusEvent, context: RenderContext): RenderModel {
     if (isStructuredAgentPayload(row(event))) return fallback(event, context);
     const body = visibleText(stringField(event, 'text'));
     return body.text
-      ? model(role, labelKey, '▌', body.text, 'bright', { expandable: context.density === 'full', sensitive: body.sensitive })
+      ? model(role, labelKey, '', body.text, 'bright', { expandable: context.density === 'full', sensitive: body.sensitive })
       : hidden();
   }
   if (kind === 'command_execution') {
@@ -561,7 +561,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       // A reply that is still being worked on has steps before it has words.
       const working = row(event).live === true || (Array.isArray(row(event).steps) && (row(event).steps as unknown[]).length > 0);
       return body.trim() || working
-        ? model('manager', 'role.argus', '▌', body, 'bright', { expandable: context.density === 'full', rule: true })
+        ? model('manager', 'role.argus', '', body, 'bright', { expandable: context.density === 'full', rule: true })
         : hidden();
     }
 

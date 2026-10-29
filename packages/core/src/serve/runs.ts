@@ -5,14 +5,14 @@
 
 import { Flow } from '../flow.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
-import type { CallAgent, Role } from '../types.js';
+import type { CallAgent } from '../types.js';
 import { readEvents, webEvents, type Live } from './views.js';
 
 /** One frame of a message's stream: `phase` while the Manager works, then `delta`, `done` or `error`. */
 export type Frame = { type: 'phase' | 'delta' | 'done' | 'error'; [field: string]: unknown };
 
 /** A project's flow while anything is under way on it, and the calls under way. */
-interface Active { flow: Flow; controller: AbortController; since: number; roles: Role[]; settled: Promise<void> }
+interface Active { flow: Flow; controller: AbortController; since: number; calls: Live['calls']; settled: Promise<void> }
 
 /** `changed` is told of each event a project records, and of each change to what this process
  * knows of it with none: its record edited, a message request begun or ended, its run over. */
@@ -25,7 +25,7 @@ export class Runs {
 
   live(id: string): Live {
     const active = this.active.get(id);
-    return { since: active?.since ?? null, roles: active?.roles ?? [], requests: [...this.requests.get(id)?.keys() ?? []] };
+    return { since: active?.since ?? null, calls: active?.calls ?? [], requests: [...this.requests.get(id)?.keys() ?? []] };
   }
 
   /** The answer goes to whoever asked; it throws when the question was answered meanwhile. */
@@ -110,16 +110,16 @@ export class Runs {
     }
     if (active) return act(active.flow);
     const controller = new AbortController();
-    const roles: Role[] = [];
+    const calls: Live['calls'] = [];
     const flow = new Flow(this.store, this.callAgent, {
       signal: controller.signal,
       onEvent: event => {
-        if (event.type === 'call.start') roles.push(event.role);
-        else if (event.type === 'call.end') roles.splice(roles.indexOf(event.role), 1);
+        if (event.type === 'call.start') calls.push({ role: event.role, task: event.task });
+        else if (event.type === 'call.end') calls.splice(calls.findIndex(call => call.role === event.role && call.task === event.task), 1);
         this.changed(id, event);
       },
     });
-    const entry: Active = { flow, controller, since: Date.now() / 1000, roles, settled: Promise.resolve() };
+    const entry: Active = { flow, controller, since: Date.now() / 1000, calls, settled: Promise.resolve() };
     this.active.set(id, entry);
     try {
       return act(flow);

@@ -1,7 +1,8 @@
 import { useBacklogItem } from '../hooks';
-import { currentOutcome, isRepeating, isTerminalBacklogItem } from '../../../core/src/backlog';
+import { currentOutcome } from '../../../core/src/backlog';
+import { MarkdownContent } from './MarkdownContent';
 import { Modal } from './Modal';
-import { Button, Chip, RawDisclosure, Spinner } from './primitives';
+import { Chip, RawDisclosure, Spinner } from './primitives';
 import { useI18n } from '../i18n';
 import { outcomeLabels, statusLabel } from '../lib/enumLabels';
 
@@ -22,52 +23,34 @@ export function TaskDetailModal({
   sid,
   itemId,
   onClose,
-  onDone,
-  onSkip,
-  onStop,
-  busy,
-  readOnly = false,
 }: {
   sid: string | null;
   itemId: string | null;
   onClose: () => void;
-  onDone: (id: string) => void;
-  onSkip: (id: string) => void;
-  onStop: (id: string) => void;
-  busy: boolean;
-  readOnly?: boolean;
 }) {
   const { t } = useI18n();
   const query = useBacklogItem(sid, itemId);
   const item = query.data;
-  const terminal = item ? isTerminalBacklogItem(item) : false;
   // A task a newer plan replaced came to that; its last attempt's pause and error are not its result.
   const replaced = item?.status === 'superseded';
   const outcome = replaced ? [statusLabel('superseded', t)] : outcomeLabels(item && currentOutcome(item), t);
-  const objective = <div className="mt-1 whitespace-pre-wrap rounded-lg border border-line bg-bg/50 p-3 text-sm leading-relaxed text-ink-dim">
-    {item?.objective || item?.original_objective || t('task.noObjective')}
+  const objective = <div className="mt-1 rounded-lg border border-line bg-bg/50 p-3 text-sm leading-relaxed text-ink-dim">
+    <MarkdownContent sid={sid}>{item?.objective || item?.original_objective || t('task.noObjective')}</MarkdownContent>
   </div>;
   return (
     <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl" showClose={false}>
-      <div className="flex flex-wrap items-start gap-3 border-b border-line px-4 py-3 sm:flex-nowrap sm:px-5">
+      <div className="flex items-start gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-ink">{item?.title || t('task.details')}</h2>
             {item ? <Chip>{statusLabel(item.status, t)}</Chip> : null}
           </div>
         </div>
-        {!readOnly && item && !terminal ? (
-          <div className="order-3 flex w-full shrink-0 items-center justify-end gap-1 sm:order-none sm:w-auto">
-            {isRepeating(item) ? <Button onClick={() => onStop(item.id)} disabled={busy}>{t('task.stopLoop')}</Button> : null}
-            <Button onClick={() => onDone(item.id)} disabled={busy}>{t('task.done')}</Button>
-            <Button variant="danger" onClick={() => onSkip(item.id)} disabled={busy}>{t('task.skip')}</Button>
-          </div>
-        ) : null}
         <button
           type="button"
           aria-label={t('task.close')}
           onClick={onClose}
-          className="order-2 rounded-md px-2 py-1 text-lg leading-none text-ink-faint hover:bg-surface hover:text-ink sm:order-none"
+          className="rounded-md px-2 py-1 text-lg leading-none text-ink-faint hover:bg-surface hover:text-ink"
         >×</button>
       </div>
       <div className="max-h-[70vh] overflow-y-auto p-4 scroll-thin sm:p-5">

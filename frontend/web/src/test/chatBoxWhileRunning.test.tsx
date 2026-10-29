@@ -25,6 +25,25 @@ it("sends a follow-up from the chat view while a reply is running instead of swa
   expect(onSend).toHaveBeenCalledExactlyOnceWith("Also cover the empty input", [], undefined, { whileRunning: true });
 });
 
+it("keeps Stop and offers a send button for a follow-up typed while a reply is running", async () => {
+  const onSend = vi.fn(async () => true);
+  const onCancel = vi.fn();
+  let renderer!: ReactTestRenderer;
+  act(() => {
+    renderer = create(createElement(ChatBox, {
+      value: "Also cover the empty input", onChange: () => {}, onSend, onCancel,
+      disabled: false, pending: true, attachments: [], onAttachmentsChange: () => {},
+      slashSelection: 0, onSlashSelectionChange: () => {},
+    }));
+  });
+  const send = renderer.root.findByProps({ type: "submit", className: "map-send" });
+  expect(send.props.disabled).toBe(false);
+  await act(async () => { renderer.root.findByType("form").props.onSubmit({ preventDefault() {} }); });
+  expect(onSend).toHaveBeenCalledExactlyOnceWith("Also cover the empty input", [], undefined, { whileRunning: true });
+  act(() => renderer.root.findByProps({ className: "map-send is-pending" }).props.onClick());
+  expect(onCancel).toHaveBeenCalledOnce();
+});
+
 it("shows the runtime line under the chat input, as the map composer does", () => {
   let renderer!: ReactTestRenderer;
   act(() => {

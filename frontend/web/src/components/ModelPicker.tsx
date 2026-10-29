@@ -1,21 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { api, type ModelChoice, type ModelChoices, type ModelProbeResult } from '../api';
 import { useConfig, useModelChoices } from '../hooks';
 import { useI18n } from '../i18n';
-import { agentRoleName } from '../lib/agentRoles';
 import { backendLabel } from '../lib/backend';
 import {
-  CHOOSER_ROLES,
   EFFORTS,
   choiceWrites,
   formatLatency,
   formatRate,
   formatUsd,
-  modelTiers,
-  type ChooserRole,
   type Effort,
-  type ModelTier,
 } from '../lib/modelChoice';
 import { requestFailureText } from '../lib/requestFailure';
 import { Modal, ModalHeader } from './Modal';
@@ -26,24 +21,22 @@ type Translate = (key: string, variables?: Record<string, string | number>) => s
 type Probe = 'running' | ModelProbeResult | { ok: false; error: string };
 
 const unset = (model: string | undefined) => !model || ['auto', 'inherit', 'default'].includes(model.toLowerCase());
-const roleRecord = (value: (role: ChooserRole) => string) =>
-  Object.fromEntries(CHOOSER_ROLES.map(role => [role, value(role)])) as Record<ChooserRole, string>;
 
+/** The price as the price table has it; '' when it has none. */
 function priceText(choice: ModelChoice, choices: ModelChoices, t: Translate): string {
   if (choices.billing === 'premium_request' && choices.premium_request_usd != null) {
     return t('models.pricePerRequest', { price: formatUsd(choices.premium_request_usd) });
   }
-  if (!choice.price) return t('models.priceUnknown');
-  return t('models.price', { input: formatRate(choice.price.input), output: formatRate(choice.price.output) });
+  return choice.price ? t('models.price', { input: formatRate(choice.price.input), output: formatRate(choice.price.output) }) : '';
 }
 
-function ModelCard({ choice, choices, tier, selected, current, roles, probe, onSelect, onProbe, t, locale }: {
+// A card says only what was recorded: a figure with no data is left out, not told as unknown.
+function ModelCard({ choice, choices, backend, selected, current, probe, onSelect, onProbe, t, locale }: {
   choice: ModelChoice;
   choices: ModelChoices;
-  tier?: ModelTier;
+  backend: string;
   selected: boolean;
   current: boolean;
-  roles: ChooserRole[];
   probe?: Probe;
   onSelect: () => void;
   onProbe: () => void;
@@ -57,6 +50,7 @@ function ModelCard({ choice, choices, tier, selected, current, roles, probe, onS
     onSelect();
   };
   const probeDone = probe && probe !== 'running' ? probe : undefined;
+  const price = priceText(choice, choices, t);
   return (
     <div
       role="radio"
@@ -69,33 +63,29 @@ function ModelCard({ choice, choices, tier, selected, current, roles, probe, onS
     >
       <div className="model-card-head">
         <span className="model-card-name">{choice.model}</span>
-        {tier && <span className={`model-tier model-tier--${tier}`} title={t('models.tierHint')} data-tier={tier}>{t(`models.tier.${tier}`)}</span>}
         {selected && <span className="model-card-check" aria-hidden="true">
           <svg viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7" /></svg>
         </span>}
       </div>
       <div className="model-card-meta">
-        {backendLabel(choices.backend, t)}
+        {backend}
         {current && <> · {t('models.current')}</>}
         {choice.default && <> · {t('models.default')}</>}
         {choice.invalid && <> · <span className="text-err">{t('models.notListed')}</span></>}
       </div>
-      <dl className="model-card-facts">
-        <div><dt>{t('models.priceLabel')}</dt><dd data-price>{priceText(choice, choices, t)}</dd></div>
+      {price || choice.task_estimate_usd != null || choice.latency_ms != null ? <dl className="model-card-facts">
+        {price && <div><dt>{t('models.priceLabel')}</dt><dd data-price>{price}</dd></div>}
         {choice.task_estimate_usd != null && (
           <div><dt>{t('models.taskLabel')}</dt><dd data-task-estimate>{t('models.taskEstimate', { price: formatUsd(choice.task_estimate_usd) })}</dd></div>
         )}
-        <div><dt>{t('models.speedLabel')}</dt><dd data-speed>{choice.latency_ms != null
-          ? t('models.speed', { time: formatLatency(choice.latency_ms, locale), count: choice.latency_samples })
-          : t('models.speedUnknown')}</dd></div>
-      </dl>
+        {choice.latency_ms != null && <div><dt>{t('models.speedLabel')}</dt><dd data-speed>
+          {t('models.speed', { time: formatLatency(choice.latency_ms, locale), count: choice.latency_samples })}</dd></div>}
+      </dl> : null}
       <div className="model-card-foot">
-        <span className={`model-status model-status--${availability.state}`} data-availability={availability.state} title={availability.reason || undefined}>
+        {availability.state === 'unknown' ? null : <span className={`model-status model-status--${availability.state}`} data-availability={availability.state} title={availability.reason || undefined}>
           <span className="model-status-dot" aria-hidden="true" />
-          {availability.state === 'ok' ? t('models.available')
-            : availability.state === 'failed' ? t('models.failed', { reason: availability.reason })
-              : t('models.unknown')}
-        </span>
+          {availability.state === 'ok' ? t('models.available') : t('models.failed', { reason: availability.reason })}
+        </span>}
         <button
           type="button"
           className="model-probe"
@@ -114,9 +104,6 @@ function ModelCard({ choice, choices, tier, selected, current, roles, probe, onS
             ? t('models.testOk', { time: formatLatency(probeDone.duration_ms, locale) })
             : t('models.testFailed', { reason: probeDone.error || '—' })}
         </div>
-      )}
-      {roles.length > 0 && (
-        <div className="model-card-roles">{roles.map(role => <span key={role}>{agentRoleName(role, t)}</span>)}</div>
       )}
     </div>
   );
@@ -138,31 +125,20 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
   const queryClient = useQueryClient();
   const config = useConfig(sid, open);
   const choicesQuery = useModelChoices(sid, open);
-  const [mode, setMode] = useState<'all' | 'roles'>('all');
-  const [shared, setShared] = useState('');
-  const [perRole, setPerRole] = useState<Record<ChooserRole, string>>(() => roleRecord(() => ''));
-  const [activeRole, setActiveRole] = useState<ChooserRole>('engineer');
+  const [model, setModel] = useState('');
   const [effort, setEffort] = useState<Effort | ''>('');
   const [probes, setProbes] = useState<Record<string, Probe>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
 
-  const roles = config.data?.roles ?? [];
-  const current = useMemo(() => roleRecord(role => {
-    const model = roles.find(row => row.role === role)?.model ?? '';
-    return unset(model) ? '' : model;
-  }), [roles]);
-  const currentEffort = useMemo(() => roleRecord(role => roles.find(row => row.role === role)?.reasoning_effort ?? ''), [roles]);
+  // A project has one model and effort, which every role runs on.
+  const settings = config.data?.roles[0];
+  const current = { model: unset(settings?.model) ? '' : settings!.model, effort: settings?.reasoning_effort ?? '' };
 
   useEffect(() => {
     if (!open || !config.data) return;
-    const models = CHOOSER_ROLES.map(role => current[role]);
-    const same = models.every(model => model === models[0]);
-    setMode(same ? 'all' : 'roles');
-    setShared(same ? models[0] : current.engineer);
-    setPerRole(current);
-    const efforts = CHOOSER_ROLES.map(role => currentEffort[role]);
-    setEffort(efforts.every(value => value === efforts[0]) && (EFFORTS as string[]).includes(efforts[0]) ? efforts[0] as Effort : '');
+    setModel(current.model);
+    setEffort((EFFORTS as string[]).includes(current.effort) ? current.effort as Effort : '');
     // Only when the sheet opens or the saved settings change underneath it.
   }, [open, config.data]);
   useEffect(() => {
@@ -171,14 +147,11 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
 
   const choices = choicesQuery.data;
   const options = choices?.options ?? [];
-  const tiers = useMemo(() => modelTiers(options), [options]);
-  const writes = choiceWrites({ mode, shared, perRole, current, effort, currentEffort });
-  const selectedModel = mode === 'all' ? shared : perRole[activeRole];
+  const writes = choiceWrites({ model, effort }, current);
 
-  const select = (model: string) => {
+  const select = (chosen: string) => {
     setMessage(null);
-    if (mode === 'all') setShared(model);
-    else setPerRole(previous => ({ ...previous, [activeRole]: model }));
+    setModel(chosen);
   };
   const probe = async (model: string) => {
     setProbes(previous => ({ ...previous, [model]: 'running' }));
@@ -195,7 +168,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
     setBusy(true);
     setMessage(null);
     try {
-      for (const write of writes) await api.setConfig(sid, write.name, write.value, write.applyToRoles ?? false);
+      for (const write of writes) await api.setConfig(sid, write.name, write.value);
       setMessage({ text: t('models.saved'), error: false });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['config', sid] }),
@@ -210,15 +183,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
   };
 
   const effortName = (value: Effort) => t(`models.effort.${value}`);
-  const summary = mode === 'all'
-    ? [t('models.allRoles'), shared || t('models.none'), effort ? effortName(effort) : ''].filter(Boolean).join(' · ')
-    : [...CHOOSER_ROLES.reduce((groups, role) => {
-      const model = perRole[role] || t('models.none');
-      groups.set(model, [...(groups.get(model) ?? []), agentRoleName(role, t)]);
-      return groups;
-    }, new Map<string, string[]>())]
-      .map(([model, names]) => `${names.join(locale === 'zh-CN' ? '、' : ', ')}${locale === 'zh-CN' ? '：' : ': '}${model}`)
-      .join(' · ') + (effort ? ` · ${effortName(effort)}` : '');
+  const summary = [model || t('models.none'), effort ? effortName(effort) : ''].filter(Boolean).join(' · ');
   const trial = config.data?.trial_mode === true;
   const loading = config.isLoading || choicesQuery.isLoading;
   const failed = config.isError || choicesQuery.isError;
@@ -232,10 +197,6 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
         {!loading && !failed && trial && <EmptyHint>{t('models.trial')}</EmptyHint>}
         {!loading && !failed && !trial && choices && <>
           <div className="model-picker-controls">
-            <div className="route-seg" role="radiogroup" aria-label={t('models.modeLabel')}>
-              <button type="button" role="radio" aria-checked={mode === 'all'} onClick={() => { setMode('all'); setMessage(null); }}>{t('models.modeAll')}</button>
-              <button type="button" role="radio" aria-checked={mode === 'roles'} onClick={() => { setMode('roles'); setMessage(null); }}>{t('models.modeRoles')}</button>
-            </div>
             <div className="model-picker-effort">
               <span>{t('models.effort')}</span>
               <div className="route-seg" role="radiogroup" aria-label={t('models.effort')}>
@@ -246,16 +207,6 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
               </div>
             </div>
           </div>
-          {mode === 'roles' && (
-            <div className="model-picker-roles" role="tablist" aria-label={t('models.modeRoles')}>
-              {CHOOSER_ROLES.map(role => (
-                <button key={role} type="button" role="tab" aria-selected={activeRole === role} data-role-tab={role} onClick={() => setActiveRole(role)}>
-                  <span>{agentRoleName(role, t)}</span>
-                  <span className="model-picker-role-model">{perRole[role] || t('models.none')}</span>
-                </button>
-              ))}
-            </div>
-          )}
           {choices.task_sample > 0 && choices.billing === 'token' && (
             <p className="model-picker-note">{t('models.taskEstimateBasis', { count: choices.task_sample })}</p>
           )}
@@ -267,10 +218,9 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
                   key={choice.model}
                   choice={choice}
                   choices={choices}
-                  tier={tiers[choice.model]}
-                  selected={selectedModel === choice.model}
-                  current={CHOOSER_ROLES.some(role => current[role] === choice.model)}
-                  roles={mode === 'roles' ? CHOOSER_ROLES.filter(role => perRole[role] === choice.model) : []}
+                  backend={backendLabel(choices.backend, config.data)}
+                  selected={model === choice.model}
+                  current={current.model === choice.model}
                   probe={probes[choice.model]}
                   onSelect={() => select(choice.model)}
                   onProbe={() => void probe(choice.model)}
@@ -282,7 +232,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
           {/* A model the list does not have, as the backend names it. */}
           <label className="model-picker-by-name">
             <span>{t('models.byName')}</span>
-            <input value={options.some(choice => choice.model === selectedModel) ? '' : selectedModel} spellCheck={false} data-model-name
+            <input value={options.some(choice => choice.model === model) ? '' : model} spellCheck={false} data-model-name
               placeholder={t('models.byNamePlaceholder')} onChange={event => select(event.target.value.trim())} />
           </label>
           <p className="model-picker-note">
@@ -298,7 +248,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
                 : writes.length === 0 && <span className="text-ink-faint">{t('models.nothingChanged')}</span>}
             </div>
             <button type="button" className="model-picker-use" data-use-model disabled={busy || writes.length === 0} onClick={() => void apply()}>
-              {busy ? t('models.saving') : mode === 'all' ? t('models.use') : t('models.useRoles')}
+              {busy ? t('models.saving') : t('models.use')}
             </button>
           </div>
         </>}
@@ -306,8 +256,3 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
     </Modal>
   );
 }
-
-/**
- * The visible way into the chooser beside the composer: names the model the
- * roles are set to (or how many differ) and opens the sheet.
- */

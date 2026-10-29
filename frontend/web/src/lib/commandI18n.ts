@@ -11,9 +11,8 @@ const GROUPS: Record<SlashCommand['group'], string> = {
 
 const DESCRIPTIONS: Record<CommandId, string> = {
   crystalpilot: '在当前 Argus 会话启用晶体学工具，保持原生界面',
-  status: '查看角色、待办、日志和运行状况',
+  status: '查看角色、待办和运行状况',
   roles: '查看各角色的后端、模型、推理强度和实时活动',
-  journal: '查看近期日志（默认 10 条）',
   backlog: '查看待处理任务（all 包含已完成和已跳过）',
   artifacts: '查看审阅者认可的结果文件（按 Enter 预览）',
   artifact: '预览一个已批准的结果文件',
@@ -27,9 +26,6 @@ const DESCRIPTIONS: Record<CommandId, string> = {
   nudge: '向正在运行的任务注入指导',
   abort: '立即终止正在运行的任务',
   note: '向时间线添加手动备注',
-  done: '将任务标记为完成',
-  skip: '跳过任务',
-  stop: '停止任务的自动迭代',
   item: '查看这项任务的完整要求',
   run: '返回持续更新的任务动态',
   new: '检查、创建并切换到新项目',

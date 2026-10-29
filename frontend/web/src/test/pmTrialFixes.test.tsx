@@ -42,10 +42,10 @@ describe('pm trial fixes', () => {
     expect(plain).not.toContain('<details');
   });
 
-  it('names the project a message goes to in the composer', () => {
+  it("the composer's placeholder says only whom the message goes to", () => {
     const html = renderToStaticMarkup(<ChatBox value="" onChange={() => undefined} onSend={() => true} onCancel={() => undefined}
       disabled={false} pending={false} attachments={[]} onAttachmentsChange={() => undefined} slashSelection={0}
-      onSlashSelectionChange={() => undefined} projectName="按产品对比月度销售走势" />);
-    expect(html).toContain('按产品对比月度销售走势');
+      onSlashSelectionChange={() => undefined} />);
+    expect(html).toContain('placeholder="Tell Argus…"');
   });
 });

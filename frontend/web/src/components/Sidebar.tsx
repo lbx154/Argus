@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type ProjectRow } from '../api';
 import { LearningLibraryEntry, type LearningScope } from './LearningLibrary';
 import { PluginLauncher } from './PluginLauncher';
-import { VerticalStoreEntry } from './VerticalStore';
 import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
@@ -12,7 +11,7 @@ import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
-import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, Monitor } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, LogOut } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 
@@ -71,12 +70,11 @@ export function Sidebar({
   resumingId,
   onOpenPanel,
   onOpenLearning,
-  onOpenVerticals,
   onOpenResults,
   resultsCount = 0,
   onNew,
   onSearch,
-  onDevices,
+  onSignOut,
   loading,
   creating = false,
   error,
@@ -98,13 +96,12 @@ export function Sidebar({
   resumingId?: string | null;
   onOpenPanel: (p: 'doctor' | 'config' | 'identity') => void;
   onOpenLearning?: (scope: LearningScope) => void;
-  onOpenVerticals?: () => void;
   /** Opens the current project's delivered results. */
   onOpenResults?: () => void;
   resultsCount?: number;
   onNew: () => void;
   onSearch?: () => void;
-  onDevices?: () => void;
+  onSignOut?: () => void;
   loading: boolean;
   creating?: boolean;
   error?: string;
@@ -132,7 +129,7 @@ export function Sidebar({
   // Plugins, the knowledge library and the domain store are for experienced users.
   const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
   const toggleAdvanced = () => setAdvancedOpen((open) => { writeLocalStorage(ADVANCED_KEY, open ? 'closed' : 'open'); return !open; });
-  const openKnowledge = onOpenLearning ? () => onOpenLearning(activeId ? 'project' : 'global') : undefined;
+  const openKnowledge = onOpenLearning ? () => onOpenLearning('global') : undefined;
   const resultsLabel = zh ? '成果' : 'Results';
   const resultsTitle = !activeId ? (zh ? '先选择一个项目' : 'Select a project first')
     : resultsCount ? (zh ? `查看这个项目的 ${resultsCount} 份成果` : `Open this project's ${resultsCount} result(s)`)
@@ -250,7 +247,6 @@ export function Sidebar({
         <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" /> : null}
       </button> : null}
       {slim && openKnowledge ? <LearningLibraryEntry onOpen={openKnowledge} compact /> : null}
-      {slim && onOpenVerticals ? <VerticalStoreEntry compact onOpen={onOpenVerticals} /> : null}
       {!slim ? (
         <>
           <nav aria-label={locale === 'zh-CN' ? '成果与工具' : 'Results and tools'} data-sidebar-resources
@@ -262,14 +258,13 @@ export function Sidebar({
               {resultsCount ? <span className="ml-auto text-xs tabular-nums text-ink-faint">{resultsCount}</span> : null}
             </button> : null}
             <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
-              title={zh ? '知识库、领域商店、插件' : 'Knowledge, domain store and plugins'}
+              title={zh ? '知识库、插件' : 'Knowledge and plugins'}
               className="mx-2 my-1 flex h-8 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
               <ChevronRight size={13} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
               <span>{zh ? '高级工具' : 'Advanced tools'}</span>
             </button>
             {advancedOpen ? <>
               {openKnowledge && <LearningLibraryEntry onOpen={openKnowledge} />}
-              {onOpenVerticals ? <VerticalStoreEntry onOpen={onOpenVerticals} /> : null}
               <PluginLauncher />
             </> : null}
           </nav>
@@ -474,11 +469,11 @@ export function Sidebar({
               <Settings size={15} />{zh ? '设置' : 'Settings'}
             </button>}
             <details className="sidebar-more">
-              <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '设备、语言与外观' : 'Devices, language and appearance'}>
+              <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '语言、外观与登录' : 'Language, appearance and sign-in'}>
                 <span aria-hidden="true" className="tracking-[0.12em]">···</span>
               </summary>
               <div className="sidebar-more-menu">
-                {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={15} />{zh ? '设备' : 'Devices'}</button>}
+                {onSignOut && <button type="button" onClick={onSignOut} className="icon-control flex h-8 items-center gap-2 px-2 text-xs"><LogOut size={15} />{zh ? '退出登录' : 'Sign out'}</button>}
                 {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
                   <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
                     className="icon-control flex h-8 w-8 items-center justify-center">

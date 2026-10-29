@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { isCurrentTaskQuestion, operatorDecisionCards, type OperatorDecisionCard } from '../../core/src/decisions';
 import { api, type BacklogItem } from './api';
 import { type NoticeTone } from './components/ActionNotice';
-
-const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error || 'Unknown error');
+import { useI18n } from './i18n';
+import { errorText } from './lib/format';
 
 interface UsePendingReplySessionOptions {
   activeSid: string | null;
@@ -43,6 +42,7 @@ export function usePendingReplySession({
   pendingQuestions,
   refetchSnapshot,
 }: UsePendingReplySessionOptions) {
+  const { t } = useI18n();
   const [openedReply, setOpenedReply] = useState<{
     sid: string;
     card: OperatorDecisionCard;
@@ -112,7 +112,7 @@ export function usePendingReplySession({
           note,
         );
       if (result.resolved === false || ('kind' in result && ['error', 'cancelled'].includes(String(result.kind)))) {
-        setPendingReplyError(String(result.reply || 'Could not send answer.'));
+        setPendingReplyError(String(result.reply || t('pending.notSent')));
         await refetchSnapshot();
         return;
       }
@@ -120,19 +120,13 @@ export function usePendingReplySession({
       setOpenedReply(current => current === openedReply ? null : current);
       await refetchSnapshot();
       if (result.daemon && Number(result.daemon.rc ?? 0) !== 0) {
-        notify(
-          'error',
-          `Answer queued, but the daemon did not start: ${result.daemon.error || 'operator action required'}`,
-        );
+        notify('error', t('pending.notStarted', { error: result.daemon.error || t('pending.needsYou') }));
       } else if (pendingReply.kind !== 'domain_intake') {
-        notify(
-          'success',
-          String(result.reply || 'Manager delivered your answer to the team.'),
-        );
+        notify('success', String(result.reply || t('pending.delivered')));
       }
     } catch (error) {
       setPendingReplyError(errorText(error));
-      notify('error', `Could not send answer: ${errorText(error)}`);
+      notify('error', t('pending.notSentBecause', { error: errorText(error) }));
       await refetchSnapshot();
     } finally {
       submitting.current = false;

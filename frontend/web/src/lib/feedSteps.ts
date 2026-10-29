@@ -274,8 +274,9 @@ function failureCause(step: FeedStep): string {
 
 /** What the reader would see twice: the same role saying the same sentence, or failing for the same cause. */
 function signature(step: FeedStep, locale: Locale): string {
-  if (isFailure(step)) return `fail|${step.r.role}|${field(step.ev, 'type')}|${failureCause(step)}`;
-  return `text|${step.r.role}|${step.r.glyph}|${plainDetail(step.r.text, locale).text}`;
+  const who = `${step.r.role}|${field(step.ev, 'item_id')}`;
+  if (isFailure(step)) return `fail|${who}|${field(step.ev, 'type')}|${failureCause(step)}`;
+  return `text|${who}|${step.r.glyph}|${plainDetail(step.r.text, locale).text}`;
 }
 
 /** `into` keeps its opening event and key; everything the reader sees comes from the newest repeat. */
@@ -361,10 +362,12 @@ export function toolAction(tool: string, kind: string): ToolAction {
 }
 
 /** Which consecutive rows may fold together: one key per tool; shell commands and everything else never. */
+// A role at work on two tasks interleaves their steps: a fold keeps to one task.
 function foldKey(step: FeedStep): string | null {
   const kind = progressKind(step.ev);
-  if (kind === 'tool_use') return `tool:${toolName(step.ev).toLowerCase() || 'tool'}`;
-  if (kind === 'file_change') return 'file';
+  const task = field(step.ev, 'item_id');
+  if (kind === 'tool_use') return `${task}|tool:${toolName(step.ev).toLowerCase() || 'tool'}`;
+  if (kind === 'file_change') return `${task}|file`;
   return null;
 }
 

@@ -432,7 +432,6 @@ describe('web API protocol handshake', () => {
 
   it('wires the complete Web administration surface', async () => {
     const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
-      if (path === '/api/metrics') return Response.json({ slo: { status: 'healthy' } });
       if (path.startsWith('/api/trash?')) return Response.json({ entries: [], total: 0 });
       if (path.endsWith('/plan')) return Response.json({ steps: [], notes: [], error: '' });
       if (path.endsWith('/skills')) return Response.json({ text: 'skills' });
@@ -441,10 +440,6 @@ describe('web API protocol handshake', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await api.metrics();
-    await api.sourceUpdateStatus();
-    await api.checkSourceUpdate();
-    await api.applySourceUpdate();
     await api.trash();
     await api.previewPlan('s-test', 'inspect');
     await api.setConfig('s-test', 'manager_model', 'gpt-5.6-sol');
@@ -453,15 +448,9 @@ describe('web API protocol handshake', () => {
     await api.skills('s-test', 'ls');
     await api.setLaunchCwd('s-test', '/workspace');
     await api.setWorkdir('s-test', '/workspace');
-    await api.replaceDaemon('s-test', 's-victim');
-    await api.upgradeDaemon('s-test');
     await api.restoreTrash('0:projects_trash/20260712/s-old');
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      '/api/metrics',
-      '/api/runtime/source-update',
-      '/api/runtime/source-update/check',
-      '/api/runtime/source-update/apply',
       '/api/trash?query=&limit=100&offset=0',
       '/api/projects/s-test/plan',
       '/api/projects/s-test/config/set',
@@ -470,12 +459,8 @@ describe('web API protocol handshake', () => {
       '/api/projects/s-test/skills',
       '/api/projects/s-test/launch-cwd',
       '/api/projects/s-test/workdir',
-      '/api/projects/s-test/daemon/replace',
-      '/api/projects/s-test/daemon/upgrade',
       '/api/trash/0%3Aprojects_trash%2F20260712%2Fs-old/restore',
     ]);
-    const replaceBody = JSON.parse(String(fetchMock.mock.calls[12][1]?.body));
-    expect(replaceBody).toMatchObject({ victim_sid: 's-victim', resume_continuous: false });
   });
 
   it('rejects HTTP-successful daemon command failures', async () => {
@@ -490,9 +475,6 @@ describe('web API protocol handshake', () => {
       'stale command revision',
     );
     await expect(api.stopDaemon('s-test', true, 1)).rejects.toThrow(
-      'stale command revision',
-    );
-    await expect(api.upgradeDaemon('s-test', 1)).rejects.toThrow(
       'stale command revision',
     );
   });

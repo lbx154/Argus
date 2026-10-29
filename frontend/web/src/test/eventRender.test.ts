@@ -110,7 +110,8 @@ describe('the web feed line', () => {
 
   it('renders an assistant message as a bright role line', () => {
     const r = line({ type: 'engineer.progress', kind: 'assistant_message', text: '你好', agent_layer: 'engineer' });
-    expect(r).toMatchObject({ role: 'engineer', label: 'Engineer', tone: 'bright', reasoning: false });
+    // A finished record: no typing cursor after the name.
+    expect(r).toMatchObject({ role: 'engineer', label: 'Engineer', glyph: '', tone: 'bright', reasoning: false });
     expect(r!.text).toContain('你好');
   });
 

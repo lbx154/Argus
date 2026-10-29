@@ -48,9 +48,10 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[];
     const handoff: HandOff | null = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: [step.letter ?? `${step.role} to ${step.to}`], ...step.open ? { open: step.open } : {} };
     const tokens = { input_tokens: 10, cached_input_tokens: 0, output_tokens: 5, reasoning_output_tokens: 0 };
-    await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, role: request.role, backend: request.backend, model: 'fake-model', tokens, cost_usd: 0.01 })}\n`);
+    const callId = `call-${requests.length}`;
+    await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: request.model ?? 'fake-model', tokens, cost_usd: 0.01 })}\n`);
     return {
-      callId: `call-${requests.length}`, threadId: `${request.role}-${requests.length}`, completed: true,
+      callId, threadId: `${request.role}-${requests.length}`, completed: true,
       error: handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
     };
   };
@@ -249,7 +250,7 @@ test('a refused form goes back to the Manager within the same message', async t 
 interface MapTask { id: string; title: string; status: string; role: string; ts: number; finished_ts: number | null; pending_question?: string;
   latest_action?: import('@argus/contracts').BacklogItem['latest_action']; result_paths: string[] }
 interface MapLetter { id: string; item_id: string; type: string; role: string; to: string; text: string }
-interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string; history_cursor: string }
+interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string }
 interface Trace { task_id: string; groups: { call_id: string; role: string; output: string; entries: { kind: string; text: string }[] }[] }
 
 test('map updates carry each task’s holder, latest action and only its closing handoff’s files', async t => {
@@ -322,7 +323,7 @@ test('the map shows each task and the letters written about it, and a task its c
   await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r1' }));
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length) && !snapshot.daemon.alive);
 
-  const first = await get<ProgressMap>(`${P}/map-history`);
+  const first = await get<ProgressMap>(`${P}/map`);
   assert.equal(first.id, `live:${sid}`);
   assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, task.pending_question]),
     [['t1', 'Summarize the CSV.', 'blocked', 'reviewer', 'Ship it as is?']]);
@@ -335,16 +336,13 @@ test('the map shows each task and the letters written about it, and a task its c
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.backlog[0]?.status === 'done' && !snapshot.daemon.alive);
 
   // A page that holds a cursor is sent the letters after it, and every task as it stands.
-  const later = await get<ProgressMap>(`${P}/map?after=${first.history_cursor}`);
+  const later = await get<ProgressMap>(`${P}/map?after=${first.cursor}`);
   assert.deepEqual(later.events.map(letter => [letter.role, letter.to, letter.text]),
     [['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
   const [task] = later.tasks;
   assert.deepEqual([task!.status, task!.pending_question], ['done', undefined]);
   assert.ok(task!.ts < task!.finished_ts!);
-  assert.equal(later.cursor, later.history_cursor);
-  assert.deepEqual((await get<ProgressMap>(`${P}/map-history?after=${later.cursor}`)).events, []);
-  const info = await get<{ task_count: number; event_bytes: number; requires_choice: boolean }>(`${P}/map-info`);
-  assert.deepEqual([info.task_count, info.event_bytes > 0, info.requires_choice], [1, true, false]);
+  assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${later.cursor}`)).events, []);
 
   // The Planner's call wrote the brief; the Engineer's refused form is a call with no letter.
   const trace = await get<Trace>(`${P}/map-trace?task=t1`);
@@ -469,7 +467,9 @@ test('pausing lets the calls under way end and starts no other, until the work r
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
   await frames(await post(`${P}/message/stream`, { text: 'go', request_id: 'r1' }));
-  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+  const working = await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles.find(role => role.role === 'engineer')!.active);
+  // A role at work names the task it is on.
+  assert.deepEqual(working.roles.find(role => role.role === 'engineer')!.tasks, working.backlog.map(item => item.id));
 
   const pausing = await (await post(`${P}/daemon/stop`, { after_current: true, command_id: 'c1' })).json() as { rc: number; draining: boolean };
   assert.deepEqual([pausing.rc, pausing.draining], [0, true]);
@@ -629,7 +629,7 @@ test('the Manager rewrites a draft in a turn of its own, and a failed rewrite le
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
   await post(`${P}/config/set`, { name: 'ARGUS_SKILL_MODEL', value: 'gpt-x' });
-  await post(`${P}/config/set`, { name: 'ARGUS_SKILL_MANAGER_REASONING_EFFORT', value: 'low' });
+  await post(`${P}/config/set`, { name: 'ARGUS_SKILL_REASONING_EFFORT', value: 'low' });
   const rewrite = async (body: Record<string, unknown>) => await (await post(`${P}/prompt/rewrite`, body)).json();
   assert.deepEqual(await rewrite({ text: ' data.csv 求和 写 report ' }),
     { original: 'data.csv 求和 写 report', rewritten: '把 data.csv 每列求和，结果写进 report.md。', changes: [], questions: [], error: '' });
@@ -639,12 +639,29 @@ test('the Manager rewrites a draft in a turn of its own, and a failed rewrite le
   assert.equal(asked!.usageFile, join(store.dir(sid), 'usage.jsonl'));
   assert.deepEqual(await rewrite({ text: 'data.csv 求和' }),
     { original: 'data.csv 求和', rewritten: 'data.csv 求和', changes: [], questions: [], error: 'The turn ended without the hand-off form.' });
-  // The gray text is not guessed, and an empty draft has nothing to rewrite: neither calls the Manager.
-  assert.deepEqual(await rewrite({ text: 'data.csv 求', mode: 'complete' }), { completion: '' });
+  // An empty draft has nothing to rewrite, and does not call the Manager.
   assert.equal((await post(`${P}/prompt/rewrite`, { text: ' ' })).status, 400);
   assert.equal(requests.length, 2);
   // Neither the record nor the Manager's session knows of it.
   assert.deepEqual([readEvents(store, sid), store.load(sid).sessions], [[], {}]);
+});
+
+test('a model tried or a draft rewritten counts in what was spent, but not as what the project runs on', async t => {
+  const { post, get } = await setup(t, [
+    { role: 'manager', to: 'operator', letter: 'Hello.' },
+    { role: 'manager', to: 'operator', letter: 'ok' },
+    { role: 'manager', to: 'operator', letter: 'Rewritten.' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await (await post(`${P}/message`, { text: 'Hi' })).json();
+  const ran = await get<Snapshot>(`${P}/snapshot`);
+  assert.equal((await (await post(`${P}/model-choices/probe`, { model: 'gpt-probe' })).json() as { ok: boolean }).ok, true);
+  assert.equal((await (await post(`${P}/prompt/rewrite`, { text: 'draft' })).json() as { rewritten: string }).rewritten, 'Rewritten.');
+  const after = await get<Snapshot>(`${P}/snapshot`);
+  assert.deepEqual([after.usage_summary?.call_count, after.spend_usd], [3, 0.03]);
+  assert.deepEqual(after.last_call, ran.last_call);
+  assert.deepEqual([after.last_call?.model, after.roles.find(role => role.role === 'manager')?.model], ['fake-model', 'fake-model']);
 });
 
 test('deleting a project stops its work and moves its directory to the trash, its workdir left as it is', async t => {

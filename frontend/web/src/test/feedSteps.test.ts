@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import type { EventMsg } from '../api';
+import type { EventMsg, Snapshot } from '../api';
 import {
   MIN_GROUP_SIZE,
   foldFeedRows,
@@ -87,6 +87,11 @@ describe('foldFeedRows · tool groups (rule a, b)', () => {
     expect(MIN_GROUP_SIZE).toBe(3);
     const folded = fold([call('view', { path: 'a.py' }), call('view', { path: 'b.py' })]);
     expect(folded.map((row) => row.kind)).toEqual(['step', 'step']);
+  });
+
+  it('folds no run across two tasks a role works on side by side', () => {
+    const folded = fold(['a.py', 'b.py', 'c.py', 'd.py'].map((path, index) => call('view', { path }, { item_id: index % 2 ? 't2' : 't1' })));
+    expect(folded.map((row) => row.kind)).toEqual(['step', 'step', 'step', 'step']);
   });
 
   it('breaks a run on a different tool or a message, and folds each tool on its own', () => {
@@ -366,5 +371,41 @@ describe('EventStream renders folded rows', () => {
     expect(html).toMatch(/data-role="manager"[^]*?data-role-headline[^]*?The request is understood and the project goal is set\. · Hand it to the team\./);
     // Work the loaded events already tell is not told twice.
     expect(html.slice(html.indexOf('data-role="engineer"')).split('event-activity-row')).toHaveLength(2);
+  });
+
+  it("colours a role's dot and name, never what it wrote", () => {
+    const html = renderToStaticMarkup(createElement(EventStream, {
+      events: [{ type: 'round.review.completed', agent_layer: 'reviewer', review_source: 'reviewer', status: 'engineer', reason: 'Fix the off-by-one.', item_id: 't1', ts: (clock += 1) }],
+      connected: true,
+      showReasoning: false,
+    }));
+    const lane = html.slice(html.indexOf('data-role="reviewer"'));
+    expect(lane).toContain('Fix the off-by-one.');
+    // The verdict's mark may take its tone; the words it says do not.
+    expect(lane).toMatch(/<div class="mt-0\.5 [^"]*text-ink [^"]*"[^>]*>(?:(?!<\/div>)[^])*Fix the off-by-one\./);
+    expect(lane).not.toMatch(/<div class="mt-0\.5 [^>]*style=/);
+  });
+
+  it('names the task of each record, and a role at work on two tasks says what it does on each', () => {
+    const task = (id: string, title: string) => ({ id, title, objective: '', status: 'in_progress', priority: 1 });
+    const reviewer = { role: 'reviewer', backend: 'codex', backend_label: 'Codex', model: '', effort: null, active: true, label: 'Reviewer', status: 'running', age_s: null, tasks: ['t1', 't2'] };
+    const snapshot = { session: { id: 's' }, daemon: { alive: true }, roles: [reviewer], backlog: [task('t1', 'Write primes.py'), task('t2', 'Write fib.py')] } as unknown as Snapshot;
+    const html = renderToStaticMarkup(createElement(EventStream, {
+      events: [
+        said('Checking primes.py.', { agent_layer: 'reviewer', item_id: 't1' }),
+        said('Checking fib.py.', { agent_layer: 'reviewer', item_id: 't2' }),
+      ],
+      snapshot,
+      connected: true,
+      showReasoning: false,
+    }));
+    const lane = html.slice(html.indexOf('data-role="reviewer"'));
+
+    expect(lane).toContain('· 2 tasks under way');
+    expect(lane).toMatch(/data-role-task="t1"[^]*?Write primes\.py[^]*?Now: [^]*?Checking primes\.py\./);
+    expect(lane).toMatch(/data-role-task="t2"[^]*?Write fib\.py[^]*?Now: [^]*?Checking fib\.py\./);
+    // Opened, each record names its task.
+    expect(lane).toMatch(/data-row-task="t1"[^>]*>Write primes\.py</);
+    expect(lane).toMatch(/data-row-task="t2"[^>]*>Write fib\.py</);
   });
 });

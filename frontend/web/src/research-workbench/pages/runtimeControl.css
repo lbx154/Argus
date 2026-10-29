@@ -23,7 +23,6 @@
 .runtime-section-body h3 { font-size: 13px; font-weight: 600; }
 .runtime-field-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .runtime-field-row input { flex: 1 1 220px; width: 100%; min-width: 0; min-height: 38px; padding: 8px 10px; border: 1px solid rgb(var(--line)); border-radius: 8px; background: rgb(var(--bg)); font-size: 12px; }
-.runtime-source-update { display: grid; gap: 10px; border-top: 1px solid rgb(var(--line)); padding-top: 16px; }
 .runtime-restore-row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
 .runtime-restore-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .runtime-feedback { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border: 1px solid rgb(var(--line)); border-radius: 10px; font-size: 13px; }

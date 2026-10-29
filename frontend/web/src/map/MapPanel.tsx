@@ -61,6 +61,7 @@ import { api, type Snapshot, type MessageRouteOverride } from "../api";
 import { readLocalStorage, writeLocalStorage } from "../lib/storage";
 import { MAP_CAPABILITY, useCapability } from "../lib/capabilities";
 import { useI18n } from "../i18n";
+import { roleLabel } from "../lib/enumLabels";
 import { ACTIVE, attentionTasks, buildMap, connectMap, currentTask, RELATION_KINDS, statusKey, taskDependencies, latestCertifiedTask, type Dataset, type MapTask } from "./model";
 import { layoutScene } from "./submap";
 import { edgeLanes, relationPorts } from "./graphLayout";
@@ -80,8 +81,7 @@ import "./submap.css";
 import "./atlas.css";
 import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
-import { MapHistoryChoice } from "./MapHistoryChoice";
-import { livePollInterval, mapIsPaused, mergeMapProgress, parseMapSelection, type MapSelection } from "./incremental";
+import { livePollInterval, mapIsPaused, mergeMapProgress } from "./incremental";
 import { currentWorkStartedAt, currentWorkStatus } from "../lib/workStatus";
 import { taskFigures } from "./cardFigure";
 import { MapCardFigureContext } from "./cardContext";
@@ -1236,7 +1236,7 @@ export function MapCanvas({
     paused,
     hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
     role: activePhase,
-    current: data.kind === 'live' && !['idle', 'step_finished'].includes(status.state) ? currentWork : undefined,
+    current: data.kind === 'live' && status.state !== 'idle' ? currentWork : undefined,
     zh,
   });
   const focus = (id: string) => {
@@ -1315,7 +1315,7 @@ export function MapCanvas({
   const playbackStrip = (
     <div className="map-playback" data-floating={data.kind === "live"}>
       <button
-        aria-label={playing ? "Pause reveal" : "Play reveal"}
+        aria-label={playing ? zh ? "暂停展开" : "Pause reveal" : zh ? "播放展开" : "Play reveal"}
         onClick={() => {
           if (visibleCount >= graph.tasks.length) setVisibleCount(1);
           setPlaying((v) => !v);
@@ -1324,7 +1324,7 @@ export function MapCanvas({
         {playing ? <Pause size={14} /> : <Play size={14} />}
       </button>
       <button
-        aria-label="Restart reveal"
+        aria-label={zh ? "从头展开" : "Restart reveal"}
         onClick={() => {
           setPlaying(false);
           setVisibleCount(1);
@@ -1335,7 +1335,7 @@ export function MapCanvas({
       </button>
       <span>{zh ? "逐卡展开" : "Reveal cards"}</span>
       <input
-        aria-label="Visible task count"
+        aria-label={zh ? "逐卡展开" : "Reveal cards"}
         type="range"
         min={Math.min(1, graph.tasks.length)}
         max={graph.tasks.length}
@@ -1349,7 +1349,7 @@ export function MapCanvas({
         {visibleCount} / {graph.tasks.length}
       </span>
       <button
-        aria-label="Reveal next card"
+        aria-label={zh ? "展开下一张" : "Reveal next card"}
         disabled={visibleCount >= graph.tasks.length}
         onClick={() =>
           setVisibleCount((c) => Math.min(graph.tasks.length, c + 1))
@@ -1582,7 +1582,7 @@ export function MapCanvas({
               className="map-fit-button"
               onClick={showOverview}
               title={zh ? "适配全图" : "Fit map"}
-              aria-label="Fit map"
+              aria-label={zh ? "适配全图" : "Fit map"}
             >
               <Maximize2 size={15} />
             </button>
@@ -1605,7 +1605,7 @@ export function MapCanvas({
                   setPlaying(true);
                 }}
                 title={zh ? "回放这项研究是如何展开的" : "Replay how this research unfolded"}
-                aria-label="Replay"
+                aria-label={zh ? "回放" : "Replay"}
               >
                 <History size={15} />
                 <span>{zh ? "回放" : "Replay"}</span>
@@ -1624,7 +1624,7 @@ export function MapCanvas({
               <button
                 onClick={camera.back}
                 className="map-back-button"
-                aria-label="Return to map"
+                aria-label={zh ? "返回全图" : "Overview"}
               >
                 <ArrowLeft size={14} />
                 <span>{zh ? "返回全图" : "Overview"}</span>
@@ -1836,7 +1836,7 @@ export function MapCanvas({
               onClick={toggleReplacements}
               aria-pressed={showReplacements}
               disabled={replacementCount === 0}
-              aria-label="Toggle plan replacements"
+              aria-label={zh ? "计划替代" : "Plan changes"}
             >
               <b className="replacement" />
               {zh ? "计划替代" : "Plan changes"}
@@ -2089,7 +2089,7 @@ export const MapPanel = memo(function MapPanel({
   snapshot: Snapshot;
   currentTaskId?: string | null;
   events: EventMsg[];
-  managerSteps?: Array<{ label: string; detail?: string }>;
+  managerSteps?: Array<{ role: string; label: string; detail?: string }>;
   draft: string;
   onDraftChange: (text: string) => void;
   onSend: MapSend;
@@ -2165,44 +2165,21 @@ export const MapPanel = memo(function MapPanel({
     retry: false,
   });
   const client = useQueryClient();
-  const selectionKey = "argus.map.history.v1:" + snapshot.session.id;
-  const [selection, setSelection] = useState<MapSelection | null>(() => parseMapSelection(readLocalStorage(selectionKey)));
-  const [chooseHistory, setChooseHistory] = useState(false);
-  const info = useQuery({
-    queryKey: ["map-info", snapshot.session.id],
-    queryFn: ({ signal }) => api.mapInfo(snapshot.session.id, signal),
-    enabled: source === "live", staleTime: 60000,
-  });
-  const choice = selection ?? (info.data && !info.data.requires_choice ? { mode: "full" as const } : null);
-  useEffect(() => {
-    if (!selection && info.data && !info.data.requires_choice) {
-      const initial: MapSelection = { mode: "full" };
-      setSelection(initial);
-      writeLocalStorage(selectionKey, JSON.stringify(initial));
-    }
-  }, [info.data, selection, selectionKey]);
-  const approved = source !== "live" || !!choice && choice.mode !== "off" && !chooseHistory;
-  const liveKey = ["map-live", snapshot.session.id, choice?.mode, choice?.since, choice?.eventSince, choice?.taskId];
-  const viewKey = JSON.stringify([source, snapshot.session.id, locale, choice]);
-  const selectHistory = (value: MapSelection) => {
-    setSelection(value);
-    writeLocalStorage(selectionKey, JSON.stringify(value));
-    setChooseHistory(false);
-  };
+  // The whole map is one answer; each read asks only for what came after the last.
+  const liveKey = ["map-live", snapshot.session.id];
+  const viewKey = JSON.stringify([source, snapshot.session.id, locale]);
   const live = useQuery({
     queryKey: liveKey,
     queryFn: async ({ signal }) => {
       const previous = client.getQueryData<Dataset>(liveKey);
-      const next = choice?.mode === "full"
-        ? await api.mapHistory(snapshot.session.id, signal, previous?.history_cursor, previous?.cursor)
-        : await api.liveMap(snapshot.session.id, signal, previous?.cursor, choice || undefined);
+      const next = await api.liveMap(snapshot.session.id, signal, previous?.cursor);
       return mergeMapProgress(client.getQueryData<Dataset>(liveKey), next);
     },
-    enabled: source === "live" && approved,
+    enabled: source === "live",
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,
     refetchOnMount: "always",
-    refetchInterval: (query) => livePollInterval(approved, query.state.data, snapshot),
+    refetchInterval: (query) => livePollInterval(query.state.data, snapshot),
   });
   const paused = source === "live" && mapIsPaused(snapshot);
   const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
@@ -2241,7 +2218,7 @@ export const MapPanel = memo(function MapPanel({
     };
   }, []);
   useEffect(() => {
-    if (source !== "live" || !approved || refreshTimer.current) return;
+    if (source !== "live" || refreshTimer.current) return;
     const fire = () => {
       const wait = interactingUntil.current - Date.now();
       if (wait > 0) {
@@ -2254,13 +2231,13 @@ export const MapPanel = memo(function MapPanel({
       });
     };
     refreshTimer.current = setTimeout(fire, 650);
-  }, [updateKey, source, snapshot.session.id, client, approved]);
+  }, [updateKey, source, snapshot.session.id, client]);
   useEffect(
     () => () => {
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
       refreshTimer.current = null;
     },
-    [source, snapshot.session.id, approved],
+    [source, snapshot.session.id],
   );
 
   const data = source === "live" ? live.data : dataset.data;
@@ -2367,17 +2344,6 @@ export const MapPanel = memo(function MapPanel({
                 </span>
               )}
             </div>
-            {source === "live" && info.data && (
-              <button type="button" className="map-scope-button" onClick={() => setChooseHistory(true)}>
-                {zh ? "加载范围" : "History range"}
-              </button>
-            )}
-            {!readOnly && onOpenSettings && (
-              <button type="button" onClick={onOpenSettings} className="map-scope-button"
-                title={zh ? "打开共享模型设置。轻量模型用于前台快速回复和任务复盘，改动会影响这两处。" : "Opens shared model settings. The light model serves front-door quick replies and task reflection; a change affects both."}>
-                {zh ? "轻量模型设置（前台 · 复盘）" : "Light model settings (front door · reflection)"}
-              </button>
-            )}
             {replacementCount > 0 && (
               <button
                 type="button"
@@ -2393,24 +2359,7 @@ export const MapPanel = memo(function MapPanel({
           </div>
         </details>
       </header>
-      {source === "live" && info.data && (
-        <MapHistoryChoice open={chooseHistory || !choice && info.data.requires_choice}
-          info={info.data} zh={zh} onChoose={selectHistory} />
-      )}
-      {source === "live" && info.isError && (
-        <div className="map-data-error">
-          {zh ? "暂时无法检查历史记录。" : "Could not check session history."}
-          <button onClick={() => void info.refetch()}>{zh ? "重试" : "Retry"}</button>
-        </div>
-      )}
-      {approved && data?.history_loading && (
-        <div className="map-history-progress" role="status">
-          {zh ? "正在分批加载历史记录" : "Loading history in pages"}
-          {data.history_progress && ` · ${(data.history_progress.loaded_bytes / 1024 / 1024).toFixed(1)} / ${(data.history_progress.total_bytes / 1024 / 1024).toFixed(1)} MB`}
-          <button onClick={() => setChooseHistory(true)}>{zh ? "更改范围" : "Change range"}</button>
-        </div>
-      )}
-      {approved && data && (source === "live" ? live.isError : dataset.isError) && (
+      {data && (source === "live" ? live.isError : dataset.isError) && (
         <div className="map-data-error" role="status">
           {zh ? "地图暂时无法更新。" : "The map can't update right now."}
           <button onClick={() => void (source === "live" ? live.refetch() : dataset.refetch())}>{zh ? "重试" : "Retry"}</button>
@@ -2426,14 +2375,7 @@ export const MapPanel = memo(function MapPanel({
           </button>
         </div>
       )}
-      {!approved ? (
-        <div className="map-empty">
-          <h3>{zh ? "地图尚未开启" : "Map is not enabled"}</h3>
-          <p>{info.isPending ? (zh ? "正在检查历史记录规模…" : "Checking history size…") :
-            (zh ? "选择加载范围后查看研究进度。" : "Choose a history range to view research progress.")}</p>
-          {info.data && <button onClick={() => setChooseHistory(true)}>{zh ? "选择加载范围" : "Choose history range"}</button>}
-        </div>
-      ) : (source === "live" ? live.isError : dataset.isError) && !data ? (
+      {(source === "live" ? live.isError : dataset.isError) && !data ? (
         <div className="map-empty">
           <h3>{zh ? "地图暂时无法读取" : "Map unavailable"}</h3>
           <p>{String(source === "live" ? live.error : dataset.error)}</p>
@@ -2453,7 +2395,7 @@ export const MapPanel = memo(function MapPanel({
             snapshot={snapshot}
             currentTaskId={currentTaskId}
             events={events}
-            pendingLabel={managerSteps.at(-1)?.detail || managerSteps.at(-1)?.label}
+            pendingLabel={managerSteps.at(-1)?.detail || (managerSteps.length ? roleLabel(managerSteps.at(-1)!.role, t) : undefined)}
             viewKey={viewKey}
             paused={paused}
             sessionId={snapshot.session.id}

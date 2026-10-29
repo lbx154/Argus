@@ -17,15 +17,16 @@ import { ROLES, type Backend, type Role, type Step } from '../types.js';
 export interface Live {
   /** When the run under way started (epoch seconds); null when none is. */
   since: number | null;
-  /** The role of each call under way: tasks run side by side. */
-  roles: Role[];
+  /** Each call under way, by its role and the task it is on: tasks run side by side. */
+  calls: Array<{ role: Role; task: string | undefined }>;
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
 
 export type Recorded = FlowEvent & { ts: string };
 
-const BACKENDS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
+/** Every backend there is, by the name the page shows it by. */
+export const BACKEND_LABELS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
 /** A step of a turn, as the page's feed knows it. */
 const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change' };
 
@@ -182,7 +183,7 @@ export function daemon(project: Project, live: Live): Daemon {
     // Stopped with calls under way: they end, and no other starts.
     alive: since !== null, draining: since !== null && project.status === 'stopped', pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
-    backend_label: BACKENDS[project.backend], control_available: true,
+    backend_label: BACKEND_LABELS[project.backend], control_available: true,
     read_status: 'ok', read_error: '', protocol_compatible: true, protocol_error: '',
   };
 }
@@ -216,30 +217,35 @@ const asked = (project: Project, task: string): Question | undefined => project.
 
 const lastActive = (store: Store, id: string): number => statSync(join(store.dir(id), 'project.json')).mtimeMs / 1000;
 
-type Said = Partial<Record<Role, { text: string; ts: number }>>;
-const readings = new Map<string, { end: number; said: Said }>();
-/** What each role last said or wrote in the record, its newest message or letter, read on from where
- * the last reading stopped. */
-function lastWords(store: Store, id: string): Said {
+/** What the record holds that the snapshot shows: each role's last words, its newest message or
+ * letter, and the calls the project made, those the record ends. A model tried or a draft rewritten
+ * is a call of its own, which the record knows nothing of. */
+interface Reading { end: number; said: Partial<Record<Role, { text: string; ts: number }>>; calls: Set<string> }
+const readings = new Map<string, Reading>();
+/** The record read on from where the last reading of it stopped. */
+function readRecord(store: Store, id: string): Reading {
   const path = join(store.dir(id), 'events.jsonl');
-  const reading = readings.get(path) ?? { end: 0, said: {} };
+  const reading = readings.get(path) ?? { end: 0, said: {}, calls: new Set() };
   const { rows, end } = jsonLines(path, reading.end);
   for (const event of rows as unknown as Recorded[]) {
+    if (event.type === 'call.end') reading.calls.add(event.callId);
     const line = firstLine(event.type === 'handoff' ? event.letter : event.type === 'step' && event.kind === 'message' ? event.text : '');
     if (line && 'role' in event) reading.said[event.role] = { text: line.slice(0, 300), ts: seconds(event.ts) };
   }
-  readings.set(path, { end, said: reading.said });
-  return reading.said;
+  readings.set(path, { ...reading, end });
+  return reading;
 }
 
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   const { id, workdir, backend } = project;
-  const calls = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
-  const summary = usage(calls);
+  // What was spent counts every call; what the project runs on, only its own.
+  const spent = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
+  const summary = usage(spent);
+  const { said, calls: made } = readRecord(store, id);
+  const calls = spent.filter(call => made.has(String(call.callId)));
   // The model each role's last call ran on: with none chosen, the backend's own default.
   const ran = (role?: Role) => calls.filter(call => !role || call.role === role).at(-1);
   const last = ran();
-  const said = lastWords(store, id);
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     session: {
@@ -247,10 +253,13 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
-    roles: ROLES.map(role => ({
-      role, backend, backend_label: BACKENDS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: live.roles.includes(role),
-      label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null, last: said[role] ?? null,
-    })),
+    roles: ROLES.map(role => {
+      const under = live.calls.filter(call => call.role === role);
+      return {
+        role, backend, backend_label: BACKEND_LABELS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: under.length > 0,
+        label: NAMES[role], status: under.length ? 'running' : 'idle', age_s: null, last: said[role] ?? null, tasks: under.flatMap(call => call.task ?? []),
+      };
+    }),
     last_call: last ? {
       backend: String(last.backend), model: String(last.model ?? ''), effort: project.effort ?? '', run_label: String(last.role), role: String(last.role), ts: Number(last.ts),
     } : null,
@@ -278,7 +287,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     id: project.id, label: project.name || project.id, display_name: named(project), objective: project.request,
     cwd: project.workdir, workdir: project.workdir, launch_cwd: project.workdir, last_active: lastActive(store, project.id),
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
-    active_role: live.roles.at(-1) ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
+    active_role: live.calls.at(-1)?.role ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
     unfinished_tasks: openTasks(project).length,
     spend_usd: summary.cost_usd, known_cost_usd: summary.known_cost_usd,
     spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>, usage_calls: summary.call_count,
@@ -314,16 +323,7 @@ export function progressMap(store: Store, project: Project, after: number) {
       ...(question ? { pending_question: question.question } : {}),
     };
   });
-  const cursor = String(events.length);
-  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks, events: letters, cursor, history_cursor: cursor };
-}
-
-/** What the page asks before it loads the map: the whole map is one answer, with no part to choose. */
-export function mapInfo(store: Store, project: Project) {
-  return {
-    task_count: project.tasks.length, event_bytes: statSync(join(store.dir(project.id), 'events.jsonl'), { throwIfNoEntry: false })?.size ?? 0,
-    requires_choice: false, current_task_id: null, current_task_ts: 0, current_event_ts: 0,
-  };
+  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks, events: letters, cursor: String(events.length) };
 }
 
 type CallEnd = Extract<Recorded, { type: 'call.end' }>;

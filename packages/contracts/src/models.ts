@@ -15,6 +15,8 @@ export interface Role {
   age_s: number | null;
   /** What the role last said or wrote, from the whole record: the page holds only its newest part. */
   last?: { text: string; ts: number } | null;
+  /** The tasks its calls under way are on: one role can work on several side by side. */
+  tasks?: string[];
 }
 
 export interface DaemonHealth {

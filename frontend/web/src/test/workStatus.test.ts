@@ -24,204 +24,78 @@ describe('shared work status', () => {
     view.mission.started_at = null;
     expect(currentWorkStartedAt(undefined, view, 'current')).toBe(0);
   });
+});
 
-  it('uses a live role rather than daemon existence to claim active work', () => {
+const role = (name: string, active: boolean, last?: number) => ({
+  role: name, active, backend: 'codex', backend_label: 'Codex', model: 'gpt', effort: null, label: name,
+  status: active ? 'running' : 'idle', age_s: null, last: last ? { text: `${name} said`, ts: last } : null,
+});
+const task = (id: string, status: string) => ({ id, title: `Task ${id}`, objective: '', status, priority: 0 });
+const question = (id: string) => ({ id, title: 'The Reviewer asks', status: 'blocked', operator_decision: {
+  id: `q-${id}`, item_id: id, revision: 1, status: 'pending', title: 'Ship it?', reason: '', question: 'Ship it as is?',
+  evidence: [], options_source: 'agent', selected_option: '', note: '', options: [] } });
+
+describe('work status, as the server says it', () => {
+  it('is the Manager answering while a reply of the operator\'s is under way', () => {
+    const snapshot = { ...fixture(false), manager_requests: [{ request_id: 'r1', status: 'running' as const }] };
+    const status = currentWorkStatus(snapshot);
+    expect(status).toMatchObject({ state: 'running', role: 'manager', foreground: true });
+    expect(workStatusLabel(status, 'zh-CN')).toBe('正在处理你的请求');
+  });
+
+  it('is running while any role is at work, and names every role at work', () => {
+    // Trial screenshots 01-d-first and 01-m-first: three tasks side by side read "这一步已结束"
+    // while the Reviewer was at work on one of them.
     const snapshot = fixture();
-    const view = emptyMissionView();
-    view.mission.status = 'working';
-    view.active_role = 'engineer';
-    expect(currentWorkStatus(snapshot, view).state).toBe('waiting');
-    snapshot.roles = [{ role: 'reviewer', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'using a tool', status: 'running', age_s: 1 }];
-    const state = currentWorkStatus(snapshot, view);
-    expect(state).toMatchObject({ state: 'running', role: 'reviewer' });
-    expect(workStatusLabel(state, 'zh-CN')).toBe('正在检查结果是否正确');
+    snapshot.backlog = [task('a', 'done'), task('b', 'done'), task('c', 'in_progress')];
+    snapshot.roles = [role('manager', false), role('reviewer', true)];
+    const one = currentWorkStatus(snapshot);
+    expect(one).toMatchObject({ state: 'running', role: 'reviewer', roles: ['reviewer'], taskId: 'c', title: 'Task c' });
+    expect(workStatusLabel(one, 'zh-CN')).toBe('正在检查结果：Task c');
+    snapshot.backlog = [task('a', 'in_progress'), task('b', 'in_progress')];
+    snapshot.roles = [role('engineer', true), role('reviewer', true)];
+    const two = currentWorkStatus(snapshot);
+    expect(two).toMatchObject({ state: 'running', roles: ['engineer', 'reviewer'], taskId: '', title: '' });
+    expect(workStatusLabel(two, 'zh-CN')).toBe('工程师、审阅者正在工作');
+    expect(workStatusLabel(two, 'en')).toBe('Engineer, Reviewer at work');
   });
 
-  it('tracks foreground SELF work and its step-less durable delivery without classifying chat or queue receipts', () => {
+  it('waits for the operator when a question is open and no role is at work', () => {
     const snapshot = fixture(false);
-    snapshot.manager_requests = [{ request_id: 'self-request', status: 'running' }];
-    const running = currentWorkStatus(snapshot, null, [
-      { type: 'agent.io.start', call_id: 'self-call', run_label: 'self-implement', ts: 190 },
-    ], 200);
-    expect(running).toMatchObject({ state: 'running', role: 'manager', activityAt: 190 });
-    expect(workStatusLabel(running, 'zh-CN')).toBe('正在处理你的请求');
-
-    snapshot.manager_requests = [];
-    const completed = currentWorkStatus(snapshot, null, [{
-      type: 'ui.argus', ts: 210, text: 'Implemented.', mission_result: true, success: true, steps: [],
-    }], 220);
-    expect(completed).toMatchObject({ state: 'step_finished', activityAt: 210 });
-    expect(workStatusLabel(completed, 'zh-CN')).toBe('这一步已结束');
-    expect(currentWorkStatus(snapshot, null, [
-      { type: 'ui.argus', ts: 211, text: 'Hello.', success: true, steps: [] },
-    ], 220).state).toBe('idle');
-    expect(currentWorkStatus(snapshot, null, [
-      { type: 'ui.argus', ts: 212, text: 'Queued.', mission_result: true, item_id: 'queued-task', success: true },
-    ], 220).state).toBe('idle');
+    snapshot.backlog = [task('t1', 'blocked')];
+    snapshot.pending_questions = [question('t1')];
+    const status = currentWorkStatus(snapshot);
+    expect(status).toMatchObject({ state: 'paused', reason: 'operator_input', taskId: 't1' });
+    expect(workStatusLabel(status, 'zh-CN')).toBe('有个问题在等你回答');
+    snapshot.roles = [role('engineer', true)];
+    expect(currentWorkStatus(snapshot).state).toBe('running');
   });
 
-  it('does not treat a completed step in continuous research as the whole project finishing', () => {
-    const snapshot = fixture(), view = emptyMissionView();
-    view.mission.status = 'complete';
-    view.routing.continuous = true;
-    expect(currentWorkStatus(snapshot, view).state).toBe('waiting');
-    view.routing.continuous = false;
-    expect(workStatusLabel(currentWorkStatus(snapshot, view), 'zh-CN')).toBe('这一步已结束');
-    // Trial s-f0e1b2f0: the Planner closed the campaign and the sidebar still said "这一步已结束".
-    snapshot.daemon.alive = false;
-    snapshot.continuous = { enabled: false, objective: 'format_mib', done_reason: 'planner declared project done', done_at: '2026-10-22T10:33:15Z' };
-    const done = currentWorkStatus(snapshot, view);
-    expect(done).toMatchObject({ state: 'step_finished', reason: 'project_done' });
-    expect(workStatusLabel(done, 'zh-CN')).toBe('项目已完成');
+  it('waits for the next step while the run goes on with no role at work', () => {
+    const status = currentWorkStatus(fixture(true));
+    expect(status).toMatchObject({ state: 'waiting', reason: 'awaiting_next_step' });
+    expect(workStatusLabel(status, 'zh-CN')).toBe('等待下一步工作');
   });
 
-  it('never calls a project done while its only result is a stage package with the overall goal open', () => {
-    // Trial s-efe9deac: a reviewed plan (stage package, "整体目标未完成") and
-    // then a clock-out stop; the header said "项目已完成".
-    const snapshot = fixture(), view = emptyMissionView();
-    view.mission.status = 'continued';
-    view.routing.continuous = true;
-    view.delivery = { kind: 'stage_package', status: 'done', item_id: '99d44fc3006a' } as unknown as typeof view.delivery;
-    snapshot.backlog = [{ id: '99d44fc3006a', status: 'done', title: 'LLM 强化学习原创研究与 ACL 完整论文' }] as Snapshot['backlog'];
-    view.mission.id = '99d44fc3006a';
-    snapshot.continuous = { enabled: true, objective: 'ACL 论文' };
-    const between = currentWorkStatus(snapshot, view);
-    expect(between).toMatchObject({ state: 'waiting', reason: 'goal_open' });
-    expect(workStatusLabel(between, 'zh-CN')).toBe('阶段成果已交付，正在安排下一阶段');
-    snapshot.daemon.alive = false;
-    snapshot.continuous = { enabled: false, objective: 'ACL 论文', done_reason: 'operator stop (graceful SIGTERM/SIGINT — clock out)', done_at: '2026-10-24T15:00:38Z' };
-    const stopped = currentWorkStatus(snapshot, view);
-    expect(stopped).toMatchObject({ state: 'step_finished', reason: 'goal_open' });
-    expect(workStatusLabel(stopped, 'zh-CN')).toBe('阶段成果已交付，整体目标还没完成；发条消息就能让团队继续');
-    expect(workStatusLabel(stopped, 'en')).toContain('the overall goal is still open');
-    // The Planner judging the goal met is what closes the project.
-    snapshot.continuous = { enabled: false, objective: 'ACL 论文', done_reason: 'planner declared project done', done_at: '2026-10-24T15:00:38Z' };
-    expect(currentWorkStatus(snapshot, view).reason).toBe('project_done');
+  it('with no run, is stopped while a task is not done, failed ones included, and idle once all are', () => {
+    const snapshot = fixture(false);
+    for (const unfinished of ['pending', 'in_progress', 'blocked', 'failed']) {
+      snapshot.backlog = [task('a', 'done'), task('b', unfinished)];
+      expect(currentWorkStatus(snapshot)).toMatchObject({ state: 'paused', reason: 'not_running' });
+    }
+    snapshot.backlog = [task('a', 'done')];
+    expect(currentWorkStatus(snapshot)).toMatchObject({ state: 'idle', reason: '' });
+    expect(currentWorkStatus(undefined).state).toBe('unknown');
   });
 
-  it('shows the Planner choosing the next step after a step finishes, but not post-step housekeeping', () => {
-    const snapshot = fixture(), view = emptyMissionView();
-    view.mission.status = 'complete';
-    view.routing.continuous = true;
-    const role = (name: string) => ({ role: name, active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'working', status: 'running', age_s: 1 });
-    snapshot.roles = [role('engineer')];
-    expect(currentWorkStatus(snapshot, view).state).toBe('waiting');
-    snapshot.roles = [role('planner')];
-    const planning = currentWorkStatus(snapshot, view);
-    expect(planning).toMatchObject({ state: 'running', role: 'planner' });
-    expect(workStatusLabel(planning, 'zh-CN')).toBe('正在安排接下来要做的事');
-    snapshot.daemon.alive = false;
-    expect(currentWorkStatus(snapshot, view).state).not.toBe('running');
-  });
-
-  it('keeps paused work and unreadable status distinct from active work', () => {
-    const snapshot = fixture(false), view = emptyMissionView();
-    view.mission.status = 'parked';
-    expect(currentWorkStatus(snapshot, view).state).toBe('paused');
-    snapshot.daemon.read_status = 'error';
-    expect(currentWorkStatus(snapshot, view).state).toBe('unknown');
-  });
-
-  it('identifies the current paused task waiting for an answer without stopping the daemon', () => {
-    const snapshot = fixture(), view = emptyMissionView();
-    view.mission.id = 'current';
-    view.mission.status = 'blocked';
-    snapshot.backlog = [
-      { id: 'old', title: 'Old question', objective: '', status: 'paused_operator', priority: 1, pending_question: 'Recorded provider error' },
-      { id: 'current', title: 'Author details', objective: '', status: 'paused_operator', priority: 1, pending_question: 'Provide the author details' },
-    ];
-    const state = currentWorkStatus(snapshot, view);
-    expect(state).toMatchObject({ state: 'paused', taskId: 'current', reason: 'operator_input' });
-    expect(workStatusLabel(state, 'zh-CN')).toBe('有个问题在等你回答');
-    expect(workStatusLabel(state, 'en')).toBe('A question is waiting for your answer');
-    expect(snapshot.daemon.alive).toBe(true);
-    snapshot.backlog[1].pending_question = '';
-    // Another task's question still waits on the operator.
-    expect(currentWorkStatus(snapshot, view)).toMatchObject({ reason: 'operator_input', taskId: 'old', title: 'Old question' });
-    snapshot.backlog[0].pending_question = '';
-    expect(currentWorkStatus(snapshot, view).reason).toBe('not_running');
-    expect(workStatusLabel(state, 'zh-CN', false)).toBe('实时连接已断开');
-  });
-
-  it('does not let a finished task hide another task still waiting for an answer', () => {
-    // Trial s-934a4569: char_count finished while the truncate task waited on
-    // the operator; every status line said "waiting for the next step".
-    const snapshot = fixture(), view = emptyMissionView();
-    Object.assign(view.mission, { id: 'count', status: 'complete' });
-    view.routing.continuous = true;
-    snapshot.backlog = [
-      { id: 'truncate', title: 'strtools truncate', objective: '', status: 'parked', priority: 1, pending_question: 'A or B?' },
-      { id: 'count', title: 'char_count', objective: '', status: 'done', priority: 1 },
-    ];
-    const state = currentWorkStatus(snapshot, view);
-    expect(state).toMatchObject({ state: 'paused', reason: 'operator_input', taskId: 'truncate', title: 'strtools truncate' });
-    expect(workStatusLabel(state, 'zh-CN')).toBe('有个问题在等你回答');
-    snapshot.roles = [{ role: 'planner', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'working', status: 'running', age_s: 1 }];
-    expect(currentWorkStatus(snapshot, view)).toMatchObject({ state: 'running', role: 'planner' });
-    snapshot.roles = [];
-    snapshot.backlog[0].pending_question = '';
-    expect(currentWorkStatus(snapshot, view)).toMatchObject({ state: 'waiting', taskId: 'count' });
-  });
-
-  it('does not turn repeated planner waiting notices into fresh research progress', () => {
-    const snapshot = fixture(), view = emptyMissionView();
-    Object.assign(view.mission, { id: 'current', status: 'blocked', started_at: 100 });
-    view.role_work = [
-      { id: 'actual-work', item_id: 'current', ts: 110, role: 'engineer', kind: 'tool_use', title: 'Read source', detail: '', status: 'done' },
-      { id: 'waiting', mission_id: 'current', ts: 195, role: 'planner', kind: 'waiting', title: 'Waiting for author facts', detail: '', status: 'waiting' },
-      { id: 'idle', mission_id: 'current', ts: 198, role: 'planner', kind: 'planning', title: 'Idle', detail: '', status: 'idle' },
-    ];
-    expect(currentWorkStatus(snapshot, view, [{ type: 'life.planner.waiting', item_id: 'current', ts: 199 }], 200))
-      .toMatchObject({ activityAt: 110, activityAgeSeconds: 90 });
-    view.role_work = view.role_work.slice(1);
-    expect(currentWorkStatus(snapshot, view, [], 200).activityAt).toBeNull();
-  });
-
-  it('does not use other tasks or old attempts as fresh progress for the current step', () => {
-    const view = emptyMissionView();
-    Object.assign(view.mission, { id: 'current', started_at: 100, status: 'working' });
-    const status = currentWorkStatus(fixture(), view, [
-      { type: 'engineer.progress', item_id: 'current', ts: 90 },
-      { type: 'engineer.progress', item_id: 'current', ts: 110 },
-      { type: 'engineer.progress', item_id: 'other', ts: 130 },
-      { type: 'engineer.progress', ts: 135 },
-    ], 140);
-    expect(status.activityAt).toBe(110);
-    expect(status.activityAgeSeconds).toBe(30);
-  });
-
-  it('reports recorded retry waiting without inventing a failed proof', () => {
-    const view = emptyMissionView();
-    view.mission.id = 'task';
-    const status = currentWorkStatus(fixture(), view, [
-      { type: 'round.backend_failure.backoff', item_id: 'task', ts: 100, seconds: 60 },
-    ], 120);
-    expect(status).toMatchObject({ state: 'waiting', reason: 'provider_wait' });
-    expect(workStatusLabel(status, 'zh-CN')).toBe('模型服务暂时未能完成请求，等待后会重试');
-  });
-
-  it('does not assign a different task’s live worker to a paused task', () => {
-    const snapshot = fixture(), view = emptyMissionView();
-    Object.assign(view.mission, { id: 'a', title: 'Task A', status: 'working', started_at: 100 });
-    snapshot.backlog = [
-      { id: 'a', title: 'Task A', objective: '', status: 'paused_operator', priority: 1 },
-      { id: 'b', title: 'Task B', objective: '', status: 'running', priority: 1 },
-    ];
-    snapshot.roles = [{ role: 'engineer', active: true, backend: 'pi', backend_label: 'Pi', model: 'model', effort: 'high', label: 'working', status: 'running', age_s: 1 }];
-    expect(currentWorkStatus(snapshot, view, [], 300)).toMatchObject({ taskId: 'a', state: 'paused', role: '' });
-    snapshot.backlog[0].status = 'running';
-    expect(currentWorkStatus(snapshot, view, [], 300).state).toBe('unknown');
-    view.role_work = [{ id: 'a-work', item_id: 'a', ts: 250, role: 'engineer', kind: 'tool_use', title: 'Reading', detail: '', status: 'active' }];
-    expect(currentWorkStatus(snapshot, view, [], 300)).toMatchObject({ state: 'running', role: 'engineer' });
-  });
-
-  it('does not reuse a previous attempt’s or an unassociated retry wait', () => {
-    const snapshot = fixture(), view = emptyMissionView();
-    Object.assign(view.mission, { id: 'a', status: 'working', started_at: 200 });
-    for (const event of [
-      { type: 'round.backend_failure.backoff', item_id: 'a', ts: 110, seconds: 960 },
-      { type: 'round.backend_failure.backoff', ts: 210, seconds: 960 },
-    ]) expect(currentWorkStatus(snapshot, view, [event], 220).reason).not.toBe('provider_wait');
+  it('dates the last thing that moved, from the record and the roles\' last words', () => {
+    const snapshot = fixture();
+    snapshot.roles = [role('reviewer', false, 150)];
+    expect(currentWorkStatus(snapshot, null, [{ type: 'engineer.progress', agent_layer: 'engineer', ts: 120 }], 200))
+      .toMatchObject({ activityAt: 150, activityAgeSeconds: 50 });
+    // The operator writing is not the work moving.
+    expect(currentWorkStatus(snapshot, null, [{ type: 'ui.operator', agent_layer: 'operator', ts: 190 }], 200).activityAt).toBe(150);
+    expect(currentWorkStatus(fixture(), null, [], 200).activityAt).toBeNull();
   });
 });
 

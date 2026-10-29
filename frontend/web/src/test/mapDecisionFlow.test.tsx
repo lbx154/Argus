@@ -28,9 +28,7 @@ vi.mock("../hooks", async (original) => {
     useProjectCosts: emptyQuery,
     useSnapshot: emptyQuery,
     useArtifacts: emptyQuery,
-    useGitDiff: emptyQuery,
     useTranscript: emptyQuery,
-    useJournal: emptyQuery,
     useEventStream: () => ({ events: [], connected: true }),
   };
 });

@@ -459,8 +459,8 @@ describe('project work status and conversation separation', () => {
     expect(outer.scrollTop).toBe(600);
     const card = renderer!.root.findByProps({ 'data-task-work': 'task-a' });
     expect(card.props['data-state']).toBe('running');
-    expect(visibleText(card)).toContain('Engineer：Recorded finding 2');
-    // The team's progress shows in the conversation without a click; following the newest message continues.
+    // What a role said is said once, in the team's progress, which shows without a click; following the newest message continues.
+    expect(visibleText(card)).not.toContain('Recorded finding');
     expect(visibleText(work())).toContain('Recorded finding 2');
     outer.scrollHeight = 1200;
     update([...events, { ...progress(4), item_id: 'task-a' }]);
@@ -551,9 +551,9 @@ describe('project work status and conversation separation', () => {
         '1',
         'Finished the first format.',
       ]);
-    // A settled task reads as its latest plain line, never the command it ran.
+    // A settled task reads as itself: what its roles said, and the commands they ran, are the team's progress.
     const csv = renderer!.root.findByProps({ 'data-task-work': 'task-csv' });
-    expect(visibleText(csv)).toContain('Reviewer：Reviewer checked the CSV tool');
+    expect(visibleText(csv)).not.toContain('Reviewer checked the CSV tool');
     expect(visibleText(csv)).not.toContain('pytest');
     expect(renderer!.root.findByProps({ 'data-task-work': 'task-format' }).props['data-state']).toBe('running');
     // The whole process is in the conversation: the team's progress holds every role's work in time order.

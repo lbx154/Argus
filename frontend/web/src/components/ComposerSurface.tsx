@@ -52,7 +52,8 @@ export function ComposerSurface({
           <button type="button" aria-label={zh ? '移除引用' : 'Remove reference'} onClick={() => onChange(refs.filter((_, i) => i !== index).map(referenceText).join('') + text)}><X size={12} /></button>
         </span>)}
       </div>}
-      <form className="map-composer" onSubmit={(event) => { event.preventDefault(); if (!pending && !disabled && !tooLong) onSend(); }}>
+      {/* A message sent while a reply runs is a follow-up, answered after it. */}
+      <form className="map-composer" onSubmit={(event) => { event.preventDefault(); if (!disabled && !tooLong) onSend(); }}>
         <input ref={fileInputRef} type="file" multiple accept={MESSAGE_ATTACHMENT_ACCEPT} hidden disabled={disabled || pending} onChange={onFiles} />
         <button type="button" className="map-composer-brand map-attach" aria-label={t('chat.attach')} title={t('chat.attach')} disabled={disabled || pending} onClick={() => fileInputRef.current?.click()}>
           <span aria-hidden="true"><Paperclip size={22} /></span>
@@ -69,12 +70,17 @@ export function ComposerSurface({
           {/* Pressing keeps the focus; only a tap, not a scroll or a long press, takes the text. */}
           {ghost ? <div ref={ghostRef} className="composer-ghost" aria-hidden="true">{text}<span onPointerDown={(event) => event.preventDefault()} onClick={onAcceptGhost}>{ghost}</span></div> : null}
         </div>
-        <button type={pending ? 'button' : 'submit'} onClick={pending ? onCancel : undefined}
-          disabled={disabled || (!pending && (!text.trim() || tooLong))}
-          aria-label={pending ? (zh ? '停止本次回复' : 'Stop this reply') : (sendLabel || (zh ? '发送消息' : 'Send message'))}
-          title={!pending ? sendLabel : (zh ? '只停止经理这一次回复；后台团队继续工作' : 'Stops only this Manager reply; the background team keeps working')}
-          className={`map-send ${pending ? 'is-pending' : ''}`}>
-          {pending ? <Square size={15} /> : <ArrowUp size={20} />}
+        {pending && <button key="stop" type="button" onClick={onCancel} disabled={disabled}
+          aria-label={zh ? '停止本次回复' : 'Stop this reply'}
+          title={zh ? '只停止经理这一次回复；后台团队继续工作' : 'Stops only this Manager reply; the background team keeps working'}
+          className="map-send is-pending">
+          <Square size={15} />
+        </button>}
+        {/* Keyed apart from Stop so a cancel never lands on it. */}
+        <button key="send" type="submit" disabled={disabled || !text.trim() || tooLong}
+          aria-label={sendLabel || (pending ? (zh ? '排队发送，这条回复之后处理' : 'Send, answered after this reply') : (zh ? '发送消息' : 'Send message'))}
+          title={sendLabel} className="map-send">
+          <ArrowUp size={20} />
         </button>
       </form>
       {tooLong && <p role="alert" className="text-xs text-err">{t('chat.messageTooLong')}</p>}

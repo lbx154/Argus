@@ -3,7 +3,7 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatBox } from '../components/ChatBox';
 import { slashCompletionOptionId } from '../components/SlashCompletionMenu';
-import { GHOST_PAUSE_MS, type PromptSources } from '../lib/promptCompletion';
+import type { PromptSources } from '../lib/promptCompletion';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
 import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
 
@@ -24,7 +24,6 @@ let send: ReturnType<typeof vi.fn<() => boolean>>;
 let cancel: ReturnType<typeof vi.fn<() => void>>;
 let sources: PromptSources;
 /** The model requests in flight, answered by hand. */
-let asks: { text: string; signal: AbortSignal; resolve: (tail: string) => void; reject: (error: Error) => void }[];
 
 function Harness(props: Partial<ComponentProps<typeof ChatBox>> & { initial?: string }) {
   const [value, setValue] = useState(props.initial ?? '');
@@ -81,12 +80,10 @@ beforeEach(() => {
     setSelectionRange: vi.fn((start: number, end: number) => { node.selectionStart = start; node.selectionEnd = end; }),
   };
   changes = [];
-  asks = [];
   send = vi.fn(() => false);
   cancel = vi.fn<() => void>();
   sources = {
     sid: 's1', history: ['请比较两个基线的结果'], wantFiles: vi.fn(),
-    continuePrompt: vi.fn((text: string, signal: AbortSignal) => new Promise<string>((resolve, reject) => { asks.push({ text, signal, resolve, reject }); })),
     tasks: [{ id: 't2', title: '基线对比', objective: '', status: 'done', priority: 0, ts: 2 }],
     files: [entry('src', 'directory'), entry('src/train.py'), entry('src/tools', 'directory'), entry('src/tools/trace.py'), entry('train.md')],
   };
@@ -281,159 +278,5 @@ describe('gray text from earlier messages', () => {
     type('请比较');
     press('Enter');
     expect(send).toHaveBeenCalledWith('请比较', []);
-  });
-});
-
-describe('gray text from the model', () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
-  const pause = (ms = GHOST_PAUSE_MS) => act(() => { vi.advanceTimersByTime(ms); });
-  const answer = (index: number, tail: string) => act(async () => { asks[index].resolve(tail); });
-  const asked = () => vi.mocked(sources.continuePrompt).mock.calls.length;
-
-  it('asks once the typing pauses, for the latest words', () => {
-    mount();
-    type('Compare the tw');
-    type('Compare the two');
-    pause(GHOST_PAUSE_MS - 1);
-    expect(asked()).toBe(0);
-    pause(1);
-    expect(asks.map((ask) => ask.text)).toEqual(['Compare the two']);
-  });
-
-  it('aborts a request the next keystroke outdates and drops its late answer', async () => {
-    mount();
-    type('Compare the two');
-    pause();
-    type('Compare the two b');
-    expect(asks[0].signal.aborted).toBe(true);
-    await answer(0, ' baselines');
-    expect(ghost()).toBeUndefined();
-  });
-
-  it('shows a matching guess, shortens it as the typing follows, and asks again once the typing departs', async () => {
-    mount();
-    type('Compare the two');
-    pause();
-    await answer(0, ' baselines on CIFAR');
-    expect(ghost().findByType('span').props.children).toBe(' baselines on CIFAR');
-    type('Compare the two base');
-    expect(ghost().findByType('span').props.children).toBe('lines on CIFAR');
-    pause();
-    expect(asked()).toBe(1);
-    type('Compare the two bx');
-    expect(ghost()).toBeUndefined();
-    pause();
-    expect(asks.map((ask) => ask.text)).toEqual(['Compare the two', 'Compare the two bx']);
-  });
-
-  it('takes the guess with Tab and asks for nothing more', async () => {
-    mount({ initial: referenceText(ref) });
-    type('Compare the two');
-    pause();
-    await answer(0, ' baselines');
-    press('Tab');
-    expect(changes.at(-1)).toBe(`${referenceText(ref)}Compare the two baselines`);
-    pause();
-    expect(asked()).toBe(1);
-  });
-
-  it('keeps a dismissed guess away, without asking again, while the typing follows it', async () => {
-    mount();
-    type('Compare the two');
-    pause();
-    await answer(0, ' baselines on CIFAR');
-    press('Escape');
-    type('Compare the two base');
-    pause();
-    expect(ghost()).toBeUndefined();
-    expect(asked()).toBe(1);
-  });
-
-  it('stays silent when the request fails', async () => {
-    mount();
-    type('Compare the two');
-    pause();
-    await act(async () => { asks[0].reject(new Error('offline')); });
-    expect(ghost()).toBeUndefined();
-  });
-
-  it.each([{ pending: true }, { rewriting: true }, { disabled: true }])('does not ask while %o', (props) => {
-    mount(props);
-    type('Compare the two');
-    pause();
-    expect(asked()).toBe(0);
-  });
-
-  it('does not ask for commands, mentions, finished sentences, off-end carets, scrolling text, history hits or short drafts', () => {
-    mount();
-    const quiet = (text: string, caret = text.length) => {
-      type(text, caret);
-      pause();
-      expect(asked(), text).toBe(0);
-    };
-    quiet('/status of the run');
-    quiet('look at @src/tr');
-    quiet('Compare the two runs.');
-    quiet('Compare the two runs\n');
-    quiet('Compare the two runs', 3);
-    node.style.overflowY = 'auto';
-    quiet('Compare the two runs again');
-    node.style.overflowY = '';
-    quiet('请比较两个基线的结');
-    quiet('Compare');
-  });
-
-  it('drops the request when the input method starts, waits for it to finish, then asks once', () => {
-    mount();
-    type('Compare the two');
-    pause();
-    act(() => textarea().props.onCompositionStart());
-    expect(asks[0].signal.aborted).toBe(true);
-    type('Compare the two 基线');
-    pause();
-    expect(asked()).toBe(1);
-    act(() => textarea().props.onCompositionEnd({ currentTarget: { value: 'Compare the two 基线' } }));
-    pause();
-    expect(asks.map((ask) => ask.text)).toEqual(['Compare the two', 'Compare the two 基线']);
-  });
-
-  it('keeps the request when only a reference chip goes', () => {
-    mount({ initial: referenceText(ref) });
-    type('Compare the two');
-    pause();
-    act(() => host((instance) => instance.props['aria-label'] === 'Remove reference')[0].props.onClick());
-    expect(changes.at(-1)).toBe('Compare the two');
-    pause();
-    expect(asks[0].signal.aborted).toBe(false);
-    expect(asked()).toBe(1);
-  });
-
-  it('aborts on send, when a reply starts and on unmount', () => {
-    mount();
-    type('Compare the two');
-    pause();
-    press('Enter');
-    expect(send).toHaveBeenCalledWith('Compare the two', []);
-    expect(asks[0].signal.aborted).toBe(true);
-    type('Compare the three');
-    pause();
-    act(() => renderer!.update(<Harness pending />));
-    expect(asks[1].signal.aborted).toBe(true);
-    act(() => renderer!.update(<Harness />));
-    type('Compare the four');
-    pause();
-    act(() => renderer!.unmount());
-    renderer = undefined;
-    expect(asks[2].signal.aborted).toBe(true);
-  });
-
-  it('drops a scheduled request that never fired', () => {
-    mount();
-    type('Compare the two');
-    act(() => renderer!.unmount());
-    renderer = undefined;
-    pause();
-    expect(asked()).toBe(0);
   });
 });

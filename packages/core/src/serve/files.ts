@@ -122,13 +122,13 @@ export function artifactInfo(project: Project, found: { file: string; path: stri
   return { ...info, preview: text, truncated: found.stat.size > PREVIEW_BYTES };
 }
 
-/** The files under `root` changed since `since` (epoch ms), newest first: at most LISTED, six folders
- * deep, and none hidden or in node_modules or __pycache__. */
+/** The files under `root` changed since `since` (epoch ms), newest first: the LISTED newest, six
+ * folders deep, and none hidden or in node_modules or __pycache__. */
 export function changed(root: string, since = 0): { file: string; path: string; stat: Stats }[] {
   const found: { file: string; path: string; stat: Stats }[] = [];
   const walk = (dir: string, depth: number): void => {
     for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-      if (found.length >= LISTED || entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
       const path = dir ? `${dir}/${entry.name}` : entry.name;
       if (entry.isDirectory() && depth < 6) walk(path, depth + 1);
       else if (entry.isFile()) {
@@ -139,7 +139,7 @@ export function changed(root: string, since = 0): { file: string; path: string; 
     }
   };
   walk('', 0);
-  return found.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+  return found.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs).slice(0, LISTED);
 }
 
 /** The workdir's files created or changed since the project began, newest first. */

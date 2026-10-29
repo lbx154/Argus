@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ConfigSnapshot, Role } from '../api';
 import { ComposerRuntime } from '../components/ComposerRuntime';
 
-let config: Pick<ConfigSnapshot, 'trial_mode'> & Partial<Pick<ConfigSnapshot, 'roles'>> = {};
+let config: Pick<ConfigSnapshot, 'trial_mode'> & Partial<Pick<ConfigSnapshot, 'roles' | 'backends'>> = {};
+const backends = { copilot: 'Copilot CLI', claude: 'Claude Code' };
 vi.mock('../hooks', () => ({ useConfig: () => ({ data: config }) }));
 vi.mock('../components/ModelPicker', () => ({
   ModelPicker: ({ open, onOpenSettings }: { open: boolean; onOpenSettings?: () => void }) =>
@@ -18,10 +19,10 @@ const roles: Role[] = [
 
 describe('composer runtime information', () => {
   it('shows the active role backend/model and returns to the manager when stopped', () => {
-    config = { trial_mode: false };
+    config = { trial_mode: false, backends };
     const active = renderToStaticMarkup(<ComposerRuntime sid="s-test" roles={roles} running />);
     expect(active).toContain('engineer-model');
-    expect(active).toContain('Claude');
+    expect(active).toContain('Claude Code');
     expect(active).not.toContain('manager-model');
     const stopped = renderToStaticMarkup(<ComposerRuntime sid="s-test" roles={roles} running={false} />);
     expect(stopped).toContain('manager-model');
@@ -56,10 +57,10 @@ describe('composer runtime follows the real calls', () => {
   });
 
   it('says what the next call will use right after settings change', () => {
-    config = { trial_mode: false, roles: configRoles('applied-model', 'claude') } as typeof config;
+    config = { trial_mode: false, roles: configRoles('applied-model', 'claude'), backends } as typeof config;
     const html = renderToStaticMarkup(<ComposerRuntime sid="s" roles={roles} running lastCall={lastCall} />);
     expect(html).toContain('called-model');
-    expect(html).toMatch(/next call: Claude · applied-model/);
+    expect(html).toMatch(/next call: Claude Code · applied-model/);
   });
 
   it('matches the call to the role that made it, not to the manager by default', () => {

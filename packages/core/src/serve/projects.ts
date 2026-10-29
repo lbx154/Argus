@@ -13,14 +13,13 @@ import type { Project, Store } from '../store.js';
 import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
-import { daemon, projectRow } from './views.js';
+import { BACKEND_LABELS, projectRow } from './views.js';
 
 /** The optional API capabilities these routes give the page. */
 export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.cost-feed.v1', 'project.editions.v1'];
 
-/** The settings the page writes, by the Python runtime's names for them: a project has one
- * backend, model and effort, which every role uses. A model or effort is the backend's own word
- * for it; '' or `auto`, the backend's default. */
+/** The settings the page writes: a project has one backend, model and effort, which every role
+ * uses. A model or effort is the backend's own word for it; '' or `auto`, the backend's default. */
 const SETTINGS: Record<string, (work: Project, value: string) => void> = {
   // A backend session is the backend's own: every role starts afresh on another.
   ARGUS_SKILL_RUNNER_BACKEND: (work, backend) => {
@@ -28,10 +27,10 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
     if (backend !== work.backend) Object.assign(work, { backend, sessions: {} });
   },
   ARGUS_SKILL_MODEL: (work, model) => { work.model = model || null; },
-  ...Object.fromEntries(ROLES.map(role => [`ARGUS_SKILL_${role.toUpperCase()}_REASONING_EFFORT`, (work: Project, effort: string) => {
+  ARGUS_SKILL_REASONING_EFFORT: (work, effort) => {
     if (effort) work.effort = effort;
     else delete work.effort;
-  }])),
+  },
 };
 
 /** The directory a request names, `~` for home; '' when it names none. It must exist. */
@@ -68,19 +67,17 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       return { ok: true, sid: id, name };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/config$/, ({ params: [id] }) => {
-      const work = project(id!);
-      const { backend, model, effort } = work;
-      const { backend_label } = daemon(work, runs.live(work.id));
+      const { backend, model, effort } = project(id!);
       const source = (value: unknown) => value ? 'persisted' : 'default';
       const knob = (name: string, value: string) => ({ name, group: 'Runtime', value, source: source(value), saved: value, default: '', doc: '' });
       return {
         schema_version: 1, generated_at_utc: new Date().toISOString(),
         roles: ROLES.map(role => ({
-          role, backend, backend_label, backend_source: 'persisted', model: model ?? '', model_source: source(model),
+          role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted', model: model ?? '', model_source: source(model),
           reasoning_effort: effort ?? null, reasoning_effort_source: source(effort), description: '',
         })),
         operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? '')],
-        model_options: model ? [{ model, source: 'current' }] : [], how_to_change: [],
+        how_to_change: [], backends: BACKEND_LABELS,
       };
     }],
     // A model tried with a short turn of its own, before the operator picks it.

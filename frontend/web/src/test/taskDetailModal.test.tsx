@@ -8,7 +8,7 @@ vi.mock('../hooks', () => ({ useBacklogItem: () => ({ data: item, isLoading: fal
 
 const blocked = { execution_status: 'blocked', review_status: 'blocked', stage_certification: 'not_certified', interruption_kind: 'none', resumable: false };
 const markup = () => renderToStaticMarkup(
-  <TaskDetailModal sid="s" itemId="t" onClose={() => {}} onDone={() => {}} onSkip={() => {}} onStop={() => {}} busy={false} />,
+  <TaskDetailModal sid="s" itemId="t" onClose={() => {}} />,
 );
 
 describe('task details', () => {
@@ -36,10 +36,11 @@ describe('task details', () => {
     expect(planned).toContain('Engineer adds format_hours to core.py');
     for (const hidden of ['Objective', 'stop loop', 'Iteration', 'priority']) expect(planned).not.toContain(hidden);
     item = { ...item, iteration_cycles_done: 1 };
-    expect(markup()).toContain('stop loop');
-    // A task with no plan was asked for in the reader's own words.
-    item = { ...item, plan_id: '', objective: 'Add an hours formatter' };
+    expect(markup()).toContain('Iteration');
+    // A task with no plan was asked for in the reader's own words, which read as written.
+    item = { ...item, plan_id: '', objective: 'Add an **hours** formatter' };
     expect(markup()).toContain('Objective');
+    expect(markup()).toMatch(/<strong[^>]*>hours<\/strong>/);
   });
 
   it('names a superseded task as replaced and offers nothing to do with it', () => {

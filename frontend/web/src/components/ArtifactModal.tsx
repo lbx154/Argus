@@ -1,7 +1,6 @@
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { deliveryFiles, previousDeliveryVersion } from './deliveryPresentation';
 import { DeliveryChanges } from './DeliveryChanges';
-import { MarkdownExcerpt } from './MarkdownExcerpt';
 import { PackageCheck, Maximize2, Minimize2 } from 'lucide-react';
 import './delivery.css';
 import { useEffect, useState } from 'react';
@@ -52,14 +51,19 @@ export function ArtifactModal({
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const files = delivery ? deliveryFiles(delivery) : [];
+  /** What a link in the summary or a Markdown file may open here. */
+  const linked = [...artifacts, ...files.map((file) => ({ path: file.path }))];
   const artifactQ = useArtifact(sid, path);
   const info = artifactQ.data;
+  // A result is named by its own title: the letter's first line, else its main file's first heading, else that file's name.
+  const main = delivery?.primary_target?.path ?? null;
+  const mainQ = useArtifact(sid, delivery?.title ? null : main);
+  const deliveryTitle = delivery?.title || /^#+\s+(.+)$/m.exec(mainQ.data?.preview ?? '')?.[1]?.trim() || main?.split('/').at(-1) || '';
   const foundation = info?.source === 'reader_foundation' ? info.reader_foundation : undefined;
   const progressSnapshot = info?.source === 'progress_snapshot';
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState('');
-  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [downloading, setDownloading] = useState(false);
   const [bundling, setBundling] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -100,7 +104,7 @@ export function ArtifactModal({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [sid, path, info?.kind, previewAttempt]);
+  }, [sid, path, info?.kind]);
 
   const download = async (bundle = false) => {
     if (!sid || !path || !info) return;
@@ -145,13 +149,14 @@ export function ArtifactModal({
       {delivery && !expanded && <header className="delivery-header">
         <div className="delivery-heading"><span className="delivery-mark"><PackageCheck size={22} /></span><div>
           {!isStagePackage(delivery) && <p>{zh ? '交付成果' : 'Your results'}</p>}
-          <h2>{t(deliveryHeadingKey(delivery))}</h2>
+          <h2>{deliveryTitle || t(deliveryHeadingKey(delivery))}</h2>
         </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{receipt.title}</option>)}
         </select> : null}
         {files.length > 0 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : files.length > 1 ? (zh ? '下载全部（zip）' : 'Download all (zip)') : (zh ? '打包下载' : 'Download as zip')}</button></div> : null}
-        {delivery.summary && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><p><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></p></details>}
+        {/* With a file open the summary folds above it; with none it is the page. */}
+        {delivery.summary && path && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><div className="delivery-summary-body"><MarkdownContent sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div></details>}
       </header>}
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
       <div className={`flex shrink-0 items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
@@ -195,7 +200,7 @@ export function ArtifactModal({
         ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-bg/40'
         : 'flex min-h-64 max-h-[72vh] flex-col overflow-x-hidden overflow-y-auto bg-bg/40 p-3 scroll-thin sm:p-4'
       }>
-        {!path && delivery && <div className="m-auto p-6 text-sm text-ink-dim"><MarkdownExcerpt>{delivery.summary}</MarkdownExcerpt></div>}
+        {!path && delivery && <div className="m-auto p-6 text-sm text-ink-dim"><MarkdownContent sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div>}
         {delivery && sid && (() => { const change = previousDeliveryVersion(delivery, deliveries, path); return change ? <DeliveryChanges key={`${change.before}:${change.after}`} sid={sid} change={change} zh={zh} /> : null; })()}
         {artifactQ.isLoading ? <div className="m-auto"><Spinner /></div> : null}
         {artifactQ.isError ? (
@@ -223,7 +228,7 @@ export function ArtifactModal({
                   : (zh ? '这是最近保存的审稿意见，文件更新后会自动刷新。' : 'This is the latest saved review. Changes to this file appear automatically.')}
               {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
             </div>}
-            <MarkdownContent sid={sid} basePath={path || ''} artifacts={[...artifacts, ...files.map((file) => ({ path: file.path })), ...(foundation?.sources ?? []),
+            <MarkdownContent sid={sid} basePath={path || ''} artifacts={[...linked, ...(foundation?.sources ?? []),
               ...(foundation?.progress_source ? [{ path: foundation.progress_source.path }] : [])]} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
             {info.truncated ? <p role="status" className="mt-3 border-t border-line pt-2 text-xs text-ink-faint">
               {t('artifact.truncated')} · {t('artifact.downloadHint')}
@@ -251,7 +256,6 @@ export function ArtifactModal({
             name={info.name}
             className="min-h-0 overflow-hidden"
             onPageOrientation={setPdfOrientation}
-            onRetry={() => setPreviewAttempt((value) => value + 1)}
           />
         ) : null}
         {info?.kind === 'audio' && previewUrl ? (

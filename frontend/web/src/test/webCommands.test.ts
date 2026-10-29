@@ -53,8 +53,8 @@ describe('web slash dispatch', () => {
 
   it('canonicalizes aliases', async () => {
     const table = handlers();
-    await dispatchWebCommand('/rm task-1', table);
-    expect(table.skip).toHaveBeenCalledWith('task-1');
+    await dispatchWebCommand('/add write the summary', table);
+    expect(table.task).toHaveBeenCalledWith('write the summary');
   });
 
   it('keeps unknown and missing-argument commands local', async () => {

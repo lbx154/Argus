@@ -1,13 +1,10 @@
-import type { EventMsg, PageId, ProjectRow, Snapshot, StatusView } from '../types';
+import type { EventMsg, Snapshot } from '../types';
 
 export interface ActiveWorkbenchPageProps {
   sid: string;
-  project: ProjectRow;
   snapshot: Snapshot;
-  status?: StatusView;
   events: EventMsg[];
   connected: boolean;
-  snapshotUpdatedAt: number;
   refresh: () => void | Promise<void>;
   controls: {
     start: () => Promise<unknown>;
@@ -15,6 +12,5 @@ export interface ActiveWorkbenchPageProps {
     busy: boolean;
     error: string;
   };
-  navigate: (page: PageId) => void;
   active: boolean;
 }

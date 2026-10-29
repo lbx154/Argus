@@ -153,23 +153,6 @@ export function useProjectDaemonActions({
     setDaemonManageOpen(true);
   }, [setDaemonManageOpen, setManageTargetSid]);
 
-  const requestDispose = useCallback((id: string, op: 'done' | 'skip' | 'rm') =>
-    actions.disposeBacklog.mutate(
-      { id, op },
-      {
-        onSuccess: () => notify('success', op === 'done' ? t('work.markedDone') : t('work.removed')),
-        onError: (error: Error) => notify('error', errorText(error)),
-      },
-    ),
-  [actions.disposeBacklog, notify, t]);
-
-  const requestStopIteration = useCallback((id: string) =>
-    actions.stopBacklog.mutate(id, {
-      onSuccess: () => notify('success', t('work.iterationStopped')),
-      onError: (error: Error) => notify('error', errorText(error)),
-    }),
-  [actions.stopBacklog, notify, t]);
-
   const toggleContinuous = useCallback(() => {
     if (!continuous) return;
     const enabled = !keepsGoing(continuous);
@@ -185,12 +168,10 @@ export function useProjectDaemonActions({
     manageStopDaemon,
     manageRenameProject,
     manageStartDaemon,
-    requestDispose,
     requestManageSession,
     requestPauseDaemon,
     requestStartDaemon,
     requestStopDaemon,
-    requestStopIteration,
     toggleContinuous,
   };
 }
