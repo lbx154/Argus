@@ -114,21 +114,6 @@ def _long_experiment_rule() -> str:
     ))
 
 
-def append_live_guidance(prompt: str, guidance: list[str]) -> str:
-    if not guidance:
-        return prompt
-    return (
-        prompt
-        + "\n\n## LIVE MANAGER / OPERATOR DIRECTIVES — HIGHEST PRIORITY\n"
-        + "These directives may stop, narrow, or correct the current mission. "
-        + "They do not silently broaden the task as assigned or cross its "
-        + "stage. If a directive materially replaces the current "
-        + "objective, preserve state, update CHECKPOINT.md, and request "
-        + "Reviewer/Planner replanning instead of executing the new scope here.\n"
-        + "\n".join(f"- {item}" for item in guidance)
-    )
-
-
 _OPERATOR_CONTEXT_MARKER = "\n\n## OperatorContext\n"
 # ``build_operator_context_block`` closes every block with its revision line,
 # which is how the trailing block is told apart from one the mission text
@@ -434,7 +419,6 @@ __all__ = [
     "MISSION",
     "NARRATIVE_EDIT",
     "OPERATIONS",
-    "append_live_guidance",
     "assemble_round_prompt",
     "build_mission_prompt",
     "mission_request",

@@ -152,14 +152,6 @@ def continuous_request(
     )
 
 
-def preview_request(project_root: Path | str) -> RolePromptRequest:
-    return RolePromptRequest(
-        role=RoleName.PLANNER,
-        operation=PLAN_PREVIEW,
-        project_root=project_root,
-    )
-
-
 def build_continuous_prompt(
     *,
     continuous_objective: str,
@@ -570,5 +562,4 @@ __all__ = [
     "build_continuous_prompt",
     "build_continuous_resume_prompt",
     "continuous_request",
-    "preview_request",
 ]
