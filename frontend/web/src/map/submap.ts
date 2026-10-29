@@ -836,14 +836,18 @@ function columnTitle(
 }
 
 export function frameForSubmap(layout: Pick<SubmapLayout, "width" | "height" | "stacked">) {
-  // A stacked card keeps one width, so its summary reads at the same size as
-  // its neighbours' whatever its height.
-  const scale = layout.stacked
-    ? 900 / layout.width
-    : Math.max(
-        600 / layout.height,
-        Math.min(1000 / layout.height, MAP_FRAME.width / layout.width),
-      );
+  // A stacked card is the shape of a wide canvas's small card whatever its
+  // height, so a phone's map shows cards, not tall strips with their titles
+  // broken over three lines; its column of steps is drawn inside at the scale
+  // that fits it, which a phone reads at the column's width.
+  if (layout.stacked) {
+    const frame = { width: 900, height: 875 };
+    return { ...frame, scale: Math.min(frame.width / layout.width, frame.height / layout.height) };
+  }
+  const scale = Math.max(
+    600 / layout.height,
+    Math.min(1000 / layout.height, MAP_FRAME.width / layout.width),
+  );
   return { width: layout.width * scale, height: layout.height * scale, scale };
 }
 
