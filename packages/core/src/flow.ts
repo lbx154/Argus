@@ -11,7 +11,7 @@
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
-import { questionId, type FlowEvent, type Note, type Project, type Question, type Status, type Store, type Task } from './store.js';
+import type { FlowEvent, Note, Project, Question, Status, Store, Task } from './store.js';
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf } from './serve/files.js';
 
@@ -54,7 +54,7 @@ export class Flow {
     const at = project.questions.findIndex(({ task, question }) => task === asked.task && question === asked.question);
     if (at < 0) throw new Error(`${id} has no such open question`);
     const [question] = project.questions.splice(at, 1) as [Question];
-    this.record(project, { type: 'message', from: 'operator', text, to: question.role, answer_to: questionId(question) });
+    this.record(project, { type: 'message', from: 'operator', text, to: question.role, ...question.task ? { task: question.task } : {} });
     // A stopped project stays stopped: the asker reads the answer when it resumes.
     if (project.status !== 'stopped') {
       this.retry(project);
@@ -172,8 +172,8 @@ export class Flow {
     if (operator) this.record(project, { type: 'message', from: 'operator', text: message });
     const handoff = (await this.call(project, 'manager', null,
       resumed => managerPrompt(message, resumed)))?.handoff ?? null;
-    // The project is named once, by the first work the Manager hands on or delivers.
-    const title = !handoff || project.name ? '' : handoff.open ? titleOf(project, handoff.open[0]!) : handoff.to === 'operator' ? '' : firstLine(read(handoff));
+    // The project is named once, by the first work the Manager hands on or delivers: one with work before it keeps its name.
+    const title = !handoff || project.name || begun(project) ? '' : handoff.open ? titleOf(project, handoff.open[0]!) : handoff.to === 'operator' ? '' : firstLine(read(handoff));
     if (title) project.name = title.slice(0, 80);
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
@@ -397,6 +397,9 @@ const read = ({ letters }: HandOff): string => letters.join('\n\n');
 
 /** A Manager turn on the operator's message, or on a letter from the team. */
 type ManagerTurn = { operator?: boolean };
+
+/** Whether the team has had work: a task, or a letter to the Planner. */
+const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;
 
 /** Whether a question or a failed turn holds up the task, or with none, the Planner: it waits for the operator. */
 const held = ({ questions, failures = [] }: Project, task: Task | null): boolean =>

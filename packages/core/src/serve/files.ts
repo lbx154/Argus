@@ -38,17 +38,22 @@ export function typeOf(path: string): [ArtifactKind, string] {
   return TYPES[ext] ?? (looksText(path) ? ['text', 'text/plain; charset=utf-8'] : ['binary', 'application/octet-stream']);
 }
 
-/** Whether a file reads as text by its first bytes: UTF-8, without a NUL. Only those are read, since
- * a file of a kind not known may be a checkpoint of gigabytes. */
-function looksText(file: string): boolean {
-  let fd: number | undefined;
+/** A file's first `bytes`, read without the rest: a result may be a checkpoint of gigabytes. */
+function head(file: string, bytes: number): Buffer {
+  const fd = openSync(file, 'r');
   try {
-    fd = openSync(file, 'r');
-    const head = Buffer.alloc(8192);
-    const read = head.subarray(0, readSync(fd, head, 0, head.length, 0));
+    const buffer = Buffer.alloc(bytes);
+    return buffer.subarray(0, readSync(fd, buffer, 0, bytes, 0));
+  } finally { closeSync(fd); }
+}
+
+/** Whether a file reads as text by its first bytes: UTF-8, without a NUL. */
+function looksText(file: string): boolean {
+  try {
+    const read = head(file, 8192);
     new TextDecoder('utf-8', { fatal: true }).decode(read, { stream: true });
     return !read.includes(0);
-  } catch { return false; } finally { if (fd !== undefined) closeSync(fd); }
+  } catch { return false; }
 }
 
 /** The file, or the part a `Range: bytes=` header asks for (PDF.js reads by ranges). */
@@ -140,7 +145,7 @@ export function artifactInfo(project: Project, found: { file: string; path: stri
     size: found.stat.size, mtime: found.stat.mtimeMs / 1000, storage_path: join(project.workdir, found.path),
   };
   if (!preview || !['text', 'markdown', 'json', 'table', 'html'].includes(kind)) return info;
-  const text = readFileSync(found.file).subarray(0, PREVIEW_BYTES).toString('utf8');
+  const text = head(found.file, PREVIEW_BYTES).toString('utf8');
   return { ...info, preview: text, truncated: found.stat.size > PREVIEW_BYTES };
 }
 

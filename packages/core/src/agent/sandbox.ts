@@ -176,7 +176,9 @@ export function confine(argv: string[], request: AgentRequest): string[] {
     mounts.push(...namedAs(dir).map((target): [string, string, boolean] => [copy, target, true]));
   }
   // What a role downloads (a model, a package, a browser) the next project's roles find: they share
-  // one cache, Argus's own, not the machine's, which may hold its owner's tokens.
+  // one cache, Argus's own, not the machine's, which may hold its owner's tokens. So one project
+  // reads what another left there, a token a CLI saves in its cache among it: projects are their
+  // operator's alike, and none of them reaches the machine's.
   const cache = join(real(argusHome()), 'cache');
   mkdirSync(cache, { recursive: true, mode: 0o700 });
   mounts.push(...namedAs(join(homedir(), '.cache')).map((target): [string, string, boolean] => [cache, target, true]));

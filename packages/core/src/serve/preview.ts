@@ -25,7 +25,7 @@ export function preview(project: (id: string) => Project, grant: (response: Serv
   const html = ({ params: [id], url }: Context) => {
     const { workdir } = project(id!);
     const found = under(workdir, url.searchParams.get('path') ?? '');
-    if (!found || typeOf(found.path)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
+    if (!found || typeOf(found.file)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
     if (found.stat.size > PAGE_BYTES) throw new HttpError(413, 'This page is too large to preview; download it instead.', 'preview_too_large');
     return { found, ...page(workdir, found.path, readFileSync(found.file, 'utf8')) };
   };
@@ -97,7 +97,7 @@ function page(workdir: string, path: string, html: string) {
       else {
         files.push(found);
         const data = found.path.endsWith('.css') ? Buffer.from(css(readFileSync(found.file, 'utf8'), found.path)) : readFileSync(found.file);
-        inlined.set(file, `data:${typeOf(found.path)[1].split(';')[0]};base64,${data.toString('base64')}`);
+        inlined.set(file, `data:${typeOf(found.file)[1].split(';')[0]};base64,${data.toString('base64')}`);
       }
     }
     return inlined.get(file)!;

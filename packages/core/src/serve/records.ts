@@ -74,7 +74,7 @@ function search(store: Store, query: string) {
     match(project.request, 'project');
     try {
       const events = readEvents(store, project.id);
-      for (const { type, text, ts, message_id } of conversationRows(readRecord(store, project.id), project, { since: null, calls: [], requests: [] }).filter(row => row.type !== 'ui.task')) {
+      for (const { type, text, ts, message_id } of conversationRows(readRecord(store, project.id), project, { since: null, calls: [], requests: [] }).filter(row => row.type === 'ui.operator' || row.type === 'ui.argus')) {
         match(String(text), 'conversation', { role: type === 'ui.operator' ? 'operator' : 'argus', ts, message_id });
       }
       // The Manager's letters are the conversation's replies; the others' open the project.

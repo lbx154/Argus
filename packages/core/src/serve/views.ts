@@ -10,7 +10,7 @@ import {
 import { summarizeUsage } from '@argus/runtime';
 import { firstLine, openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
-import { questionId, type FlowEvent, type Project, type Question, type Store } from '../store.js';
+import { asker, type FlowEvent, type Project, type Question, type Store } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
 
 /** What this process knows of a project's run right now. */
@@ -192,7 +192,7 @@ function questions(project: Project): Record<string, unknown>[] {
     const task = project.tasks.find(task => task.id === question.task);
     const title = task?.title ?? `The ${NAMES[question.role]} asks`;
     const card: OperatorDecisionCard = {
-      id: questionId(question), item_id: task?.id ?? '', revision: 1, status: 'pending', title, reason: '',
+      id: asker(question), item_id: task?.id ?? '', revision: 1, status: 'pending', title, reason: '',
       question: question.question, evidence: [], options_source: 'agent', selected_option: '', note: '',
       options: [],
     };
@@ -237,23 +237,20 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       reading.round = line;
       reading.activityAt = null;
       const row = converted[0]!;
-      const addressed = [...reading.questions.values()].filter(row => row.agent_layer === event.to);
-      const question = event.to ? reading.questions.get(event.answer_to ?? '')
-        ?? (addressed.length === 1 ? addressed[0] : undefined) : undefined;
+      const question = event.to ? reading.questions.get(asker({ role: event.to, task: event.task ?? null })) : undefined;
       if (question) {
         // The answered pair is new dialogue. Move and version both rows together so
         // the stream sends the question even when it is outside the loaded page.
         put({ ...question, event_id: line }, String(question.row_id));
         put({ ...row, answer_to: question.question_id }, String(row.message_id), line + 0.1);
-        reading.questions.delete(String(question.question_id));
+        reading.questions.delete(asker({ role: event.to!, task: event.task ?? null }));
         move(String(question.item_id ?? ''));
       } else put(row, String(row.message_id));
     } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
-      const id = questionId({ role: event.role, task: event.task ?? null, question: event.letter });
-      const row = { type: 'ui.question', ts, event_id: line, question_id: id, agent_layer: event.role,
+      const row = { type: 'ui.question', ts, event_id: line, question_id: `q${line}`, agent_layer: event.role,
         item_id: event.task ?? '', text: event.letter, order: line };
       put(row, `q${line}`);
-      reading.questions.set(id, reading.rows.get(`q${line}`)!);
+      reading.questions.set(asker({ role: event.role, task: event.task ?? null }), reading.rows.get(`q${line}`)!);
     } else if (event.type === 'handoff' && event.role === 'manager') {
       const row = converted[0]!;
       put(row, String(row.message_id));
@@ -321,7 +318,8 @@ export function conversationPage(rows: EventMsg[], cursor: number, limit: number
   return { rows: earlier.slice(start), before: start ? Number(earlier[start]!.order) : null, cursor };
 }
 
-function projectStatus(project: Project, live: Live, reading: Reading): ProjectWorkStatus {
+/** The project's one status, and for its snapshot when anything last happened in it: the list reads no record. */
+function projectStatus(project: Project, live: Live, activityAt: number | null = null): ProjectWorkStatus {
   const roles = [...new Set(live.calls.map(call => call.role))];
   const task = openTasks(project).length === 1 ? openTasks(project)[0] : undefined;
   const count = openTasks(project).length;
@@ -339,7 +337,7 @@ function projectStatus(project: Project, live: Live, reading: Reading): ProjectW
     : { 'zh-CN': project.request ? '已完成' : '等你开始', en: project.request ? 'Done' : 'Waiting for you to start' };
   return { state, reason: stopped ? 'not_running' : questions ? 'operator_input' : state === 'waiting' ? 'awaiting_next_step' : '',
     role: foreground ? 'manager' : roles[0] ?? '', roles, taskId: task?.id ?? '', title: task?.title ?? '', foreground,
-    activityAt: reading.activityAt, label };
+    activityAt, label };
 }
 
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
@@ -361,7 +359,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     },
     daemon: daemon(project, live),
     role_events: reading.roleEvents, role_round: reading.round,
-    work_status: projectStatus(project, live, reading),
+    work_status: projectStatus(project, live, reading.activityAt),
     roles: ROLES.map(role => {
       const under = live.calls.filter(call => call.role === role);
       return {
@@ -394,7 +392,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     active_role: live.calls.at(-1)?.role ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
     unfinished_tasks: openTasks(project).length,
-    work_status: projectStatus(project, live, readRecord(store, project.id)),
+    work_status: projectStatus(project, live),
     spend_usd: summary.cost_usd, known_cost_usd: summary.known_cost_usd,
     spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>, usage_calls: summary.call_count,
   };

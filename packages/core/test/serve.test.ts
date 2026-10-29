@@ -883,7 +883,8 @@ test('row stream, refreshed conversation and current-round role log share one pr
   const ended = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
   assert.deepEqual(roles, ended.role_events);
   assert.ok(!roles.some(row => row.text === 'Read the setup.'));
-  assert.ok(readEvents(store, sid).some(event => event.type === 'message' && event.to === 'engineer' && event.answer_to === card.id));
+  // The answer names its asker, as the decision card does.
+  assert.ok(readEvents(store, sid).some(event => event.type === 'message' && `${event.to}-${event.task}` === card.id));
   assert.equal((await call(`${P}/conversation?limit=0`)).status, 400);
   assert.equal((await call(`${P}/transcript`)).status, 404);
 });

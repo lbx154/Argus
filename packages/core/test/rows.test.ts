@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { ROLE_LOG, type EventMsg } from '@argus/contracts';
-import { Store, questionId, type Project } from '../src/store.js';
+import { Store, type Project } from '../src/store.js';
 import { conversationPage, conversationRows, projectRecord, snapshot, webEvents, type Live, type Reading, type Recorded } from '../src/serve/views.js';
 
 // Real three-task project already checked into the repository, with machine paths sanitized.
@@ -60,8 +60,8 @@ test('answers stay beside their question, task lines move to their latest state 
   const events: Recorded[] = [
     ...work.tasks.map((task, i) => ({ type: 'task.added' as const, task, ts: at(i) })),
     ...questions.map((q, i) => ({ type: 'handoff' as const, role: q.role, task: q.task!, to: 'operator', letter: q.question, ts: at(i + 2) })),
-    { type: 'message', from: 'operator', text: 'Second choice', to: 'engineer', answer_to: questionId(questions[1]!), ts: at(4) },
-    { type: 'message', from: 'operator', text: 'First choice', to: 'engineer', answer_to: questionId(questions[0]!), ts: at(5) },
+    { type: 'message', from: 'operator', text: 'Second choice', to: 'engineer', task: questions[1]!.task, ts: at(4) },
+    { type: 'message', from: 'operator', text: 'First choice', to: 'engineer', task: questions[0]!.task, ts: at(5) },
     { type: 'task.closed', task: work.tasks[0]!.id, ts: at(6) },
     { type: 'step', role: 'engineer', task: work.tasks[1]!.id, kind: 'command', text: 'python train.py', ts: at(7) },
   ];

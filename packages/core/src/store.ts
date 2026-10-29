@@ -85,7 +85,7 @@ export interface Project {
 
 export type FlowEvent =
   /** The operator's words: to the Manager, or to the role whose question they answer. */
-  | { type: 'message'; from: 'operator'; text: string; to?: Role; answer_to?: string }
+  | { type: 'message'; from: 'operator'; text: string; to?: Role; task?: string }
   | { type: 'call.start'; role: Role; task?: string }
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }
@@ -182,9 +182,5 @@ function alive(pid: number): boolean {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
 }
 
-/** A question's id names who asked it and its words, so a new question is a new card. */
-export function questionId({ role, task, question }: Question): string {
-  let hash = 0x811c9dc5;
-  for (const char of `${role}\n${task}\n${question}`) hash = Math.imul(hash ^ char.codePointAt(0)!, 0x01000193) >>> 0;
-  return `q-${hash.toString(16)}`;
-}
+/** Who asked a question, which names it: an asker has one open at most, since asking holds them. */
+export const asker = ({ role, task }: { role: string; task?: string | null }): string => task ? `${role}-${task}` : role;

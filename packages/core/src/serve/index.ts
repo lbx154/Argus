@@ -12,7 +12,7 @@ import {
   API_PROTOCOL, API_SERVICE, RELEASE_ID, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
 } from '@argus/contracts';
 import { rewritePrompt } from '../prompts.js';
-import { PROJECT_ID, questionId, type Project, type Store } from '../store.js';
+import { PROJECT_ID, asker, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachments } from './attachments.js';
 import { artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
@@ -68,13 +68,13 @@ export async function serve(options: ServeOptions): Promise<Served> {
   // Whoever reaches the cockpit can run work on this machine.
   if (!token && !/^(localhost|127(\.\d+){3}|::1)$/.test(host)) throw new Error(`Serving on ${host} needs ARGUS_WEB_TOKEN.`);
   /** The streams following each project's record, and those following every project's state. */
-  const listeners = new Map<string, Set<() => void>>();
+  const listeners = new Map<string, Set<(step: boolean) => void>>();
   const watchers = new Set<(frame: Record<string, unknown>) => void>();
   /** Projects whose state is to be sent, once what changed it has run on to its next wait: a
    * question is added just after the letter that asks it is recorded. */
   const due = new Set<string>();
   const runs = new Runs(store, options.callAgent, (id, event) => {
-    for (const wake of listeners.get(id) ?? []) wake();
+    for (const wake of listeners.get(id) ?? []) wake(event?.type === 'step');
     // A step changes nothing but the record.
     if (event?.type === 'step' || !watchers.size || due.has(id)) return;
     due.add(id);
@@ -128,13 +128,15 @@ export async function serve(options: ServeOptions): Promise<Served> {
   /** Server-sent events, a record's with its line as their id; a frame for a reader who left is dropped. */
   const sse = (response: ServerResponse): ((frame: Record<string, unknown>) => void) => {
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' }).flushHeaders();
+    // A stream that goes quiet still learns when its reader has gone.
+    response.socket?.setKeepAlive(true, 60_000);
     return frame => {
       if (!response.destroyed) response.write(`${'event_id' in frame ? `id: ${frame.event_id}\n` : ''}data: ${JSON.stringify(frame)}\n\n`);
     };
   };
   /** The operator's answer to one of the open questions, in their own words. */
   const answer = async (id: string, card: string, note: string): Promise<void> => {
-    const question = project(id).questions.find(question => questionId(question) === card);
+    const question = project(id).questions.find(question => asker(question) === card);
     if (!question) throw new HttpError(409, 'This question is no longer open.', 'question_closed');
     if (!note.trim()) throw new HttpError(400, 'empty answer', 'input_required');
     // Answered by another request meanwhile, while the work under way stopped.
@@ -181,20 +183,25 @@ export async function serve(options: ServeOptions): Promise<Served> {
         let previous = new Map<string, string>();
         let cursor = Number(request.headers['last-event-id'] ?? url.searchParams.get('after') ?? -1);
         let roleCursor = -1;
-        const flush = () => {
+        const wake = listeners.get(id!) ?? new Set();
+        listeners.set(id!, wake);
+        const flush = (step = false) => {
+          let now: Project;
+          // A project deleted meanwhile ends its stream.
+          try { now = store.load(work.id); } catch { wake.delete(flush); response.end(); return; }
           const reading = readRecord(store, work.id);
-          const rows = conversationRows(reading, project(work.id), runs.live(work.id));
+          // A step changes no row, only its role's log.
+          const rows = step ? [] : conversationRows(reading, now, runs.live(work.id));
           const changed = rows.filter(row => previous.size
             ? previous.get(String(row.row_id)) !== JSON.stringify(row) : Number(row.event_id) > cursor);
-          previous = new Map(rows.map(row => [String(row.row_id), JSON.stringify(row)]));
+          if (!step) previous = new Map(rows.map(row => [String(row.row_id), JSON.stringify(row)]));
           cursor = reading.fold.line - 1;
           send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round,
             role_events: reading.roleEvents.filter(event => Number(event.event_id) > roleCursor) });
           roleCursor = cursor;
         };
         flush();
-        const wake = listeners.get(id!) ?? new Set();
-        listeners.set(id!, wake.add(flush));
+        wake.add(flush);
         response.on('close', () => wake.delete(flush));
         return;
       }

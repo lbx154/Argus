@@ -94,6 +94,12 @@ test('a project is named once, by the first work the Manager hands on, not by a 
   assert.deepEqual([later.request, later.name], ['Hello', 'Build the CSV summary tool.']);
 });
 
+test('a project with work from before names were kept keeps the name its request gives it', async t => {
+  const { flow, id } = await setup(t, [toEngineer]);
+  flow.edit(id, project => { project.tasks.push({ id: 't1', title: 'Earlier work', from: 'manager', objective: '', status: 'closed', holder: 'engineer', note: null }); });
+  assert.equal((await say(flow, id, 'Make me a CSV summary tool')).name, undefined);
+});
+
 test('a result the Manager hands the operator keeps its files in the record, beside its letter, each as it was, named by its main file', async t => {
   const open = ['summary.py', 'plot.png', 'missing.md'];
   const { home, store, flow, id, events } = await setup(t, [{ ...report, open }, { ...report, open }, { ...report, open }]);
