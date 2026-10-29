@@ -240,18 +240,20 @@ for (const backend of ['codex', 'claude'] as const) {
   });
 }
 
-test('codex: a letter reaches the turn under way in a session, and none reaches a session with no turn under way', async t => {
-  const session = 'p-test/t2.engineer';
-  t.after(() => callAgent.close!('p-test/'));
-  assert.equal(await callAgent.steer!(session, 'early'), false);
-  const pending = call('codex', { output: handoff, steer: true }, { session });
-  for (let waited = 0; !await callAgent.steer!(session, '## From the Planner\nSwitch models.'); waited += 50) {
-    assert.ok(waited < 10_000, 'the turn never took the letter');
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  assert.deepEqual([(await pending).handoff?.to, seen('codex').steered], ['reviewer', '## From the Planner\nSwitch models.']);
-  assert.equal(await callAgent.steer!(session, 'late'), false);
-});
+for (const backend of ['codex', 'claude'] as const) {
+  test(`${backend}: a letter reaches the turn under way in a session, and none reaches a session with no turn under way`, async t => {
+    const session = `p-test/t2.${backend}`;
+    t.after(() => callAgent.close!('p-test/'));
+    assert.equal(await callAgent.steer!(session, 'early'), false);
+    const pending = call(backend, { output: handoff, steer: true }, { session });
+    for (let waited = 0; !await callAgent.steer!(session, '## From the Planner\nSwitch models.'); waited += 50) {
+      assert.ok(waited < 10_000, 'the turn never took the letter');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.deepEqual([(await pending).handoff?.to, seen(backend).steered], ['reviewer', '## From the Planner\nSwitch models.']);
+    assert.equal(await callAgent.steer!(session, 'late'), false);
+  });
+}
 
 test('stopping a turn ends what it started, however it was detached', { skip: unseen, timeout: 30_000 }, async () => {
   const server = createServer().listen(0, '127.0.0.1').unref();

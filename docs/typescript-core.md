@@ -238,8 +238,9 @@ stops or comes to rest with no question or failure waiting in it, Argus exits, a
 stopped, or the CLI exits on its own; the next turn starts a new CLI, which resumes the session
 from the backend's record. A turn that asks for other settings does the same, except that Codex
 takes a model and an effort with each turn. A letter the Planner writes to a task under way goes
-into its holder's turn at once where the backend takes one (Codex's `turn/steer`), else waits on
-the task for their next turn. Ending a CLI ends what it
+into its holder's turn at once where the backend takes one (Codex's `turn/steer`; Claude Code
+reads a message sent during a turn after the turn's next tool call), else waits on the task for
+their next turn. Ending a CLI ends what it
 started however it detached (`nohup … &`, `setsid`): the CLI's environment carries
 `ARGUS_TURN`, a value of its own that whatever it starts inherits, and the runtime ends what
 carries it or stays in the CLI's process group (`executeProcess`); under bubblewrap the sandbox
