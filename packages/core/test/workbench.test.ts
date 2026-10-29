@@ -127,6 +127,19 @@ test('the results listed are the newest files, however many the workdir has', as
   assert.deepEqual(artifacts.map(row => row.path), newest);
 });
 
+test('the results listed are what the project delivered and changed, not what its repository ignores', async t => {
+  const { store, project, get } = await setup(t, {
+    '.gitignore': 'dist/\nout/\n', 'dist/index.js': 'built', 'src/index.js': 'source', 'out/report.md': '# Report', 'docs/old.md': 'old',
+  });
+  execFileSync('git', ['init', '-q'], { cwd: project.workdir });
+  // docs/old.md predates the project; out/report.md does too, and git ignores it, but it was delivered.
+  const before = Date.parse(project.created) / 1000 - 60;
+  for (const path of ['docs/old.md', 'out/report.md']) await utimes(join(project.workdir, path), before, before);
+  store.save({ ...project, delivered: { 'out/report.md': [] } });
+  const { artifacts } = await get<{ artifacts: { path: string }[] }>(`/api/projects/${project.id}/artifacts`);
+  assert.deepEqual(artifacts.map(row => row.path), ['out/report.md', 'src/index.js']);
+});
+
 test('an HTML result is previewed as one page, its local files inlined, that can reach nothing', async t => {
   const files = {
     'site/index.html': '<!doctype html><html><head><link rel="stylesheet" href="style.css?v=1"><script src="app.js"></script>'

@@ -124,6 +124,15 @@ describe('starting and revisiting work', () => {
     expect(view.root.findByType('select').props.value).toBe(FILES_PATH);
   });
 
+  it('names each listed file with the folder it is in, so files of one name tell apart', () => {
+    const file = (path: string): ArtifactInfo => ({ path, name: path.split('/').pop()!, exists: true, kind: 'text', mime: 'text/plain', size: 100, mtime: 1, why: '' });
+    act(() => { view = create(<ResearchCanvas sid="s-A" missionView={emptyMissionView()} onExpand={vi.fn()} filesFirst deliveriesLoaded
+      artifacts={[file('src/index.js'), file('lib/index.js'), file('README.md')]} />); });
+    const rows = view.root.findByProps({ className: 'file-browser' }).findAllByType('button')
+      .map(row => [row.findByType('strong').children.join(''), row.findByType('small').children.join('')]);
+    expect(rows).toEqual([['index.js', 'src · 100 B'], ['index.js', 'lib · 100 B'], ['README.md', '100 B']]);
+  });
+
   it('keeps failures visible instead of dismissing them on a timer', () => {
     vi.useFakeTimers();
     const onClose = vi.fn();

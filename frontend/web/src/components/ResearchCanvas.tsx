@@ -86,11 +86,6 @@ export function selectCompletionArtifact(artifacts?: ArtifactInfo[]): ArtifactIn
     ?? null;
 }
 
-function artifactLabel(item: ArtifactInfo): string {
-  const parts = item.path.split('/');
-  return parts[parts.length - 1] || item.path;
-}
-
 export function defaultPreviewPath(
   view?: MissionView | null,
   artifacts?: ArtifactInfo[],
@@ -254,7 +249,7 @@ function LiveProgressPreview({
                 title={item.storage_path || item.path}
                 className="rounded border border-line/70 bg-panel px-2.5 py-1.5 font-mono text-xs text-blue-sky hover:border-blue/60"
               >
-                {artifactLabel(item)} ↗
+                {item.path} ↗
               </button>
             ))}
           </div>
@@ -482,7 +477,7 @@ export function ResearchCanvas({
               {!filesFirst && missionView ? <option value={LIVE_PROGRESS_PATH}>{t('research.liveProgress')}</option> : null}
               {previewArtifacts.map((item) => (
                 <option key={item.path} value={item.path} disabled={!item.exists} title={item.storage_path || item.path}>
-                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{artifactLabel(item)}{item.exists ? '' : ` · ${t('research.optionPending')}`}
+                  {item.source === 'delivery' ? `${t('research.optionDelivery')} · ` : ''}{item.path}{item.exists ? '' : ` · ${t('research.optionPending')}`}
                 </option>
               ))}
             </select>
@@ -556,9 +551,10 @@ export function ResearchCanvas({
         {saveFailed && <p role="status" className="p-3 text-xs text-warn">{locale === 'zh-CN' ? '浏览器未能保存阅读位置；刷新后请重新选择文件。' : 'This browser could not save your reading selection. Choose the file again after reloading.'}</p>}
         {showFiles && <div className="file-browser">
           {loading && <p role="status" className="text-sm text-ink-faint">{t('common.loading')}</p>}
+          {/* A file is named with the folder it is in: a repository holds many an index.js. */}
           {previewArtifacts.map(file => <button type="button" key={file.path} onClick={() => selectPreviewPath(file.path)}>
             <FileText size={20} className="shrink-0 text-blue" aria-hidden="true" />
-            <span className="min-w-0"><strong>{artifactLabel(file)}</strong><small>{formatBytes(file.size)}{file.source === 'delivery' ? (locale === 'zh-CN' ? ' · 交付文件' : ' · Delivered file') : ''}</small></span>
+            <span className="min-w-0"><strong>{file.name}</strong><small>{file.path.includes('/') ? `${file.path.slice(0, file.path.lastIndexOf('/'))} · ` : ''}{formatBytes(file.size)}{file.source === 'delivery' ? (locale === 'zh-CN' ? ' · 交付文件' : ' · Delivered file') : ''}</small></span>
           </button>)}
         </div>}
         {showLiveProgress && missionView ? (
