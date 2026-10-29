@@ -13,6 +13,8 @@ export interface Role {
   label: string;
   status: string;
   age_s: number | null;
+  /** What the role last said or wrote, from the whole record: the page holds only its newest part. */
+  last?: { text: string; ts: number } | null;
 }
 
 export interface DaemonHealth {

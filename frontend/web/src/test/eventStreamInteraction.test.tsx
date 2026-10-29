@@ -599,6 +599,17 @@ describe('project work status and conversation separation', () => {
     expect(roleGroup().props['data-open']).toBe('false');
   });
 
+  it('heads a role whose work is older than the loaded events with its last words from the whole record', () => {
+    const value = runtimeFixture(false);
+    value.snapshot = { ...value.snapshot, roles: [...value.snapshot.roles,
+      { role: 'manager', active: false, status: 'idle', label: 'Manager', age_s: null, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null,
+        last: { text: 'Handed the survey to the Engineer', ts: 1 } }] };
+    act(() => { renderer = create(<EventStream {...value} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
+    const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]).trim();
+    expect(header('manager')).toBe('ManagerLast: Handed the survey to the Engineer');
+    expect(header('planner')).toBe('PlannerNot started');
+  });
+
   it('gates legacy role and provider activity on the live connection too', () => {
     const events = [progress(1), { type: 'agent.io.start', call_id: 'call-1', ts: 2 }];
     act(() => { renderer = create(<EventStream events={events} connected={false} showReasoning={false} />, { createNodeMock: nodeMock }); });

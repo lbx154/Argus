@@ -203,6 +203,23 @@ const asked = (project: Project, task: string): Question | undefined => project.
 
 const lastActive = (store: Store, id: string): number => statSync(join(store.dir(id), 'project.json')).mtimeMs / 1000;
 
+type Said = Partial<Record<Role, { text: string; ts: number }>>;
+const readings = new Map<string, { end: number; said: Said }>();
+/** What each role last said or wrote in the record, its newest message or letter, read on from where
+ * the last reading stopped. */
+function lastWords(store: Store, id: string): Said {
+  const path = join(store.dir(id), 'events.jsonl');
+  const reading = readings.get(path) ?? { end: 0, said: {} };
+  const { rows, end } = jsonLines(path, reading.end);
+  for (const event of rows as unknown as Recorded[]) {
+    const text = event.type === 'handoff' ? event.letter : event.type === 'step' && event.kind === 'message' ? event.text : '';
+    const line = text.split('\n').map(line => line.replace(/^#+\s*/, '').trim()).find(Boolean);
+    if (line && 'role' in event) reading.said[event.role] = { text: line.slice(0, 300), ts: seconds(event.ts) };
+  }
+  readings.set(path, { end, said: reading.said });
+  return reading.said;
+}
+
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   const { id, workdir, backend } = project;
   const calls = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
@@ -210,6 +227,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   // The model each role's last call ran on: with none chosen, the backend's own default.
   const ran = (role?: Role) => calls.filter(call => !role || call.role === role).at(-1);
   const last = ran();
+  const said = lastWords(store, id);
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     session: {
@@ -219,7 +237,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     daemon: daemon(project, live),
     roles: ROLES.map(role => ({
       role, backend, backend_label: BACKENDS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: live.roles.includes(role),
-      label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null,
+      label: NAMES[role], status: live.roles.includes(role) ? 'running' : 'idle', age_s: null, last: said[role] ?? null,
     })),
     last_call: last ? {
       backend: String(last.backend), model: String(last.model ?? ''), effort: project.effort ?? '', run_label: String(last.role), role: String(last.role), ts: Number(last.ts),

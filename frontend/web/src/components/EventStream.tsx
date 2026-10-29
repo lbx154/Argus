@@ -432,12 +432,15 @@ function RoleLogGroup({
   rows,
   open,
   active,
+  earlier,
   onToggle,
 }: {
   role: typeof ROLE_ORDER[number];
   rows: ActivityRow[];
   open: boolean;
   active: boolean;
+  /** What the role last said in the whole record, for when its loaded log says nothing. */
+  earlier?: string;
   onToggle: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -454,7 +457,7 @@ function RoleLogGroup({
   const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
   // The collapsed header says what the role is doing or concluded, never a command.
   const taskTitle = useContext(TaskTitleContext);
-  const headline = useMemo(() => roleHeadline(rows, locale, taskTitle), [rows, locale, taskTitle]);
+  const headline = useMemo(() => roleHeadline(rows, locale, taskTitle) || earlier || '', [rows, locale, taskTitle, earlier]);
   useEffect(() => {
     if (open && !following.current && logScroller.current) {
       logScroller.current.scrollTop = savedScrollTop.current;
@@ -582,10 +585,12 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active, followLatest }: {
+function RoleLogCollection({ rows, active, earlier, followLatest }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
+  /** What the role last said in the whole record. */
+  earlier?: (role: string) => string | undefined;
   followLatest: boolean;
 }) {
   const { roleRows, systemRows, lastRole } = useMemo(() => partitionRoleRows(rows), [rows]);
@@ -607,6 +612,7 @@ function RoleLogCollection({ rows, active, followLatest }: {
           rows={roleRows[role]}
           open={openRoles.has(role)}
           active={active(role)}
+          earlier={earlier?.(role)}
           onToggle={() => {
             userToggledRole.current = true;
             setOpenRoles((current) => {
@@ -1340,10 +1346,11 @@ export function EventStream({
                 onOpenDelivery={onOpenDelivery} onPause={onPauseWork} />;
             })}
             {/* The team's progress: each role, what it does now or did last, its work a click away. */}
-            {timeline.workRows.length ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
+            {timeline.workRows.length || snapshot?.roles.some(role => role.last) ? <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
               className="mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
               <div className="overflow-hidden rounded-lg border border-line/70">
-                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} followLatest />
+                <RoleLogCollection rows={timeline.workRows} active={role => working.has(role)} followLatest
+                  earlier={role => snapshot?.roles.find(row => row.role === role)?.last?.text} />
               </div>
             </section> : null}
           </>

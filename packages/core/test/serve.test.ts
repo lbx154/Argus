@@ -154,6 +154,9 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.equal(asking.spend_usd, 0.03);
   // With no model chosen, each role shows the one its last call ran on.
   assert.deepEqual([asking.roles.find(role => role.role === 'engineer')?.model, asking.last_call?.role, asking.last_call?.model], ['fake-model', 'reviewer', 'fake-model']);
+  // Each role's last words, its newest message or letter, come from the whole record: the page holds only its newest part.
+  assert.deepEqual(asking.roles.map(role => [role.role, role.last?.text ?? null]),
+    [['manager', 'Summarize the CSV.'], ['planner', null], ['engineer', 'report.md written'], ['reviewer', 'Ship it as is?']]);
   const card = (asking.pending_questions![0] as { operator_decision: { id: string; question: string; options: unknown[] } }).operator_decision;
   assert.deepEqual([card.question, card.options], ['Ship it as is?', []]);
 
