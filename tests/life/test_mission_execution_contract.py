@@ -8,7 +8,8 @@ import pytest
 
 from argus.apps._runtime_backends import _Outcome
 from argus.core.event_catalog import EventType
-from argus.core.usage import UsageLedger
+from argus.core.token_usage import TokenUsage
+from argus.core.usage import UsageLedger, build_usage_record
 from argus.life.memory import BacklogItem, LifeMemory
 from argus.life.supervisor import LifeSupervisor, LifeSupervisorConfig
 from argus.skills.vertical_select import persist_vertical
@@ -26,13 +27,28 @@ class _ObservingSink:
 
 
 class _MeteredRunner:
-    def __init__(self, outcome: _Outcome | Exception) -> None:
+    """Meters its one call in the project's call ledger, as the real runner does."""
+
+    def __init__(self, outcome: _Outcome | Exception, usage_root: Path) -> None:
         self.outcome = outcome
+        self.usage_root = usage_root
         self.calls = 0
         self.on_execute: Callable[[], None] = lambda: None
 
-    def execute(self, *, sink: Any, **_kwargs: Any) -> _Outcome:
+    def _set_usage_context(self, mission_id: str | None) -> list:
+        return []
+
+    def execute(self, *, sink: Any, usage_mission_id: str = "", **_kwargs: Any) -> _Outcome:
         self.calls += 1
+        UsageLedger(self.usage_root, migrate_legacy=False).append(build_usage_record(
+            call_id=f"engineer-{self.calls}", project_root=self.usage_root,
+            mission_id=usage_mission_id, provider="codex", model="gpt-5.5",
+            run_label="engineer", started_at=1.0, completed_at=2.0, status="completed",
+            token_usage=TokenUsage(
+                input_tokens=1_000, output_tokens=100,
+                input_tokens_present=True, output_tokens_present=True,
+            ),
+        ))
         sink.handle_event({
             "type": EventType.ROUND_MAIN_COMPLETED,
             "input_tokens": 1_000,
@@ -49,7 +65,7 @@ def _mission(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome, *, tags=(
     project.mkdir()
     persist_vertical(project, "software")
     memory = LifeMemory.open(tmp_path / "life")
-    runner = _MeteredRunner(outcome)
+    runner = _MeteredRunner(outcome, memory.root)
     sink = _ObservingSink(memory)
     supervisor = LifeSupervisor(
         memory=memory, runner=runner, sink=sink,
