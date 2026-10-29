@@ -22,7 +22,7 @@ import { records } from './records.js';
 import { resources } from './resources.js';
 import { Runs, type Frame } from './runs.js';
 import { trash } from './trash.js';
-import { daemon, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
+import { daemon, follow, mapInfo, progressMap, projectRow, questionId, readEvents, snapshot, taskTrace, turns, webEvents } from './views.js';
 import { workspace } from './workspace.js';
 
 export interface ServeOptions {
@@ -93,10 +93,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
     },
     authentication: { required: Boolean(token), authenticated },
   });
-  /** Server-sent events; a frame for a reader who left is dropped. */
-  const sse = (response: ServerResponse): ((frame: unknown) => void) => {
+  /** Server-sent events, a record's with its line as their id; a frame for a reader who left is dropped. */
+  const sse = (response: ServerResponse): ((frame: Record<string, unknown>) => void) => {
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' }).flushHeaders();
-    return frame => { if (!response.destroyed) response.write(`data: ${JSON.stringify(frame)}\n\n`); };
+    return frame => {
+      if (!response.destroyed) response.write(`${'event_id' in frame ? `id: ${frame.event_id}\n` : ''}data: ${JSON.stringify(frame)}\n\n`);
+    };
   };
   /** The operator's answer to one of the open questions, in their own words. */
   const answer = async (id: string, card: string, note: string): Promise<void> => {
@@ -139,17 +141,17 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ['GET', /^\/api\/projects\/([^/]+)\/snapshot$/, ({ params: [id] }) => snapshot(store, project(id!), runs.live(id!))],
     ['GET', /^\/api\/projects\/([^/]+)\/events$/, ({ params: [id], url }) =>
       ({ events: webEvents(readEvents(store, project(id!).id)).slice(-Number(url.searchParams.get('limit') ?? 120)) })],
-    ['GET', /^\/api\/projects\/([^/]+)\/stream$/, ({ params: [id], url, response }) => {
-      project(id!);
+    // The record's events as they are appended, each stream reading on from where it stopped. A page
+    // that reconnects names the last line it has (Last-Event-ID) and is sent those after it; a new
+    // one, the last `replay`.
+    ['GET', /^\/api\/projects\/([^/]+)\/stream$/, ({ params: [id], url, request, response }) => {
+      const read = follow(store, project(id!).id);
       const send = sse(response);
+      const had = Number(request.headers['last-event-id'] || NaN);
       const replay = Math.min(200, Number(url.searchParams.get('replay') ?? 40));
-      let sent: number | null = null;
-      const flush = (): void => {
-        const all = webEvents(readEvents(store, id!));
-        all.slice(sent ?? Math.max(0, all.length - replay)).forEach(send);
-        sent = all.length;
-      };
-      flush();
+      const all = read();
+      (Number.isInteger(had) ? all.filter(event => Number(event.event_id) > had) : all.slice(Math.max(0, all.length - replay))).forEach(send);
+      const flush = (): void => read().forEach(send);
       const wake = listeners.get(id!) ?? new Set();
       listeners.set(id!, wake.add(flush));
       response.on('close', () => wake.delete(flush));

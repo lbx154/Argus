@@ -1674,31 +1674,39 @@ export type StreamCloseInfo = {
 
 const NON_RETRYABLE_STREAM_STATUSES = new Set([401, 404]);
 
+type StreamOptions = { onOpen?: () => void; onClose?: (info: StreamCloseInfo) => void };
+
 /** Open the live event stream (server-sent events) for a project. Returns a close() fn. */
 export function openStream(
   sid: string,
   onEvent: (ev: EventMsg) => void,
-  opts: {
-    replay?: number;
-    onOpen?: () => void;
-    onClose?: (info: StreamCloseInfo) => void;
-  } = {},
+  opts: StreamOptions & { replay?: number } = {},
 ): () => void {
   const q = new URLSearchParams();
   if (opts.replay != null) q.set('replay', String(opts.replay));
   q.set('view', 'ui');
-  const path = `${P(sid, '/stream')}?${q}`;
+  return follow(`${P(sid, '/stream')}?${q}`, 'Event stream', onEvent, opts);
+}
+
+/** Follow server-sent events, connecting again a second after a lost connection; a record's
+ * stream is told the last event the page has (Last-Event-ID) and goes on after it. */
+function follow(path: string, label: string, onFrame: (frame: EventMsg) => void, opts: StreamOptions): () => void {
   const controller = new AbortController();
   let retry: ReturnType<typeof setTimeout> | undefined;
+  let last: unknown;
   const connect = async () => {
     let info: StreamCloseInfo;
     try {
-      const response = await fetch(path, { headers: authHeaders(), signal: controller.signal });
+      const headers = last === undefined ? authHeaders() : { ...authHeaders(), 'Last-Event-ID': String(last) };
+      const response = await fetch(path, { headers, signal: controller.signal });
       if (!response.ok) {
         info = { code: response.status, reason: response.statusText, retryable: !NON_RETRYABLE_STREAM_STATUSES.has(response.status) };
       } else {
         opts.onOpen?.();
-        await readSSE(response, 'Event stream', (frame) => onEvent(frame as EventMsg), controller.signal);
+        await readSSE(response, label, (frame) => {
+          if (frame.event_id !== undefined) last = frame.event_id;
+          onFrame(frame as EventMsg);
+        }, controller.signal);
         info = { code: 0, reason: '', retryable: true };
       }
     } catch (error) {
