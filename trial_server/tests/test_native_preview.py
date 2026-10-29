@@ -310,15 +310,43 @@ def test_transient_runtime_limits_exit_for_automatic_recovery(reason):
     assert child.poll() is not None
 
 
-def test_full_storage_does_not_restart_in_a_loop():
+def test_full_storage_restarts_paused_and_only_growth_while_paused_stays_stopped():
     import subprocess
     import sys
 
     from deploy.native_runtime import stop_for_limit
 
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
-    assert stop_for_limit(child, 'workspace storage') is None
+    with pytest.raises(SystemExit) as result:
+        stop_for_limit(child, 'workspace storage')
+    assert result.value.code == 75
     assert child.poll() is not None
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+    assert stop_for_limit(child, 'storage growing while paused') is None
+    assert child.poll() is not None
+
+
+def test_stopping_the_runtime_lets_its_daemons_record_the_stop(tmp_path):
+    import subprocess
+    import sys
+    import time
+
+    from deploy.native_runtime import stop_runtime
+
+    record = tmp_path / 'host-shutdown'
+    daemon = (f"import signal, sys, time\n"
+              f"signal.signal(signal.SIGTERM, lambda *_: (open({str(record)!r}, 'w').write('resumable'), sys.exit(0)))\n"
+              "print('ready', flush=True)\ntime.sleep(30)\n")
+    # The namespace's first process ignores SIGTERM, as bubblewrap passes it on to nobody.
+    child = subprocess.Popen([sys.executable, '-c', (
+        "import signal, subprocess, sys, time\n"
+        f"daemon = subprocess.Popen([sys.executable, '-c', {daemon!r}], stdout=subprocess.PIPE)\n"
+        "daemon.stdout.readline()\nprint('ready', flush=True)\ntime.sleep(30)\n")], stdout=subprocess.PIPE)
+    assert child.stdout.readline() == b'ready\n'
+    started = time.monotonic()
+    stop_runtime(child, grace=5)
+    assert record.read_text() == 'resumable'
+    assert child.poll() is not None and time.monotonic() - started < 10
 
 
 def test_unavailable_workspace_shows_retry_page_and_preserves_allowance(config, ledger):
@@ -399,17 +427,100 @@ def test_watchdog_accepts_normal_multirole_copilot_memory():
     assert monitor.exceeded() == 'memory'
 
 
-def test_storage_limit_allows_a_normal_repository_clone(tmp_path):
-    from deploy.native_runtime import storage_exceeded
+def _sized(path, size, *, age=0):
+    import os
+    import time
 
-    checkout = tmp_path / 'repository'
-    checkout.mkdir()
-    with (checkout / 'fixture').open('wb') as file:
-        file.truncate(251 * 1024**2)
-    assert not storage_exceeded(str(tmp_path))
-    with (checkout / 'fixture').open('wb') as file:
-        file.truncate(2 * 1024**3 + 1)
-    assert storage_exceeded(str(tmp_path))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('wb') as file:
+        file.truncate(size)
+    if age:
+        then = time.time() - age
+        os.utime(path, (then, then))
+    return path
+
+
+def test_storage_limit_allows_a_normal_repository_clone(tmp_path):
+    from deploy.native_runtime import StorageWatch
+
+    checkout = _sized(tmp_path / 'workspace' / 'repository' / 'fixture', 251 * 1024**2)
+    watch = StorageWatch(tmp_path)
+    assert watch.check() == ''
+    _sized(checkout, 2 * 1024**3 + 1)
+    assert watch.check() == 'pause'
+
+
+def test_full_storage_prunes_download_caches_before_pausing(tmp_path):
+    from deploy.native_runtime import StorageWatch
+
+    cache = tmp_path / 'state' / 'cache'
+    old_model = _sized(cache / 'huggingface' / 'hub' / 'old-model', 1024**3, age=86400)
+    wheel = _sized(cache / 'pip' / 'http' / 'wheel', 300 * 1024**2, age=60)
+    copy = tmp_path / 'state' / 'sandbox' / '=2Ftenant=2Fworkspace=2Fa' / 'tenant' / 'home' / '.cache' / 'huggingface'
+    kept_copy = _sized(copy / 'hub' / 'blob', 600 * 1024**2, age=3600)
+    results = _sized(tmp_path / 'workspace' / 'results.bin', 400 * 1024**2, age=86400 * 7)
+
+    assert StorageWatch(tmp_path).check() == ''  # 2.3 GB, back to 1 GB once the oldest caches are gone
+    assert not old_model.exists() and not kept_copy.exists()
+    assert wheel.exists() and results.exists()
+    assert not (tmp_path / 'state' / 'storage-pause.json').exists()
+
+
+def test_storage_pause_is_shown_and_lifts_once_files_are_removed(tmp_path):
+    from deploy.native_runtime import StorageWatch
+
+    from argus.core.storage_pause import read_storage_pause
+
+    _sized(tmp_path / 'state' / 'cache' / 'pip' / 'wheel', 100 * 1024**2)
+    results = _sized(tmp_path / 'workspace' / 'results.bin', 3 * 1024**3)
+    watch = StorageWatch(tmp_path, {'storage_gb': 2})
+    assert watch.check() == 'pause'
+    pause = read_storage_pause(tmp_path / 'state')
+    assert pause['used_bytes'] == 3 * 1024**3 and pause['limit_bytes'] == 2 * 1024**3
+    assert not (tmp_path / 'state' / 'cache' / 'pip' / 'wheel').exists()
+    assert watch.check() == ''  # still full: stays paused, not stopped again
+    _sized(results, int(1.9 * 1024**3))
+    assert watch.check() == ''  # under the limit but not yet with room
+    _sized(results, 1024**3)
+    assert watch.check() == 'resume'
+    assert read_storage_pause(tmp_path / 'state') is None
+
+
+def test_storage_that_keeps_growing_while_paused_stops_for_an_operator(tmp_path):
+    from deploy.native_runtime import StorageWatch
+
+    results = _sized(tmp_path / 'workspace' / 'results.bin', 3 * 1024**3)
+    watch = StorageWatch(tmp_path, {'storage_gb': 2})
+    assert watch.check() == 'pause'
+    _sized(results, 3 * 1024**3 + 1)
+    assert watch.check() == ''
+    _sized(results, 38 * 1024**3 // 10)  # 25% beyond what it held when it paused
+    assert watch.check() == 'stop'
+
+
+@pytest.mark.parametrize('paused', [False, True])
+def test_launch_restarts_into_and_out_of_a_storage_pause(tmp_path, monkeypatch, paused):
+    import sys
+
+    from deploy import native_runtime
+
+    from argus.core.storage_pause import read_storage_pause, record_storage_pause
+
+    directory = tmp_path / 'trial1'
+    (directory / 'state').mkdir(parents=True)
+    if paused:
+        record_storage_pause(directory / 'state', used_bytes=3 * 1024**3, limit_bytes=1024**3)
+        _sized(directory / 'workspace' / 'small', 1024)
+    else:
+        _sized(directory / 'workspace' / 'big', 1024**3 + 1)
+    config = tmp_path / 'preview.json'
+    config.write_text(json.dumps({'tenants': {'trial1': {'directory': str(directory)}}, 'limits': {'storage_gb': 1}}))
+    monkeypatch.setattr(native_runtime, 'sandbox_command', lambda *_args: [sys.executable, '-c', 'import time; time.sleep(30)'])
+    monkeypatch.setattr(sys, 'argv', ['native_runtime.py', 'launch', '--config', str(config), '--tenant', 'trial1'])
+    with pytest.raises(SystemExit) as result:
+        native_runtime.main()
+    assert result.value.code == 75  # Restart=on-failure brings the runtime back either way
+    assert (read_storage_pause(directory / 'state') is None) is paused
 
 
 def test_admit_keeps_billable_media_and_drops_what_it_cannot_bill():

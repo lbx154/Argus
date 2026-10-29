@@ -445,6 +445,8 @@ export interface Snapshot {
   goal?: string;
   /** Free space on the disk holding the project's outputs. */
   storage?: { total_bytes: number; free_bytes: number; used_fraction: number | null } | null;
+  /** Set while the workspace is over its storage limit and work is paused (hosted runtimes). */
+  storage_pause?: { used_bytes: number; limit_bytes: number; since: number } | null;
   partial?: boolean;
   diagnostics?: Array<{
     section: string;

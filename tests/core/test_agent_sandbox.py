@@ -102,6 +102,45 @@ def test_an_agent_writes_its_workdir_and_its_own_home_copy_only(world, monkeypat
     assert (project.handoff / "mission.json").read_text().endswith("note\n")
 
 
+def _writable_binds(command: list[str]) -> dict[str, str]:
+    """Each writable mount's target and the host directory behind it."""
+    return {command[i + 2]: command[i + 1] for i, arg in enumerate(command) if arg == "--bind-try"}
+
+
+def test_projects_of_one_argus_home_bind_the_same_download_caches(world, monkeypatch):
+    monkeypatch.setattr(sandbox, "sandbox_tool", lambda: "/usr/bin/bwrap")
+
+    def caches(project: Project) -> dict[str, str]:
+        monkeypatch.setenv("ARGUS_SKILL_HOME", str(project.state))
+        command = sandbox.isolated_workdir_command(
+            ["/bin/echo"], backend="copilot", working_dir=project.workdir,
+            env={**os.environ, "HOME": str(project.home)},
+        )
+        binds = _writable_binds(command)
+        return {inside: binds[str(project.home / inside)] for inside in sandbox.SHARED_CACHES.values()}
+
+    alpha, beta = caches(world["tenant-a", "alpha"]), caches(world["tenant-a", "beta"])
+    stranger = caches(world["tenant-b", "alpha"])
+    assert alpha == beta
+    state = world["tenant-a", "alpha"].state
+    assert alpha[".cache/huggingface"] == os.path.realpath(state / "cache" / "huggingface")
+    for inside, source in alpha.items():
+        assert Path(source).is_relative_to(os.path.realpath(state / "cache")), inside
+        assert stranger[inside] != source
+        assert not Path(stranger[inside]).is_relative_to(os.path.realpath(state.parent)), inside
+
+
+def test_a_model_one_project_downloaded_is_there_for_the_next(world, monkeypatch, host_sandbox):
+    alpha, beta, other = world["tenant-a", "alpha"], world["tenant-a", "beta"], world["tenant-b", "alpha"]
+    _run(alpha, "mkdir -p $HOME/.cache/huggingface/hub && echo weights > $HOME/.cache/huggingface/hub/model", monkeypatch)
+    seen = _run(beta, "cat $HOME/.cache/huggingface/hub/model", monkeypatch)
+    assert seen.stdout == "weights\n", seen.stderr
+    assert (alpha.state / "cache" / "huggingface" / "hub" / "model").read_text() == "weights\n"
+    assert not sandbox.private_path(alpha.home / ".cache/huggingface/hub/model", alpha.workdir).exists()
+    elsewhere = _run(other, "cat $HOME/.cache/huggingface/hub/model 2>&1", monkeypatch)
+    assert "weights" not in elsewhere.stdout
+
+
 def test_a_linked_worktree_reads_its_history_but_keeps_its_pointer(tmp_path, monkeypatch, host_sandbox):
     repo, tree = tmp_path / "repo", tmp_path / "tree"
     git = ["git", "-c", "user.email=a@b", "-c", "user.name=a"]

@@ -11,6 +11,8 @@ Never resumed: an operator stop or pause (they clear the record), a campaign
 the operator or Planner disabled since, a first task held for confirmation, a
 project parked for another or behind an open runtime-failure circuit. Parked
 tasks stay parked: unlike the operator's Start, this does not resume them.
+While the workspace's storage is full (``core.storage_pause``) nothing is
+resumed and every record is kept for the start after it frees.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import logging
 import threading
 from pathlib import Path
 
+from ..core.storage_pause import read_storage_pause
 from ..daemon.state import (
     HOST_SHUTDOWN_STOP_REASON,
     HostShutdown,
@@ -89,6 +92,10 @@ def resume_host_stopped_daemons(
     started: list[str] = []
     limit = _max_active_daemons()
     for root in roots:
+        if read_storage_pause(root) is not None:
+            # Records stay: the runtime restarts once storage frees, and resumes then.
+            log.info("not resuming host-stopped daemons in %s: workspace storage is full", root)
+            continue
         try:
             life_dirs = project_state.project_life_dirs(root)
         except OSError:

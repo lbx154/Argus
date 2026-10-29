@@ -153,38 +153,145 @@ class ResourceWatchdog:
         return ""
 
 
-def storage_exceeded(directory: str) -> bool:
+STORAGE_BYTES = 2 * 1024**3
+STORAGE_ENTRIES = 100000
+
+
+def storage_usage(directory: str | Path) -> tuple[int, int]:
+    """Bytes and entries (files and directories) under ``directory``."""
     count = size = 0
     for root, dirs, files in os.walk(directory, followlinks=False):
         count += len(dirs) + len(files)
-        if count > 100000:
-            return True
         for name in files:
             try:
                 size += os.lstat(os.path.join(root, name)).st_size
             except FileNotFoundError:
                 continue
-            if size > 2 * 1024**3:
-                return True
-    return False
+    return size, count
 
 
-def stop_for_limit(child: subprocess.Popen, reason: str) -> None:
-    """Release a crowded runtime and let systemd restart transient limits.
+def cache_directories(directory: str | Path) -> list[Path]:
+    """The tenant's download caches: what its agents share, and the copies
+    each project's private home kept before they were shared."""
+    from argus.core.sandbox import SHARED_CACHES
 
-    Storage remains on disk, so restarting a full workspace would loop.
-    Memory and processes are released by stopping the namespace; exit 75
-    makes Restart=on-failure bring the web workspace back without resetting
-    either its files or the independent model allowance.
-    """
+    state = Path(directory) / "state"
+    return [state / "cache", *(
+        home / inside for home in sorted(state.glob("sandbox/*/tenant/home")) for inside in SHARED_CACHES.values()
+    )]
+
+
+def prune_caches(directory: str | Path, size: int, count: int, *, target: int, target_entries: int) -> tuple[int, int]:
+    """Delete cached files, least recently used first, until the workspace is
+    within ``target`` bytes and ``target_entries`` entries or no cache is left.
+    Everything in them is downloaded again when needed. Returns the new usage."""
+    cached = []
+    for root in cache_directories(directory):
+        for parent, _dirs, files in os.walk(root, followlinks=False):
+            for name in files:
+                path = os.path.join(parent, name)
+                try:
+                    stat = os.lstat(path)
+                except FileNotFoundError:
+                    continue
+                cached.append((max(stat.st_atime, stat.st_mtime), stat.st_size, path))
+    cached.sort()
+    for _used, length, path in cached:
+        if size <= target and count <= target_entries:
+            break
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            continue
+        size, count = size - length, count - 1
+    for root in cache_directories(directory):
+        for parent, dirs, files in os.walk(root, topdown=False):
+            if parent != str(root) and not dirs and not files:
+                try:
+                    os.rmdir(parent)
+                    count -= 1
+                except OSError:
+                    continue
+    return size, count
+
+
+def stop_runtime(child: subprocess.Popen, *, grace: float = 10) -> None:
+    """Stop the namespace, its processes first: a SIGTERM lets each daemon
+    record "stopped by host shutdown, resumable" (``daemon.life_worker``), so
+    the next start resumes it. bubblewrap would end them with SIGKILL."""
+    import psutil
+
+    try:
+        inside = psutil.Process(child.pid).children(recursive=True)
+    except psutil.NoSuchProcess:
+        inside = []
+    for process in inside:
+        try:
+            process.terminate()
+        except psutil.NoSuchProcess:
+            continue
+    psutil.wait_procs(inside, timeout=grace)
     child.terminate()
     try:
         child.wait(timeout=5)
     except subprocess.TimeoutExpired:
         child.kill()
         child.wait()
-    if reason != "workspace storage":
+
+
+def stop_for_limit(child: subprocess.Popen, reason: str) -> None:
+    """Release a crowded runtime and let systemd restart it.
+
+    Memory and processes are released by stopping the namespace; exit 75
+    makes Restart=on-failure bring the web workspace back without resetting
+    either its files or the independent model allowance. A full workspace
+    comes back paused (``argus.core.storage_pause``): the page says so and no
+    work starts until files are removed. Only storage that keeps growing
+    while paused stays stopped for an operator.
+    """
+    stop_runtime(child)
+    if reason != "storage growing while paused":
         raise SystemExit(75)
+
+
+class StorageWatch:
+    """Keep one tenant's workspace within its storage limit.
+
+    Over the limit, the shared download caches are pruned first (down to half
+    the limit), and only a workspace still over it pauses. Paused, usage under
+    90% of the limit lifts the pause; the restarted runtime resumes the work
+    the pause interrupted (``webapi.host_resume``).
+    """
+
+    def __init__(self, directory: str | Path, limits: dict | None = None):
+        limits = limits or {}
+        self.directory = Path(directory)
+        self.state = self.directory / "state"
+        self.limit = int(float(limits.get("storage_gb", STORAGE_BYTES / 1024**3)) * 1024**3)
+        self.entries = int(limits.get("storage_entries", STORAGE_ENTRIES))
+
+    def check(self) -> str:
+        """``"pause"``, ``"resume"``, ``"stop"`` (growing while paused) or ``""``."""
+        from argus.core.storage_pause import (
+            clear_storage_pause,
+            read_storage_pause,
+            record_storage_pause,
+        )
+
+        size, count = storage_usage(self.directory)
+        if pause := read_storage_pause(self.state):
+            if size < 0.9 * self.limit and count < 0.9 * self.entries:
+                clear_storage_pause(self.state)
+                return "resume"
+            return "stop" if size > 1.25 * max(self.limit, pause["used_bytes"]) else ""
+        if size <= self.limit and count <= self.entries:
+            return ""
+        size, count = prune_caches(self.directory, size, count, target=self.limit // 2, target_entries=self.entries // 2)
+        print(f"Trial workspace storage over its limit; pruned download caches, now {size} bytes, {count} entries", flush=True)
+        if size <= self.limit and count <= self.entries:
+            return ""
+        record_storage_pause(self.state, used_bytes=size, limit_bytes=self.limit)
+        return "pause"
 
 
 def main():
@@ -210,14 +317,19 @@ def main():
         with subprocess.Popen(sandbox_command(config, args.tenant, command), env={}, preexec_fn=before_exec) as child:
             directory = config["tenants"][args.tenant]["directory"]
             watchdog = ResourceWatchdog(child.pid, cpu_core=core)
+            storage = StorageWatch(directory, config.get("limits"))
             last_storage = 0.0
             while child.poll() is None:
                 now = time.monotonic()
                 reason = watchdog.exceeded() if args.mode == "launch" else ""
                 if args.mode == "launch" and now - last_storage >= 2:
                     last_storage = now
-                    if storage_exceeded(directory):
-                        reason = "workspace storage"
+                    outcome = storage.check()
+                    if outcome == "resume":
+                        print("Trial workspace storage is under its limit again; restarting runtime", flush=True)
+                        stop_runtime(child)
+                        raise SystemExit(75)
+                    reason = {"pause": "workspace storage", "stop": "storage growing while paused"}.get(outcome, reason)
                 if reason:
                     print(f"Trial {reason} limit reached; pausing runtime. RSS={watchdog.memory_bytes} threads={watchdog.threads}", flush=True)
                     stop_for_limit(child, reason)
