@@ -4,17 +4,13 @@ must emit ``round.main.completed`` carrying the engineer call's
 ``Reviewer.evaluate()`` must populate the same fields on
 ``ReviewDecision``.
 
-Both fields feed the LifeSupervisor's ``_CostTrackingSink`` which is
-what feeds the host-global USD ledger. Pre-fix, the cost sink only
-ever saw the reviewer half (zeroed) and engineers got billed at $0,
-silently breaking iteration budget enforcement.
+Both fields are recorded in the event log; mission cost itself is read
+from the call ledger.
 
 Citations:
 - argus/engineer/runner.py — emits ``round.main.completed``
 - argus/engineer/reviewer.py — sets input/output_tokens on every
   ReviewDecision return path
-- argus/life/supervisor.py:166 — ``_CostTrackingSink.handle_event``
-  reads the two fields from these events
 """
 
 from __future__ import annotations

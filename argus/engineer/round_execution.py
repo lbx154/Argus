@@ -318,12 +318,9 @@ class RoundExecutionMixin:
                     "text": process_ownership_note,
                 })
 
-        # Phase-2 instrumentation: emit ``round.main.completed`` so the
-        # supervisor's _CostTrackingSink can fold engineer-side token
-        # counts into the iteration budget. Without this event the
-        # cost sink only ever sees the reviewer half (and silently
-        # under-charges) — leading to ``cost_usd=$0`` in the journal
-        # when reviewer tokens were also missing pre-fix.
+        # ``round.main.completed`` carries the engineer call's token counts
+        # for the event log; the supervisor's _CostTrackingSink counts it
+        # as one engineer round (mission cost comes from the call ledger).
         if on_event:
             on_event({
                 "type": EventType.ROUND_MAIN_COMPLETED,
