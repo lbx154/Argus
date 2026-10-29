@@ -93,13 +93,13 @@ export class Cli {
   }
 
   /** For a CLI that takes one prompt and exits: `text` is its whole input, and each message it
-   * writes goes to `take` till it, and all it started, has ended. */
-  async once(text: string, take: (message: Message) => void): Promise<void> {
-    this.listener = take;
+   * writes goes to `take` as `until` hands them. */
+  once(text: string, take: (message: Message) => boolean): Promise<boolean> {
+    const ended = this.until(take);
     this.queued.push(text);
     this.closed = true;
     this.wake();
-    await this.ended;
+    return ended;
   }
 
   /** Why the CLI is gone, in its own words where it left some. */

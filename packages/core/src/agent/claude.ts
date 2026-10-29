@@ -3,6 +3,7 @@
 // turn's usage and the session's cost so far. What a turn leaves running in the background runs
 // on while the CLI does.
 
+import { randomUUID } from 'node:crypto';
 import { isJsonObject } from '@argus/contracts';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
@@ -10,7 +11,7 @@ import { said, used } from './steps.js';
 
 export const claude: StartBackend = (request, { confined, schema }) => {
   const args = [
-    '-p', '--verbose', '--input-format', 'stream-json', '--output-format', 'stream-json',
+    '-p', '--verbose', '--input-format', 'stream-json', '--output-format', 'stream-json', '--replay-user-messages',
     ...request.model ? ['--model', request.model] : [],
     ...request.effort ? ['--effort', request.effort] : [],
     ...request.instructions ? ['--append-system-prompt', request.instructions] : [],
@@ -30,9 +31,17 @@ export const claude: StartBackend = (request, { confined, schema }) => {
     args, instructed: true,
     async turn(cli, prompt, { onStep }) {
       let result: Record<string, unknown> | null = null;
+      // Claude takes a turn of its own when a background job it started ends; this turn's events
+      // begin where its message is played back.
+      const uuid = randomUUID();
+      let mine = false;
       const ended = cli.until(event => {
         if (typeof event.session_id === 'string' && event.session_id) threadId = event.session_id;
         if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string') model = event.model;
+        if (!mine) {
+          mine = event.type === 'user' && event.uuid === uuid;
+          return false;
+        }
         // A subagent's messages are its own; the role's steps are in its own.
         const content = event.type === 'assistant' && !event.parent_tool_use_id && isJsonObject(event.message) && Array.isArray(event.message.content)
           ? event.message.content.filter(isJsonObject) : [];
@@ -41,7 +50,7 @@ export const claude: StartBackend = (request, { confined, schema }) => {
         result = event;
         return true;
       });
-      cli.send({ type: 'user', message: { role: 'user', content: prompt } });
+      cli.send({ type: 'user', uuid, message: { role: 'user', content: prompt } });
       const finished = await ended;
       const ending: Record<string, unknown> = result ?? {};
       const completed = finished && ending.subtype === 'success' && !ending.is_error;

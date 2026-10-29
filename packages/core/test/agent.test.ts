@@ -38,7 +38,7 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
   callsDir: join(root, 'argus', 'calls'), usageFile, ...more,
 });
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
-  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string; run: string;
+  schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string; run: string; model?: string;
 };
 const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.', open: [] };
 
@@ -227,10 +227,9 @@ for (const backend of ['codex', 'claude'] as const) {
     const second = await call(backend, { output: handoff }, { session, resume: first.threadId! });
     assert.deepEqual([seen(backend).run, second.threadId, second.handoff?.to], [run, first.threadId, 'reviewer']);
     assert.ok(held.every(job => !job.closed), 'a job ended with its turn');
-    // A turn that asks for other settings has a new CLI, which resumes the session.
+    // A turn that asks for another model: Codex takes it with the turn, Claude Code on a new CLI, which resumes the session.
     const third = await call(backend, { output: handoff }, { session, resume: first.threadId!, model: 'another' });
-    assert.notEqual(seen(backend).run, run);
-    assert.equal(third.threadId, first.threadId);
+    assert.deepEqual([seen(backend).run === run, seen(backend).model, third.threadId], [backend === 'codex', 'another', first.threadId]);
     await callAgent.close!('p-test/');
     for (let waited = 0; held.some(job => !job.closed); waited += 50) {
       assert.ok(waited < 10_000, 'a job outlived its session');

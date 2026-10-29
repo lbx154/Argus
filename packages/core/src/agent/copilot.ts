@@ -63,7 +63,10 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
       COPILOT_TASK_WAIT_TIMEOUT_SECONDS: '2147483.647',
     },
     async turn(cli, prompt, { onStep, started }) {
-      await cli.once(prompt, event => { for (const step of consume(event)) onStep(step); });
+      await cli.once(prompt, event => {
+        for (const step of consume(event)) onStep(step);
+        return event.type === 'result';
+      });
       const requests = Array.isArray(last?.toolRequests) ? last.toolRequests.filter(isJsonObject) : [];
       const states = join(process.env.COPILOT_HOME || join(homedir(), '.copilot'), 'session-state');
       return {

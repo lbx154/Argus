@@ -32,11 +32,11 @@ export const codex: StartBackend = (request, { confined, schema }) => {
   let model: string | null = null;
   return {
     args, instructed: true,
-    async turn(cli, prompt, { onStep, started }) {
+    async turn(cli, prompt, { request: now, onStep, started }) {
       if (!ready) {
         await cli.request('initialize', { clientInfo: { name: 'argus', title: 'Argus', version: '1' }, capabilities: null });
         cli.send({ method: 'initialized' });
-        const settings = { cwd: request.cwd, model: request.model ?? null, developerInstructions: request.instructions ?? null };
+        const settings = { cwd: request.cwd, developerInstructions: request.instructions ?? null };
         const opened = thread ? await cli.request('thread/resume', { threadId: thread, ...settings, excludeTurns: true })
           : await cli.request('thread/start', settings);
         thread = isJsonObject(opened.thread) && typeof opened.thread.id === 'string' ? opened.thread.id : null;
@@ -47,8 +47,12 @@ export const codex: StartBackend = (request, { confined, schema }) => {
       let text = '';
       let error: string | null = null;
       let status = '';
+      // This turn's events only: the thread's own, and once this turn is named, none of another's.
+      let turnId: unknown = null;
       const ended = cli.until(({ method, params }) => {
         if (!isJsonObject(params) || params.threadId !== thread) return false;
+        const of = isJsonObject(params.turn) ? params.turn.id : params.turnId;
+        if (turnId !== null && of !== undefined && of !== turnId) return false;
         const item = isJsonObject(params.item) ? params.item : {};
         if (method === 'item/started' && item.type === 'commandExecution') onStep(used(item.type, item));
         else if (method === 'item/completed' && item.type === 'fileChange' && Array.isArray(item.changes)) {
@@ -62,9 +66,12 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         }
         return false;
       });
-      await cli.request('turn/start', {
-        threadId: thread, input: [{ type: 'text', text: prompt, text_elements: [] }], outputSchema: schema, ...request.effort ? { effort: request.effort } : {},
+      const { turn } = await cli.request('turn/start', {
+        threadId: thread, input: [{ type: 'text', text: prompt, text_elements: [] }], outputSchema: schema,
+        // The model and effort of this turn and those after it: a change needs no new app-server.
+        model: now.model ?? null, effort: now.effort ?? null,
       });
+      turnId = isJsonObject(turn) ? turn.id : null;
       const finished = await ended;
       const sessions = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions');
       const counted = codexUsage(confined ? privatePath(sessions, request.cwd) : sessions, thread!, started);

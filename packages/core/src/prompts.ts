@@ -70,7 +70,7 @@ function where(project: Project, store: Store, writes: boolean): string {
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
     writes && `The skills in ${library} are the team's: when your work, or the operator's word on it, teaches something later projects can use, write it there, in a new skill or one of the team's.`,
     KEPT.includes(project.backend)
-      ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the operator stops the project).'
+      ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
       : 'Your session ends with each turn, and everything you started with it.',
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
     'Keep in the workspace anything another role or the operator should see: your /tmp may be yours alone.',

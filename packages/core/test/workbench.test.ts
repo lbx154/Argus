@@ -176,14 +176,15 @@ test('an HTML result is previewed as one page, its local files inlined, that can
   assert.equal((await bundle({ paths: ['huge.bin'] })).status, 413);
 });
 
-test('with a token, the preview grants a cookie that its page alone takes, as a frame cannot send the bearer', async t => {
+test('with a token, the preview grants a cookie that its page alone takes, as a frame cannot send the bearer, and that is not the token', async t => {
   const { project, call } = await setup(t, { 'index.html': '<p>hi</p>' }, 'secret');
   const P = `/api/projects/${project.id}`;
   const page = (cookie?: string) => call(`${P}/artifact/preview/page?path=index.html`, { headers: { authorization: '', ...cookie ? { cookie } : {} } });
   assert.equal((await page()).status, 401);
   assert.equal((await page('argus_preview_access=wrong')).status, 401);
   const granted = (await call(`${P}/artifact/preview?path=index.html`)).headers.get('set-cookie');
-  assert.equal(granted, 'argus_preview_access=secret; Path=/api/projects; HttpOnly; SameSite=Strict');
+  assert.match(granted ?? '', /^argus_preview_access=[\w-]{36}; Path=\/api\/projects; HttpOnly; SameSite=Strict$/);
+  assert.doesNotMatch(granted!, /secret/);
   const shown = await page(`theme=dark; ${granted!.split(';')[0]}`);
   assert.equal(shown.status, 200);
   assert.match(await shown.text(), /<p>hi<\/p>$/);

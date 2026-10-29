@@ -12,7 +12,7 @@ import { readEvents, webEvents, type Live } from './views.js';
 export type Frame = { type: 'phase' | 'delta' | 'done' | 'error'; [field: string]: unknown };
 
 /** A project's flow while anything is under way on it, and the calls under way. */
-interface Active { flow: Flow; controller: AbortController; since: number; roles: Role[]; settled: Promise<void> }
+interface Active { flow: Flow; controller: AbortController; since: number; roles: Role[]; settled: Promise<void>; stopped?: boolean }
 
 /** `changed` is told of each event a project records, and of each change to what this process
  * knows of it with none: its record edited, a message request begun or ended, its run over. */
@@ -49,12 +49,15 @@ export class Runs {
    * end, or with `now` are interrupted. Whether any was under way. */
   stop(id: string, now: boolean): boolean {
     const active = this.active.get(id);
-    if (!active) {
+    if (active) {
+      active.stopped = true;
+      active.flow.stop(id);
+      if (now) active.controller.abort();
+    }
+    else {
       this.edit(id, project => { if (project.status === 'working') project.status = 'stopped'; });
       void this.callAgent.close?.(`${id}/`);
     }
-    active?.flow.stop(id);
-    if (now) active?.controller.abort();
     return active !== undefined;
   }
 
@@ -124,7 +127,8 @@ export class Runs {
     } finally {
       entry.settled = flow.settled(id).then(project => project.status, (error: unknown) => log(id, error)).then(status => {
         this.active.delete(id);
-        if (status === 'stopped') void this.callAgent.close?.(`${id}/`);
+        // A project at rest keeps no CLI running, unless a question or a failure waits in a session.
+        if (entry.stopped || status !== 'asking' && status !== 'failed') void this.callAgent.close?.(`${id}/`);
         this.changed(id);
       });
     }

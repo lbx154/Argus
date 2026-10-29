@@ -52,7 +52,10 @@ export const pi: StartBackend = (request, { schema, stem }) => {
   return {
     args,
     async turn(cli, prompt, { onStep }) {
-      await cli.once(prompt, event => { for (const step of consume(event)) onStep(step); });
+      await cli.once(prompt, event => {
+        for (const step of consume(event)) onStep(step);
+        return event.type === 'agent_settled';
+      });
       // Pi settles after a failed request too, and exits 0: the last answer says how it ended.
       const failed = last?.stopReason === 'error' || last?.stopReason === 'aborted';
       const content = Array.isArray(last?.content) ? last.content.filter(isJsonObject) : [];

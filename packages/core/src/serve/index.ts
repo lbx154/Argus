@@ -103,9 +103,9 @@ export async function serve(options: ServeOptions): Promise<Served> {
     return { type: 'project', id, row: projectRow(store, work, live), snapshot: snapshot(store, work, live) };
   };
   /** The token as the bearer; for the preview page, which a frame loads by URL with no way to send
-   * it, also as the cookie its preview grants. A browser sends it with every project request, so
-   * no other takes it. */
-  const cookie = `argus_preview_access=${encodeURIComponent(token ?? '')}`;
+   * it, a cookie its preview grants, which a browser sends with every project request, so no other
+   * takes it. */
+  const cookie = `argus_preview_access=${randomUUID()}`;
   const authorized = (request: IncomingMessage, page = false): boolean => !token
     || same(request.headers.authorization, `Bearer ${token}`)
     || page && (request.headers.cookie ?? '').split(/;\s*/).some(offered => same(offered, cookie));

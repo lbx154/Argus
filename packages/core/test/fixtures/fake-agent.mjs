@@ -80,7 +80,7 @@ if (cli === 'codex') {
     if (method !== 'turn/start') return;
     reply(id, { turn: { id: 'turn-1', status: 'inProgress' } });
     const scenario = scenarioOf(params.input[0].text);
-    note({ schema: params.outputSchema, instructions });
+    note({ schema: params.outputSchema, instructions, model: params.model ?? undefined });
     leave(scenario);
     if (scenario.hang) return;
     const began = new Date(parseInt(thread.replace(/-/g, '').slice(0, 12), 16));
@@ -107,9 +107,15 @@ if (cli === 'codex') {
   const session = (args.includes('--resume') && option('--resume')) || randomUUID();
   let spent = 0;
   createInterface({ input: process.stdin }).on('line', line => {
-    const { message } = JSON.parse(line);
+    const { message, uuid } = JSON.parse(line);
+    // A turn of its own first, as claude takes one when a background job ends, and then the message played back.
+    if (args.includes('--replay-user-messages')) {
+      emit({ type: 'result', subtype: 'success', session_id: session, is_error: false, result: 'The job ended.', structured_output: { to: 'operator', letter: 'stray', open: [] } });
+      emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
+    }
     const scenario = scenarioOf(message.content);
-    note({ schema: JSON.parse(option('--json-schema')), instructions: args.includes('--append-system-prompt') ? option('--append-system-prompt') : undefined });
+    note({ schema: JSON.parse(option('--json-schema')), instructions: args.includes('--append-system-prompt') ? option('--append-system-prompt') : undefined,
+      model: args.includes('--model') ? option('--model') : undefined });
     leave(scenario);
     emit({ type: 'system', subtype: 'init', session_id: session, model: 'claude-test' });
     if (scenario.hang) return;

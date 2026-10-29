@@ -352,6 +352,25 @@ test('a task the Planner opens waits for the tasks it names, and starts once the
   assert.deepEqual(events().flatMap(event => event.type === 'handoff' && event.task === 't3' ? [event.open] : []), [['results/compare.md']]);
 });
 
+test('the tasks a Planner letter names by the ids it was told are the ones it opened, though the Manager opened one meanwhile', async t => {
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', waits: held, to: 'engineer', letters: ['Train the baseline', 'Evaluate it'], tasks: [{ task: '', after: [] }, { task: '', after: ['t1'] }] },
+    { role: 'manager', to: 'engineer', letter: 'Fix the typo in the README' },
+    { role: 'engineer', waits: held, to: 'engineer', letter: 'Fixing.' },
+  ]);
+  await flow.say(id, 'Train and evaluate a baseline');
+  await flow.say(id, 'Also fix the README typo');
+  while (requests.length < 4) await new Promise(resolve => setImmediate(resolve));
+  flow.stop(id);
+  release();
+  const project = await flow.settled(id);
+  assert.deepEqual(project.tasks.map(task => [task.id, task.title, task.after ?? []]),
+    [['t1', 'Fix the typo in the README', []], ['t2', 'Train the baseline', []], ['t3', 'Evaluate it', ['t2']]]);
+});
+
 test("the Planner writes to a task under way, and its holder reads the letter at their next turn", async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });

@@ -231,6 +231,8 @@ export class Flow {
   private async plan(project: Project): Promise<void> {
     // Letters that reach the Planner during its turn wait for its next one.
     const taken = project.inbox.length;
+    // The ids the Planner was told its tasks take, though the Manager may open tasks meanwhile.
+    const base = project.tasks.length;
     const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project)))?.handoff;
     if (!handoff) return;
     project.inbox.splice(0, taken);
@@ -238,11 +240,12 @@ export class Flow {
     // A letter to itself opens nothing: the Planner reads on when the next letter comes; nor does
     // one to an open task, which its holder reads at their next turn.
     if (to === 'engineer') {
+      const opened = new Map<string, string>();
       letters.forEach((letter, at) => {
         const { task: id = '', after = [] } = tasks?.[at] ?? {};
         const open = openTasks(project).find(task => task.id === id);
         if (open) (open.unread ??= []).push({ from: 'planner', text: letter });
-        else this.open(project, 'planner', letter, after);
+        else opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
       });
       this.store.save(project);
     }
@@ -311,7 +314,7 @@ export class Flow {
 
   /** A letter to the Engineer opens a task; its first line names it. It waits only for tasks opened
    * before it, so no tasks wait for each other in a circle. */
-  private open(project: Project, from: Task['from'], letter: string, after: string[] = []): void {
+  private open(project: Project, from: Task['from'], letter: string, after: string[] = []): Task {
     const title = letter.split('\n')[0]!.slice(0, 100);
     const waits = [...new Set(after)].filter(id => project.tasks.some(task => task.id === id));
     const task: Task = {
@@ -319,6 +322,7 @@ export class Flow {
     };
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
+    return task;
   }
 
   /** A letter out of the task closes it, and stays on it as its last word; its sessions end, and

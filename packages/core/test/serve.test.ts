@@ -25,8 +25,10 @@ interface Step {
   says?: string;
 }
 
-function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] } {
+function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[]; closed: string[] } {
   const requests: AgentRequest[] = [];
+  /** The sessions ended, by the prefix of their keys. */
+  const closed: string[] = [];
   const callAgent: CallAgent = async request => {
     requests.push(request);
     const step = steps.shift();
@@ -49,7 +51,7 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[] 
       error: handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
     };
   };
-  return { callAgent, requests };
+  return { callAgent: Object.assign(callAgent, { close: async (prefix: string) => { closed.push(prefix); } }), requests, closed };
 }
 
 async function setup(t: TestContext, steps: Step[], token?: string) {
@@ -60,7 +62,7 @@ async function setup(t: TestContext, steps: Step[], token?: string) {
   await writeFile(join(web, 'index.html'), '<!doctype html><title>Argus</title>');
   await writeFile(join(web, 'assets', 'app-1.js'), 'export {};');
   const store = new Store(home);
-  const { callAgent, requests } = agent(steps);
+  const { callAgent, requests, closed } = agent(steps);
   const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web, ...(token ? { token } : {}) });
   t.after(() => served.close());
   const headers = token ? { authorization: `Bearer ${token}` } : {};
@@ -72,7 +74,7 @@ async function setup(t: TestContext, steps: Step[], token?: string) {
   };
   const post = (path: string, body: unknown) =>
     call(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  return { home, store, requests, call, get, post };
+  return { home, store, requests, closed, call, get, post };
 }
 
 /** Every `data:` frame of a server-sent event stream, a record's naming its line as its id;
@@ -362,6 +364,21 @@ test('a message can be cancelled during the Manager turn, and stop and start int
   assert.deepEqual(requests.map(request => request.role), ['manager', 'manager', 'engineer', 'manager', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its backend reported no session to go on in.
   assert.equal(requests[4]!.resume, undefined);
+});
+
+test("a project whose work comes to rest ends its sessions, unless a question waits in one", async t => {
+  const { get, post, closed } = await setup(t, [
+    { role: 'manager', to: 'operator', letter: 'Hello.' },
+    { role: 'manager', to: 'engineer', letter: brief },
+    { role: 'engineer', to: 'operator', letter: 'Which column?' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'hi', request_id: 'r1' }));
+  await eventually(async () => closed, sessions => sessions.length === 1);
+  await frames(await post(`${P}/message/stream`, { text: 'Total the columns of data.csv', request_id: 'r2' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.pending_questions?.length === 1 && !snapshot.daemon.alive);
+  assert.deepEqual(closed, [`${sid}/`]);
 });
 
 test('work a shutdown cut off goes on when Argus starts again; what the operator stopped stays stopped', async t => {

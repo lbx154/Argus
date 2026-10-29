@@ -17,8 +17,7 @@ const ASK: Record<Backend, (cwd: string) => Promise<Offered[]>> = {
     try {
       await cli.request('initialize', { clientInfo: { name: 'argus', title: 'Argus', version: '1' }, capabilities: null });
       const { data } = await cli.request('model/list', {});
-      return (Array.isArray(data) ? data.filter(isJsonObject) : []).filter(row => row.hidden !== true)
-        .map(row => ({ model: String(row.model), default: row.isDefault === true }));
+      return (Array.isArray(data) ? data.filter(isJsonObject) : []).map(row => ({ model: String(row.model), default: row.isDefault === true }));
     } finally { void cli.close(); }
   },
   async copilot(cwd) {
