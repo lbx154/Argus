@@ -1,16 +1,5 @@
 .runtime-control-page { width: 100%; max-width: 1120px; margin: 0 auto; padding: clamp(14px, 3vw, 28px); display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .runtime-control-page > * { grid-column: 1 / -1; min-width: 0; }
-.runtime-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; padding: 22px; border: 1px solid rgb(var(--line)); border-radius: 16px; background: rgb(var(--panel)); }
-.runtime-summary-copy { flex: 1; min-width: 0; }
-.runtime-eyebrow { color: rgb(var(--ink-faint)); font-size: 11px; }
-.runtime-summary h2 { margin: 5px 0 12px; font-size: 22px; font-weight: 600; overflow-wrap: anywhere; }
-.runtime-status-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; color: rgb(var(--ink-faint)); font-size: 12px; }
-.runtime-status { display: inline-flex; align-items: center; gap: 7px; color: rgb(var(--ink-dim)); }
-.runtime-status i { width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--ink-faint)); }
-.runtime-status[data-running=true] { color: rgb(var(--ok)); }
-.runtime-status[data-running=true] i { background: currentColor; box-shadow: 0 0 0 4px rgb(var(--ok) / .1); }
-.runtime-main-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.runtime-summary-hint { flex-basis: 100%; border-top: 1px solid rgb(var(--line)); padding-top: 14px; color: rgb(var(--ink-faint)); font-size: 12px; }
 .runtime-section { border: 1px solid rgb(var(--line)); border-radius: 12px; background: rgb(var(--panel)); }
 .runtime-section > summary { display: flex; align-items: center; gap: 10px; padding: 16px; cursor: pointer; font-size: 13px; list-style: none; }
 .runtime-section > summary::-webkit-details-marker { display: none; }
@@ -27,4 +16,4 @@
 .runtime-restore-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .runtime-feedback { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border: 1px solid rgb(var(--line)); border-radius: 10px; font-size: 13px; }
 .runtime-control-page pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
-@media (max-width: 640px) { .runtime-summary { padding: 16px; gap: 12px; } .runtime-main-actions { width: 100%; } .runtime-section summary small { display: none; } }
+@media (max-width: 640px) { .runtime-section summary small { display: none; } }

@@ -1339,15 +1339,8 @@ export default function App() {
                 <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1`}>
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
                     <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
-                      snapshot={loadedSid ? snap : undefined} failed={snapQ.isError} events={events} connected={connected && !snapQ.isError}
+                      snapshot={loadedSid ? snap : undefined} failed={snapQ.isError} events={events}
                       refresh={() => void snapQ.refetch()}
-                      controls={{
-                        start: () => actions.startDaemon.mutateAsync().catch(() => null),
-                        stop: drain => actions.stopDaemon.mutateAsync(drain).catch(() => null),
-                        busy: actions.startDaemon.isPending || actions.stopDaemon.isPending,
-                        error: [actions.startDaemon.error, actions.stopDaemon.error].filter(Boolean).map(error => errorText(error))[0] ?? '',
-                      }}
-                      onCompose={() => { setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1); }}
                       onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />
                   </Suspense>
                 </div>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Folder, Pause, Play, RefreshCw, RotateCcw, Search, Settings2, Trash2 } from 'lucide-react';
+import { Check, Folder, RotateCcw, Search, Settings2, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import { ResourceStatusView } from '../../components/ResourceStatus';
 import { RawDisclosure } from '../../components/primitives';
@@ -8,7 +8,6 @@ import { useI18n } from '../../i18n';
 import { RESOURCES_CAPABILITY, useCapability } from '../../lib/capabilities';
 import { isImeComposing } from '../../lib/ime';
 import { requestFailureText, routeRefused } from '../../lib/requestFailure';
-import { currentWorkStatus, workStatusLabel } from '../../lib/workStatus';
 import type { ActiveWorkbenchPageProps } from './pageTypes';
 import './runtimeControl.css';
 
@@ -23,9 +22,11 @@ async function requireCommandSuccess(operation: Promise<unknown>) {
   return result;
 }
 
+/** The machine's resources and the project's upkeep: its directory, its conversation's context,
+ * and the projects removed. Running and stopping the work is the header's, as everywhere. */
 export function RuntimeControlPage({
-  sid, snapshot: snap, active, connected, controls, refresh, readOnly, onRestored, events, onCompose,
-}: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void | Promise<void>; onCompose: () => void }) {
+  sid, snapshot: snap, active, refresh, readOnly, onRestored,
+}: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void | Promise<void> }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -50,13 +51,9 @@ export function RuntimeControlPage({
     setWorkdir(snap.session.workdir ?? snap.session.cwd ?? '');
   }, [snap.session.workdir, snap.session.cwd]);
 
-  const disabled = readOnly || !!busy || controls.busy;
-  const external = snap.daemon.alive && snap.daemon.control_available === false;
-  const work = currentWorkStatus(snap, snap.mission_view, events);
-  const empty = work.state === 'idle' && !snap.backlog.length && !snap.mission_view?.mission.id && !snap.session.objective;
-  const foreground = !snap.daemon.alive && ['running', 'waiting'].includes(work.state);
+  const disabled = readOnly || !!busy;
   const run = async (key: string, operation: () => Promise<unknown>, message: string) => {
-    if (readOnly || busyRef.current || controls.busy) return;
+    if (readOnly || busyRef.current) return;
     busyRef.current = true;
     setBusy(key); setFailure(null); setOutput('');
     try {
@@ -78,34 +75,7 @@ export function RuntimeControlPage({
     : '';
 
   return <div className="runtime-control-page">
-    <section className="runtime-summary">
-      <div className="runtime-summary-copy">
-        <span className="runtime-eyebrow">{zh ? '运行控制' : 'Runtime controls'}</span>
-        <h2>{snap.session.display_name || t('sidebar.unnamedSession')}</h2>
-        <div className="runtime-status-line">
-          <span className="runtime-status" data-running={work.state === 'running'}>
-            <i aria-hidden="true" />{workStatusLabel(work, locale)}
-          </span>
-          <span>{connected ? zh ? '实时连接' : 'Live connection' : zh ? '连接恢复中，状态可能延迟' : 'Reconnecting; status may be delayed'}</span>
-          {work.foreground && <span>{zh ? '对话处理中' : 'Reply in progress'}</span>}
-        </div>
-      </div>
-      <div className="runtime-main-actions">
-        <button className="button button--primary" disabled={disabled || external || foreground || work.state === 'unknown'}
-          onClick={() => { if (empty) onCompose(); else if (snap.daemon.alive) void controls.stop(true); else void controls.start(); }}>
-          {snap.daemon.alive ? <Pause size={16} /> : <Play size={16} />}
-          {controls.busy || foreground ? zh ? '正在处理…' : 'Working…' : empty ? zh ? '描述任务' : 'Describe a task' : snap.daemon.alive ? zh ? '安全暂停' : 'Pause safely' : work.state === 'paused' ? zh ? '继续运行' : 'Resume' : zh ? '启动运行' : 'Start work'}
-        </button>
-        <button className="button button--ghost" disabled={resources.isFetching} onClick={() => { if (hasResources) void resources.refetch(); void refresh(); }}><RefreshCw size={15} />{zh ? '刷新状态' : 'Refresh'}</button>
-      </div>
-      <p className="runtime-summary-hint">{empty
-        ? zh ? '在对话里描述目标后，这里会显示运行状态。' : 'Describe your goal in the conversation; work status will appear here.'
-        : zh ? '安全暂停会等待当前工作结束。新的任务和调整直接在对话中告诉 Argus。' : 'Safe pause waits for current work to finish. Send new tasks and adjustments in the conversation.'}</p>
-      {readOnly && <p>{zh ? '当前为只读展示，不能执行控制操作。' : 'Read-only view; control actions are disabled.'}</p>}
-      {external && <p role="alert">{zh ? '此运行实例由外部管理，请在其启动端控制。' : 'This instance is externally managed. Control it from its host.'}</p>}
-      {controls.error && <p role="alert" className="text-err">{controls.error}</p>}
-    </section>
-
+    {readOnly && <p>{zh ? '当前为只读展示，不能执行控制操作。' : 'Read-only view; control actions are disabled.'}</p>}
     {hasResources && <ResourceStatusView status={resources.isError ? null : resources.data ?? null} error={requestError(resources.error)} />}
 
     {failure && <div className="runtime-feedback" role="alert"><p>{failure.text}</p>{failure.technical && <RawDisclosure label={t('operations.technicalDetails')}><pre>{failure.technical}</pre></RawDisclosure>}</div>}

@@ -7,7 +7,6 @@ import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
 import { PdfPreview, pdfContainScale } from '../components/PdfPreview';
 import { LIVE_PROGRESS_PATH, ResearchCanvas } from '../components/ResearchCanvas';
 import { preferredPreviewWidth } from '../lib/previewLayout';
-import { WORKBENCH_MODULES } from '../research-workbench/modules';
 
 vi.mock('../hooks', () => ({ useArtifact: () => ({ data: undefined, isLoading: false, isError: false }) }));
 
@@ -75,8 +74,3 @@ describe('following the newest delivery', () => {
   });
 });
 
-describe('role identity and focused workbench', () => {
-  it('keeps the shared research tools available in project navigation and the overview', () => {
-    expect(WORKBENCH_MODULES.map((module) => module.id)).toEqual(['experiments', 'ide', 'runtime']);
-  });
-});

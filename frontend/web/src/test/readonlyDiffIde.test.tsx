@@ -11,8 +11,7 @@ const props: ActiveWorkbenchPageProps = {
   snapshot: { session: { id: 's-A', display_name: 'Synthetic A', cwd: '/synthetic', objective: '', last_active: 1 },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
     roles: [], backlog: [], recent_events: [] },
-  events: [], connected: false, refresh: vi.fn(),
-  controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' },
+  events: [], refresh: vi.fn(),
 };
 let client: QueryClient;
 let view: ReactTestRenderer;

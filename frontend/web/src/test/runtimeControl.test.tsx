@@ -15,12 +15,11 @@ const snap: ActiveWorkbenchPageProps['snapshot'] = {
 };
 let client: QueryClient;
 let tree: ReactTestRenderer | undefined;
-let props: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void; onCompose: () => void };
+let props: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void };
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   props = {
-    sid: 's-test', snapshot: snap, active: false, connected: true, events: [],
-    refresh: vi.fn(), controls: { start: vi.fn(), stop: vi.fn(), busy: false, error: '' }, readOnly: false, onRestored: vi.fn(), onCompose: vi.fn(),
+    sid: 's-test', snapshot: snap, active: false, events: [], refresh: vi.fn(), readOnly: false, onRestored: vi.fn(),
   };
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected unmocked request'); }));
   vi.stubGlobal('window', { confirm: vi.fn(() => true) });
@@ -37,43 +36,17 @@ describe('embedded runtime control page', () => {
     props.active = true;
     await act(async () => { tree = create(<Capabilities.Provider value={['manager.sse.v1']}>{element()}</Capabilities.Provider>); });
     expect(tree!.root.findAllByType(ResourceStatusView)).toHaveLength(0);
-    act(() => button('Refresh').props.onClick());
     expect(api.resources).not.toHaveBeenCalled();
-    expect(props.refresh).toHaveBeenCalledOnce();
   });
-  it('takes an empty project to its conversation without claiming it was paused or starting work', async () => {
-    props.snapshot = { ...snap, session: { ...snap.session, display_name: '' } };
-    props.controls.error = 'synthetic command error';
+  it('says nothing of where the work stands and offers no run or pause: the header does', async () => {
+    props.snapshot = { ...snap, backlog: [{ id: 't1', title: 'A task', objective: '', status: 'done', priority: 0 }] };
     await mount();
     const html = JSON.stringify(tree!.toJSON());
-    expect(html).toContain('Done');
-    expect(html).not.toContain('Continuous work paused');
-    expect(tree!.root.findByType('h2').children).toEqual(['Untitled project']);
-    expect(html).toContain('synthetic command error');
-    act(() => button('Describe a task').props.onClick());
-    expect(props.onCompose).toHaveBeenCalledOnce();
-    expect(props.controls.start).not.toHaveBeenCalled();
-  });
-  it('does not offer to start a second executor during a foreground request', async () => {
-    props.snapshot = { ...snap, manager_requests: [{ request_id: 'foreground', status: 'running' }] };
-    await mount();
-    expect(JSON.stringify(tree!.toJSON())).toContain('Working on your request');
-    expect(button('Working…').props.disabled).toBe(true);
-    expect(props.controls.start).not.toHaveBeenCalled();
-  });
-  it('offers to resume work that stopped with a task not done, queued or under way', async () => {
-    const task = { id: 'task-1', title: 'A task', objective: '', status: 'pending', priority: 1 };
-    for (const status of ['pending', 'in_progress']) {
-      props.snapshot = { ...snap, backlog: [{ ...task, status }] };
-      if (tree) await act(async () => tree!.update(element()));
-      else await mount();
-      expect(JSON.stringify(tree!.toJSON())).toContain('The current task is not running');
-      expect(button('Resume').props.disabled).toBe(false);
-    }
+    for (const words of ['Start work', 'Resume', 'Pause safely', 'Describe a task', 'Done']) expect(html).not.toContain(words);
   });
   it('is a page, not a modal, with no duplicate work composer or skill entry', () => {
     const html = renderToStaticMarkup(element());
-    expect(html).toContain('Runtime controls');
+    expect(html).toContain('Runtime settings');
     expect(html).not.toContain('role="dialog"');
     expect(html).not.toContain('<textarea');
     expect(html).not.toContain('Open skill library');
@@ -86,23 +59,10 @@ describe('embedded runtime control page', () => {
     expect(api.resources).toHaveBeenCalledTimes(1);
     expect(api.trash).not.toHaveBeenCalled();
   });
-  it('keeps read-only and external controls disabled', async () => {
+  it('keeps maintenance disabled when read-only', async () => {
     props.readOnly = true;
     await mount();
-    expect(button('Describe a task').props.disabled).toBe(true);
     expect(button('Reset conversation context').props.disabled).toBe(true);
-    props.readOnly = false;
-    props.snapshot = { ...snap, daemon: { ...snap.daemon, alive: true, control_available: false } };
-    await act(async () => tree!.update(element()));
-    expect(button('Pause safely').props.disabled).toBe(true);
-  });
-  it('preserves safe drain when pausing and displays control errors', async () => {
-    props.snapshot = { ...snap, daemon: { ...snap.daemon, alive: true } };
-    props.controls.error = 'synthetic command failure';
-    await mount();
-    await act(async () => button('Pause safely').props.onClick());
-    expect(props.controls.stop).toHaveBeenCalledWith(true);
-    expect(tree!.root.findAllByProps({ role: 'alert' }).some(node => node.children.includes('synthetic command failure'))).toBe(true);
   });
   it('confirms maintenance, exposing a rejected command instead of success', async () => {
     vi.spyOn(api, 'resetManager').mockResolvedValue({ rc: 1, command_status: 'rejected', error: 'revision conflict' } as never);
