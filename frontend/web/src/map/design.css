@@ -854,6 +854,11 @@
 .argus-map .map-legend-info [role="tooltip"] b { color: rgb(var(--ink)); font-weight: 500; }
 .argus-map .map-legend-info:hover [role="tooltip"],
 .argus-map .map-legend-info:focus-within [role="tooltip"] { opacity: 1; visibility: visible; }
+/* On a phone the key opens across the toolbar row, wherever in it its button sits. */
+@media (max-width: 640px) {
+  .argus-map .map-legend-info { position: static; }
+  .argus-map .map-legend-info [role="tooltip"] { right: 0; width: auto; max-width: none; }
+}
 
 /* Serif CJK in a heavy weight reads as smudge on screen: map titles are 500. */
 .argus-map .macro-heading h2,
