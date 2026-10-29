@@ -35,7 +35,8 @@
   --ok: 31 32 35;
   --warn: var(--accent-ink);
   --err: 163 58 58;
-  --status-running: var(--accent);
+  /* Work under way is green, at a glance; gold stays the person's: a question waiting. */
+  --status-running: 22 163 74;
   --status-waiting: var(--accent);
   --status-done: 14 14 16;
   --status-idle: 167 172 179;
@@ -86,6 +87,7 @@
   --on-accent: 12 12 13;
   --ok: 242 242 240;
   --err: 226 122 122;
+  --status-running: 74 222 128;
   --status-done: 242 242 240;
   --status-idle: 110 114 120;
   --status-failed: 226 122 122;

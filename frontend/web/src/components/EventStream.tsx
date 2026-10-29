@@ -508,17 +508,13 @@ function RoleLogGroup({
         aria-expanded={open}
         className="group flex h-11 w-full items-center gap-2 px-4 text-left transition-colors hover:bg-bg/60"
       >
-        <span
-          data-role-dot={role}
-          aria-hidden="true"
-          className={`h-2 w-2 shrink-0 rounded-full ${active ? 'bg-ok animate-pulse motion-reduce:animate-none' : 'bg-ink-faint/50'}`}
-        />
-        <span className={`text-xs font-semibold ${active ? 'text-ok' : 'text-ink-faint'}`}>{roleLabel(role, t)}</span>
+        <span data-role-dot={role} aria-hidden="true" className="status-dot" data-tone={active ? 'running' : undefined} />
+        <span className={`text-xs font-semibold ${active ? 'text-ink' : 'text-ink-faint'}`}>{roleLabel(role, t)}</span>
         <span data-role-headline className="min-w-0 flex-1 truncate text-xs text-ink-faint" title={headline.replace(/\*\*|`/g, '') || undefined}>
           {several ? (zh ? `· ${tasks.length} 个任务进行中` : `· ${tasks.length} tasks under way`)
             : headline
             ? <>{active ? (zh ? '现在：' : 'Now: ') : (zh ? '之前：' : 'Last: ')}<RowWords text={headline} prose /></>
-            : active ? (zh ? '刚开始' : 'Just started') : rows.length ? null : zh ? '还没开始' : 'Not started'}
+            : active ? (zh ? '刚开始' : 'Just started') : null}
         </span>
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
@@ -634,7 +630,8 @@ function RoleLogCollection({ rows, active, tasks, earlier, followLatest }: {
 
   return (
     <div className="bg-bg/25">
-      {ROLE_ORDER.map((role) => (
+      {/* A role that has taken no part has nothing to say here. */}
+      {ROLE_ORDER.filter(role => roleRows[role].length || active(role) || earlier?.(role)).map((role) => (
         <RoleLogGroup
           key={role}
           role={role}

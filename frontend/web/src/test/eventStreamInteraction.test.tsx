@@ -498,6 +498,7 @@ describe('project work status and conversation separation', () => {
     expect([card('t2').props['data-state'], visibleText(card('t2'))]).toEqual(['running', 'Working on: Write b.py']);
     // The Engineer is on b.py now: what it said of a.py is not what it does now.
     expect(visibleText(renderer!.root.findByProps({ 'data-role': 'engineer' }).findAllByType('button')[0]).trim()).toBe('EngineerNow: Writing b.py');
+    expect(renderer!.root.findByProps({ 'data-role-dot': 'engineer' }).props['data-tone']).toBe('running');
     // Stopped, an open task is paused.
     act(() => renderer!.update(<EventStream events={events} snapshot={{ ...snapshot, daemon: { ...snapshot.daemon, alive: false }, roles: [] }} connected showReasoning={false} />));
     expect(visibleText(card('t1'))).toBe('Paused: Write a.py');
@@ -641,7 +642,8 @@ describe('project work status and conversation separation', () => {
     act(() => { renderer = create(<EventStream {...value} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
     const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]).trim();
     expect(header('manager')).toBe('ManagerLast: Handed the survey to the Engineer');
-    expect(header('planner')).toBe('PlannerNot started');
+    // A role that took no part is not listed.
+    expect(renderer!.root.findAllByProps({ 'data-role': 'planner' })).toHaveLength(0);
   });
 
   it('gates legacy role and provider activity on the live connection too', () => {
