@@ -68,7 +68,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
   const [effort, setEffort] = useState<Effort | ''>('');
   const [probes, setProbes] = useState<Record<string, Probe>>({});
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [failure, setFailure] = useState('');
 
   // A project has one model and effort, which every role runs on.
   const settings = config.data?.roles[0];
@@ -81,7 +81,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
     // Only when the sheet opens or the saved settings change underneath it.
   }, [open, config.data]);
   useEffect(() => {
-    if (!open) { setMessage(null); setProbes({}); }
+    if (!open) { setFailure(''); setProbes({}); }
   }, [open]);
 
   const choices = choicesQuery.data;
@@ -89,7 +89,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
   const writes = choiceWrites({ model, effort }, current);
 
   const select = (chosen: string) => {
-    setMessage(null);
+    setFailure('');
     setModel(chosen);
   };
   const probe = async (model: string) => {
@@ -104,17 +104,18 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
   const apply = async () => {
     if (busy || !writes.length) return;
     setBusy(true);
-    setMessage(null);
+    setFailure('');
     try {
       for (const write of writes) await api.setConfig(sid, write.name, write.value);
-      setMessage({ text: t('models.saved'), error: false });
+      // Chosen, the sheet closes; the chip under the message box names the model now.
+      onClose();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['config', sid] }),
         queryClient.invalidateQueries({ queryKey: ['model-choices', sid] }),
         queryClient.invalidateQueries({ queryKey: ['map-copy'] }),
       ]);
     } catch (error) {
-      setMessage({ text: requestFailureText(error, t).text, error: true });
+      setFailure(requestFailureText(error, t).text);
     } finally {
       setBusy(false);
     }
@@ -177,8 +178,8 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
             <div className="model-picker-bar-text">
               <span className="model-picker-bar-label">{t('models.selected')}</span>
               <span className="model-picker-bar-choice" data-choice-summary>{summary}</span>
-              {message
-                ? <span role={message.error ? 'alert' : 'status'} className={message.error ? 'text-err' : 'text-ink-dim'} data-apply-message>{message.text}</span>
+              {failure
+                ? <span role="alert" className="text-err" data-apply-message>{failure}</span>
                 : writes.length === 0 && <span className="text-ink-faint">{t('models.nothingChanged')}</span>}
             </div>
             <button type="button" className="model-picker-use" data-use-model disabled={busy || writes.length === 0} onClick={() => void apply()}>

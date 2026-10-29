@@ -29,7 +29,9 @@ const choices = (): ModelChoices => ({
   ],
 });
 
+const onClose = vi.fn();
 async function mount() {
+  onClose.mockClear();
   vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:8000' } });
   vi.spyOn(api, 'modelChoices').mockResolvedValue(choices());
   vi.spyOn(api, 'config').mockResolvedValue(config());
@@ -37,7 +39,7 @@ async function mount() {
   client.setQueryData(['config', 'one'], config());
   client.setQueryData(['model-choices', 'one'], choices());
   await act(async () => {
-    renderer = create(<QueryClientProvider client={client!}><ModelPicker sid="one" open onClose={() => {}} /></QueryClientProvider>);
+    renderer = create(<QueryClientProvider client={client!}><ModelPicker sid="one" open onClose={onClose} /></QueryClientProvider>);
   });
 }
 
@@ -60,7 +62,7 @@ it('lists Automatic first and each model with the price on record, and never cal
   expect(renderer!.root.findByProps({ 'data-use-model': true }).props.disabled).toBe(true);
 });
 
-it("saves the project's one model through the settings write", async () => {
+it("saves the project's one model through the settings write, and closes once it is chosen", async () => {
   const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);
   await mount();
   await act(async () => { row('gpt-6-astra').props.onClick(); });
@@ -70,7 +72,8 @@ it("saves the project's one model through the settings write", async () => {
   expect(textOf(use as never)).toBe('Use this model');
   await act(async () => { use.props.onClick(); });
   expect(setConfig.mock.calls).toEqual([['one', 'ARGUS_SKILL_MODEL', 'gpt-6-astra']]);
-  expect(textOf(renderer!.root.findByProps({ 'data-apply-message': true }) as never)).toContain('Saved.');
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(renderer!.root.findAllByProps({ 'data-apply-message': true })).toHaveLength(0);
 });
 
 it("goes back to the backend's default by choosing Automatic", async () => {
