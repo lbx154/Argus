@@ -89,7 +89,6 @@ import { progressHealth } from './lib/progressHealth';
 import { ProgressHealthBanner } from './components/ProgressHealthBanner';
 import { useAttentionSignals } from './useAttentionSignals';
 import { DraftUploadContext, DraftUploads, type DraftUploadView } from './lib/draftUploads';
-import { canOpenDesktopSettings } from './lib/desktopBridge';
 import type { ArtifactInfo, DeliveryReceipt, LaunchSettings, MissionView } from '../../core/src/types';
 import {
   completionNotificationPayload,
@@ -664,12 +663,10 @@ export default function App() {
     const state = currentWorkStatus(snap, missionView, events).state;
     return state === 'running' || state === 'waiting';
   }, [events, missionView, snap]);
-  const notifications = useAttentionSignals({
-    sid: loadedSid,
+  useAttentionSignals({
     projectName: snap?.session.display_name || '',
     attention,
     zh: locale === 'zh-CN',
-    embedded: canOpenDesktopSettings(),
     running: projectBusy,
   });
   completionContextRef.current = {
@@ -1524,8 +1521,6 @@ export default function App() {
                     onCompose={kiosk ? undefined : composeContext}
                     onConversationAction={kiosk || messagePending || !editions ? undefined : setConversationEditor}
                     requestedMessageTs={highlightedTs}
-                    notifications={kiosk ? undefined : notifications}
-                    latestDelivery={deliveryHistory[0] ?? null}
                     rememberPosition
                   />
                   </ReplyChoiceContext.Provider>

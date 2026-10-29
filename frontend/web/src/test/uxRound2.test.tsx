@@ -11,8 +11,6 @@ vi.mock('../i18n', async (importOriginal) => {
 });
 
 const { progressHealth } = await import('../lib/progressHealth');
-const { diskView } = await import('../lib/projectOverview');
-const { formatBytes } = await import('../lib/format');
 const { foldedContinuationRuns } = await import('../components/EventStream');
 const { searchEntries, visibleEntries } = await import('../research-workbench/workspaceApi');
 const { ProgressHealthBanner } = await import('../components/ProgressHealthBanner');
@@ -59,16 +57,6 @@ describe('progress health', () => {
     expect(html).toContain('最近一次：训练——OOM');
     expect(html).toContain('当前任务完成后暂停');
     expect(html).toContain('知道了');
-  });
-});
-
-describe('resources', () => {
-  it('warns when the disk is 80% full', () => {
-    expect(diskView({ total_bytes: 1000 * 1024 ** 3, free_bytes: 150 * 1024 ** 3, used_fraction: 0.85 }, true, formatBytes))
-      .toEqual({ warn: true, text: '磁盘已用 85%，只剩 150 GB，大文件可能写不下' });
-    expect(diskView({ total_bytes: 2 * 1024 ** 4, free_bytes: 1.1 * 1024 ** 4, used_fraction: 0.45 }, true, formatBytes))
-      .toEqual({ warn: false, text: '磁盘剩余 1.1 TB' });
-    expect(diskView(null, true, formatBytes)).toBeNull();
   });
 });
 

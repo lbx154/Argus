@@ -923,16 +923,16 @@ button {
 .workspace-header { background: rgb(var(--panel)); border-bottom: 0; }
 .workspace-header + nav { border-bottom-color: rgb(var(--line)) !important; }
 
-/* Chat context: goal and progress as two faint lines, tools at the right. */
+/* Chat context: the conversation's tools, at the right. */
 .chat-context {
   display: flex;
   flex: none;
+  justify-content: flex-end;
   align-items: flex-start;
   gap: 8px 16px;
   padding: 10px 20px 8px;
   border-bottom: 1px solid rgb(var(--line) / 70%);
 }
-.chat-context-main { min-width: 0; flex: 1; }
 .chat-context-tools { display: flex; flex: none; align-items: center; gap: 2px; margin-top: -2px; }
 .chat-context-tools button,
 .chat-context-tools [data-refreshing-kept],
@@ -947,18 +947,6 @@ button {
 .chat-context-tools button:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 .chat-context-tools button[aria-pressed='true'],
 .chat-context-tools button[aria-expanded='true'] { color: rgb(var(--ink)); }
-.project-overview { min-width: 0; color: rgb(var(--ink-faint)); font-size: 12px; line-height: 20px; }
-.project-overview-goal {
-  overflow: hidden;
-  color: rgb(var(--ink-dim));
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.project-overview-label { margin-right: 8px; color: rgb(var(--ink-faint)); }
-.project-overview-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin-top: 1px; }
-.project-overview-alerts { margin-left: auto; flex: none; color: rgb(var(--ink-faint)); }
-.project-overview-alerts:hover { color: rgb(var(--ink)); }
 .work-status { border-bottom: 1px solid rgb(var(--line) / 70%); background: transparent; }
 
 /* Argus replies read like a document: no avatar, no box. */

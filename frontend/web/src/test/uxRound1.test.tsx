@@ -15,11 +15,10 @@ vi.mock('../i18n', async (importOriginal) => {
 
 const { deliveryHeadingKey, isStagePackage } = await import('../lib/deliveryKind');
 const { DEFAULT_LAUNCH_SETTINGS, describeRequirement, isFreshProject, launchSettingsSummary, stripLaunchNote } = await import('../lib/launch');
-const { durationLabel, projectOverview, spendEstimateLabel } = await import('../lib/projectOverview');
+const { spendEstimateLabel } = await import('../lib/projectOverview');
 const { projectAttention } = await import('../lib/attention');
 const { errorText } = await import('../lib/format');
 const { LaunchHoldCard, LaunchSettingsBar } = await import('../components/LaunchPanel');
-const { ProjectOverviewStrip } = await import('../components/ProjectOverviewStrip');
 const { TopBar } = await import('../components/TopBar');
 
 afterEach(() => vi.unstubAllGlobals());
@@ -124,34 +123,10 @@ describe('launch settings and the confirm-before-start card', () => {
   });
 });
 
-describe('project overview', () => {
-  const view = { ...emptyMissionView(), mission: { ...emptyMissionView().mission, id: 'a', title: '研究视频去噪' }, delivery: delivery('stage_package') } as MissionView;
-  const busy = snapshot({
-    daemon: { alive: true, pid: 1, uptime_seconds: 10, backend: null },
-    spend_usd: 12.345, spend_status: 'priced',
-    backlog: [
-      { id: 'a', title: 'one', objective: 'one', status: 'done', priority: 1, ts: 1000, finished_ts: 2000 },
-      { id: 'b', title: 'two', objective: 'two', status: 'running', priority: 1, ts: 1500 },
-      { id: 'c', title: 'three', objective: 'three', status: 'skipped', priority: 1, ts: 1500 },
-    ],
-  });
-
-  it('counts tasks, elapsed time and cost', () => {
-    const overview = projectOverview(busy, view, 1000 + 7200)!;
-    expect(overview).toMatchObject({ done: 1, total: 2, active: 1, elapsedSeconds: 7200, goal: '研究视频去噪' });
-    expect(durationLabel(7200, true)).toBe('2 小时');
-    expect(durationLabel(90000, true)).toBe('1 天 1 小时');
-    expect(spendEstimateLabel(overview, true)).toBe('估算 ≈$12.3（按 API 价）');
+describe('spend estimate', () => {
+  it('says the cost is an API-price equivalent', () => {
+    expect(spendEstimateLabel({ spendUsd: 12.345, spendStatus: 'priced' }, true)).toBe('估算 ≈$12.3（按 API 价）');
     expect(spendEstimateLabel({ spendUsd: 3, spendStatus: 'partial' }, true)).toBe('估算 ≥$3.00（按 API 价）');
-    expect(projectOverview(snapshot(), view, 0)).toBeNull();
-  });
-
-  it('renders the newest result with its real kind and the alert toggle', () => {
-    const html = renderToStaticMarkup(<ProjectOverviewStrip snapshot={busy} view={view}
-      notifications={{ supported: true, enabled: false, denied: false, enable: async () => undefined, disable: () => undefined }} />);
-    expect(html).toContain('任务 1/2 已完成');
-    expect(html).toContain('<span class="shrink-0">阶段成果：</span>');
-    expect(html).toContain('开启提醒');
   });
 });
 

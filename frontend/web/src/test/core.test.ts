@@ -581,11 +581,6 @@ describe('shared frontend core', () => {
     expect(canvas).not.toContain('gsap.fromTo');
   });
 
-  it('never hides the overview row that holds the alerts toggle and disk warning', () => {
-    const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
-    expect(css).not.toMatch(/\.project-overview-meta\s*\{[^}]*display:\s*none/);
-  });
-
   it('favicon uses monochrome Rounded 02 geometry', () => {
     const svg = fs.readFileSync(path.resolve('public/favicon.svg'), 'utf8');
     expect(svg).toContain('fill="#000"');

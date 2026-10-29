@@ -384,7 +384,6 @@ describe('historical task receipts', () => {
     expect(row.findByType(CopyButton).props.text).toBe(text);
     expect(row.findByType(CopyButton).props.label).toBe('Copy original report');
     expect(row.findByType('time').props.dateTime).toBe('2026-09-12T12:27:03.475Z');
-    expect(renderer!.root.findByProps({ 'data-testid': 'work-status' }).props['data-state']).toBe('running');
     expect(receipt.text).toBe(text);
   });
 
@@ -421,7 +420,7 @@ describe('historical task receipts', () => {
     expect(renderer!.root.findAllByProps({ 'data-task-receipt': true })).toHaveLength(1);
   });
 
-  it('labels only receipt metadata, preserves its recorded time and original text, and leaves current work running', () => {
+  it('labels only receipt metadata and preserves its recorded time and original text', () => {
     const value = runtimeFixture();
     const text = 'External interrupt: daemon stop requested\nNext: Argus will diagnose recovery.';
     const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
@@ -436,7 +435,6 @@ describe('historical task receipts', () => {
     expect(time.props.title).toContain('2026');
     expect(row.findByProps({ 'data-markdown': true }).children).toEqual([text]);
     expect(row.findByType(CopyButton).props.text).toBe(text);
-    expect(renderer!.root.findByProps({ 'data-testid': 'work-status' }).props['data-state']).toBe('running');
   });
 
   it('does not infer a receipt or interruption status from ordinary message text', () => {

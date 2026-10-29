@@ -37,13 +37,10 @@ import { turnStepsFrom } from '../../../core/src/phaseTrail';
 import { plainDetail, plainTaskReport } from '../lib/plainStatus';
 import { isCallRow, plainRowText, roleHeadline, type ProgressText } from '../lib/plainProgress';
 import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
-import { WorkStatusBar } from './WorkStatusBar';
 import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
 import { earlierRoleWork } from './agentActivityModel';
 import { liveActivity, liveLines, type LiveLine } from '../lib/liveActivity';
-import { ProjectOverviewStrip, type NotificationControl } from './ProjectOverviewStrip';
-import { projectOverview } from '../lib/projectOverview';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
@@ -1053,8 +1050,6 @@ export function EventStream({
   onPauseWork,
   onRetryHistory,
   onCompose,
-  notifications,
-  latestDelivery,
   rememberPosition = false,
   onConversationAction,
   requestedMessageTs,
@@ -1083,8 +1078,6 @@ export function EventStream({
   onRetryHistory?: () => void;
   onCompose?: (text: string) => void;
   rememberPosition?: boolean;
-  notifications?: NotificationControl;
-  latestDelivery?: DeliveryReceipt | null;
   onConversationAction?: (target: ConversationRevision) => void;
   requestedMessageTs?: number;
   /** Run again; offered on the receipt of a task that waits to be resumed. */
@@ -1311,12 +1304,9 @@ export function EventStream({
     <section className={`relative flex min-h-0 flex-1 flex-col overflow-hidden bg-panel ${
       embedded ? '' : 'rounded-lg border border-line/80'
     }`}>
-      {(showHeader && (timeline.workRows.length > 0 || reasoningTotal > 0 || !connected || refreshingKept)) || (snapshot && projectOverview(snapshot, missionView, Date.now() / 1000, latestDelivery)) ? <div className="chat-context">
-        {showHeader ? <h2 className="sr-only">{t('panel.activity')}</h2> : null}
-        <div className="chat-context-main">
-          {snapshot ? <ProjectOverviewStrip snapshot={snapshot} view={missionView} onOpenDelivery={onOpenDelivery} notifications={notifications} latestDelivery={latestDelivery} /> : null}
-        </div>
-        {showHeader ? <div className="chat-context-tools">
+      {showHeader && (timeline.workRows.length > 0 || reasoningTotal > 0 || !connected || refreshingKept) ? <div className="chat-context">
+        <h2 className="sr-only">{t('panel.activity')}</h2>
+        <div className="chat-context-tools">
           {timeline.workRows.length > 0 ? <button type="button" onClick={() => (workOpen && !drawerTask ? setWorkOpen(false) : openWork())} aria-expanded={workOpen && !drawerTask}>
             {locale === 'zh-CN' ? '查看工作进展' : 'View work progress'}
           </button> : null}
@@ -1328,12 +1318,9 @@ export function EventStream({
           </span> : connected ? <span className="sr-only">{t('common.live')}</span> : <span className="chat-context-offline">
             {`○ ${t('common.reconnecting')}`}
           </span>}
-        </div> : null}
+        </div>
       </div> : null}
-      {/* The top bar already carries the settled status; the chat adds a line only
-          while something is happening, needs the person, or the link is down. */}
-      {snapshot && (!connected || !work || ['running', 'waiting', 'paused', 'unknown'].includes(work.state) || work.reason === 'task_failed')
-        ? <WorkStatusBar snapshot={snapshot} view={missionView} events={deferredEvents} connected={connected} compact /> : !snapshot && activeProvider ? (
+      {!snapshot && activeProvider ? (
         <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line/60 bg-blue-deep/5 px-4 text-xs text-ink-dim">
           <span className="h-2 w-2 animate-pulse rounded-full bg-blue-sky" />
           <span className="truncate">
