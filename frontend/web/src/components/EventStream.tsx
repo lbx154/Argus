@@ -135,7 +135,7 @@ function EventRow({
         {!last ? <span className="absolute -bottom-2.5 top-2 w-px bg-line/60" /> : null}
         <span
           className="relative z-10 mt-1.5 h-2 w-2 rounded-full border-2 border-panel"
-          style={{ backgroundColor: roleHue, boxShadow: `0 0 0 1px ${roleHue}55` }}
+          style={{ backgroundColor: roleHue }}
         />
       </div>
       <div className="min-w-0">
@@ -210,7 +210,7 @@ function FeedGroupRow({
         {!last ? <span className="absolute -bottom-2.5 top-2 w-px bg-line/60" /> : null}
         <span
           className="relative z-10 mt-1.5 h-2 w-2 rounded-full border-2 border-panel"
-          style={{ backgroundColor: roleHue, boxShadow: `0 0 0 1px ${roleHue}55` }}
+          style={{ backgroundColor: roleHue }}
         />
       </div>
       <div className="min-w-0">

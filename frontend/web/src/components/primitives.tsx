@@ -26,7 +26,7 @@ export function Chip({
   return (
     <span
       className={`chip text-ink-dim ${className}`}
-      style={color ? { color, borderColor: `${color}44` } : undefined}
+      style={color ? { color } : undefined}
     >
       {children}
     </span>
