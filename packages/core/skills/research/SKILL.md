@@ -29,8 +29,9 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
 
 ## The claim and its evidence
 
-- The claim is the operator's goal; it does not shrink to fit the results. If it must change, say
-  so and keep the earlier results.
+- The claim is the operator's goal; it does not shrink to fit the results. If it must change (the
+  idea is already published, the benchmark is saturated), that is the operator's choice, as the
+  question was: write to them with the result that shows it, and keep the earlier results.
 - Only what ran is reported: a mock, a stand-in model or synthetic data where the claim names a
   real system belongs in a test, never in a result. Every number comes from the raw rows a run
   wrote.
