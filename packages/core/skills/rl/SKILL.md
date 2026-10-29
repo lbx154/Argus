@@ -15,8 +15,9 @@ cannot hold, write it into the team's `rl` skill beside this one, as a check whe
 ## A strong start
 
 - The models, data and evaluation: those that recent papers on the question share, checked now.
-  As of October 2026 math RLVR commonly starts from Qwen3 base models (4B, 8B) on DAPO-Math-17k with
-  a verl recipe, and evaluates on AIME 2024/2025 (16 to 32 samples per problem, averaged) and
+  As of October 2026 math RLVR commonly starts from a base checkpoint (Qwen3 or Qwen3.5, 4B or 8B
+  Base), not a post-trained release, which has had its RL already and thinks for tens of thousands
+  of tokens; it trains on DAPO-Math-17k with a verl or TRL recipe, and evaluates on AIME 2024/2025 (16 to 32 samples per problem, averaged) and
   MATH-500; check that this still holds before following it.
 - The stack: an RL framework whose rollouts run on an inference engine, such as verl or TRL's GRPO
   trainer, used as it ships: its loss, masking, importance correction and weight sync are tested,

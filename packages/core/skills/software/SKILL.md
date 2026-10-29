@@ -1,6 +1,6 @@
 ---
 name: software
-description: "Changing a software project: a change that builds, whose tests ran, and that does what was asked"
+description: "Changing a software project others build on (an experiment's own scripts are checked by their runs instead): a change that builds, whose tests ran, and that does what was asked"
 ---
 
 ## Why the Reviewer builds the change itself

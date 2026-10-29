@@ -7,10 +7,12 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
 
 ## Start where the field is
 
-- Before writing code, find where the question stands now: the strongest recent models, methods
-  and codebases for it, and the numbers they report on the benchmark you will use, from papers,
-  model cards and repositories checked today (their release dates too). A model's memory of the
-  field is a year or more old, and it reaches for the models and methods of its training data.
+- When the operator names a field but not the question, the question is theirs: read what this
+  year's strongest work in the field leaves open, and write to them two or three questions, each
+  with why it matters now, the closest published result and the result that would answer it.
+- Before writing code, find where the chosen question stands now: the strongest recent models,
+  methods and codebases for it, and the numbers they report on the benchmark you will use, from
+  papers, model cards and repositories checked today (their release dates too).
 - Build on the official code of the strongest fitting method or framework, and on the strongest
   current open model the machine can run, unless the question names others. A study of an
   outdated model, a toy setup, or a benchmark the model already nearly solves (GSM8K for a
