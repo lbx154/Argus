@@ -2,11 +2,12 @@ import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from "react-test-renderer";
 import type { Edge, Node } from "@xyflow/react";
-import type { ComponentProps } from "react";
+import { isValidElement, type ComponentProps, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { api } from "../api";
 import { MapCanvas } from "../map/MapPanel";
-import { EMPTY_CANVAS, placeAroundPeople, type CanvasRecord } from "../map/canvas";
+import { EMPTY_CANVAS, placeAroundPeople, type CanvasRecord, type Point } from "../map/canvas";
+import { LinkGuide } from "../map/CanvasNodes";
 import type { Dataset } from "../map/model";
 import type { DispatchObserver } from "../map/submission";
 
@@ -92,6 +93,9 @@ const flow = () => renderer.root.findByProps({ "data-testid": "flow" }).props.fl
   nodes: Node[]; edges: Edge[];
   onNodeDragStop: (e: unknown, n: unknown, nodes: Array<{ id: string; position: { x: number; y: number } }>) => void;
   onConnectEnd: (e: unknown, state: unknown) => void;
+  onConnectStart: () => void;
+  onNodesChange: (changes: unknown[]) => void;
+  children: ReactNode;
 };
 const wrap = () => renderer.root.find((n: ReactTestInstance) => n.props.className === "map-canvas-wrap");
 const human = () => flow().nodes.filter((n) => n.type === "human");
@@ -144,6 +148,54 @@ it("links two cards with the kind the person chooses and draws it as a human lin
   expect(writes).toEqual([{ method: "POST", path: "/links", body: { revision: 1, source: "hc-1", target: "parent", kind: "check" } }]);
   const edge = flow().edges.find((e) => e.type === "human")!;
   expect(edge).toMatchObject({ source: "hc-1", target: "parent", data: { kind: "check" } });
+});
+
+it("keeps a person's card measured through a canvas write, so its links stay drawn and startable", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "假设", position: { x: 0, y: -900 } }); });
+  writes = [];
+  act(() => { client.setQueryData(["map-canvas", "canvas"], server); });
+  await flush();
+  // React Flow's own bookkeeping: it measures the card, finds its handles and
+  // reports the size; then every write hands the nodes over again.
+  const { adoptUserNodes } = await import("@xyflow/system");
+  const lookup = new Map<string, any>();
+  const parents = new Map();
+  adoptUserNodes(flow().nodes, lookup, parents);
+  const handleBounds = { source: [{ id: "right", type: "source", position: "right", x: 1200, y: 240, width: 1, height: 1 }], target: [] };
+  const card = lookup.get("hc-1");
+  lookup.set("hc-1", { ...card, measured: { width: 1200, height: 480 }, internals: { ...card.internals, handleBounds } });
+  act(() => flow().onNodesChange([{ id: "hc-1", type: "dimensions", dimensions: { width: 1200, height: 480 } }]));
+  act(() => flow().onConnectEnd({ clientX: 20, clientY: 30 }, { fromNode: { id: "hc-1" }, toNode: { id: "parent" } }));
+  act(() => renderer.root.findAll((n) => n.props.role === "menuitemradio" && n.children.includes("依据"))[0].props.onClick());
+  await flush();
+  expect(writes).toHaveLength(1);
+  adoptUserNodes(flow().nodes, lookup, parents, { checkEquality: true });
+  // Without the size React Flow dropped the handles: the new link was not
+  // drawn and no line could start from the card until a reload.
+  expect(lookup.get("hc-1").internals.handleBounds).toBe(handleBounds);
+  expect(flow().edges.find((e) => e.type === "human")).toMatchObject({ source: "hc-1", target: "parent" });
+});
+
+it("drops a line on Esc and outlines the same card the drop would link", async () => {
+  await act(async () => { await fakeWrite("canvas", "POST", "/cards", { kind: "idea", text: "假设", position: { x: 0, y: -900 } }); });
+  act(() => { client.setQueryData(["map-canvas", "canvas"], server); });
+  const guide = () => [flow().children].flat().find((c): c is ReactElement<ComponentProps<typeof LinkGuide>> =>
+    isValidElement(c) && c.type === LinkGuide)!;
+  const menu = () => renderer.root.findAll((n) => n.props.role === "menuitemradio");
+  const node = { closest: (s: string) => s === ".react-flow__renderer" ? {} : s === ".react-flow__node" ? { getAttribute: () => "parent" } : null };
+  (document as unknown as { elementsFromPoint: unknown }).elementsFromPoint = () => [node];
+  // The guide's choice is the drop's choice.
+  expect(guide().props.targetAt("hc-1", { x: 600, y: 300 } as Point)).toBe("parent");
+  act(() => flow().onConnectStart());
+  expect(wrap().props["data-linking"]).toBe(true);
+  act(() => guide().props.onCancel());
+  expect(wrap().props["data-linking"]).toBeUndefined();
+  act(() => flow().onConnectEnd({ clientX: 600, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu()).toHaveLength(0);
+  // The next line is not cancelled.
+  act(() => flow().onConnectStart());
+  act(() => flow().onConnectEnd({ clientX: 600, clientY: 300 }, { fromNode: { id: "hc-1" }, toNode: null }));
+  expect(menu().length).toBeGreaterThan(0);
 });
 
 it("offers no link when the drop lands on a panel over the canvas or past its edge", async () => {

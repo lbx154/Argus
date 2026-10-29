@@ -279,6 +279,42 @@ def test_chunk_upload_routes_keep_tenant_origin_and_readonly_boundaries(provisio
         assert len(seen) == count
 
 
+def test_map_canvas_writes_reach_the_tenant_within_origin_and_readonly_boundaries(provisioned):
+    """Adding an idea card, drawing a link and moving a card on the research map."""
+    _, vault, store = provisioned
+    seen = []
+
+    def upstream(request):
+        seen.append(request)
+        return httpx.Response(200, stream=Chunks([b'{"canvas":{}}']), headers={"content-type": "application/json"})
+
+    base = "/api/projects/s-map/canvas"
+    writes = [
+        ("POST", base + "/cards", {"revision": 0, "kind": "idea", "text": "idea", "position": {"x": 0, "y": 0}}),
+        ("POST", base + "/links", {"revision": 1, "source": "hc-0123456789ab", "target": "t1", "kind": "basis"}),
+        ("PATCH", base + "/links/hl-0123456789ab", {"revision": 2, "kind": "check"}),
+        ("PUT", base + "/positions", {"revision": 3, "positions": {"t1": {"x": 1, "y": 2}}}),
+        ("DELETE", base + "/links/hl-0123456789ab?revision=4", None),
+        ("DELETE", base + "/cards/hc-0123456789ab?revision=5", None),
+    ]
+    with client_for(provisioned, upstream) as client:
+        login(client, store)
+        assert client.post(base + "/links", json={}, headers={"Origin": "https://other.test"}).status_code == 403
+        for method, path, body in writes:
+            assert client.request(method, path, json=body, headers={"Origin": ORIGIN}).status_code == 200, (method, path)
+            assert seen[-1].url.host == "trial-01"
+            assert seen[-1].method == method
+        assert seen[-1].url.params["revision"] == "5"
+        assert [r.url.path for r in seen] == [path.split("?")[0] for _, path, _ in writes]
+        count = len(seen)
+        login(client, store, readonly=True)
+        assert client.post(base + "/links", json={}, headers={"Origin": ORIGIN}).status_code == 403
+        assert len(seen) == count
+    assert not portal.permitted(base + "/positions", "POST")
+    assert not portal.permitted(base + "/links", "PUT")
+    assert not portal.permitted(base + "/cards/t1", "DELETE")
+    assert not portal.permitted(base + "/links/hl-0123456789ab/extra", "PATCH")
+
 def test_private_training_policy_supports_eleven_members_and_requires_analytics(provisioned):
     config, _, _ = provisioned
     members = sorted(config["tenants"])

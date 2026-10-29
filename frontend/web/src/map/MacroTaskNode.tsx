@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { MapLaunchContext } from "./launchContext";
 import { LaunchStartButton } from "../components/LaunchPanel";
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import type { Node, NodeProps } from "@xyflow/react";
 import {
   Check,
   ChevronLeft,
@@ -34,7 +34,7 @@ import {
   type MapCard,
 } from "./submap";
 import { SubmapEdges } from "./SubmapEdges";
-import { ConnectSource } from "./CanvasNodes";
+import { CanvasHandles } from "./CanvasNodes";
 import { CardNow, LiveLine } from "./LiveLine";
 import { MapCardFigureContext } from "./cardContext";
 import { WorkspaceImage } from "../components/MarkdownContent";
@@ -396,20 +396,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         data.menu(reference(), { x: e.clientX, y: e.clientY });
       }}
     >
-      {(["source", "target"] as const).flatMap((type) =>
-        [Position.Left, Position.Right, Position.Top, Position.Bottom].map(
-          (position) => (
-            <Handle
-              key={`${type}-${position}`}
-              id={position}
-              type={type}
-              position={position}
-              isConnectable={false}
-            />
-          ),
-        ),
-      )}
-      {data.connectable && !data.detailed && <ConnectSource zh={data.zh} />}
+      <CanvasHandles connectable={!!data.connectable && !data.detailed} zh={data.zh} />
       <div
         className="macro-summary"
         aria-hidden={detailed}

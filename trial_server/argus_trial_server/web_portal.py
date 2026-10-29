@@ -132,6 +132,14 @@ PROJECT_WRITES = re.compile(
     r"reviews/final|map-notes|reader-foundation(?:/[^/]+/question)?|"
     r"browser-draft|editions/(?:artifact|conversation))$"
 )
+# The research map's canvas (argus/webapi/routes/canvas.py): the cards a
+# person places, the links they draw and the cards they move.
+CANVAS_WRITES = {
+    "POST": re.compile(r"^/api/projects/[^/]+/canvas/(?:cards|links)$"),
+    "PATCH": re.compile(r"^/api/projects/[^/]+/canvas/(?:cards/hc|links/hl)-[0-9a-f]{12}$"),
+    "DELETE": re.compile(r"^/api/projects/[^/]+/canvas/(?:cards/hc|links/hl)-[0-9a-f]{12}$"),
+    "PUT": re.compile(r"^/api/projects/[^/]+/canvas/positions$"),
+}
 # These operations must remain reachable while ordinary reads or message
 # streams occupy every workspace connection. Keep model-backed routes out.
 CONTROL_ROUTES = re.compile(
@@ -488,6 +496,8 @@ def permitted(path: str, method: str) -> bool:
         return method in {"PUT", "DELETE"}
     if re.fullmatch(r"/api/projects/[^/]+/attachments/uploads(?:/att-[a-f0-9]{12}/complete)?", path):
         return method == "POST"
+    if method in CANVAS_WRITES and CANVAS_WRITES[method].fullmatch(path):
+        return True
     if method == "POST":
         return bool(
             PROJECT_WRITES.fullmatch(path) or PLUGIN_WRITES.fullmatch(path)

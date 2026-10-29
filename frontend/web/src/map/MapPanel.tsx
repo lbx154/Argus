@@ -89,7 +89,7 @@ import { workSummary } from '../lib/workSummary';
 import { COUNTED_OUT } from '../lib/projectOverview';
 import { recalledView, rememberView } from "./viewMemory";
 import { clearOfChrome, humanFrame, isHumanCardId, LINK_KINDS, resolveLinkTarget, placeAroundPeople, useCanvas, type HumanCard, type LinkKind, type Point, type RouteStep } from "./canvas";
-import { HumanCardView, HumanLinkView, type HumanCardNode, type HumanLinkEdge } from "./CanvasNodes";
+import { HumanCardView, HumanLinkView, LinkGuide, type HumanCardNode, type HumanLinkEdge } from "./CanvasNodes";
 
 interface MapWorkspaceActions {
   conversationEvents: EventMsg[];
@@ -883,6 +883,11 @@ export function MapCanvas({
   const toFlow = useCallback((point: Point) => flowInstance.current?.screenToFlowPosition(point) ?? point, []);
   const [draft, setDraft] = useState<{ id: string; position: Point; kind: "idea" | "step" } | null>(null);
   const [humanDrag, setHumanDrag] = useState<Record<string, Point>>({});
+  // The size React Flow measured for each person's card. A controlled node
+  // without it is remeasured from scratch whenever the canvas changes, and
+  // until then React Flow knows none of its handles: no link starts from the
+  // card and none to or from it is drawn (a link vanished as it was saved).
+  const [humanSize, setHumanSize] = useState<Record<string, { width: number; height: number }>>({});
   const [editingCard, setEditingCard] = useState<string | null>(null);
   const [canvasMenu, setCanvasMenu] = useState<CanvasMenu | null>(null);
   const [canvasNotice, setCanvasNotice] = useState("");
@@ -949,6 +954,7 @@ export function MapCanvas({
         position: humanDrag[card.id] ?? (isDraft ? draft!.position : canvasRecord.positions[card.id]) ?? { x: 0, y: 0 },
         width: frame.width,
         height: frame.height,
+        measured: humanSize[card.id],
         style: { width: frame.width, height: frame.height },
         draggable: editable && !isDraft,
         selectable: false,
@@ -965,7 +971,7 @@ export function MapCanvas({
         },
       };
     });
-  }, [canvasRecord, draft, humanDrag, editable, zh, commitCard, cancelCard, actions.onOpenArtifact, cardMenu, editingCard,
+  }, [canvasRecord, draft, humanDrag, humanSize, editable, zh, commitCard, cancelCard, actions.onOpenArtifact, cardMenu, editingCard,
     routeSteps, taskTitle, openStepQuestion, setDraftKind]);
   const flowNodes = useMemo(() => humanNodes.length ? [...displayNodes, ...humanNodes] : displayNodes,
     [displayNodes, humanNodes]);
@@ -1041,12 +1047,16 @@ export function MapCanvas({
   const onFlowNodesChange = useCallback((changes: NodeChange[]) => {
     const theirs: NodeChange<MacroNode>[] = [];
     const moved: Record<string, Point> = {};
+    const sized: Record<string, { width: number; height: number }> = {};
     for (const change of changes) {
       if ("id" in change && isCanvasNodeId(change.id)) {
         if (change.type === "position" && change.position) moved[change.id] = change.position;
+        if (change.type === "dimensions" && change.dimensions) sized[change.id] = change.dimensions;
       } else theirs.push(change as NodeChange<MacroNode>);
     }
     if (Object.keys(moved).length) setHumanDrag((current) => ({ ...current, ...moved }));
+    if (Object.keys(sized).length) setHumanSize((current) => Object.entries(sized).every(([id, size]) =>
+      current[id]?.width === size.width && current[id]?.height === size.height) ? current : { ...current, ...sized });
     if (theirs.length) onNodesChange(theirs);
   }, [onNodesChange]);
   const onNodeDragStop = useCallback((_: unknown, _node: unknown, dragged: Array<{ id: string; position: Point }>) => {
@@ -1062,28 +1072,41 @@ export function MapCanvas({
     });
   }, [canvasApi.move, failed]);
   const [linking, setLinking] = useState(false);
-  const onConnectStart = useCallback(() => { setLinking(true); camera.hold(); }, [camera.hold]);
-  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
-    setLinking(false);
-    const point = "changedTouches" in event ? event.changedTouches[0] : event;
-    const source = state.fromNode?.id;
-    if (!source) return;
-    // Task cards take no links, so React Flow rarely names the target: the
-    // drop point does (canvas.ts resolveLinkTarget).
+  // Esc while drawing drops the line; React Flow still reports its end.
+  const linkCancelled = useRef(false);
+  const linkCandidates = useMemo(() => flowNodes.flatMap((n) => n.hidden ? [] : [{ id: n.id, kind: n.type ?? "",
+    x: n.position.x, y: n.position.y, width: n.width ?? n.measured?.width ?? 0, height: n.height ?? n.measured?.height ?? 0 }]),
+  [flowNodes]);
+  /** The card a line from ``source`` would link to if dropped at this screen
+   * point. Task cards take no links, so React Flow rarely names the target:
+   * the point does (canvas.ts resolveLinkTarget). */
+  const linkTargetAt = useCallback((source: string, point: Point, named?: string | null) => {
     const under = typeof document.elementsFromPoint === "function"
-      ? document.elementsFromPoint(point.clientX, point.clientY)
-      : [document.elementFromPoint(point.clientX, point.clientY)];
+      ? document.elementsFromPoint(point.x, point.y)
+      : [document.elementFromPoint(point.x, point.y)];
     // Only a drop on the canvas itself links: one over a panel, the rail or
     // past the canvas edge never reaches a card hidden behind it.
-    if (!under[0]?.closest(".react-flow__renderer")) return;
-    const stack = [state.toNode?.id, ...under.map((el) => el?.closest(".react-flow__node")?.getAttribute("data-id"))];
-    const target = resolveLinkTarget(source, stack, toFlow({ x: point.clientX, y: point.clientY }),
-      flowNodes.flatMap((n) => n.hidden ? [] : [{ id: n.id, kind: n.type ?? "", x: n.position.x, y: n.position.y,
-        width: n.width ?? n.measured?.width ?? 0, height: n.height ?? n.measured?.height ?? 0 }]));
+    if (!under[0]?.closest(".react-flow__renderer")) return undefined;
+    const stack = [named, ...under.map((el) => el?.closest(".react-flow__node")?.getAttribute("data-id"))];
+    return resolveLinkTarget(source, stack, toFlow(point), linkCandidates);
+  }, [toFlow, linkCandidates]);
+  const onConnectStart = useCallback(() => {
+    linkCancelled.current = false;
+    setLinking(true);
+    camera.hold();
+  }, [camera.hold]);
+  const cancelLink = useCallback(() => { linkCancelled.current = true; setLinking(false); }, []);
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+    setLinking(false);
+    if (linkCancelled.current) return;
+    const point = "changedTouches" in event ? event.changedTouches[0] : event;
+    const source = state.fromNode?.id;
+    if (!source || !point) return;
+    const target = linkTargetAt(source, { x: point.clientX, y: point.clientY }, state.toNode?.id);
     if (!target) return;
     setCanvasMenu({ type: "connect", source, target,
       x: Math.min(window.innerWidth - 180, point.clientX), y: Math.min(window.innerHeight - 220, point.clientY) });
-  }, [toFlow, flowNodes]);
+  }, [linkTargetAt]);
   const addIdeaAt = useCallback((event: React.MouseEvent) => {
     if (!editable || draft || !(event.target as Element).closest(".react-flow__pane")) return;
     camera.hold();
@@ -1762,6 +1785,7 @@ export function MapCanvas({
               onlyRenderVisibleElements={fitted && nodesReady}
               proOptions={{ hideAttribution: true }}
             >
+              {editable && <LinkGuide targetAt={linkTargetAt} boxes={linkCandidates} onCancel={cancelLink} />}
               <Background
                 variant={BackgroundVariant.Dots}
                 gap={88}
