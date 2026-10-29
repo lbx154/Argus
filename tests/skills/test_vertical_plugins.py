@@ -109,39 +109,6 @@ def test_invalid_skill_parents_reject_the_plugin(tmp_path, monkeypatch, parents)
 # --- memoisation: one scan per process, refresh really rescans ---
 
 
-def test_pre_rename_entry_point_group_is_read_and_loses_to_the_new_group(tmp_path, monkeypatch, caplog) -> None:
-    """``argus-verticals`` releases registered under ``argus_skill.verticals`` keep working.
-
-    A name present in both groups comes from the new group; a name only in the
-    old group is registered and warned about once, by name, so the maintainer
-    of the distribution knows what to change.
-    """
-    import logging
-
-    current = module(tmp_path / "current", purpose="Registered under the current group")
-    legacy_only = module(tmp_path / "legacy", purpose="Registered under the old group only")
-    legacy_duplicate = module(tmp_path / "duplicate", purpose="Old-group copy of a current plugin")
-    groups = {
-        _registry.ENTRY_POINT_GROUP: [Entry("shared_lab", current)],
-        _registry.LEGACY_ENTRY_POINT_GROUP: [
-            Entry("shared_lab", legacy_duplicate), Entry("old_lab", legacy_only),
-        ],
-    }
-    monkeypatch.setattr(_registry, "entry_points", lambda group: list(groups[group]))
-    _registry.refresh_vertical_plugins()
-
-    with caplog.at_level(logging.WARNING, logger="argus.verticals._registry"):
-        plugins = _registry.vertical_plugins()
-
-    assert plugins["shared_lab"].module is current
-    assert plugins["old_lab"].module is legacy_only
-    legacy_warnings = [r.getMessage() for r in caplog.records if "pre-rename group" in r.getMessage()]
-    assert len(legacy_warnings) == 1
-    assert "old_lab" in legacy_warnings[0] and "shared_lab" not in legacy_warnings[0]
-    assert _registry.LEGACY_ENTRY_POINT_GROUP in legacy_warnings[0]
-    assert not any("duplicate" in r.getMessage() for r in caplog.records)
-
-
 def test_a_broken_managed_plugin_does_not_hide_entry_point_plugins(tmp_path, monkeypatch) -> None:
     from argus.core import plugin_manager
 
@@ -212,7 +179,7 @@ def test_a_plugin_that_reads_the_registry_while_loading_does_not_trigger_a_secon
         available = vertical_select.available_verticals()
 
     assert "reentrant" in available
-    assert scans == [_registry.ENTRY_POINT_GROUP, _registry.LEGACY_ENTRY_POINT_GROUP]
+    assert scans == [_registry.ENTRY_POINT_GROUP]
     assert not any("incompatible contract" in r.getMessage() for r in caplog.records)
 
 

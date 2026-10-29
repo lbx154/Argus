@@ -16,9 +16,7 @@ Three sources feed one registry:
   discovers store verticals exactly like a source checkout.
 * **entry-point plugins** -- distributions that register
   ``argus.verticals`` entry points; the ``argus-verticals`` community
-  package registers seventeen. The pre-rename group ``argus_skill.verticals``
-  is read as well for one release (a name present in both groups is taken
-  from the new one). A distribution cannot appear or vanish inside
+  package registers seventeen. A distribution cannot appear or vanish inside
   a running interpreter without a ``pip`` action, so the scan (every
   dist-info via ``importlib.metadata``, then one ``entry.load()`` and contract
   check per plugin) runs once per process and is memoised. The Manager menu
@@ -49,9 +47,6 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 ENTRY_POINT_GROUP = "argus.verticals"
-#: Group name before the 2026-09-14 package rename. ``argus-verticals``
-#: releases published under it keep working for one release.
-LEGACY_ENTRY_POINT_GROUP = "argus_skill.verticals"
 VERTICAL_API_VERSION = 1
 ORIGINS: tuple[str, ...] = ("managed", "store", "entry_point")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
@@ -194,23 +189,9 @@ def _entry_point_plugins(plugins: dict[str, VerticalPlugin]) -> dict[str, Vertic
     """Scan the entry-point group once into ``plugins``; invalid registrations are not advertised."""
     try:
         discovered = list(entry_points(group=ENTRY_POINT_GROUP))
-        legacy = list(entry_points(group=LEGACY_ENTRY_POINT_GROUP))
     except Exception:  # noqa: BLE001
         log.warning("vertical entry-point discovery failed", exc_info=True)
         return plugins
-    current_names = {str(entry.name or "").strip().lower() for entry in discovered}
-    legacy_only = [
-        entry for entry in legacy
-        if str(entry.name or "").strip().lower() not in current_names
-    ]
-    if legacy_only:
-        log.warning(
-            "vertical entry points %s are registered under the pre-rename group %r; "
-            "register them under %r (the old group is read for one release)",
-            sorted({str(entry.name or "").strip().lower() for entry in legacy_only}),
-            LEGACY_ENTRY_POINT_GROUP, ENTRY_POINT_GROUP,
-        )
-        discovered.extend(legacy_only)
     from ..core import plugin_manager
 
     try:
@@ -360,7 +341,6 @@ def refresh_vertical_plugins() -> None:
 
 __all__ = [
     "ENTRY_POINT_GROUP",
-    "LEGACY_ENTRY_POINT_GROUP",
     "ORIGINS",
     "VERTICAL_API_VERSION",
     "VerticalPlugin",
