@@ -32,8 +32,10 @@ const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', com
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 
-/** The project's name: the operator's, or with none the first line of its request. */
-const named = (project: Project): string => project.name || project.request.split('\n')[0]!.slice(0, 80);
+/** The project's name: the operator's, else the title the Manager gave the first task it opened,
+ * else the first line of its request. */
+const named = (project: Project): string =>
+  project.name || project.tasks.find(task => task.from === 'manager')?.title || project.request.split('\n')[0]!.slice(0, 80);
 
 /** A letter's first line as a heading reads it: a link as its words, without markup. */
 const firstLine = (text: string): string => text.split('\n')
