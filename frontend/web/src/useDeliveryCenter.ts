@@ -7,8 +7,12 @@ function readSeen(key: string): string[] {
   try { const ids: unknown = JSON.parse(readLocalStorage(key) || '[]'); return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []; } catch { return []; }
 }
 
+/** How long a new result's announcement stays: the receipt in the conversation and the
+ * results count stay after it. */
+export const FRESH_FOR_MS = 8_000;
+
 /** Historical receipts stay accessible; a newly received file delivery is announced
- * (badge + dismissible toast) but never opens the full-screen viewer on its own,
+ * (badge + a toast that goes by itself) but never opens the full-screen viewer on its own,
  * so the reply and the composer draft stay visible. */
 export function useDeliveryCenter(sid: string | null, ready: boolean, receipt: DeliveryReceipt | null, canAutoOpen = true) {
   const observed = useRef<{ sid: string; ids: Set<string> }>();
@@ -40,6 +44,11 @@ export function useDeliveryCenter(sid: string | null, ready: boolean, receipt: D
     observed.current.ids.add(id);
     if (receipt && deliveryFiles(receipt).length && !readSeen(`argus.delivery.seen.v1:${sid}`).includes(id)) setFresh({ sid, receipt });
   }, [sid, ready, receipt, canAutoOpen]);
+  useEffect(() => {
+    if (!fresh) return;
+    const timer = setTimeout(() => setFresh(null), FRESH_FOR_MS);
+    return () => clearTimeout(timer);
+  }, [fresh]);
   return {
     selection: selection?.sid === sid ? selection : null,
     open,

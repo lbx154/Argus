@@ -1299,6 +1299,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t, commands]);
 
+  const freshFiles = deliveryCenter.fresh ? deliveryFiles(deliveryCenter.fresh) : [];
   return (
     <DraftUploadContext.Provider value={draftUploadView}>
     <ProgressQuestionsProvider sid={activeSid} readOnly={kiosk}>
@@ -1316,11 +1317,12 @@ export default function App() {
           if (projectCostsQ.isEnabled) void projectCostsQ.refetch();
         }}
       />
-      {deliveryCenter.fresh && !deliveryCenter.selection && <div className="delivery-toast" role="status" aria-live="polite">
-        <span>{t(isStagePackage(deliveryCenter.fresh) ? 'delivery.freshStage' : 'delivery.freshTask')}{deliveryCenter.fresh.title}</span>
+      {freshFiles.length && !deliveryCenter.selection ? <div className="delivery-toast" role="status" aria-live="polite">
+        <strong>{t('delivery.fresh')}</strong>
+        <span>{freshFiles.length > 1 ? t('delivery.freshFiles', { file: freshFiles[0]!.label, count: freshFiles.length, more: freshFiles.length - 1 }) : freshFiles[0]!.label}</span>
         <button type="button" onClick={() => openDelivery(deliveryCenter.fresh!)}>{locale === 'zh-CN' ? '查看' : 'Open'}</button>
         <button type="button" aria-label={locale === 'zh-CN' ? '关闭' : 'Dismiss'} onClick={deliveryCenter.dismissFresh}>×</button>
-      </div>}
+      </div> : null}
       {deliveryCenter.selection && <ArtifactModal
         key={`${deliveryCenter.selection.sid}:${deliveryCenter.selection.receipt.delivery_id}`}
         sid={deliveryCenter.selection.sid} path={deliveryCenter.selection.path}

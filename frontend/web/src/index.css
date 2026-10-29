@@ -862,10 +862,10 @@ button {
   }
 }
 
-/* A new delivery is announced near the top of the workspace, clear of the
- * composer dock and its send button at every width; it never covers the reply. */
+/* A new delivery is announced near the top of the workspace, below the header and its
+ * tabs, clear of the composer dock at every width, and under any dialog. */
 .delivery-toast {
-  position: fixed; top: 68px; left: 50%; transform: translateX(-50%); z-index: 60;
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 40;
   display: flex; align-items: center; gap: 10px;
   width: max-content; max-width: min(420px, calc(100vw - 32px));
   padding: 10px 14px; border-radius: 10px;
@@ -873,7 +873,9 @@ button {
   border: 1px solid rgb(var(--line)); box-shadow: var(--shadow-lift);
   font-size: 13px;
 }
-.delivery-toast span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.delivery-toast strong { flex: none; font-weight: 600; }
+.delivery-toast span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink-dim)); }
+@media (min-width: 1024px) { .delivery-toast { top: 108px; } }
 .delivery-toast button { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; }
 .delivery-toast button:first-of-type { color: rgb(var(--blue)); font-weight: 600; }
 /* Asset selection follows the workbench theme, including manual overrides. */

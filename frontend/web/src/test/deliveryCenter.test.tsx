@@ -1,7 +1,7 @@
 import { act, create } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { useDeliveryCenter } from '../useDeliveryCenter';
+import { FRESH_FOR_MS, useDeliveryCenter } from '../useDeliveryCenter';
 import { cleanDeliverySummary, deliveryFiles, defaultDeliverySelection, selectActiveDelivery, hasPendingDeliveryDependents } from '../components/deliveryPresentation';
 const receipt = (id: string): DeliveryReceipt => ({ schema_version: 1, delivery_id: id, item_id: id, kind: 'task_completed', status: 'done', review_status: 'done', title: id, summary: 'Ready. RESULT=Checks passed.', delivered_at: 1, primary_target: { path: 'index.html', label: 'Website', source: 'delivery', why: 'Reviewed' }, targets: [{ path: 'report.md', label: 'Report', source: 'delivery', why: 'Reviewed' }] });
 afterEach(() => vi.unstubAllGlobals());
@@ -38,6 +38,23 @@ it('announces a new delivery without opening the viewer, keeps files selectable,
   act(() => renderer.update(<Probe sid="a" delivery={receipt('new')} />));
   expect(center.selection).toBeNull(); // persisted across session changes
   act(() => renderer.unmount());
+});
+
+it('lets the announcement of a new result go by itself', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined });
+  let center!: ReturnType<typeof useDeliveryCenter>;
+  function Probe({ delivery }: { delivery: DeliveryReceipt | null }) { center = useDeliveryCenter('a', true, delivery); return null; }
+  let renderer!: ReturnType<typeof create>;
+  act(() => { renderer = create(<Probe delivery={null} />); });
+  act(() => renderer.update(<Probe delivery={receipt('new')} />));
+  expect(center.fresh?.delivery_id).toBe('new');
+  act(() => { vi.advanceTimersByTime(FRESH_FOR_MS - 1); });
+  expect(center.fresh?.delivery_id).toBe('new');
+  act(() => { vi.advanceTimersByTime(1); });
+  expect(center.fresh).toBeNull();
+  act(() => renderer.unmount());
+  vi.useRealTimers();
 });
 
 it('opens the research manuscript after a newer task delivered only its review report', () => {
