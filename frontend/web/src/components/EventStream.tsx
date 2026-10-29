@@ -531,7 +531,7 @@ function RoleLogGroup({
           {commandCount > 0 ? <div className="flex border-t border-line/40 px-4 py-1.5">
             <button type="button" data-command-toggle aria-expanded={showCommands} onClick={() => setShowCommands(current => !current)}
               className="rounded text-xs text-ink-faint hover:text-ink-dim">
-              {showCommands ? t('stream.hideCommands') : t('stream.showCommands', { count: commandCount })}
+              {showCommands ? t('stream.hideCommands') : t('stream.showCommands')}
             </button>
           </div> : null}
           <div className="relative min-h-0 overflow-hidden">

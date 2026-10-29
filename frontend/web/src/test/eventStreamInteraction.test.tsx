@@ -690,7 +690,7 @@ describe('project work progress in plain words', () => {
     expect(visibleText(group)).not.toMatch(/python|research-plan|continue/);
     const [toggle] = toggles('reviewer');
     expect(toggle.props['aria-expanded']).toBe(false);
-    expect(visibleText(toggle)).toBe('Show commands (2)');
+    expect(visibleText(toggle)).toBe('Show commands');
 
     act(() => toggle.props.onClick());
     expect(visibleText(toggles('reviewer')[0])).toBe('Hide commands');

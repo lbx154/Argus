@@ -347,7 +347,7 @@ describe('EventStream renders folded rows', () => {
     expect(html).toContain('<code>sizefmt/core.py</code>');
     expect(html).not.toContain('**');
     expect(html).not.toContain('ls sizefmt/__init__.py');
-    expect(html).toContain('Show commands (1)');
+    expect(html).toContain('Show commands');
   });
 
   it('keeps the lane of a role whose work came before the loaded events', () => {

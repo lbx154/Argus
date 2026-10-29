@@ -34,7 +34,7 @@ it('loads server identity before rendering official asset URLs and chrome', asyn
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => custom }));
   await loadApplicationBrand();
   expect(applicationBrand().name).toBe('Example');
-  expect(document.title).toBe('Example · Workbench');
+  expect(document.title).toBe('Example');
   expect(meta.setAttribute).toHaveBeenCalledWith('content', 'Example');
   expect(manifest.setAttribute).toHaveBeenCalledWith('href', '/api/application-brand/manifest.webmanifest');
   expect(links.map((link) => link.href)).toEqual([assets.icon, assets.icon_dark]);

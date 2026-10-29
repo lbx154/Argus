@@ -17,7 +17,7 @@ import { promptHistory, type PromptSources } from './lib/promptCompletion';
 import { appendPhaseStep, closePhaseTrail, type PhaseStep, trailToTurnSteps, turnStepsFrom } from '../../core/src/phaseTrail';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
-import { ConfigModal, TranscriptModal } from './components/InfoModals';
+import { ConfigModal } from './components/InfoModals';
 import { PendingBanner } from './components/PendingBanner';
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
@@ -85,7 +85,7 @@ import {
   subscribeDesktopNewChat,
 } from './lib/desktopBridge';
 
-type Overlay = 'none' | 'palette' | 'help' | 'config' | 'transcript' | 'inspector' | 'learning';
+type Overlay = 'none' | 'palette' | 'help' | 'config' | 'inspector' | 'learning';
 interface ActiveMessageRequest {
   id: number;
   serverRequestId: string;
@@ -1081,25 +1081,10 @@ export default function App() {
   const paletteItems: PaletteItem[] = useMemo(() => {
     const nav: PaletteItem[] = [
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
-      { id: 'transcript', label: t('palette.openTranscript'), group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
       { id: 'help', label: t('help.title'), hint: '?', group: t('palette.view'), run: () => setOverlay('help') },
-      {
-        id: 'reasoning',
-        label: showReasoning ? t('palette.hideReasoning') : t('palette.showReasoning'),
-        hint: shortcut('T'),
-        group: t('palette.view'),
-        run: () => setShowReasoning((v) => !v),
-      },
-      {
-        id: 'kiosk',
-        label: kiosk ? t('palette.exitKiosk') : t('palette.enterKiosk'),
-        hint: shortcut('.'),
-        group: t('palette.view'),
-        run: () => setKiosk((v) => !v),
-      },
     ];
     const acts: PaletteItem[] = kiosk
       ? []
@@ -1118,13 +1103,6 @@ export default function App() {
                 },
               ]
             : []),
-          ...(snap?.daemon.control_available === false
-            ? []
-            : [
-                snap?.daemon.alive
-                  ? { id: 'stop', label: t('palette.stopDaemon'), group: t('palette.action'), run: requestPauseDaemon }
-                  : { id: 'start', label: t('palette.startDaemon'), group: t('palette.action'), run: requestStartDaemon },
-              ]),
         ];
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
@@ -1136,7 +1114,7 @@ export default function App() {
     }));
     return [...nav, ...acts, ...proj];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projects, snap?.daemon.alive, kiosk, showReasoning, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
+  }, [projects, kiosk, continuous?.enabled, continuous?.open_ended, messagePending, stopWaiting, setComposerDraft, locale, t]);
 
   const freshFiles = deliveryCenter.fresh ? deliveryFiles(deliveryCenter.fresh) : [];
   return (
@@ -1505,7 +1483,6 @@ export default function App() {
           onClose={() => setOverlay('none')}
         />
       )}
-      {activeSid && <TranscriptModal sid={activeSid} open={overlay === 'transcript'} onClose={() => setOverlay('none')} />}
       {activeSid && snap ? (
         <ProjectInspectorModal
           open={overlay === 'inspector'}

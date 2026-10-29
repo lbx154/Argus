@@ -131,8 +131,8 @@ export function CommandPalette({
                     active ? 'bg-blue-deep/20 text-ink' : 'text-ink-dim hover:bg-panel/60'
                   }`}
                 >
-                  <span>{it.label}</span>
-                  {it.hint && <span className="font-mono text-[11px] text-ink-faint">{it.hint}</span>}
+                  <span className="min-w-0 truncate">{it.label}</span>
+                  {it.hint && <span className="shrink-0 whitespace-nowrap pl-3 font-mono text-[11px] text-ink-faint">{it.hint}</span>}
                 </button>
               );
             })}

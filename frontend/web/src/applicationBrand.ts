@@ -37,7 +37,7 @@ export async function loadApplicationBrand(storage: () => Storage | undefined = 
 function applyApplicationBrand(value: typeof brand) {
   brand = value;
   if (brand.id === 'argus') return;
-  document.title = `${brand.name} · Workbench`;
+  document.title = brand.name;
   document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', brand.name);
   document.querySelector('link[rel="manifest"]')?.setAttribute('href', '/api/application-brand/manifest.webmanifest');
   for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="apple-touch-icon"]')) {
