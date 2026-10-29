@@ -48,4 +48,36 @@ for (const stream of ['stdout', 'stderr'] as const) {
       assert.equal(result.code, 0);
     });
   }
+
+  for (const scenario of [
+    { name: 'a line of exactly the limit passes', text: 'A€🌍\n12345678', limit: 8, lines: ['A€🌍', '12345678'], overflow: false },
+    { name: 'a longer line stops the run', text: 'ok\n123456789\nnext\n', limit: 8, lines: ['ok'], overflow: true },
+  ]) {
+    test(`${stream}, stopping on overflow: ${scenario.name}`, { timeout: 10_000 }, async () => {
+      const bytes = [...Buffer.from(scenario.text)];
+      const source = `
+        for (const byte of ${JSON.stringify(bytes)}) {
+          process.${stream}.write(Buffer.from([byte]));
+          await new Promise(resolve => setTimeout(resolve, 2));
+        }
+        ${scenario.overflow ? 'setInterval(() => {}, 1_000);' : ''}
+      `;
+      const lines: string[] = [];
+      let result: ProcessExit | undefined;
+      for await (const event of executeProcess({
+        executable: process.execPath, args: ['--input-type=module', '-e', source],
+        cwd: process.cwd(), input: '', maxLineBytes: scenario.limit, stopOnLineOverflow: true,
+        maxBufferedBytes: 64, wallTimeoutMs: 5_000, idleTimeoutMs: 3_000, terminateGraceMs: 100,
+      })) {
+        if (event.type === 'line') {
+          assert.equal(event.stream, stream);
+          lines.push(event.line);
+        } else result = event;
+      }
+      assert.deepEqual(lines, scenario.lines);
+      assert.ok(result);
+      assert.equal(result.stopKind, scenario.overflow ? 'output_limit' : null);
+      if (!scenario.overflow) assert.equal(result.code, 0);
+    });
+  }
 }

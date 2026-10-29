@@ -28,6 +28,8 @@ export interface ProcessOptions {
   idleTimeoutMs?: number;
   terminateGraceMs?: number;
   maxLineBytes?: number;
+  /** Stop with output_limit on an oversized line; by default only that line is dropped. */
+  stopOnLineOverflow?: boolean;
   maxBufferedBytes?: number;
   /** Native OS shim. Its private lease belongs to this runtime, never the UI. */
   guardian?: ProcessGuardianOptions;
@@ -212,7 +214,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     const decoder = new StringDecoder('utf8');
     let pending: string[] = [];
     let pendingBytes = 0;
-    // A line past the limit is dropped, not the run: one oversized event (a command's whole
+    // By default a line past the limit is dropped: one oversized event (a command's whole
     // output) costs only itself, and memory stays bounded while the rest of it streams past.
     let skipping = false;
     const emit = (): void => {
@@ -236,6 +238,10 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
           if (pendingBytes > lineLimit) {
             pending = [];
             pendingBytes = 0;
+            if (options.stopOnLineOverflow) {
+              requestStop('output_limit', 'Runner output line exceeded its byte limit.');
+              return;
+            }
             skipping = true;
           } else if (part) pending.push(part);
         }

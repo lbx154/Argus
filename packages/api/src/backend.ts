@@ -89,6 +89,7 @@ export class PythonQueryBackend implements QueryBackend {
       cwd: this.options.sourceRoot, env, input, signal,
       wallTimeoutMs: this.timeoutMs, idleTimeoutMs: this.timeoutMs,
       maxLineBytes: costs ? READ_API.max_cost_frame_bytes : READ_API.max_response_bytes,
+      stopOnLineOverflow: true,
       maxBufferedBytes: READ_API.max_response_bytes + 1,
     })) {
       if (event.type === 'line' && event.stream === 'stdout') {
