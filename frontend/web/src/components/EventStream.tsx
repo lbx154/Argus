@@ -36,11 +36,12 @@ import { TurnSteps } from './TurnSteps';
 import { turnStepsFrom } from '../../../core/src/phaseTrail';
 import { plainDetail, plainTaskReport } from '../lib/plainStatus';
 import { isCallRow, plainRowText, roleHeadline, type ProgressText } from '../lib/plainProgress';
-import { activeProviderRequest, currentWorkStatus, eventTaskId } from '../lib/workStatus';
+import { activeProviderRequest, eventTaskId } from '../lib/workStatus';
 import { ReplyOptionButtons, readableQuestions, splitReplyOptions } from './ReplyOptions';
 import { StepProcessContext, StepProcessDisclosure } from './LiveWorkCard';
 import { earlierRoleWork } from './agentActivityModel';
-import { liveActivity, liveLines, type LiveLine } from '../lib/liveActivity';
+import { liveLines, type LiveLine } from '../lib/liveActivity';
+import { roleActionLabel } from '../lib/taskLanguage';
 export { activeProviderRequest } from '../lib/workStatus';
 import { splitDraft } from '../map/presentation';
 import type { ConversationHistoryStatus } from '../useConversationHistory';
@@ -57,7 +58,7 @@ import { History, PencilLine, Play } from 'lucide-react';
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 // A thread that project work interrupted continues without its operator row.
 type ConversationGroup = { key: string; operator?: ActivityRow; rows: ActivityRow[] };
-// One card per task, where its work started; '' collects work that names no task.
+// One card per task, where its work started.
 type TaskBlock = { key: string; taskId: string; rows: ActivityRow[]; deliveries: DeliveryReceipt[] };
 export type TimelineBlock = ({ kind: 'thread' } & ConversationGroup) | ({ kind: 'task' } & TaskBlock);
 const RUNTIME_INFO_PATTERN = /Info: (?:Operation cancelled by user|Response was interrupted due to a server error\. Retrying\.\.\.)/gi;
@@ -467,9 +468,12 @@ function RoleLogGroup({
   const commandCount = useMemo(() => rows.filter(row => isCallRow(row.ev)).length, [rows]);
   const shown = useMemo(() => showCommands ? rows : rows.filter(row => !isCallRow(row.ev)), [rows, showCommands]);
   const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
-  // The collapsed header says what the role is doing or concluded, never a command.
+  // The collapsed header says what the role is doing or concluded, never a command:
+  // at work, only what it does on the tasks the server says it is on now.
   const taskTitle = useContext(TaskTitleContext);
-  const headline = useMemo(() => roleHeadline(rows, locale, taskTitle) || earlier || '', [rows, locale, taskTitle, earlier]);
+  const headline = useMemo(() => active
+    ? roleHeadline(tasks.length ? rows.filter(row => tasks.includes(eventTaskId(row.ev))) : rows, locale, taskTitle)
+    : roleHeadline(rows, locale, taskTitle) || earlier || '', [active, tasks, rows, locale, taskTitle, earlier]);
   // At work on several tasks at once, it says what it does now on each.
   const several = active && tasks.length > 1;
   const each = useMemo(() => several ? tasks.map(id => ({
@@ -514,7 +518,7 @@ function RoleLogGroup({
           {several ? (zh ? `· ${tasks.length} 个任务进行中` : `· ${tasks.length} tasks under way`)
             : headline
             ? <>{active ? (zh ? '现在：' : 'Now: ') : (zh ? '之前：' : 'Last: ')}<RowWords text={headline} prose /></>
-            : rows.length ? null : zh ? '还没开始' : 'Not started'}
+            : active ? (zh ? '刚开始' : 'Just started') : rows.length ? null : zh ? '还没开始' : 'Not started'}
         </span>
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
@@ -781,14 +785,13 @@ export function foldedContinuationRuns(rows: Array<{ key: string; ev: EventMsg }
 export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
   const blocks: TimelineBlock[] = [];
   const tasks = new Map<string, Extract<TimelineBlock, { kind: 'task' }>>();
-  let latestTask = '';
   let held: ActivityRow[] = [];
   let awaitingReply = false;
   const addWork = (row: ActivityRow) => {
-    // A note that names no task belongs to the task in hand.
-    const taskId = eventTaskId(row.ev) || latestTask;
-    // A Manager reply's own steps already show on that reply.
-    if (taskId.startsWith('turn:')) return;
+    // Work on no task (the Manager's or the Planner's own) is the team's progress, not a task's;
+    // a Manager reply's own steps already show on that reply.
+    const taskId = eventTaskId(row.ev);
+    if (!taskId || taskId.startsWith('turn:')) return;
     let task = tasks.get(taskId);
     if (!task) {
       task = { kind: 'task', key: `task-${row.key}`, taskId, rows: [], deliveries: [] };
@@ -796,7 +799,6 @@ export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
       blocks.push(task);
     }
     task.rows.push(row);
-    if (taskId) latestTask = taskId;
   };
   const release = () => {
     held.forEach(addWork);
@@ -837,55 +839,46 @@ export function conversationTimeline(rows: ActivityRow[]): TimelineBlock[] {
 }
 
 
-type TaskCardState = 'running' | 'done' | 'failed' | 'skipped' | 'paused' | 'idle';
+type TaskCardState = 'running' | 'done' | 'failed' | 'asking' | 'queued' | 'paused' | 'idle';
+
+/** A task as the server's plan has it: done, waiting for the operator's answer, failed, waiting
+ * for the tasks before it, or open, which is under way while the work runs and paused when not. */
+const TASK_STATE: Record<string, Exclude<TaskCardState, 'running' | 'paused' | 'idle'>> = {
+  done: 'done', blocked: 'asking', failed: 'failed', pending: 'queued',
+};
 
 const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [string, string]> = {
   done: ['已完成', 'Done'],
   failed: ['没有完成', 'Not finished'],
-  skipped: ['已跳过', 'Skipped'],
+  asking: ['等你回答', 'Waiting for your answer'],
+  queued: ['待开始', 'Up next'],
   paused: ['已暂停', 'Paused'],
 };
+
+const TASK_TONE: Partial<Record<TaskCardState, string>> = { running: 'running', done: 'done', failed: 'failed', asking: 'waiting' };
 
 /**
  * A task in the conversation: one line on where it stands, and its results.
  * What its roles said is the team's progress below, said there once.
  */
-function TaskWorkCard({ block, state, title, snapshot, view, events, onOpenDelivery }: {
+function TaskWorkCard({ block, state, title, role, onOpenDelivery }: {
   block: Extract<TimelineBlock, { kind: 'task' }>;
   state: TaskCardState;
   title: string;
-  snapshot?: Snapshot;
-  view?: MissionView | null;
-  events: EventMsg[];
+  /** The role on it now. */
+  role?: string;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
-  const [now, setNow] = useState(() => Date.now() / 1_000);
-  const running = state === 'running';
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => setNow(Date.now() / 1_000), 5_000);
-    return () => window.clearInterval(timer);
-  }, [running]);
-  const activity = useMemo(() => running && snapshot ? liveActivity(snapshot, view, events, now, locale) : null,
-    [events, locale, now, running, snapshot, view]);
-  const label = state === 'running' || state === 'idle' ? '' : TASK_STATE_LABEL[state][zh ? 0 : 1];
+  const words = state === 'running' ? roleActionLabel(role, zh, title)
+    : state === 'idle' ? title : `${TASK_STATE_LABEL[state][zh ? 0 : 1]}${zh ? '：' : ': '}${title}`;
   return (
-    <section data-task-work={block.taskId || 'project'} data-state={state}
+    <section data-task-work={block.taskId} data-state={state}
       className="task-line mx-auto w-full max-w-full px-4 py-1 sm:px-6 lg:max-w-[808px]">
-      <div className="task-line-row text-[13px]">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="status-dot" data-tone={running ? 'running' : state === 'done' ? 'done' : state === 'failed' ? 'failed' : 'idle'} aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate" role={running ? 'status' : undefined}>
-            <span className="text-ink-dim">{running
-              ? activity?.headline || (zh ? `正在进行：${title}` : `Working on: ${title}`)
-              : label ? `${label}：${title}` : title}</span>
-          </span>
-        </div>
-        {activity?.note ? <p className="mt-1 pl-[17px] text-xs text-ink-faint">
-          {activity.note}
-        </p> : null}
+      <div className="task-line-row flex min-w-0 items-center gap-2.5 text-[13px]">
+        <span className="status-dot" data-tone={TASK_TONE[state]} aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate text-ink-dim" role={state === 'running' ? 'status' : undefined}>{words}</span>
       </div>
       {block.deliveries.map(delivery => <DeliveryCard key={delivery.delivery_id} delivery={delivery} onOpen={onOpenDelivery} />)}
     </section>
@@ -1114,11 +1107,6 @@ export function EventStream({
       return lines;
     };
   }, [deferredEvents, locale, snapshot?.backlog, workspace]);
-  const work = useMemo(
-    () => snapshot ? currentWorkStatus(snapshot, missionView, deferredEvents) : null,
-    [deferredEvents, missionView, snapshot],
-  );
-  const live = connected && (!snapshot || work?.state === 'running');
   const activeProvider = useMemo(
     () => snapshot || !connected ? null : activeProviderRequest(deferredEvents),
     [connected, deferredEvents, snapshot],
@@ -1147,10 +1135,8 @@ export function EventStream({
   const rows = baseRows;
   const timeline = useMemo(() => {
     const blocks = conversationTimeline(rows.list);
-    const tasks = blocks.filter((block) => block.kind === 'task');
-    const latest = [...tasks].sort((left, right) => Number(left.rows.at(-1)?.ev.ts ?? 0) - Number(right.rows.at(-1)?.ev.ts ?? 0)).at(-1);
     const workRows = rows.list.filter((row) => row.ev.type !== 'ui.operator' && row.ev.type !== 'ui.argus');
-    return { blocks, latestTask: latest?.key, workRows };
+    return { blocks, workRows };
   }, [rows.list]);
   // Who works now, as the server knows it: several roles can at once, and none while the run is down.
   const working = useMemo(() => new Set(connected && snapshot?.daemon.alive ? snapshot.roles.filter(role => role.active).map(role => role.role) : []),
@@ -1167,22 +1153,17 @@ export function EventStream({
     return (taskId: string, messageId: string) => onResumeWork && resumable.has(taskId) && newest.get(taskId) === messageId
       ? onResumeWork : undefined;
   }, [deferredEvents, onResumeWork, resumable]);
+  // Where a task stands is the server's word, never a guess from the record.
   const taskState = (block: Extract<TimelineBlock, { kind: 'task' }>): TaskCardState => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
-    const completed = [...block.rows].reverse().find(row => row.ev.type === 'life.mission.completed');
-    const status = String(item?.status || completed?.ev.status || '');
-    if (status === 'done') return 'done';
-    if (status === 'failed' || status === 'blocked') return 'failed';
-    if (status === 'skipped') return 'skipped';
-    if (live && (work?.taskId ? work.taskId === block.taskId : block.key === timeline.latestTask)) return 'running';
-    return status === 'running' || status === 'pending' ? 'paused' : 'idle';
+    const status = item?.status ?? (block.rows.some(row => row.ev.type === 'life.mission.completed') ? 'done' : '');
+    if (status === 'in_progress') return !snapshot?.daemon.alive ? 'paused' : connected ? 'running' : 'idle';
+    return TASK_STATE[status] ?? 'idle';
   };
   const blockTitle = (block: Extract<TimelineBlock, { kind: 'task' }>) => {
     const item = snapshot?.backlog?.find((candidate) => candidate.id === block.taskId);
     const named = item?.title || block.rows.map(row => row.ev.mission_title || row.ev.task_title).find(Boolean);
-    return String(named || (block.taskId
-      ? locale === 'zh-CN' ? '这项工作' : 'This work'
-      : locale === 'zh-CN' ? '项目工作' : 'Project work'));
+    return String(named || (locale === 'zh-CN' ? '这项工作' : 'This work'));
   };
 
   const tailContentLength = useMemo(
@@ -1329,7 +1310,7 @@ export function EventStream({
                 onOpenDelivery={onOpenDelivery}
               />;
               return <TaskWorkCard key={block.key} block={block} state={taskState(block)} title={blockTitle(block)}
-                snapshot={snapshot} view={missionView} events={deferredEvents}
+                role={snapshot?.roles.find(role => role.active && role.tasks?.includes(block.taskId))?.role}
                 onOpenDelivery={onOpenDelivery} />;
             })}
             {/* The team's progress: each role, what it does now or did last, its work a click away. */}

@@ -25,6 +25,8 @@ const CALL_KINDS = new Set(['command_execution', 'tool_use', 'tool_result', 'fil
 const MESSAGE_KINDS = new Set(['agent_message', 'assistant_message', 'message']);
 /** Round bookkeeping: a step of the loop, not something a role said. */
 const ROUND_MARKERS = new Set(['round.start', 'round.main.completed', 'round.review.started']);
+/** Rows that head no role: bookkeeping, and a task closing, which names no one who said it. */
+const UNSAID = new Set([...ROUND_MARKERS, 'life.mission.completed']);
 const zh = (locale: Locale) => locale === 'zh-CN';
 
 export function isCallRow(ev: EventMsg): boolean {
@@ -108,7 +110,7 @@ export function plainRowText(ev: EventMsg, r: RenderedLine, locale: Locale, task
 export function roleHeadline(rows: Row[], locale: Locale, taskTitle?: (id: string) => string): string {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const { ev, r } = rows[index];
-    if (isCallRow(ev) || r.reasoning || ROUND_MARKERS.has(String(ev.type || ''))) continue;
+    if (isCallRow(ev) || r.reasoning || UNSAID.has(String(ev.type || ''))) continue;
     const line = firstLine(plainRowText(ev, r, locale, taskTitle).text);
     if (line) return line;
   }
