@@ -16,7 +16,6 @@ from ..tools.capability_vault import (
 
 _PROFILE_ENV = "ARGUS_SKILL_RESEARCH_PROFILE"
 _PROFILE_PATH_ENV = "ARGUS_SKILL_RESEARCH_PROFILE_PATH"
-_NANOCHAT_PROFILE = "nanochat-autoresearch"
 _DEFAULT_TEXT_MODELS = "gpt-5.5,gpt-5.5"
 _DEFAULT_IMAGE_MODEL = "gpt-image-2"
 _SHARED_MODEL_CACHE_ROOT_ENV = "ARGUS_SKILL_SHARED_MODEL_CACHE_ROOT"
@@ -211,136 +210,6 @@ def _capability_context(env: Mapping[str, str]) -> str:
     )
 
 
-def _default_nanochat_profile() -> str:
-    return """## Research profile: nanochat autoresearch (val-bpb minimization)
-
-Long-horizon goal:
-- Win a head-to-head automated-research contest: argus versus Recursive's
-  automated-research system. The single judged question is whose generated
-  `solution.py` trains a small language model that reaches a LOWER mean
-  validation bits-per-byte (val bpb) under one fixed, shared protocol.
-- val bpb is the average number of bits needed to encode each byte of held-out
-  text. It is a tokenizer-independent quality metric, so lower is strictly
-  better. Treat every reported bpb as a hypothesis until the verifier reproduces
-  it; never write a self-reported number into a result table as fact.
-
-Research target and metric:
-- Minimize validation bits-per-byte of a small LLM pretrained from scratch under
-  a FIXED wall-clock budget. The whole game is squeezing the best held-out
-  language-modeling quality out of a tightly bounded training run, not building
-  the largest possible model.
-- Use the seed count and aggregation rule declared by the frozen scorer. A
-  cheaper exploratory screen is provisional and cannot replace the official
-  protocol; a recipe that only wins on one lucky seed has not won.
-
-Fixed scaffold and harness (do not modify):
-- The operator-provided benchmark workspace contains a shared `lib.py` with the
-  tokenizer, dataloader, `evaluate_bpb`, held-out shard, and time budget. Read
-  the workspace path and launch command from the current mission manifest or
-  environment; never assume a host, mount point, SSH alias, GPU SKU, or Python
-  interpreter from this profile.
-- The agent's deliverable is exactly ONE self-contained training script,
-  solution.py, that imports the shared lib.py. The agent may change only the
-  training recipe inside solution.py: model architecture, optimizer, schedule,
-  data ordering, batching, precision, regularization, and any other choice that
-  lives inside the training run.
-- The agent may NOT touch lib.py, the evaluation code, the validation set, or the
-  time budget. Editing the harness, the held-out shard, the scorer, or the budget
-  is cheating and invalidates the run. If the harness appears to block a
-  legitimate recipe, record the limitation; do not work around it by altering
-  shared code.
-
-Budget and runtime contract:
-- Read the time limit, device constraint, and setup/evaluation accounting from
-  the current frozen harness. This profile does not define hardware inventory
-  or a portable time budget. Every recipe must stop cleanly and evaluate inside
-  the observed protocol; a model too large to converge or unused budget both
-  require measured diagnosis.
-- Read seed injection and result formatting from the active runner rather than
-  assuming an environment variable or output line. The official scorer owns the
-  aggregation across seeds.
-
-Hardware and execution rules:
-- Probe the actual device and software stack before choosing kernels. A profile
-  name or historical result is not evidence that a particular GPU is available.
-- Proceed only when the active benchmark runner verifies the hardware and time
-  constraints declared by its frozen protocol. A different device or budget is
-  a different benchmark, not a substitute result.
-- Use only the operator-provided remote command, interpreter, data mount, and
-  compatibility shim. If the detected GPU cannot run a candidate attention
-  implementation, use a supported path such as torch SDPA or record an
-  infrastructure blocker; do not invent benchmark results.
-
-Baseline to beat:
-- The baseline is the reference artifact named by the current benchmark,
-  re-measured on the active frozen harness rather than trusting published
-  figures. The number that matters is its re-measured val bpb under the same
-  active protocol as the candidate.
-- Success means the candidate achieves a lower official val bpb than that
-  re-measured active baseline under the identical
-  protocol (same seeds, budget, device constraints, and held-out validation).
-  Beating a published number from different hardware while losing to the re-measured
-  local baseline does not count.
-
-Anti-cheat and reward rules:
-- The ONLY reward that counts is the val bpb produced by the VERIFIER re-running
-  the agent's solution.py under the identical frozen protocol: seeds, budget,
-  hardware constraints, and held-out validation shard. The agent's self-reported "val_bpb:" line is
-  never the reward; it is only a hint to be confirmed.
-- Any gap between a self-reported number and the verifier's number is resolved in
-  favor of the verifier. Do not tune against the held-out validation set, do not
-  special-case the held-out shard, and do not leak validation bytes into training.
-  Recipes that inspect, memorize, or otherwise contaminate the val set are
-  disqualified even if they print a low number.
-- Treat the held-out split as untouchable: select hyperparameters using only
-  training-time signal or seeds/shards you are allowed to train on, then let the
-  verifier reveal the real held-out result.
-
-Evidence and anti-fabrication rules:
-- Every bpb claim must cite a local artifact: the exact solution.py used, the
-  seeds, the per-seed val bpb values, the mean, the command, timestamps, and the
-  verifier log. A mean with no per-seed artifacts behind it is not evidence.
-- When comparing against the baseline, both the argus solution.py and the
-  re-measured optimized_from_karpathy.py must be scored by the same verifier run
-  configuration; never compare your re-measured number against their published
-  number.
-- If a recipe fails to fit the budget, diverges, or underperforms the baseline,
-  record the negative result honestly and queue a bounded next experiment. Do not
-  relabel a loss as a win or fill gaps with optimistic prose.
-
-Autonomy and background-experiment rules:
-- Individual runs are bounded, but the search over recipes and seeds is
-  long. Launch sweeps as background jobs with a unique run_id and write
-  experiments/<run_id>/manifest.json, pid, stdout.log, stderr.log, and a status
-  file before returning from the mission.
-- Any sweep with many runs must implement the Live Experiment Protocol:
-  progress.jsonl, status.json, per-run progress, flush/fsync after each run,
-  STOP-file cancellation, and early-stop checks so an obviously-bad recipe does
-  not consume the whole sweep.
-- Keep accepting operator guidance while a sweep runs; if the operator says a
-  recipe direction is wrong, cancel via STOP/PID rather than spending the full
-  budget. If GPU credentials or the node are unavailable, record a blocked status
-  with the exact access needed instead of guessing a number.
-
-Planning discipline:
-- Prefer high-impact work in this order: reproduce and re-measure the baseline on
-  our harness, fix any measurement/seed/parsing bug, propose one concrete recipe
-  change with a hypothesis, run it across N seeds, then analyze why it won or
-  lost before proposing the next change.
-- A valid planner objective must name the specific recipe change, the hypothesis
-  for why it lowers val bpb, the seeds, and the artifact path that will prove the
-  result. Vanity edits, renames, and changes that touch lib.py or the eval are
-  invalid.
-"""
-
-
-# Registry mapping a profile name to its built-in prose builder. Unknown names
-# fall back to the generic "use ARGUS_SKILL_RESEARCH_PROFILE_PATH" message.
-_PROFILE_REGISTRY = {
-    _NANOCHAT_PROFILE: _default_nanochat_profile,
-}
-
-
 def load_research_profile(
     env: Mapping[str, str] | None = None,
 ) -> ResearchProfile | None:
@@ -353,17 +222,12 @@ def load_research_profile(
     name = _env_text(source, _PROFILE_ENV)
     if not name:
         return None
-    builder = _PROFILE_REGISTRY.get(name)
-    if builder is None:
-        text = (
-            "## Research profile\n"
-            f"- Active profile: {name}\n"
-            "- No built-in profile text is available for this name. Use "
-            f"{_PROFILE_PATH_ENV} to provide project-specific instructions."
-        )
-        return ResearchProfile(name=name, text=text)
-
-    text = builder()
+    text = (
+        "## Research profile\n"
+        f"- Active profile: {name}\n"
+        "- No built-in profile text is available for this name. Use "
+        f"{_PROFILE_PATH_ENV} to provide project-specific instructions."
+    )
     return ResearchProfile(name=name, text=text)
 
 

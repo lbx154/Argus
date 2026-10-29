@@ -1,4 +1,4 @@
-"""View of the knowledge Wikis for human readers, and in-place page correction.
+"""Read-only view of the knowledge Wikis for human readers.
 
 Agents maintain ``<workspace>/.autors/<project>/wiki`` themselves (INDEX.md
 plus semantic pages under ``pages/``). The host keeps two more tiers of the
@@ -9,32 +9,25 @@ their pages newest-first and serve one page at a time, so the knowledge browser
 can show what a project, its vertical and the host have learned.
 
 Each page row also carries what its front matter says about it (``kind``,
-``source``, ``created``) and how many times the host has handed it to a role,
-read from the knowledge journal (:mod:`argus.wiki.journal`). A vertical library
-adds its ``principles.md`` when one has been compiled, and ``/api/knowledge/feed``
-serves the journal itself newest-first. The only write is
-``POST /api/wiki/page/correct``, which hands a page to
-:func:`argus.wiki.correct.correct_page`; every other route only reads.
+``source``, ``created``). A vertical library adds its ``principles.md`` when one
+has been compiled, and ``/api/knowledge/feed`` serves the knowledge journal
+(:mod:`argus.wiki.journal`) newest-first. Every route only reads.
 """
 
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 from fastapi import Depends, HTTPException, Query
-from pydantic import BaseModel, Field
 
 from ...core import paths as core_paths
 from ...wiki.auto_hooks import discover_wikis
-from ...wiki.journal import read_knowledge_events, reuse_counts
+from ...wiki.journal import read_knowledge_events
 from ...wiki.schema import parse_page
 from .context import ServerContext
-
-log = logging.getLogger(__name__)
 
 INDEX_FILENAME = "INDEX.md"
 PRINCIPLES_FILENAME = "principles.md"
@@ -46,8 +39,6 @@ SCOPES = ("private", "global", "vertical", "project")
 # What a knowledge page is, as named by its front matter; anything else is a page.
 PAGE_KINDS = ("fact", "lesson", "survey", "principles", "note", "profile", "page")
 _HEADING = re.compile(r"^#\s+(.+?)\s*$", re.MULTILINE)
-
-ReuseCounts = dict[tuple[str, str, str], int]
 
 
 def _read_text(path: Path, limit: int) -> tuple[str, bool]:
@@ -114,14 +105,6 @@ def _page_meta(text: str, fallback: str) -> dict[str, str]:
     return meta
 
 
-def _reuse_count(counts: ReuseCounts, scope: str, vertical: str, path: str) -> int:
-    """Recalls of one page. A recall that named no vertical still counts for the page."""
-    total = counts.get((scope, vertical, path), 0)
-    if vertical:
-        total += counts.get((scope, "", path), 0)
-    return total
-
-
 def _page_rows(wiki_root: Path) -> list[dict[str, Any]]:
     pages_root = (wiki_root / "pages").resolve()
     rows: list[dict[str, Any]] = []
@@ -146,15 +129,6 @@ def _page_rows(wiki_root: Path) -> list[dict[str, Any]]:
         )
     rows.sort(key=lambda row: (-row["updated_at"], row["path"]))
     return rows[:PAGE_COUNT_LIMIT]
-
-
-def _with_reuse_counts(
-    rows: list[dict[str, Any]], counts: ReuseCounts, *, scope: str, vertical: str
-) -> list[dict[str, Any]]:
-    return [
-        {**row, "reuse_count": _reuse_count(counts, scope, vertical, row["path"])}
-        for row in rows
-    ]
 
 
 def _index_markdown(root: Path) -> str:
@@ -240,53 +214,18 @@ def _shared_vertical_roots(global_root: Path) -> list[tuple[str, Path]]:
     ]
 
 
-def _library(
-    scope: str, vertical: str, root: Path, *, root_label: str, counts: ReuseCounts
-) -> dict[str, Any]:
+def _library(scope: str, vertical: str, root: Path, *, root_label: str) -> dict[str, Any]:
     return {
         "scope": scope,
         "vertical": vertical,
         "root": root_label,
         "index_markdown": _index_markdown(root),
-        "pages": _with_reuse_counts(_page_rows(root), counts, scope=scope, vertical=vertical),
+        "pages": _page_rows(root),
         # Principles are compiled per shared library; a project keeps none of its own.
         "principles": _principles_markdown(root) if scope not in ("project", "private") else None,
         # The operator's portrait, private to this home.
         "profile": _profile_markdown(root) if scope == "private" else None,
     }
-
-
-class PageCorrectionIn(BaseModel):
-    scope: str = Field(max_length=32)
-    path: str = Field(max_length=1024)
-    vertical: str = Field("", max_length=128)
-    sid: str | None = Field(None, max_length=128)
-    statement: str = Field(max_length=4_000)
-    reason: str = Field(max_length=4_000)
-    description: str = Field("", max_length=4_000)
-    by: str = Field("operator", max_length=128)
-
-
-def _note_correction(life_dir: Path, done: Any, *, scope: str, vertical: str) -> None:
-    """One ``knowledge.learned`` line of kind ``corrected`` in the project's stream."""
-    try:
-        from ...core.event_catalog import EventType
-        from ...life.event_log import JsonlEventSink
-
-        JsonlEventSink(None, life_dir=Path(life_dir)).append({
-            "type": EventType.KNOWLEDGE_LEARNED,
-            "kind": "corrected",
-            "scope": scope,
-            "vertical": vertical,
-            "path": done.relative,
-            "title": done.title,
-            "source_project": done.source,
-            "mission_id": "",
-            "page_kind": done.page_kind,
-            "text": f"corrected {done.page_kind}: {done.title}",
-        })
-    except Exception:  # noqa: BLE001 - the event stream is a record, never a requirement
-        log.debug("wiki: correction event append failed", exc_info=True)
 
 
 def register_wiki_routes(app, ctx: ServerContext) -> None:
@@ -340,7 +279,6 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
     @app.get("/api/wiki", dependencies=[Depends(ctx.require_auth)])
     def _knowledge(sid: str | None = Query(None, max_length=128)) -> dict[str, Any]:
         global_root = ctx.project_root_or_404(sid) if sid else ctx.roots[0]
-        counts = reuse_counts(global_root)
         libraries: list[dict[str, Any]] = []
         active = ""
         if sid:
@@ -351,23 +289,23 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
                 libraries.append(
                     _library(
                         "project", active, root,
-                        root_label=relative_root(workspace, root), counts=counts,
+                        root_label=relative_root(workspace, root),
                     )
                 )
         shared_verticals = _shared_vertical_roots(global_root)
         for vertical, root in shared_verticals:
             libraries.append(
-                _library("vertical", vertical, root, root_label=str(root), counts=counts)
+                _library("vertical", vertical, root, root_label=str(root))
             )
         global_wiki = core_paths.global_wiki_root(global_root)
         if _shared_wiki_exists(global_wiki):
             libraries.append(
-                _library("global", "", global_wiki, root_label=str(global_wiki), counts=counts)
+                _library("global", "", global_wiki, root_label=str(global_wiki))
             )
         operator = core_paths.operator_memory_root(global_root)
         if (operator / "profile.md").is_file() or _shared_wiki_exists(operator):
             libraries.insert(
-                0, _library("private", "", operator, root_label=str(operator), counts=counts)
+                0, _library("private", "", operator, root_label=str(operator))
             )
         items = [
             {**page, "scope": library["scope"], "vertical": library["vertical"], "root": library["root"]}
@@ -416,36 +354,6 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
         page = _read_page(root, path)
         return {"scope": scope, "vertical": vertical, **page}
 
-    @app.post("/api/wiki/page/correct", dependencies=[Depends(ctx.require_auth)])
-    def _correct_knowledge_page(body: PageCorrectionIn) -> dict[str, Any]:
-        """Correct a page where readers look first; the earlier wording stays on record."""
-        from ...wiki.correct import PageCorrectionError, correct_page
-
-        root, vertical = page_library(body.scope, body.vertical, body.sid)
-        _read_page(root, body.path)
-        global_root = ctx.project_root_or_404(body.sid) if body.sid else ctx.roots[0]
-        try:
-            done = correct_page(
-                root, body.path, statement=body.statement, reason=body.reason,
-                description=body.description, corrected_by=body.by or "operator",
-                scope=body.scope, vertical=vertical, global_root=global_root,
-            )
-        except PageCorrectionError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except OSError as exc:
-            raise HTTPException(status_code=409, detail=f"Cannot rewrite the page: {exc}") from exc
-        if body.sid:
-            _note_correction(ctx.resolve_or_404(body.sid), done, scope=body.scope, vertical=vertical)
-        page = _read_page(root, done.relative)
-        return {
-            "scope": body.scope, "vertical": vertical, **page,
-            "correction": {
-                "corrected": done.corrected, "by": body.by or "operator",
-                "previous_lead": done.previous_lead, "previous_description": done.previous_description,
-                "history_copy": done.history_copy.name, "index_updated": done.index_updated,
-            },
-        }
-
     @app.get("/api/knowledge/feed", dependencies=[Depends(ctx.require_auth)])
     def _knowledge_feed(
         limit: int = Query(50, ge=1, le=FEED_LIMIT),
@@ -463,14 +371,11 @@ def register_wiki_routes(app, ctx: ServerContext) -> None:
         if located is None:
             return {"exists": False}
         workspace, root = located
-        counts = reuse_counts(ctx.project_root_or_404(sid))
         return {
             "exists": True,
             "root": relative_root(workspace, root),
             "index_markdown": _index_markdown(root),
-            "pages": _with_reuse_counts(
-                _page_rows(root), counts, scope="project", vertical=active_vertical(sid)
-            ),
+            "pages": _page_rows(root),
         }
 
     @app.get("/api/projects/{sid}/wiki/page", dependencies=[Depends(ctx.require_auth)])

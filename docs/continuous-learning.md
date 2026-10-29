@@ -41,8 +41,7 @@ The current page does not retain an incorrect lead followed by a corrective
 appendix. A person or a role that finds a page wrong corrects it the same way:
 `argus wiki correct pages/<page>.md --wiki <library> --statement "..." --reason
 "..."` (or `--scope vertical --vertical <name>` / `--scope global` for this
-home's shared libraries, and `POST /api/wiki/page/correct` from the web
-cockpit) replaces the page's opening paragraph with the corrected statement,
+home's shared libraries) replaces the page's opening paragraph with the corrected statement,
 replaces the summary when a new one is given, moves what the page said before
 into a `## History` section that recall does not search, keeps the earlier
 file under the library's `.history` directory, starts that History entry with

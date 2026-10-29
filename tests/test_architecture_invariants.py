@@ -1922,7 +1922,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "engineer": 18,
     "life": 176,
     "maintenance": 2,
-    "manager": 60,
+    "manager": 53,
     "messaging": 1,
     "planner": 1,
     "plugin": 9,
@@ -1932,7 +1932,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "skills": 29,
     "tools": 3,
     "verticals": 54,
-    "webapi": 122,
+    "webapi": 121,
     "wiki": 5,
 }
 
