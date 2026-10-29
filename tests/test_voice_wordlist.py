@@ -57,7 +57,6 @@ VOICE_CLEAN_FILES: tuple[str, ...] = (
     "argus/verticals/argus_maintenance/stages.py",
     "argus/verticals/research/idea_portfolio.py",
     "argus/verticals/research/prompt_policy.py",
-    "argus/verticals/research/venue_profiles.py",
     "argus/verticals/software/stages.py",
     "argus/verticals/argus_maintenance/architecture_audit.py",
     "argus/verticals/path_evidence.py",
