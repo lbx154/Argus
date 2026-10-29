@@ -96,9 +96,6 @@ export const useConfig = (sid: string | null, enabled: boolean) =>
 export const useModelChoices = (sid: string | null, enabled: boolean) =>
   useQuery({ queryKey: ['model-choices', sid], queryFn: ({ signal }) => api.modelChoices(sid!, signal), enabled: !!sid && enabled });
 
-export const useTranscript = (sid: string | null, enabled: boolean, n = 30) =>
-  useQuery({ queryKey: ['transcript', sid, n], queryFn: ({ signal }) => api.transcript(sid!, n, signal), enabled: !!sid && enabled });
-
 /** The project's workspace listing, fetched while the composer asks for a path (again once stale); shares the IDE's cache. */
 export const useWorkspaceTree = (sid: string | null, enabled: boolean) =>
   useQuery({

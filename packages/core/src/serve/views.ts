@@ -5,12 +5,12 @@ import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import {
   SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type Daemon, type DeliveryReceipt, type EventMsg, type OperatorDecisionCard, type ProjectRow,
-  type Snapshot, type UsageSummary,
+  type Snapshot, type UsageSummary, type ConversationPage, type ProjectWorkStatus,
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
 import { firstLine, openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
-import type { FlowEvent, Project, Question, Store } from '../store.js';
+import { questionId, type FlowEvent, type Project, type Question, type Store } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
 
 /** What this process knows of a project's run right now. */
@@ -147,16 +147,6 @@ export function follow(store: Store, id: string): () => EventMsg[] {
   };
 }
 
-/** The conversation, as the transcript endpoint returns it: its rows as the stream sends them. */
-export const turns = (events: EventMsg[]) => events.filter(event => event.type === 'ui.operator' || event.type === 'ui.argus');
-
-/** A question's id names who asked it and its words, so a new question is a new card. */
-export function questionId({ role, task, question }: Question): string {
-  let hash = 0x811c9dc5;
-  for (const char of `${role}\n${task}\n${question}`) hash = Math.imul(hash ^ char.codePointAt(0)!, 0x01000193) >>> 0;
-  return `q-${hash.toString(16)}`;
-}
-
 function usage(rows: Record<string, unknown>[]): UsageSummary {
   return summarizeUsage(rows.map(row => {
     const tokens = (row.tokens ?? {}) as Record<string, number | undefined>;
@@ -214,23 +204,138 @@ const asked = (project: Project, task: string): Question | undefined => project.
 
 const lastActive = (store: Store, id: string): number => statSync(join(store.dir(id), 'project.json')).mtimeMs / 1000;
 
-/** What the record holds that the snapshot shows: each role's last words, its newest message or
- * letter, and the calls the project made, those the record ends. A model tried or a draft rewritten
- * is a call of its own, which the record knows nothing of. */
-interface Reading { end: number; said: Partial<Record<Role, { text: string; ts: number }>>; calls: Set<string> }
-const readings = new Map<string, Reading>();
-/** The record read on from where the last reading of it stopped. */
-function readRecord(store: Store, id: string): Reading {
-  const path = join(store.dir(id), 'events.jsonl');
-  const reading = readings.get(path) ?? { end: 0, said: {}, calls: new Set() };
-  const { rows, end } = jsonLines(path, reading.end);
-  for (const event of rows as unknown as Recorded[]) {
+/** One fold owns dialogue rows, task positions and the current operator round's role log.
+ * It runs on the whole record at first, then only on newly appended lines. */
+export interface Reading {
+  end: number;
+  fold: Fold;
+  rows: Map<string, EventMsg>;
+  roleEvents: EventMsg[];
+  round: number;
+  status: string;
+  activityAt: number | null;
+  calls: Set<string>;
+  tasks: Map<string, { title: string; closed: boolean; line: number; ts: number }>;
+  questions: Map<string, EventMsg>;
+}
+
+export function projectRecord(events: Recorded[], reading: Reading = {
+  end: 0, fold: { line: 0, asked: null, calls: new Map() }, rows: new Map(),
+  roleEvents: [], round: 0, status: '', activityAt: null, calls: new Set(), tasks: new Map(), questions: new Map(),
+}): Reading {
+  for (const event of events) {
+    const line = reading.fold.line;
+    const ts = seconds(event.ts);
+    const converted = webEvents([event], reading.fold);
+    const put = (row: EventMsg, id: string, order = line) => reading.rows.set(id, { ...row, row_id: id, order });
+    const move = (id: string) => {
+      const task = reading.tasks.get(id);
+      if (task && !task.closed) Object.assign(task, { line, ts });
+    };
+    if (event.type === 'message') {
+      reading.roleEvents = [];
+      reading.round = line;
+      reading.activityAt = null;
+      const row = converted[0]!;
+      const addressed = [...reading.questions.values()].filter(row => row.agent_layer === event.to);
+      const question = event.to ? reading.questions.get(event.answer_to ?? '')
+        ?? (addressed.length === 1 ? addressed[0] : undefined) : undefined;
+      put(row, String(row.message_id), question ? Number(question.order) + 0.1 : line);
+      if (question) {
+        reading.questions.delete(String(question.question_id));
+        move(String(question.item_id ?? ''));
+      }
+    } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
+      const id = questionId({ role: event.role, task: event.task ?? null, question: event.letter });
+      const row = { type: 'ui.question', ts, event_id: line, question_id: id, agent_layer: event.role,
+        item_id: event.task ?? '', text: event.letter, order: line };
+      put(row, `q${line}`);
+      reading.questions.set(id, row);
+    } else if (event.type === 'handoff' && event.role === 'manager') {
+      const row = converted[0]!;
+      put(row, String(row.message_id));
+      const operatorId = String(row.message_id).replace(/-argus$/, '-operator');
+      const operator = reading.rows.get(operatorId);
+      if (operator) reading.rows.set(operatorId, { ...operator, answer: event.letter, event_id: line });
+    }
+    if (event.type === 'task.added') reading.tasks.set(event.task.id, { title: event.task.title, closed: false, line, ts });
+    else if (event.type === 'task.closed') {
+      move(event.task);
+      const task = reading.tasks.get(event.task);
+      if (task) task.closed = true;
+    } else if (event.type === 'status') {
+      if (['stopped', 'failed'].includes(event.status) || ['stopped', 'failed'].includes(reading.status)) {
+        for (const id of reading.tasks.keys()) move(id);
+      }
+      reading.status = event.status;
+    } else if ('task' in event && typeof event.task === 'string' && event.type !== 'step' && event.type !== 'call.end') move(event.task);
+    else if (event.type === 'call.end' && !event.completed && event.task) move(event.task);
+
     if (event.type === 'call.end') reading.calls.add(event.callId);
-    const line = firstLine(event.type === 'handoff' ? event.letter : event.type === 'step' && event.kind === 'message' ? event.text : '');
-    if (line && 'role' in event) reading.said[event.role] = { text: line.slice(0, 300), ts: seconds(event.ts) };
+    if (event.type === 'step' || event.type === 'handoff' || event.type === 'call.start' || event.type === 'call.end') {
+      // Task lifecycle announcements have no author and never enter a role's log.
+      const log = event.type === 'handoff' ? { type: 'engineer.progress', ts, event_id: line,
+        agent_layer: event.role, item_id: event.task ?? '', kind: 'agent_message', text: event.letter } : converted[0]!;
+      reading.roleEvents.push(log);
+      reading.activityAt = ts;
+    }
   }
-  readings.set(path, { ...reading, end });
   return reading;
+}
+
+const readings = new Map<string, Reading>();
+export function readRecord(store: Store, id: string): Reading {
+  const path = join(store.dir(id), 'events.jsonl');
+  const previous = readings.get(path);
+  const { rows, end } = jsonLines(path, previous?.end ?? 0);
+  const reading = projectRecord(rows as unknown as Recorded[], previous);
+  reading.end = end;
+  readings.set(path, reading);
+  return reading;
+}
+
+export function conversationRows(reading: Reading, project: Project, live: Live): EventMsg[] {
+  const rows = [...reading.rows.values()];
+  const items = backlog(project);
+  for (const [id, task] of reading.tasks) {
+    const item = items.find(item => item.id === id);
+    const role = live.calls.find(call => call.task === id)?.role;
+    const state = item?.status === 'done' ? 'done' : item?.status === 'blocked' ? 'asking'
+      : item?.status === 'failed' ? 'failed' : project.status === 'stopped' ? 'paused'
+      : item?.status === 'pending' ? 'queued' : live.since !== null ? 'running' : 'paused';
+    rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: task.title, state, role,
+      ts: task.ts, event_id: task.line, order: task.line + 0.2 });
+  }
+  return rows.sort((a, b) => Number(a.order) - Number(b.order));
+}
+
+export function conversationPage(rows: EventMsg[], cursor: number, limit: number, before = Infinity): ConversationPage {
+  const earlier = rows.filter(row => Number(row.order) < before);
+  let start = Math.max(0, earlier.length - limit);
+  // A question and its answer cross a page boundary together.
+  if (start > 0 && earlier[start - 1]?.type === 'ui.question' && earlier[start]?.type === 'ui.operator') start--;
+  return { rows: earlier.slice(start), before: start ? Number(earlier[start]!.order) : null, cursor };
+}
+
+function projectStatus(project: Project, live: Live, reading: Reading): ProjectWorkStatus {
+  const roles = [...new Set(live.calls.map(call => call.role))];
+  const task = openTasks(project).length === 1 ? openTasks(project)[0] : undefined;
+  const count = openTasks(project).length;
+  const running = new Set(live.calls.flatMap(call => call.task ?? [])).size;
+  const questions = project.questions.length;
+  const stopped = project.status === 'stopped' || project.status === 'failed';
+  const foreground = live.requests.length > 0;
+  const state = stopped ? 'paused' : foreground || roles.length ? 'running' : questions ? 'paused' : live.since !== null ? 'waiting' : 'idle';
+  const label = stopped
+    ? { 'zh-CN': `${project.status === 'failed' ? '执行中断' : '已停止'}${count ? `：${count} 个任务暂停` : ''}`, en: `${project.status === 'failed' ? 'Interrupted' : 'Stopped'}${count ? `: ${count} tasks paused` : ''}` }
+    : questions ? { 'zh-CN': `等你回答 ${questions} 个问题${running ? ` · ${running} 个任务继续进行` : roles.length ? ' · 团队继续工作' : ''}`, en: `Waiting for ${questions} answer${questions === 1 ? '' : 's'}${roles.length ? ' · Other work continues' : ''}` }
+    : foreground ? { 'zh-CN': '正在处理你的请求', en: 'Working on your request' }
+    : state === 'running' ? { 'zh-CN': running ? `${running} 个任务进行中` : '团队正在工作', en: running ? `${running} task${running === 1 ? '' : 's'} in progress` : 'The team is working' }
+    : state === 'waiting' ? { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' }
+    : { 'zh-CN': project.request ? '已完成' : '等你开始', en: project.request ? 'Done' : 'Waiting for you to start' };
+  return { state, reason: stopped ? 'not_running' : questions ? 'operator_input' : state === 'waiting' ? 'awaiting_next_step' : '',
+    role: foreground ? 'manager' : roles[0] ?? '', roles, taskId: task?.id ?? '', title: task?.title ?? '', foreground,
+    activityAt: reading.activityAt, label };
 }
 
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
@@ -238,7 +343,8 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   // What was spent counts every call; what the project runs on, only its own.
   const spent = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
   const summary = usage(spent);
-  const { said, calls: made } = readRecord(store, id);
+  const reading = readRecord(store, id);
+  const { calls: made } = reading;
   const calls = spent.filter(call => made.has(String(call.callId)));
   // The model each role's last call ran on: with none chosen, the backend's own default.
   const ran = (role?: Role) => calls.filter(call => !role || call.role === role).at(-1);
@@ -250,11 +356,13 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
       last_active: lastActive(store, id), cwd: workdir, workdir, launch_cwd: workdir,
     },
     daemon: daemon(project, live),
+    role_events: reading.roleEvents,
+    work_status: projectStatus(project, live, reading),
     roles: ROLES.map(role => {
       const under = live.calls.filter(call => call.role === role);
       return {
         role, backend, backend_label: BACKEND_LABELS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: under.length > 0,
-        label: NAMES[role], status: under.length ? 'running' : 'idle', age_s: null, last: said[role] ?? null, tasks: under.flatMap(call => call.task ?? []),
+        label: NAMES[role], status: under.length ? 'running' : 'idle', age_s: null, tasks: under.flatMap(call => call.task ?? []),
       };
     }),
     last_call: last ? {
@@ -282,6 +390,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     active_role: live.calls.at(-1)?.role ?? '', current_task: openTasks(project).map(task => task.title).join('; '),
     unfinished_tasks: openTasks(project).length,
+    work_status: projectStatus(project, live, readRecord(store, project.id)),
     spend_usd: summary.cost_usd, known_cost_usd: summary.known_cost_usd,
     spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>, usage_calls: summary.call_count,
   };

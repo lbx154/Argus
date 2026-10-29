@@ -459,7 +459,7 @@ export default function App() {
   }, [canvasRevision, loadedSid, queryClient]);
   const guardianAlert = useMemo(() => activeGuardianAlert(events, locale), [events, locale]);
   const { query: transcriptQ, events: activityEvents, status: historyStatus } = useConversationHistory(
-    loadedSid, true, events, localConversationEvents, localConversationSid.current,
+    loadedSid, true, localConversationEvents, localConversationSid.current,
   );
   const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
   const promptHistoryList = useMemo(() => promptHistory(activityEvents), [activityEvents]);
@@ -559,9 +559,9 @@ export default function App() {
   }), [loadedSid, snap, missionView, operatorTaskComplete, delivery, health, locale]);
   const projectBusy = useMemo(() => {
     if (!snap?.daemon.alive) return false;
-    const state = currentWorkStatus(snap, missionView, events).state;
+    const state = currentWorkStatus(snap).state;
     return state === 'running' || state === 'waiting';
-  }, [events, missionView, snap]);
+  }, [snap]);
   useAttentionSignals({
     projectName: snap?.session.display_name || '',
     attention,
@@ -1113,11 +1113,6 @@ export default function App() {
         <Sidebar
           projects={projects}
           activeId={activeSid}
-          activeWork={loadedSid ? {
-            sessionId: loadedSid,
-            status: currentWorkStatus(snap, missionView, activityEvents),
-            connected: connected && !snapQ.isError,
-          } : undefined}
           localCwd={localCwd}
           onSelect={(id) => {
             selectProject(id);
@@ -1167,7 +1162,6 @@ export default function App() {
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               {workspaceView !== 'map' && <TopBar
-                events={activityEvents}
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
@@ -1228,12 +1222,14 @@ export default function App() {
                   <EventStream
                     key={loadedSid}
                     snapshot={snap}
-                    missionView={missionView}
                     events={activityEvents}
                     connected={connected && !snapQ.isError}
                     showReasoning={false}
                     historyStatus={historyStatus}
-                    historyRefreshing={transcriptQ.isFetching}
+                    historyRefreshing={transcriptQ.isRefetching}
+                    hasOlder={transcriptQ.hasNextPage}
+                    loadingOlder={transcriptQ.isFetchingNextPage}
+                    onLoadOlder={() => void transcriptQ.fetchNextPage()}
                     refreshingKept={refreshingKept}
                     onRetryHistory={() => void transcriptQ.refetch()}
                     embedded
@@ -1319,7 +1315,6 @@ export default function App() {
               className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel lg:flex lg:flex-none lg:w-[var(--preview-width)]`}>
               <div className="lg:hidden">
                 <TopBar
-                  events={activityEvents}
                   snap={snap}
                   streamOk={connected}
                   onStart={requestStartDaemon}

@@ -7,7 +7,7 @@ export function MapConversation({ events, connected, pending, artifacts, zh, onC
   events: EventMsg[]; connected: boolean; pending: boolean; artifacts: ArtifactInfo[]; zh: boolean;
   onClose: () => void; onOpenArtifact: (path: string) => void; onOpenDelivery: (receipt: DeliveryReceipt) => void;
 }) {
-  const conversation = events.filter((event) => event.type === 'ui.operator' || event.type === 'ui.argus');
+  const conversation = events;
   return <aside className="map-conversation nowheel nodrag nopan" aria-label={zh ? '地图对话' : 'Map conversation'}>
     <header><MessageCircle size={16} /><strong>{zh ? `与 ${applicationBrand().name} 对话` : `Talk to ${applicationBrand().name}`}</strong><button type="button" onClick={onClose} aria-label={zh ? '关闭对话' : 'Close conversation'}><X size={18} /></button></header>
     {conversation.length ? <EventStream events={conversation} connected={connected} showReasoning={false} embedded showHeader={false} artifacts={artifacts} onOpenArtifact={onOpenArtifact} onOpenDelivery={onOpenDelivery} /> : <p className="map-conversation-empty">{zh ? '在下方发送目标或问题，回复会保留在这里。' : 'Send a goal or question below. Your conversation stays here.'}</p>}

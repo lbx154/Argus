@@ -1,14 +1,12 @@
+import { roleSnapshot } from './serverSnapshot';
 import type { ReactNode } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventMsg, Snapshot } from '../api';
-import type { MissionView } from '../../../core/src/types';
-import { TurnSteps } from '../components/TurnSteps';
 import { emptyMissionView } from '../../../core/src/missionView';
 import { CopyButton } from '../components/CopyButton';
 import { EventStream } from '../components/EventStream';
 import { referenceText } from '../map/presentation';
-import { CONTINUED_TASK_REPORT, INTERRUPTED_TASK_REPORT } from './taskReportFixtures';
 
 vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
 vi.mock('../components/MarkdownContent', () => ({
@@ -72,7 +70,7 @@ const progress = (id: number, text = `Recorded finding ${id}`): EventMsg => ({
   type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer', text,
   event_id: `progress-${id}`, ts: id,
 });
-const feed = (events: EventMsg[]) => <EventStream events={events} connected showReasoning={false} />;
+const feed = (events: EventMsg[]) => <EventStream events={events} snapshot={roleSnapshot(events.filter(event => event.type === 'engineer.progress' || String(event.type).startsWith('round.')))} connected showReasoning={false} />;
 function mount(events: EventMsg[]) {
   act(() => { renderer = create(feed(events), { createNodeMock: nodeMock }); });
 }
@@ -344,6 +342,7 @@ function runtimeFixture(alive = true) {
     recent_events: [], mission_view: missionView,
   };
   const events = [{ ...progress(1), item_id: 'task-a', ts: now - 1 }];
+  snapshot.role_events = events;
   return { snapshot, missionView, events };
 }
 
@@ -365,331 +364,51 @@ it('restores an opted-in conversation reading position without jumping to the la
   expect(setItem).toHaveBeenCalledWith('argus.conversation.position.v1:session', JSON.stringify({ top: 180, following: false }));
 });
 
-describe('historical task receipts', () => {
-  it.each([
-    [CONTINUED_TASK_REPORT, 'Recorded then: work continued.'],
-    [INTERRUPTED_TASK_REPORT, 'This task had not completed at that time.'],
-  ])('shows a historical explanation and a collapsed, exact original for a recognized report', (text, expected) => {
-    const value = runtimeFixture();
-    const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
-      message_id: 'mission-result-old-task', mission_result: true, item_id: 'old-task', success: false };
-    act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
-      connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    const row = renderer!.root.findByProps({ 'data-task-receipt-id': receipt.message_id });
-    const prose = visibleText(row.findByProps({ 'data-task-receipt-prose': true }));
-    expect(prose).toContain(expected);
-    expect(prose).not.toContain('Technical record:');
-    expect(row.findByProps({ 'data-task-receipt-original': true }).children).toEqual([text]);
-    expect(row.findByType('details').props.open).not.toBe(true);
-    expect(row.findByType(CopyButton).props.text).toBe(text);
-    expect(row.findByType(CopyButton).props.label).toBe('Copy original report');
-    expect(row.findByType('time').props.dateTime).toBe('2026-09-12T12:27:03.475Z');
-    expect(receipt.text).toBe(text);
-  });
-
-  it('preserves the entire original report inside a conversation, including whitespace and runtime-like summary text', () => {
-    const text = `\n${CONTINUED_TASK_REPORT}\nProgress: A quoted status string follows.\nInfo: Operation cancelled by user\n  Next: this belongs to the research summary.\nMILESTONE_STATUS=literal research sample\n`;
-    mount([
-      { type: 'ui.operator', text: 'Continue the work.', ts: 1 },
-      { type: 'ui.argus', text, ts: 2, mission_result: true, message_id: 'mission-result-with-summary' },
-    ]);
-    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'mission-result-with-summary' });
-    expect(row.findByProps({ 'data-task-receipt-original': true }).children).toEqual([text]);
-    expect(row.findByType(CopyButton).props.text).toBe(text);
-    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).toContain('Info: Operation cancelled by user\n  Next: this belongs to the research summary.');
-    expect(visibleText(row.findByProps({ 'data-task-receipt-prose': true }))).toContain('MILESTONE_STATUS=literal research sample');
-  });
-
-  it('shows the recorded report as written in the original view and copy action', () => {
-    const text = `${CONTINUED_TASK_REPORT}\nProgress: Configuration receipt\nAuthorization: Bearer example-secret-value`;
-    mount([{ type: 'ui.argus', text, ts: 1, mission_result: true, message_id: 'report-with-header' }]);
-    const row = renderer!.root.findByProps({ 'data-task-receipt-id': 'report-with-header' });
-    const original = row.findByProps({ 'data-task-receipt-original': true }).children.join('');
-    expect(original).toContain('Authorization: Bearer example-secret-value');
-    expect(row.findByType(CopyButton).props.text).toBe(original);
-  });
-
-  it('leaves an unfamiliar mathematical report and an ordinary reply using a known template untouched', () => {
-    const unknown = 'The dimension is 6.\nNext: Verify the source.\nTechnical record: is a literal column label.\nMILESTONE_STATUS=literal research sample';
-    mount([
-      { type: 'ui.argus', text: unknown, ts: 1, mission_result: true, message_id: 'unknown-report' },
-      { type: 'ui.argus', text: INTERRUPTED_TASK_REPORT, ts: 2 },
-    ]);
-    expect(renderer!.root.findAllByProps({ 'data-markdown': true }).map(node => node.children)).toEqual([[unknown], [INTERRUPTED_TASK_REPORT]]);
-    expect(renderer!.root.findAllByProps({ 'data-task-receipt-original': true })).toHaveLength(0);
-    expect(renderer!.root.findAllByProps({ 'data-task-receipt': true })).toHaveLength(1);
-  });
-
-  it('labels only receipt metadata and preserves its recorded time and original text', () => {
-    const value = runtimeFixture();
-    const text = 'External interrupt: daemon stop requested\nNext: Argus will diagnose recovery.';
-    const receipt = { type: 'ui.argus', text, ts: 1789216023.4750645,
-      message_id: 'mission-result-old-task-paused_daemon_shutdown', mission_result: true, item_id: 'old-task', success: false };
-    act(() => { renderer = create(<EventStream {...value} events={[receipt, ...value.events]}
-      connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    const row = renderer!.root.findByProps({ 'data-task-receipt': true });
-    expect(visibleText(row.findByProps({ 'data-task-receipt-header': true }))).toContain('Task report · Recorded then');
-    const time = row.findByType('time');
-    expect(time.props.dateTime).toBe('2026-09-12T12:27:03.475Z');
-    expect(visibleText(time)).toContain('2026');
-    expect(time.props.title).toContain('2026');
-    expect(row.findByProps({ 'data-markdown': true }).children).toEqual([text]);
-    expect(row.findByType(CopyButton).props.text).toBe(text);
-  });
-
-  it('does not infer a receipt or interruption status from ordinary message text', () => {
-    mount([{ type: 'ui.argus', text: 'External interrupt: daemon stop requested', ts: 1789216023 }]);
-    expect(renderer!.root.findAllByProps({ 'data-task-receipt': true })).toHaveLength(0);
-    expect(renderer!.root.findAllByProps({ 'data-task-receipt-header': true })).toHaveLength(0);
-  });
+it('preserves a recorded reply and its copy action, including runtime-like research text', () => {
+  const text = '\nResult: dimension 6.\nInfo: Operation cancelled by user\nMILESTONE_STATUS=literal research sample\n';
+  mount([{ type: 'ui.argus', text, ts: 1 }]);
+  expect(renderer!.root.findByProps({ 'data-markdown': true }).children).toEqual([text]);
+  expect(renderer!.root.findByType(CopyButton).props.text).toBe(text);
 });
 
-describe('project work status and conversation separation', () => {
-  it('keeps a reply under its question, shows the task as one card after it and the team\'s progress in the conversation', () => {
-    const events: EventMsg[] = [
-      { type: 'ui.operator', text: 'Start research task A', ts: 1 },
-      { ...progress(2), item_id: 'task-a' },
-      { type: 'ui.argus', text: 'Latest answer', ts: 3 },
-    ];
-    // The server says the engineer is on task A while the work runs.
+describe('server conversation rows and role channel', () => {
+  it('keeps server question, answer and completed task in their supplied order', () => {
     const { snapshot } = runtimeFixture();
-    snapshot.backlog = [{ ...snapshot.backlog[0], status: 'in_progress' }];
-    snapshot.roles = [{ ...snapshot.roles[0], tasks: ['task-a'] }];
-    const show = (shown: EventMsg[]) => <EventStream events={shown} snapshot={snapshot} connected showReasoning={false} />;
-    act(() => { renderer = create(show(events), { createNodeMock: nodeMock }); });
-    paint();
-    const sections = timelineSections();
-    expect(streamOrder()).toEqual(['thread', 'task task-a']);
-    expect(visibleText(sections[0])).toContain('Latest answer');
-    expect(outer.scrollTop).toBe(600);
-    const card = renderer!.root.findByProps({ 'data-task-work': 'task-a' });
-    expect(card.props['data-state']).toBe('running');
-    expect(visibleText(card)).toBe('Working on: Research task A');
-    // What a role said is said once, in the team's progress, which shows without a click; following the newest message continues.
-    expect(visibleText(card)).not.toContain('Recorded finding');
-    expect(visibleText(work())).toContain('Recorded finding 2');
-    outer.scrollHeight = 1200;
-    act(() => renderer!.update(show([...events, { ...progress(4), item_id: 'task-a' }])));
-    paint();
-    expect(outer.scrollTop).toBe(900);
-    expect(streamOrder()).toEqual(['thread', 'task task-a']);
-    expect(visibleText(work())).toContain('Recorded finding 4');
-  });
-
-  it('says where each task stands as the server does, and puts no card on work that names no task', () => {
-    const { snapshot } = runtimeFixture();
-    snapshot.backlog = [
-      { id: 't1', title: 'Write a.py', objective: '', status: 'in_progress', priority: 0 },
-      { id: 't2', title: 'Write b.py', objective: '', status: 'in_progress', priority: 0 },
-    ];
-    snapshot.roles = [{ ...snapshot.roles[0], tasks: ['t2'] }, { ...snapshot.roles[0], role: 'reviewer', tasks: ['t1'] }];
+    snapshot.role_events = [progress(5, 'This round only')];
     const events: EventMsg[] = [
-      { type: 'ui.operator', text: 'Write a.py and b.py', ts: 1 },
-      { ...progress(2, 'Splitting it in two'), agent_layer: 'planner' },
-      { ...progress(3, 'Writing a.py'), item_id: 't1' },
-      { ...progress(4, 'Writing b.py'), item_id: 't2' },
-      { ...progress(5, 'a.py prints 1'), item_id: 't1' },
-      { ...progress(6, 'Checking a.py'), agent_layer: 'reviewer', item_id: 't1' },
+      { type: 'ui.question', question_id: 'q1', agent_layer: 'engineer', text: 'Which option?', row_id: 'q1', ts: 1 },
+      { type: 'ui.operator', text: 'Option A', row_id: 'a1', ts: 3 },
+      { type: 'ui.task', item_id: 'task-a', title: 'Research task A', state: 'done', row_id: 't1', ts: 4 },
     ];
     act(() => { renderer = create(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    expect(streamOrder()).toEqual(['thread', 'task t1', 'task t2']);
-    const card = (id: string) => renderer!.root.findByProps({ 'data-task-work': id });
-    expect([card('t1').props['data-state'], visibleText(card('t1'))]).toEqual(['running', 'Checking the result: Write a.py']);
-    expect([card('t2').props['data-state'], visibleText(card('t2'))]).toEqual(['running', 'Working on: Write b.py']);
-    // The Engineer is on b.py now: what it said of a.py is not what it does now.
-    expect(visibleText(renderer!.root.findByProps({ 'data-role': 'engineer' }).findAllByType('button')[0]).trim()).toBe('EngineerNow: Writing b.py');
-    expect(renderer!.root.findByProps({ 'data-role-dot': 'engineer' }).props['data-tone']).toBe('running');
-    // Stopped, an open task is paused.
-    act(() => renderer!.update(<EventStream events={events} snapshot={{ ...snapshot, daemon: { ...snapshot.daemon, alive: false }, roles: [] }} connected showReasoning={false} />));
-    expect(visibleText(card('t1'))).toBe('Paused: Write a.py');
+    expect(visibleText(renderer!.root)).toContain('Engineer asks:Which option?');
+    expect(streamOrder()).toEqual(['thread', 'task task-a']);
+    expect(visibleText(renderer!.root.findByProps({ 'data-task-work': 'task-a' }))).toBe('Done: Research task A');
+    expect(visibleText(work())).toContain('This round only');
   });
 
-  it('says what a role at work does since the operator last wrote: its words, else its newest command', () => {
-    const { snapshot } = runtimeFixture();
-    snapshot.backlog = [];
-    snapshot.roles = [{ ...snapshot.roles[0], role: 'manager' }];
-    const manager = (ts: number, kind: string, text: string): EventMsg => ({ type: 'engineer.progress', kind, agent_layer: 'manager', text, event_id: `m-${ts}`, ts });
-    const round: EventMsg[] = [
-      { type: 'ui.operator', text: 'Make a timer', ts: 1 },
-      manager(2, 'agent_message', 'The page is done.'),
-      { type: 'ui.argus', text: 'Here is timer.html.', ts: 3 },
-      { type: 'ui.operator', text: 'Make it green', ts: 4 },
-      manager(5, 'command_execution', "/usr/bin/bash -lc 'sed -n 1,40p /tmp/timer.html'"),
-    ];
-    const headline = () => visibleText(renderer!.root.findByProps({ 'data-role': 'manager' }).findAllByType('button')[0]).trim();
-    act(() => { renderer = create(<EventStream events={round} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    // What it said in the last round is not what it does now.
-    expect(headline()).toBe('ManagerNow: Running sed -n 1,40p timer.html');
-    act(() => renderer!.update(<EventStream events={[...round, manager(6, 'agent_message', 'Switching the background to green.')]} snapshot={snapshot} connected showReasoning={false} />));
-    expect(headline()).toBe('ManagerNow: Switching the background to green.');
-    // At rest, it is what it said last.
-    act(() => renderer!.update(<EventStream events={round} snapshot={{ ...snapshot, roles: [{ ...snapshot.roles[0]!, active: false }] }} connected showReasoning={false} />));
-    expect(headline()).toBe('ManagerLast: The page is done.');
+  it('replaces the role panel with the next server round, including removing inactive roles', () => {
+    const before = roleSnapshot([progress(1, 'Old finding')]);
+    const events: EventMsg[] = [{ type: 'ui.operator', text: 'New request', ts: 3 }];
+    const show = (snapshot: Snapshot) => <EventStream events={events} snapshot={snapshot} connected showReasoning={false} />;
+    act(() => { renderer = create(show(before), { createNodeMock: nodeMock }); });
+    expect(visibleText(work())).toContain('Old finding');
+    act(() => renderer!.update(show(roleSnapshot([{ ...progress(4, 'Current answer'), event_id: 4, agent_layer: 'manager' }]))));
+    expect(visibleText(work())).not.toContain('Old finding');
+    expect(renderer!.root.findAllByProps({ 'data-role': 'engineer' })).toHaveLength(0);
+    expect(visibleText(work())).toContain('Current answer');
   });
 
-  it('keeps ongoing task A work out of the later question B conversation and preserves the role log reading state', () => {
-    const first: EventMsg[] = [
-      { type: 'ui.operator', text: 'Start research task A', ts: 1 },
-      { ...progress(2, 'Research task A first finding'), item_id: 'task-a' },
-    ];
-    mount(first);
-    paint();
-    scrollTo(140);
-    act(() => roleGroup().findAllByType('button')[0].props.onClick());
-    const latest = [...first,
-      { type: 'ui.operator', text: 'Question B: explain this term', ts: 3 },
-      { type: 'ui.argus', text: 'Answer to question B', ts: 4 },
-      { ...progress(5, 'Research task A second finding'), item_id: 'task-a' },
-    ];
-    update(latest);
-    const threads = renderer!.root.findAll(node => node.type === 'section' && String(node.props.className).includes('conversation-thread'));
-    expect(threads).toHaveLength(2);
-    expect(visibleText(threads[1])).toContain('Answer to question B');
-    expect(visibleText(threads[1])).not.toContain('Research task A');
-    expect(threads[1].findAllByProps({ 'data-role': 'engineer' })).toHaveLength(0);
-    // Task A keeps one card where it started; question B and its answer follow it.
-    expect(streamOrder()).toEqual(['thread', 'task task-a', 'thread']);
-    expect(renderer!.root.findAllByProps({ 'data-project-work': true })).toHaveLength(1);
-    expect(roleGroup().props['data-open']).toBe('false');
-    act(() => roleGroup().findAllByType('button')[0].props.onClick());
-    paint();
-    expect(inner.scrollTop).toBe(140);
-    expect(visibleText(log())).toContain('Research task A first finding');
-    expect(visibleText(log())).toContain('Research task A second finding');
-  });
-
-  it('shows questions, answers, work and reports strictly in time order', () => {
-    const delivery = { schema_version: 1, delivery_id: 'delivery-csv', kind: 'task_completed', item_id: 'task-csv', title: 'CSV tool result', summary: 'All tests pass', status: 'done', review_status: 'done', delivered_at: 59, primary_target: null, targets: [] };
-    const roleWork = (id: string, ts: number, role: string, detail: string) => ({
-      id, ts, role, kind: 'agent_message', title: '', detail, status: '', item_id: 'task-csv',
-    }) as unknown as MissionView['role_work'][number];
-    const events: EventMsg[] = [
-      { type: 'ui.operator', text: 'Hello', ts: 10, message_id: 'q-hello' },
-      { type: 'ui.argus', text: 'Hi, ready when you are.', ts: 11, message_id: 'a-hello' },
-      { type: 'ui.operator', text: 'Build the CSV tool', ts: 20, message_id: 'q-csv' },
-      { type: 'ui.argus', text: 'Which tax rate should the summary show? Reply 1, 2 or 3.', ts: 25, message_id: 'a-csv',
-        steps: [{ kind: 'command_execution', label: 'Read the code', status: 'completed', started_ts: 21, ended_ts: 24 }] },
-      { type: 'ui.operator', text: '2', ts: 30, message_id: 'q-choice' },
-      { type: 'ui.argus', text: 'Got it, starting now.', ts: 32, message_id: 'a-choice' },
-      { ...progress(45, 'Reviewer checked the CSV tool'), agent_layer: 'reviewer', item_id: 'task-csv' },
-      { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: 'pytest -q', event_id: 'cmd-46', ts: 46, item_id: 'task-csv' },
-      { type: 'ui.argus', text: 'Done: the CSV tool passes all tests.', ts: 60, message_id: 'report-csv', delivery },
-      { type: 'ui.operator', text: '1', ts: 70, message_id: 'q-format' },
-      { ...progress(71, 'Engineer formatted the amounts'), item_id: 'task-format' },
-      { type: 'ui.argus', text: 'Finished the first format.', ts: 80, message_id: 'report-format', mission_result: true, item_id: 'task-format' },
-    ];
-    // Work older than the live window comes from the mission view, recorded
-    // while Argus was writing its acknowledgement and after it.
-    const view = { ...emptyMissionView(), role_work: [
-      roleWork('planner:task', 31, 'planner', 'Planner created the CSV task'),
-      roleWork('engineer:round', 40, 'engineer', 'Engineer built the CSV tool'),
-    ] };
-    act(() => {
-      renderer = create(<EventStream events={events} missionView={view} connected showReasoning={false} />,
-        { createNodeMock: nodeMock });
-    });
-    expect(streamOrder()).toEqual([
-      'thread: Hello / Hi, ready when you are.',
-      'thread: Build the CSV tool / Which tax rate should the summary show? Reply 1, 2 or 3.',
-      'thread: 2 / Got it, starting now.',
-      'task task-csv',
-      'thread: Done: the CSV tool passes all tests.',
-      'thread: 1',
-      'task task-format',
-      'thread: Finished the first format.',
-    ].map(entry => entry.startsWith('thread') ? 'thread' : entry));
-    expect(timelineSections().filter(section => !section.props['data-task-work'])
-      .map(section => section.findAllByType('article').map(row => visibleText(row.findByProps({ 'data-markdown': true }))).join(' / ')))
-      .toEqual([
-        'Hello / Hi, ready when you are.',
-        'Build the CSV tool / Which tax rate should the summary show? Reply 1, 2 or 3.',
-        '2 / Got it, starting now.',
-        'Done: the CSV tool passes all tests.',
-        '1',
-        'Finished the first format.',
-      ]);
-    // A settled task reads as itself: what its roles said, and the commands they ran, are the team's progress.
-    const csv = renderer!.root.findByProps({ 'data-task-work': 'task-csv' });
-    expect(visibleText(csv)).not.toContain('Reviewer checked the CSV tool');
-    expect(visibleText(csv)).not.toContain('pytest');
-    // Without the server's word, no task is said to be under way.
-    expect(renderer!.root.findByProps({ 'data-task-work': 'task-format' }).props['data-state']).toBe('idle');
-    // The whole process is in the conversation: the team's progress holds every role's work in time order.
-    expect(visibleText(work())).toContain('Planner created the CSV task');
-    // The question's own process stays attached to it, and the receipt follows its report.
-    const sections = timelineSections();
-    expect(sections[1].findAllByType(TurnSteps)).toHaveLength(1);
-    expect(sections.filter(section => section !== sections[1]).flatMap(section => section.findAllByType(TurnSteps))).toHaveLength(0);
-    expect(visibleText(sections[4])).toContain('CSV tool result');
-    expect(sections[3].findAll(node => visibleText(node).includes('CSV tool result'))).toHaveLength(0);
-  });
-
-  it('shows a finished task as one result line with its receipt after a new question arrives', () => {
-    const delivery = { schema_version: 1, delivery_id: 'delivery-a', kind: 'task_completed', item_id: 'task-a', title: 'Task A result', summary: 'Task A evidence', status: 'done', review_status: 'done', delivered_at: 4, primary_target: null, targets: [] };
-    mount([
-      { type: 'ui.operator', text: 'Question B', ts: 3 },
-      { type: 'life.mission.completed', item_id: 'task-a', status: 'done', ts: 4, delivery },
-    ]);
-    const card = renderer!.root.findByProps({ 'data-task-work': 'task-a' });
-    expect(card.props['data-state']).toBe('done');
-    expect(visibleText(card)).toContain('Done');
-    expect(visibleText(card)).toContain('Task A result');
-    // The process stays folded until asked for.
-    expect(card.findAllByProps({ 'data-role': 'engineer' })).toHaveLength(0);
-    const thread = renderer!.root.find(node => node.type === 'section' && String(node.props.className).includes('conversation-thread'));
-    expect(visibleText(thread)).not.toContain('Task A result');
-  });
-
-  it('does not pulse paused or disconnected work, while keeping the latest role initially open', () => {
+  it('keeps role progress quiet when disconnected or stopped', () => {
     const value = runtimeFixture(false);
     const show = (connected: boolean) => <EventStream {...value} connected={connected} showReasoning={false} />;
     act(() => { renderer = create(show(true), { createNodeMock: nodeMock }); });
     expect(roleGroup().props['data-active']).toBe('false');
-    expect(roleGroup().props['data-open']).toBe('true');
-    value.snapshot = { ...value.snapshot, daemon: { ...value.snapshot.daemon, alive: true } };
+    value.snapshot.daemon.alive = true;
     act(() => renderer!.update(show(true)));
     expect(roleGroup().props['data-active']).toBe('true');
-    act(() => roleGroup().findAllByType('button')[0].props.onClick());
     act(() => renderer!.update(show(false)));
     expect(roleGroup().props['data-active']).toBe('false');
-    expect(roleGroup().props['data-open']).toBe('false');
-    act(() => renderer!.update(show(true)));
-    expect(roleGroup().props['data-open']).toBe('false');
-  });
-
-  it('heads a role whose work is older than the loaded events with its last words from the whole record', () => {
-    const value = runtimeFixture(false);
-    value.snapshot = { ...value.snapshot, roles: [...value.snapshot.roles,
-      { role: 'manager', active: false, status: 'idle', label: 'Manager', age_s: null, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null,
-        last: { text: 'Handed the survey to the Engineer', ts: 1 } }] };
-    act(() => { renderer = create(<EventStream {...value} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]).trim();
-    expect(header('manager')).toBe('ManagerLast: Handed the survey to the Engineer');
-    // A role that took no part is not listed.
-    expect(renderer!.root.findAllByProps({ 'data-role': 'planner' })).toHaveLength(0);
-  });
-
-  it('gates legacy role and provider activity on the live connection too', () => {
-    const events = [progress(1), { type: 'agent.io.start', call_id: 'call-1', ts: 2 }];
-    act(() => { renderer = create(<EventStream events={events} connected={false} showReasoning={false} />, { createNodeMock: nodeMock }); });
-    expect(roleGroup().props['data-active']).toBe('false');
-    expect(visibleText(renderer!.root)).not.toContain('Argus is working in the background');
-  });
-
-  it('heads each role with its newest step as the log says it, never the host footer or a raw call', () => {
-    // Trial s-6f0e6213: the Manager's header read "**暂不能交付。** … ACTION=hold TARGET_STAGE=delivery REASON=…"
-    // and the Engineer's `glob: {"pattern": "**/AGENTS.md"}`.
-    mount([
-      { type: 'engineer.progress', kind: 'agent_message', actor: 'manager-stage', agent_layer: 'manager', event_id: 'm', ts: 1,
-        text: '**Not ready to deliver.** `core.py` lacks `format_hours`.\n\nDecision:\nACTION=hold\nTARGET_STAGE=delivery\nREASON=work remains' },
-      { type: 'engineer.progress', kind: 'tool_use', tool_name: 'glob', agent_layer: 'engineer', event_id: 'g', ts: 2,
-        text: 'glob: {"pattern": "**/AGENTS.md"}' },
-    ]);
-    const header = (role: string) => visibleText(renderer!.root.findByProps({ 'data-role': role }).findAllByType('button')[0]);
-    expect(header('manager')).toContain('Not ready to deliver. core.py lacks format_hours.');
-    expect(header('manager')).not.toMatch(/\*\*|`|ACTION|TARGET_STAGE|REASON/);
-    expect(header('engineer')).toContain('Find AGENTS.md');
-    expect(header('engineer')).not.toContain('glob');
   });
 });
 

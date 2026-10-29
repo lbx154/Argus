@@ -1,3 +1,4 @@
+import type { ConversationPage } from '@argus/contracts';
 /**
  * Browser client for the argus webapi — same surface as the terminal client
  * (frontend/tui/src/api.ts) but using the browser fetch, with server-sent events for streams.
@@ -962,9 +963,8 @@ export const api = {
     getJson<ModelChoices>(P(sid, '/model-choices'), signal),
   probeModel: (sid: string, model: string) =>
     postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model }),
-  transcript: (sid: string, n = 30, signal?: AbortSignal) =>
-    getJson<{ turns: EventMsg[] }>(P(sid, `/transcript?n=${n}`), signal)
-      .then((r) => r.turns),
+  conversation: (sid: string, before?: number, signal?: AbortSignal) =>
+    getJson<ConversationPage>(P(sid, `/conversation?limit=30${before === undefined ? '' : `&before=${before}`}`), signal),
   events: (sid: string, limit = 80, signal?: AbortSignal) =>
     getJson<{ events: EventMsg[] }>(
       P(sid, `/events?limit=${limit}&view=ui`),
@@ -1387,6 +1387,10 @@ export function openStream(
   q.set('view', 'ui');
   return follow(`${P(sid, '/stream')}?${q}`, 'Event stream', onEvent, opts);
 }
+
+/** Row updates use the same projection as a fresh conversation page. */
+export const openConversation = (sid: string, after: number, onFrame: (frame: EventMsg) => void): (() => void) =>
+  follow(P(sid, `/stream?view=rows&after=${after}`), 'Conversation stream', onFrame, {});
 
 /** The project list, then each project's state as it changes, from a server without POLL_CAPABILITY. Returns a close() fn. */
 export const openProjectStates = (onState: (state: ProjectState) => void, opts: StreamOptions = {}): (() => void) =>

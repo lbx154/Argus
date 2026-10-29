@@ -2,7 +2,7 @@ import type { Query, QueryClient, QueryKey } from '@tanstack/react-query';
 
 /** What a reload needs to draw a project at once: the API handshake, the
  * project list, and each project's snapshot, conversation and event window. */
-const PERSISTED_ROOTS = new Set(['api-meta', 'projects', 'snapshot', 'transcript', 'events']);
+const PERSISTED_ROOTS = new Set(['api-meta', 'projects', 'snapshot', 'conversation', 'events']);
 export const QUERY_CACHE_KEY = 'argus.query-cache.v1';
 // Browsers give an origin about five million characters of session storage;
 // leave most of it to drafts and the rest of the workbench.

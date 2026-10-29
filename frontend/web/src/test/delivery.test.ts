@@ -186,7 +186,7 @@ describe('completed delivery presentation', () => {
 
   it('a reply recorded with a delivery replaces the page’s row for it, delivery and all', () => {
     const recorded = { type: 'ui.argus', text: 'Done', ts: 2, event_id: 5, message_id: 'm3-argus', delivery };
-    const events = mergeConversationEvents([], [recorded], [{ type: 'ui.argus', text: 'Done', ts: 1.5, message_id: 'm3-argus' }]);
+    const events = mergeConversationEvents([recorded], [{ type: 'ui.argus', text: 'Done', ts: 1.5, message_id: 'm3-argus' }]);
     expect(events).toEqual([recorded]);
   });
 });

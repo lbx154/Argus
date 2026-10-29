@@ -1211,14 +1211,14 @@ export function MapCanvas({
   const complete = tally.done;
   // The writer's reader-language account of a task's outcome, when cached.
   const writtenOutcome = useCallback((task: MapTask) => copy?.cards?.[`${task.id}:outcome`]?.summary || "", [copy]);
-  const status = currentWorkStatus(snapshot, snapshot.mission_view, events);
-  const currentWork = workStatusLabel(status, zh ? 'zh-CN' : 'en', actions.connected);
+  const status = currentWorkStatus(snapshot);
+  const currentWork = workStatusLabel(status, zh ? 'zh-CN' : 'en');
   const decisionCards = useMemo(() => operatorDecisionCards(snapshot.pending_questions ?? [],
     snapshot.backlog.map((item) => ({ ...item })), currentTaskId), [snapshot.pending_questions, snapshot.backlog, currentTaskId]);
   const overview = useMemo(() => projectOverview({
     tasks: data.tasks, decisions: decisionCards,
   }), [data.tasks, decisionCards]);
-  const statusSentence = mapStatusSentence({
+  const statusSentence = data.kind === 'live' ? currentWork : mapStatusSentence({
     total: counted.length,
     qa: counted.filter(task => task.turn_kind === 'qa').length,
     complete,
@@ -1230,7 +1230,6 @@ export function MapCanvas({
     paused,
     hasOpenWork: data.tasks.some((task) => ["running", "pending", "paused", "held", "question"].includes(statusKey(task))),
     role: activePhase,
-    current: data.kind === 'live' && status.state !== 'idle' ? currentWork : undefined,
     zh,
   });
   const focus = (id: string) => {
@@ -2244,9 +2243,9 @@ export const MapPanel = memo(function MapPanel({
   // would invalidate the node-data memos in every mounted MapCanvas card.
   // The team line lives at the top of the canvas, beside the overview, so it
   // stays in view when the composer is folded away.
-  const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} view={snapshot.mission_view} events={events} connected={connected !== false} compact
+  const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} connected={connected !== false} compact
     pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
-  [snapshot, events, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy]);
+  [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, connected, artifacts, deliveryCount,
              onOpenDelivery, onOpenReceipt, onOpenArtifact, onAnswer, deliveries,

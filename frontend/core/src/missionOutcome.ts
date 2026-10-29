@@ -94,7 +94,7 @@ export function settledStatus(event: MissionOutcomeEvent | { status?: unknown; o
 }
 
 const PRESENTATION: Record<MissionOutcomeClass, Omit<MissionOutcomePresentation, 'outcomeClass' | 'kind' | 'label' | 'technical'>> = {
-  completed: { glyph: '🎉', tone: 'ok', missionStatus: 'complete' },
+  completed: { glyph: '✓', tone: 'ok', missionStatus: 'complete' },
   incomplete: { glyph: '◌', tone: 'warn', missionStatus: 'incomplete' },
   stalled: { glyph: '⏸', tone: 'warn', missionStatus: 'stalled' },
   blocked: { glyph: '⛔', tone: 'err', missionStatus: 'blocked' },

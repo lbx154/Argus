@@ -5,7 +5,7 @@ import { NAMES } from '../prompts.js';
 import type { Note, Project, Store } from '../store.js';
 import { ROLES, type Role } from '../types.js';
 import { HttpError, type Handler } from './index.js';
-import { named as projectName, progressMap, readEvents, turns, webEvents } from './views.js';
+import { named as projectName, progressMap, readEvents, readRecord, conversationRows } from './views.js';
 
 const RESULTS = 50;
 const EXCERPT = 32_000;
@@ -74,7 +74,7 @@ function search(store: Store, query: string) {
     match(project.request, 'project');
     try {
       const events = readEvents(store, project.id);
-      for (const { type, text, ts, message_id } of turns(webEvents(events))) {
+      for (const { type, text, ts, message_id } of conversationRows(readRecord(store, project.id), project, { since: null, calls: [], requests: [] }).filter(row => row.type !== 'ui.task')) {
         match(String(text), 'conversation', { role: type === 'ui.operator' ? 'operator' : 'argus', ts, message_id });
       }
       // The Manager's letters are the conversation's replies; the others' open the project.

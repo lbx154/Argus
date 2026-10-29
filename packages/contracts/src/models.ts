@@ -13,8 +13,6 @@ export interface Role {
   label: string;
   status: string;
   age_s: number | null;
-  /** What the role last said or wrote, from the whole record: the page holds only its newest part. */
-  last?: { text: string; ts: number } | null;
   /** The tasks its calls under way are on: one role can work on several side by side. */
   tasks?: string[];
 }
@@ -370,6 +368,9 @@ export interface Snapshot {
   };
   daemon: Daemon;
   roles: Role[];
+  /** The server's current-round role log and canonical project status. */
+  role_events?: EventMsg[];
+  work_status?: ProjectWorkStatus;
   /** The newest model call this project opened: what it actually ran on. */
   last_call?: { backend: string; model: string; effort: string; run_label: string; role?: string; ts: number } | null;
   backlog: BacklogItem[];
@@ -402,7 +403,27 @@ export interface Snapshot {
   }>;
 }
 
+export interface ProjectWorkStatus {
+  state: 'running' | 'waiting' | 'paused' | 'idle';
+  reason: 'operator_input' | 'not_running' | 'awaiting_next_step' | '';
+  role: string;
+  roles: string[];
+  taskId: string;
+  title: string;
+  foreground: boolean;
+  activityAt: number | null;
+  label: { 'zh-CN': string; en: string };
+}
+
+/** A page counts dialogue and task rows; tool steps belong only to role logs. */
+export interface ConversationPage {
+  rows: EventMsg[];
+  before: number | null;
+  cursor: number;
+}
+
 export interface ProjectRow {
+  work_status?: ProjectWorkStatus;
   id: string;
   label: string;
   objective: string;

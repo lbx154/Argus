@@ -11,7 +11,7 @@
 
 import { join } from 'node:path';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
-import type { FlowEvent, Note, Project, Question, Status, Store, Task } from './store.js';
+import { questionId, type FlowEvent, type Note, type Project, type Question, type Status, type Store, type Task } from './store.js';
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf } from './serve/files.js';
 
@@ -54,7 +54,7 @@ export class Flow {
     const at = project.questions.findIndex(({ task, question }) => task === asked.task && question === asked.question);
     if (at < 0) throw new Error(`${id} has no such open question`);
     const [question] = project.questions.splice(at, 1) as [Question];
-    this.record(project, { type: 'message', from: 'operator', text, to: question.role });
+    this.record(project, { type: 'message', from: 'operator', text, to: question.role, answer_to: questionId(question) });
     // A stopped project stays stopped: the asker reads the answer when it resumes.
     if (project.status !== 'stopped') {
       this.retry(project);

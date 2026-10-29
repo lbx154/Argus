@@ -1,3 +1,4 @@
+import { roleSnapshot } from './serverSnapshot';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { EventMsg, Snapshot } from '../api';
@@ -142,7 +143,7 @@ describe('real rows from a dogfood session', () => {
     const files = '/srv/state/copilot-home/session-state/09822296/files';
     const command = `mkdir -p ${files} && pytest -q | tee ${files}/pytest.log`;
     const events = [{ type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: command, ts: 1, status: 'running' }] as unknown as EventMsg[];
-    const html = renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} />);
+    const html = renderToStaticMarkup(<EventStream events={[]} snapshot={roleSnapshot(events)} connected showReasoning={false} />);
     // The command waits behind its role's "Show commands" (eventStreamInteraction opens it).
     expect(html).toContain('Show commands');
     expect(html).not.toContain('pytest -q');
@@ -161,7 +162,7 @@ describe('real rows from a dogfood session', () => {
       { type: 'engineer.progress', kind: 'command_execution', agent_layer: 'engineer', text: command, ts: 1 },
       { type: 'engineer.progress', kind: 'tool_result', agent_layer: 'engineer', text: 'Public package: /work/datefmt/datefmt/__init__.py | /usr/lib/python3/site-packages/x.py', ts: 2 },
     ] as unknown as EventMsg[];
-    const html = renderToStaticMarkup(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} />);
+    const html = renderToStaticMarkup(<EventStream events={[]} snapshot={{ ...snapshot, role_events: events }} connected showReasoning={false} />);
     expect(html).toContain('Show commands');
     expect(html).not.toContain('rm -r --');
     expect(plainCommand(command, snapshot.session.workdir)).toBe('rm -r -- build /work/datefmt2/build && ls .');

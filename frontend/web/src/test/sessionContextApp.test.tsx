@@ -39,10 +39,10 @@ vi.mock('../hooks', async importOriginal => ({
   useProjectCosts: () => fixture.idle,
   useSnapshot: (sid: string) => fixture.snapshots.get(sid) || fixture.idle,
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
-  useTranscript: () => ({ ...fixture.idle, data: fixture.turns }),
   useEventStream: () => ({ events: fixture.events, connected: true, seeded: true }),
   useProjectActions: () => fixture.actions,
 }));
+vi.mock('../useConversationHistory', () => ({ useConversationHistory: () => ({ query: { ...fixture.idle, data: fixture.turns, hasNextPage: false, isFetchedAfterMount: true }, events: fixture.turns, status: 'ready' }) }));
 // Keep App's actual selection, composer controller, command dispatch and delivery
 // controller. Heavy presentation children are irrelevant to these lifetime races;
 // the browser fixture separately exercises their real DOM and artifact HTTP path.
