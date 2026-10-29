@@ -124,17 +124,10 @@ def _web_cache_control(path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _manager_stream_heartbeat_seconds() -> float:
-    """Silence interval before SSE reports that it is awaiting a worker update.
-
-    This is status, not invented chain-of-thought: a worker may be waiting for a
-    safe handoff or local I/O, not necessarily an active model call. Set ``ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S=0`` to disable.
-    """
-    raw = os.environ.get("ARGUS_SKILL_MANAGER_STREAM_HEARTBEAT_S", "5")
-    try:
-        return max(0.0, float(raw))
-    except (TypeError, ValueError):
-        return 5.0
+# Silence interval before SSE reports that it is awaiting a worker update.
+# This is status, not invented chain-of-thought: a worker may be waiting for a
+# safe handoff or local I/O, not necessarily an active model call.
+MANAGER_STREAM_HEARTBEAT_S = 5.0
 
 
 def _iter_manager_stream_items(

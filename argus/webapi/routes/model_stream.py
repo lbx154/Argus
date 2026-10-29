@@ -34,7 +34,7 @@ def model_stream_response(generate, *, thread_name: str, unavailable_message: st
 
     def frames():
         for item in server._iter_manager_stream_items(
-            items, heartbeat_s=server._manager_stream_heartbeat_seconds() or 5.0,
+            items, heartbeat_s=server.MANAGER_STREAM_HEARTBEAT_S,
         ):
             if item.get("heartbeat"):
                 item = {"type": "heartbeat", "quiet_s": item["quiet_s"]}

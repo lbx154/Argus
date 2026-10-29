@@ -144,7 +144,7 @@ def test_browser_disconnect_keeps_task_cancellable_without_replaying(tmp_path, m
             finished.set()
 
     monkeypatch.setattr(manager_bridge, "manager_message", manager)
-    monkeypatch.setattr(server, "_manager_stream_heartbeat_seconds", lambda: 0.01)
+    monkeypatch.setattr(server, "MANAGER_STREAM_HEARTBEAT_S", 0.01)
     app = server.create_app(global_root=tmp_path)
     endpoint = next(route.endpoint for route in app.routes
                     if getattr(route, "path", "") == "/api/projects/{sid}/message/stream")

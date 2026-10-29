@@ -12,7 +12,7 @@ from starlette.requests import HTTPConnection
 from ...core import paths as core_paths
 from ...core.session import durable_session_activity, read_session_meta
 from ..daemon_services import DaemonServices
-from ..index_cache import IndexCache, QueryExecutor, resolve_snapshot_ttl_seconds
+from ..index_cache import DEFAULT_SNAPSHOT_TTL_SECONDS, IndexCache, QueryExecutor
 
 # A browser offers its token as the hex-encoded ``argus.bearer.`` subprotocol
 # beside ``argus``, which a project stream selects.
@@ -51,7 +51,7 @@ class ServerContext:
         self._list_trashed_projects = list_trashed_projects
         self._project_life_dir = project_life_dir
         self.index_cache = IndexCache()
-        self.snapshot_cache = IndexCache(ttl_seconds=resolve_snapshot_ttl_seconds())
+        self.snapshot_cache = IndexCache(ttl_seconds=DEFAULT_SNAPSHOT_TTL_SECONDS)
 
     def invalidate_read_caches(self) -> None:
         """Detach cached and in-flight reads after a successful mutation."""
