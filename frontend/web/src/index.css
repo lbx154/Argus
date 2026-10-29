@@ -862,22 +862,7 @@ button {
   }
 }
 
-/* A new delivery is announced near the top of the workspace, below the header and its
- * tabs, clear of the composer dock at every width, and under any dialog. */
-.delivery-toast {
-  position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 40;
-  display: flex; align-items: center; gap: 10px;
-  width: max-content; max-width: min(420px, calc(100vw - 32px));
-  padding: 10px 14px; border-radius: 10px;
-  background: rgb(var(--panel-raised)); color: rgb(var(--ink));
-  border: 1px solid rgb(var(--line)); box-shadow: var(--shadow-lift);
-  font-size: 13px;
-}
-.delivery-toast strong { flex: none; font-weight: 600; }
-.delivery-toast span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink-dim)); }
-@media (min-width: 1024px) { .delivery-toast { top: 108px; } }
-.delivery-toast button { border: 0; background: transparent; color: inherit; cursor: pointer; font: inherit; }
-.delivery-toast button:first-of-type { color: rgb(var(--blue)); font-weight: 600; }
+
 /* Asset selection follows the workbench theme, including manual overrides. */
 .app-brand-image .app-brand-dark { display: none; }
 [data-theme="dark"] .app-brand-image .app-brand-light { display: none; }

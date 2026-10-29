@@ -17,7 +17,8 @@ export function bundledSkillGuide(item: SkillLibraryItem): SkillGuide | null {
 }
 export function skillPresentation(item: SkillLibraryItem, locale: string) {
   const guide = locale === 'zh-CN' ? bundledSkillGuide(item) : null;
-  return { title: guide?.title ?? item.name, summary: guide?.summary ?? item.description, guide };
+  return { title: guide?.title ?? item.name,
+    summary: guide?.summary ?? (locale === 'zh-CN' && !/[\u3400-\u9fff]/.test(item.description) ? '' : item.description), guide };
 }
 export function skillSearchText(item: SkillLibraryItem, locale: string): string {
   const shown = skillPresentation(item, locale);

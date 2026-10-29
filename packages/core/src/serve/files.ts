@@ -5,7 +5,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { createReadStream, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs';
+import { closeSync, createReadStream, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, rmSync, statSync, writeFileSync, type Stats } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { basename, extname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import type { ArtifactInfo, ArtifactKind, DeliverySnapshot } from '@argus/contracts';
@@ -26,7 +26,6 @@ const TYPES: Record<string, [ArtifactKind, string]> = {
   '.dae': ['model', 'model/vnd.collada+xml'], '.glb': ['model', 'model/gltf-binary'], '.gltf': ['model', 'model/gltf+json'],
   '.woff2': ['binary', 'font/woff2'], '.woff': ['binary', 'font/woff'], '.ttf': ['binary', 'font/ttf'], '.wasm': ['binary', 'application/wasm'],
 };
-const TEXT = new Set(['.txt', '.log', '.py', '.ts', '.tsx', '.sh', '.yaml', '.yml', '.toml', '.tex', '.bib', '.ipynb', '.r', '.sql', '.xml']);
 const PREVIEW_BYTES = 128 * 1024;
 const LISTED = 200;
 /** The most a text result holds to be edited in the page, or copied as delivered. */
@@ -36,7 +35,20 @@ const COPIES = 10;
 
 export function typeOf(path: string): [ArtifactKind, string] {
   const ext = extname(path).toLowerCase();
-  return TYPES[ext] ?? (TEXT.has(ext) ? ['text', 'text/plain; charset=utf-8'] : ['binary', 'application/octet-stream']);
+  return TYPES[ext] ?? (looksText(path) ? ['text', 'text/plain; charset=utf-8'] : ['binary', 'application/octet-stream']);
+}
+
+/** Whether a file reads as text by its first bytes: UTF-8, without a NUL. Only those are read, since
+ * a file of a kind not known may be a checkpoint of gigabytes. */
+function looksText(file: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = openSync(file, 'r');
+    const head = Buffer.alloc(8192);
+    const read = head.subarray(0, readSync(fd, head, 0, head.length, 0));
+    new TextDecoder('utf-8', { fatal: true }).decode(read, { stream: true });
+    return !read.includes(0);
+  } catch { return false; } finally { if (fd !== undefined) closeSync(fd); }
 }
 
 /** The file, or the part a `Range: bytes=` header asks for (PDF.js reads by ranges). */
@@ -122,7 +134,7 @@ export function titleOf(project: Project, path: string): string {
 }
 
 export function artifactInfo(project: Project, found: { file: string; path: string; stat: Stats }, preview = false): ArtifactInfo {
-  const [kind, mime] = typeOf(found.path);
+  const [kind, mime] = typeOf(found.file);
   const info: ArtifactInfo = {
     path: found.path, name: basename(found.path), why: '', exists: true, kind, mime,
     size: found.stat.size, mtime: found.stat.mtimeMs / 1000, storage_path: join(project.workdir, found.path),

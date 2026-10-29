@@ -1,28 +1,17 @@
 import type { ArtifactInfo } from '../api';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { cleanDeliverySummary } from '../components/deliveryPresentation';
-import { isReaderBrief, READER_BRIEF_VERSION } from '../research-brief/model';
-import { ReaderExplanation } from '../research-brief/ReaderExplanation';
 import { TaskTrace } from '../components/TaskTrace';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { errorText } from '../lib/format';
 import { ACTIVE, type MapTask } from './model';
-import type { CardCopy, CardRequest } from './presentation';
-import { PendingQuestion } from '../research-brief/PendingQuestion';
-import { ProgressQuestionButton, type QuestionSourceContext } from '../research-brief/ProgressQuestions';
-
-export interface MapReaderSelection {
-  request: CardRequest;
-  questionContext?: QuestionSourceContext;
-}
-
+import type { CardCopy } from './presentation';
 /** The reader holds a saved explanation, or the card's own record when none
  * was written, and the way to ask about it; the records an explanation was
  * written from are the map's own steps, one click away, not repeated here. */
-export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, selection, artifacts, onOpenArtifact, readOnly, sessionId, zh = true }: {
+export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, artifacts, onOpenArtifact, sessionId, zh = true }: {
   cardKey: string; taskId: string; card?: CardCopy; originalDetail: string;
-  task?: MapTask; selection?: MapReaderSelection; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
-  readOnly?: boolean;
+  task?: MapTask; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
   /** A live project's session: its team tasks show their recorded trajectory. */
   sessionId?: string; zh?: boolean;
 }) {
@@ -35,7 +24,7 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
     // A team task reads as what it came to, then how: each role's reasoning,
     // words, file changes and tool calls, with commands folded.
     return <div className="font-sans" data-reader-card={cardKey} data-reader-task-id={taskId}>
-      <PendingQuestion task={task} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
+      <PendingQuestion task={task} zh={zh} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
       {task.status === 'failed' && task.last_error ? <ErrorMessage error={task.last_error} code="agent_failed" /> : null}
       <TaskTrace sessionId={sessionId} taskId={taskId} zh={zh} running={ACTIVE.has(task.status)}
         conclusion={task.status === 'failed' && task.last_error ? undefined : plainConclusion(task, zh)} />
@@ -44,16 +33,9 @@ export function MapReaderContent({ cardKey, taskId, card, task, originalDetail, 
       </details> : null}
     </div>;
   }
-  const selected = selection?.request.key === cardKey && selection.request.task_id === taskId ? selection : undefined;
-  const brief = (card?.version ?? 0) >= READER_BRIEF_VERSION && isReaderBrief(card?.reader_brief) ? card!.reader_brief : undefined;
   return <div className="font-sans" data-reader-card={cardKey} data-reader-task-id={taskId}>
-    {brief ? <ReaderExplanation brief={brief} identity={cardKey} detail={card?.detail} learningPath={card?.learning_path} foundation={card?.foundation_ref}
-      readingUnavailable={card?.teaching_review?.reading_review?.status === 'unavailable'}
-      teachingUnavailable={card?.teaching_review?.status === 'unavailable'} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
-      : <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card?.detail || originalDetail)}</MarkdownContent></div>}
-    <PendingQuestion task={task?.id === taskId ? task : undefined} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
-    {/* Questions are asked about a saved explanation; a bare record has none to ask about. */}
-    {card ? <div className="my-3"><ProgressQuestionButton card={card} cardKey={cardKey} taskId={taskId} readOnly={readOnly} context={selected?.questionContext} /></div> : null}
+    <div className="macro-reader-markdown"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{cleanDeliverySummary(card?.detail || originalDetail)}</MarkdownContent></div>
+    <PendingQuestion task={task?.id === taskId ? task : undefined} zh={zh} artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
   </div>;
 }
 
@@ -64,4 +46,16 @@ function plainConclusion(task: MapTask, zh: boolean): string {
   if (ACTIVE.has(task.status)) return zh ? '还在进行中。' : 'Still in progress.';
   if (task.status === 'failed') return errorText(task.last_error, zh ? 'zh-CN' : 'en', 'agent_failed');
   return task.title;
+}
+
+/** A question the work is waiting on is the one thing a reader must not miss. */
+function PendingQuestion({ task, artifacts, onOpenArtifact, zh }: {
+  task?: Pick<MapTask, 'id' | 'pending_question'>; zh: boolean; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
+}) {
+  const question = typeof task?.pending_question === 'string' ? task.pending_question.trim() : '';
+  if (!question) return null;
+  return <section className="mt-4 min-w-0 border-t border-line/60 pt-3 text-[13px] leading-6 text-ink-dim" data-reader-pending-question={task!.id}>
+    <h3 className="text-xs font-medium text-ink">{zh ? '这一步在等你回答' : 'This step is waiting for your answer'}</h3>
+    <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{question}</MarkdownContent>
+  </section>;
 }

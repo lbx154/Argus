@@ -67,10 +67,7 @@ describe('every keyboard handler guards composition', () => {
 
     expect(text).toContain('isImeComposing');
   });
-  it('guards the runtime recovery search', async () => {
-    const { readFileSync } = await import('node:fs');
-    expect(readFileSync(new URL('../research-workbench/pages/RuntimeControlPage.tsx', import.meta.url), 'utf8')).toContain('isImeComposing');
-  });
+
 });
 
 describe('ChatBox still renders', () => {

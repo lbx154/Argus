@@ -18,7 +18,7 @@ function markup(collapsed = false) {
   finally { client.clear(); }
 }
 describe('top resource navigation', () => {
-  it('puts Results first and folds plugins and skills under Advanced', () => {
+  it('puts Results first and folds skills under Advanced', () => {
     const html = markup();
     expect(html.indexOf('data-sidebar-resources')).toBeGreaterThan(0);
     expect(html).toContain('data-sidebar-results');
@@ -33,7 +33,7 @@ describe('top resource navigation', () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
     try {
       const html = markup();
-      const labels = ['aria-label="Skill library"', 'aria-label="Plugins"'];
+      const labels = ['aria-label="Skill library"'];
       for (const label of labels) {
         expect(html).toContain(label);
         expect(html.indexOf(label)).toBeLessThan(html.indexOf('id="daemon-search"'));
@@ -41,6 +41,7 @@ describe('top resource navigation', () => {
       }
       expect(labels.map(label => html.indexOf(label))).toEqual(labels.map(label => html.indexOf(label)).sort((a, b) => a - b));
       expect(html).not.toContain('aria-label="Learning feed"');
+      expect(html).not.toContain('aria-label="Plugins"');
     } finally { vi.unstubAllGlobals(); }
   });
   it('keeps a compact entry rail with Results and skills', () => {

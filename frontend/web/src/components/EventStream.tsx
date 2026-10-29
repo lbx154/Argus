@@ -15,9 +15,8 @@ import {
   type FeedRowInput,
   type StepStatus,
 } from '../lib/feedSteps';
-import { theme, toneColor } from '../lib/theme';
+import { theme } from '../lib/theme';
 import { clockOf } from '../lib/format';
-import { durableMessageId } from '../lib/conversationEvents';
 import { EmptyHint } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 import { deliveryFiles } from './deliveryPresentation';
@@ -47,13 +46,12 @@ import { ErrorDetails } from './ErrorMessage';
 
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
-import type { ConversationRevision } from './ExperiencePanels';
 import { PencilLine } from 'lucide-react';
 
 type ActivityRow = { ev: EventMsg; r: RenderedLine; key: string };
 /** The project root the agents work in; a command's path in it reads from there. */
 const WorkspaceContext = createContext('');
-const ConversationActionContext = createContext<((target: ConversationRevision) => void) | undefined>(undefined);
+const ConversationActionContext = createContext<((prompt: string) => void) | undefined>(undefined);
 /** The project whose files the conversation shows, for inline images. */
 export const SessionIdContext = createContext<string | null>(null);
 /** A task's title by its id, so a round names the task it belongs to. */
@@ -105,7 +103,6 @@ function EventRow({
 }) {
   const { locale, t } = useI18n();
   const roleHue = theme.role[r.role] ?? theme.inkFaint;
-  const color = toneColor(r.tone);
   const workspace = useContext(WorkspaceContext);
   const taskTitle = useContext(TaskTitleContext);
   const plain = rowText(ev, r, locale, workspace, taskTitle);
@@ -135,7 +132,6 @@ function EventRow({
             {r.label}
           </span>
           <TaskTag ev={ev} />
-          {r.glyph ? <span className="text-xs" style={{ color }}>{r.glyph}</span> : null}
           {repeat > 1 ? (
             <span
               className="rounded bg-line/60 px-1 font-mono text-[10px] tabular-nums text-ink-dim"
@@ -185,7 +181,6 @@ function FeedGroupRow({
 }) {
   const { locale, t } = useI18n();
   const roleHue = theme.role[group.r.role] ?? theme.inkFaint;
-  const color = toneColor(group.r.tone);
   const summary = groupSummary(group, t, locale);
   return (
     <div
@@ -218,7 +213,6 @@ function FeedGroupRow({
               {group.r.label}
             </span>
             <TaskTag ev={group.latest} />
-            {group.r.glyph ? <span className="text-xs" style={{ color }}>{group.r.glyph}</span> : null}
             <span className="font-mono text-[10px] tabular-nums text-ink-faint">{group.calls}</span>
             <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="m6 3.5 4.5 4.5L6 12.5" />
@@ -295,13 +289,13 @@ function ConversationRow({
   r,
   artifacts,
   onOpenArtifact,
-  revision,
+  rewritePrompt,
 }: {
   ev: EventMsg;
   r: RenderedLine;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
-  revision?: ConversationRevision;
+  rewritePrompt?: string;
 }) {
   const { t, locale } = useI18n();
   const sessionId = useContext(SessionIdContext);
@@ -316,7 +310,7 @@ function ConversationRow({
   // A question's numbered options become buttons; typing a free answer still works.
   const asked = !operator ? splitReplyOptions(reportText) : null;
   const steps = operator ? [] : turnStepsFrom(ev.steps);
-  const revisionLabel = locale === 'zh-CN' ? '改写后重发' : 'Rewrite and resend';
+  const rewriteLabel = locale === 'zh-CN' ? '改写后重发' : 'Rewrite and resend';
   const rowRef = useRef<HTMLElement>(null);
   useGsapMotion(rowRef, (gsap, reduceMotion) => {
     if (!rowRef.current) return;
@@ -371,7 +365,7 @@ function ConversationRow({
         <CopyButton text={reportText} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" />
         {/* A question is rewritten and sent again, its new answer kept beside the first;
             the answers so far are read from the same place. */}
-        {revision && onAction && operator && <button type="button" aria-label={revisionLabel} title={revisionLabel} onClick={() => onAction(revision)}><PencilLine size={14} /><span>{revisionLabel}</span></button>}
+        {rewritePrompt && onAction && operator && <button type="button" aria-label={rewriteLabel} title={rewriteLabel} onClick={() => onAction(rewritePrompt)}><PencilLine size={14} /><span>{rewriteLabel}</span></button>}
         </div>
       </div>}
     </article>
@@ -728,11 +722,8 @@ function ConversationItem({ row, artifacts, onOpenArtifact, onOpenDelivery }: {
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
   const { locale, t } = useI18n();
-  const source = row.ev.type === 'ui.operator' ? durableMessageId(row.ev) : undefined;
-  const revision: ConversationRevision | undefined = source ? {
-    source, prompt: row.r.text, answer: String(row.ev.answer ?? ''), baseVersion: 0,
-  } : undefined;
-  const reply = <ConversationRow ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact} revision={revision} />;
+  const reply = <ConversationRow ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={onOpenArtifact}
+    rewritePrompt={row.ev.type === 'ui.operator' ? row.r.text : undefined} />;
   const to = String(row.ev.to ?? '');
   const delivery = deliveryFromEvent(row.ev);
   return <section className="conversation-thread">
@@ -791,7 +782,7 @@ export function EventStream({
   onRetryHistory?: () => void;
   onCompose?: (text: string) => void;
   rememberPosition?: boolean;
-  onConversationAction?: (target: ConversationRevision) => void;
+  onConversationAction?: (prompt: string) => void;
   requestedMessageTs?: number;
 } & Partial<ConversationPagination>) {
   const { locale, t } = useI18n();

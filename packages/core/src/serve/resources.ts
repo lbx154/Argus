@@ -19,7 +19,7 @@ function cpu() {
   const [total, free] = [totalmem() / GIB, freemem() / GIB];
   return {
     kind: 'cpu', status: 'available', device_count: availableParallelism(), devices: [],
-    detail: `load ${loadavg()[0]!.toFixed(2)} · memory ${(total - free).toFixed(1)} of ${total.toFixed(1)} GiB in use`,
+    load_average: loadavg()[0]!, used_memory_gib: total - free, total_memory_gib: total,
   };
 }
 

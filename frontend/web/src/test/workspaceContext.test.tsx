@@ -37,7 +37,7 @@ function topbar(snapshot = snap) {
 describe('A3 snapshot-only session context', () => {
   it.each(['en', 'zh-CN'] as const)('shows the session directory in %s without requests', locale => {
     const html = markup(topbar(), locale);
-    expect(html).toContain(locale === 'en' ? 'Session directory' : '项目目录');
+    expect(html).toContain(locale === 'en' ? 'Project folder' : '项目目录');
     expect(html).toContain(snap.session.workdir);
     expect(html).toContain('<summary');
     expect(html.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0]).not.toContain(snap.session.workdir);

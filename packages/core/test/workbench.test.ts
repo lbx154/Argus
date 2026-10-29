@@ -224,6 +224,25 @@ test('with a token, the preview grants a cookie that its page alone takes, as a 
   assert.equal((await call(`${P}/artifact/preview?path=index.html`, { headers: { authorization: '', cookie: 'argus_preview_access=secret' } })).status, 401);
 });
 
+test('unknown file extensions preview UTF-8 text, including JSONL, and leave binary bytes downloadable', async t => {
+  const jsonl = '{"sample":1,"value":42}\n{"sample":2,"value":43}\n';
+  // A file is judged by its first bytes, which may end inside a character.
+  const wide = '中'.repeat(3000);
+  const { project, call, get } = await setup(t, { 'results.jsonl': jsonl, 'notes.unknown': '研究记录\n', 'README': 'No extension\n', 'wide.unknown': wide });
+  await writeFile(join(project.workdir, 'nul.unknown'), Buffer.from([65, 0, 66]));
+  await writeFile(join(project.workdir, 'invalid.unknown'), Buffer.from([0xff, 0xfe]));
+  const P = `/api/projects/${project.id}`;
+  for (const [path, preview] of [['results.jsonl', jsonl], ['notes.unknown', '研究记录\n'], ['README', 'No extension\n'], ['wide.unknown', wide]]) {
+    assert.deepEqual(await get(`${P}/artifact?path=${path}`).then(({ kind, mime, preview: text }) => ({ kind, mime, text })),
+      { kind: 'text', mime: 'text/plain; charset=utf-8', text: preview });
+    assert.match((await call(`${P}/artifact/raw?path=${path}`)).headers.get('content-type')!, /^text\/plain/);
+  }
+  for (const path of ['nul.unknown', 'invalid.unknown']) {
+    assert.equal((await get(`${P}/artifact?path=${path}`)).kind, 'binary');
+    assert.equal((await call(`${P}/artifact/raw?path=${path}&download=true`)).status, 200);
+  }
+});
+
 test("a result's editions are saved beside it, never over it, and a result delivered again shows what changed", async t => {
   const report = '# Sales\n\nNorth 10\n';
   const { store, project, call, get } = await setup(t, { 'report.md': report, 'plot.png': 'PNG\0', 'big.md': 'x'.repeat(512 * 1024 + 1) });
@@ -252,10 +271,9 @@ test("a result's editions are saved beside it, never over it, and a result deliv
   for (const [source, status] of [['plot.png', 422], ['big.md', 413], ['missing.md', 404], [join(store.dir(project.id), 'project.json'), 404]] as const) {
     assert.equal((await call(`${P}/editions/artifact?${new URLSearchParams({ source })}`)).status, status, source);
   }
-  // An answer's revisions start from the answer as recorded.
-  await save('conversation', { source: 'm0-operator', content: 'Another answer', note: 'Ask it again', original: 'The answer', base_version: 0 });
-  assert.deepEqual(saved((await editions('conversation', 'm0-operator')).versions), [[0, 'The answer', ''], [1, 'Another answer', 'Ask it again']]);
-  assert.deepEqual(await editions('conversation', 'm2-operator'), { original: '', versions: [] });
+  // Conversation rewrites are new messages; there is no version endpoint for them.
+  assert.equal((await save('conversation', { source: 'm0-operator', content: 'Another answer', base_version: 0 })).status, 404);
+  assert.equal((await call(`${P}/editions/conversation?source=m0-operator`)).status, 404);
 
   const dir = store.dir(project.id);
   const [first] = keep(project, dir, ['report.md']);
@@ -353,7 +371,7 @@ test('a task in full, a role\'s letters to download, and a search of every proje
 
 test('the resources panel reads the CPUs and memory, and the GPUs nvidia-smi lists, when asked', async t => {
   const { store, get } = await setup(t);
-  type Accelerator = { kind: string; status: string; device_count: number; detail: string; devices: Record<string, unknown>[] };
+  type Accelerator = { kind: string; status: string; device_count: number; detail?: string; load_average: number; used_memory_gib: number; total_memory_gib: number; devices: Record<string, unknown>[] };
   const accelerators = async () => (await get<{ enforcement: string; accelerators: Accelerator[] }>('/api/system/resources')).accelerators;
   const bin = join(store.home, 'bin');
   await mkdir(bin);
@@ -365,7 +383,10 @@ test('the resources panel reads the CPUs and memory, and the GPUs nvidia-smi lis
   assert.deepEqual(rest, []);
   assert.equal(cpu!.kind, 'cpu');
   assert.ok(cpu!.device_count > 0);
-  assert.match(cpu!.detail, /^load \d+\.\d\d · memory \d+\.\d of \d+\.\d GiB in use$/);
+  assert.equal(cpu!.detail, undefined);
+  assert.ok(cpu!.load_average >= 0);
+  assert.ok(cpu!.total_memory_gib > 0);
+  assert.ok(cpu!.used_memory_gib >= 0 && cpu!.used_memory_gib <= cpu!.total_memory_gib);
   if (process.platform === 'win32') return;
   await writeFile(join(bin, 'nvidia-smi'), '#!/bin/sh\nprintf "0, NVIDIA A100, 81920, 1024, 37\\n1, NVIDIA A100, 81920, [N/A], 0\\n"\n');
   await chmod(join(bin, 'nvidia-smi'), 0o755);
@@ -378,5 +399,5 @@ test('the resources panel reads the CPUs and memory, and the GPUs nvidia-smi lis
   await writeFile(join(bin, 'nvidia-smi'), '#!/bin/sh\necho "NVIDIA-SMI has failed" >&2\nexit 9\n');
   const [, failed] = await accelerators();
   assert.deepEqual([failed!.kind, failed!.status], ['cuda', 'inaccessible']);
-  assert.match(failed!.detail, /NVIDIA-SMI has failed/);
+  assert.match(failed!.detail!, /NVIDIA-SMI has failed/);
 });

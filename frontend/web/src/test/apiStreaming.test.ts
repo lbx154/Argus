@@ -1,26 +1,11 @@
 import { createServer, type IncomingHttpHeaders, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { api, type ExplanationPhase } from '../api';
-import type { MapCopy } from '../map/presentation';
-import type { ReaderPreview } from '../map/copyMode';
-import type { ProgressSourceRef } from '../../../core/src/types';
-import { ApiError } from '../../../core/src/http';
+import { api } from '../api';
 
 const nativeFetch = globalThis.fetch;
 const encoder = new TextEncoder();
 const frame = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`;
-/** The explanation endpoints share one SSE client (explanationResponse); a reader-foundation question drives it. */
-const question = { request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: '这两个量究竟怎样比较？', locale: 'zh-CN' as const };
-const reading = { path: `reader-notes/research/${question.request_id}.md`, source: 'reader_foundation', preview: '一份已保存的背景说明。' };
-const explain = (onProgress?: (phase: ExplanationPhase) => void) => api.generateReaderFoundation('research', question, onProgress);
-const complete: MapCopy = {
-  version: 21, model_revision: 'review-high', cache_revision: 2, available: true, relations: [],
-  cards: { task: { title: '完整讲解', summary: '复核后的结论', detail: '保留条件与证据。', generated_at: 130,
-    reader_brief: { why: '研究动机', scope: '结论范围', next: '下一步', concept: null },
-    model_revision: 'review-high', event_ids: ['review'],
-  } },
-};
 type RequestRecord = { method?: string; path: string; headers: IncomingHttpHeaders; body: unknown };
 let server: Server | undefined;
 let requests: RequestRecord[];
@@ -57,254 +42,14 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it('records question material only through the explicit source POST with the selected reader context', async () => {
-  const sid = 'research name';
-  const source: ProgressSourceRef = { source_id: 'source-1', card_key: 'earlier-review', task_id: 'task',
-    title: 'Selected explanation', generated_at: 130, copy_revision: 2, path: `reader-progress/${sid}/source-1.md` };
-  const body = { card_key: source.card_key, task_id: source.task_id, locale: 'zh-CN' as const,
-    preview: 'question-foundation' as const, foundation_id: 'saved-foundation' };
-  await serve((response) => {
-    response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify(source));
-  });
-  const signal = new AbortController().signal;
-  await expect(api.mapQuestionSource(sid, body, signal)).resolves.toEqual(source);
-  expect(requests).toHaveLength(1);
-  expect(requests[0]).toMatchObject({ method: 'POST',
-    path: '/api/map-question-source/project/research%20name?session_id=research%20name', body });
-  expect(requests[0].headers.authorization).toBe(`Bearer ${localStorage.getItem('argus.token')}`);
-});
-
-it.each<[ReaderPreview | undefined, boolean | string]>([
-  [undefined, false], [null, false], ['source-first', true], ['learning-path', 'learning-path'], ['question-foundation', 'question-foundation'],
-])('serializes the selected question-source preview %s to its backend wire value', async (preview, wire) => {
-  await serve(response => {
-    response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end('{}');
-  });
-  await api.mapQuestionSource('research', { card_key: 'step', task_id: 'task', locale: 'en-US', preview });
-  expect(requests).toHaveLength(1);
-  expect(requests[0].body).toEqual({ card_key: 'step', task_id: 'task', locale: 'en-US', preview: wire });
-});
-
 it.each([
-  { code: 'reader_source_unavailable', detail: 'No matching explanation is saved.' },
-  { detail: { code: 'reader_source_unavailable', message: 'No matching explanation is saved.' } },
-])('preserves reader_source_unavailable from the question-source endpoint without retrying or generating (%j)', async body => {
-  await serve(response => {
-    response.writeHead(422, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify(body));
-  });
-  const result = api.mapQuestionSource('research', { card_key: 'step', task_id: 'task', locale: 'en-US' });
-  await expect(result).rejects.toBeInstanceOf(ApiError);
-  await expect(result).rejects.toMatchObject({ status: 422, code: 'reader_source_unavailable', detail: 'No matching explanation is saved.' });
-  expect(requests).toHaveLength(1);
-});
-
-it.each([
-  ['', null], ['?reader_preview=other', null], ['?project=research&reader_preview=source-first', 'true'],
-  ['?project=research&reader_preview=learning-path', 'learning-path'],
-  ['?project=research&reader_preview=question-foundation', 'question-foundation'],
-])('selects the map-copy cache from %s', async (search, preview) => {
-  vi.stubGlobal('window', { location: { search } });
-  const fetch = await serve((response, request) => {
-    if (request.method === 'GET') {
-      response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify(complete));
-    } else {
-      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      response.end(frame({ type: 'heartbeat', quiet_s: 0 }) + frame({ type: 'done', result: complete }));
-    }
-  });
-  const controller = new AbortController();
-  await expect(api.mapCopy('project', 'research name', 'zh-CN', controller.signal, 's research')).resolves.toEqual(complete);
-  expect(fetch).toHaveBeenCalledTimes(1);
-  const [request] = requests;
-  const url = new URL(request.path, 'http://argus.test');
-  expect(request.method).toBe('GET');
-  expect(url.pathname).toBe('/api/map-copy/project/research%20name');
-  expect(url.searchParams.get('session_id')).toBe('s research');
-  expect(url.searchParams.get('preview')).toBe(preview);
-  expect(url.searchParams.get('locale')).toBe('zh-CN');
-  expect(request.headers.authorization).toBe('Bearer test-pairing-token');
-});
-
-it.each<ReaderPreview>([null, 'source-first', 'learning-path', 'question-foundation'])('keeps a scheduled read in captured mode %s after the page URL changes', async preview => {
-  vi.stubGlobal('window', { location: { search: preview === 'learning-path' ? '?reader_preview=source-first' : '?reader_preview=learning-path' } });
-  await serve((response, request) => {
-    if (request.method === 'GET') {
-      response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify(complete));
-    } else {
-      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      response.end(frame({ type: 'done', result: complete }));
-    }
-  });
-  await api.mapCopy('project', 'research', 'zh-CN', undefined, 's research', preview);
-  expect(requests.map(request => request.method)).toEqual(['GET']);
-  for (const request of requests) expect(new URL(request.path, 'http://argus.test').searchParams.get('preview'))
-    .toBe(preview === 'source-first' ? 'true' : preview);
-});
-
-it('reads the retained application of one selected foundation', async () => {
-  await serve((response, request) => {
-    response.writeHead(200, { 'Content-Type': request.method === 'GET' ? 'application/json' : 'text/event-stream' });
-    response.end(request.method === 'GET' ? JSON.stringify(complete) : frame({ type: 'done', result: complete }));
-  });
-  const foundation = 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb';
-  await api.mapCopy('project', 'research', 'zh-CN', undefined, 'research', 'question-foundation', foundation);
-  expect(requests).toHaveLength(1);
-  for (const request of requests) {
-    const url = new URL(request.path, 'http://argus.test');
-    expect(url.searchParams.get('preview')).toBe('question-foundation');
-    expect(url.searchParams.get('foundation_id')).toBe(foundation);
-  }
-});
-
-it.each(['foundation', 'clarification'] as const)('submits the actual %s question once and reads its saved file without another generation', async kind => {
-  const question = { request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: '这两个量究竟怎样比较？', locale: 'zh-CN' as const,
-    ...(kind === 'foundation' ? { source_task_id: 'task' } : {}) };
-  const parentId = '45fbf041-201d-446a-a103-7156ee233b80';
-  const artifact = { path: `reader-notes/research/${question.request_id}.md`, source: 'reader_foundation', preview: '一份已保存的背景说明。' };
-  await serve((response, request) => {
-    if (request.method === 'POST') {
-      response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      response.end(frame({ type: 'progress', phase: 'writing' }) + frame({ type: 'done', result: artifact })
-        + frame({ type: 'progress', phase: 'reviewing' }));
-    } else {
-      response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify(request.path.includes('/artifacts') ? { artifacts: [artifact] } : artifact));
-    }
-  });
-  const phases: ExplanationPhase[] = [];
-  await expect(kind === 'clarification'
-    ? api.askReaderFoundation('research', parentId, question, phase => phases.push(phase))
-    : api.generateReaderFoundation('research', question, phase => phases.push(phase))).resolves.toEqual(artifact);
-  await api.artifacts('research', undefined, true);
-  await api.artifact('research', artifact.path);
-  expect(phases).toEqual(['writing']);
-  expect(requests.map(request => request.method)).toEqual(['POST', 'GET', 'GET']);
-  expect(requests[0]).toMatchObject({ path: kind === 'clarification'
-    ? `/api/projects/research/reader-foundation/${parentId}/question?stream=true`
-    : '/api/projects/research/reader-foundation?stream=true', body: question });
-  expect(requests[1].path).toBe('/api/projects/research/artifacts?include_reading=true');
-  expect(new URL(requests[2].path, 'http://argus.test').searchParams.get('path')).toBe(artifact.path);
-});
-
-it('preserves a definite source rejection from the original completed SSE response', async () => {
-  await serve(response => {
-    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    response.end(frame({ type: 'heartbeat', quiet_s: 0 }) + frame({ type: 'error', status: 422,
-      error: { code: 'reader_source_unavailable', message: 'The selected reading source is unavailable or incomplete.' } }));
-  });
-  await expect(api.askReaderFoundation('research', 'parent', {
-    request_id: 'dc4487b5-61c0-47c3-bcc6-884a32e84bcb', question: 'Explain this part.', locale: 'en-US',
-  })).rejects.toMatchObject({ status: 422, code: 'reader_source_unavailable', message: 'The selected reading source is unavailable or incomplete.' });
-  expect(requests).toHaveLength(1);
-});
-
-it('waits through 125 seconds of HTTP heartbeats and returns only the complete reading at 130 seconds', async () => {
-  // The HTTP connection is real; only the model/heartbeat clock is accelerated.
-  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
-  let start!: () => void;
-  const started = new Promise<void>(resolve => { start = resolve; });
-  const heartbeats: number[] = [];
-  const fetch = await serve(response => {
-    response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
-    response.write(frame({ type: 'heartbeat', quiet_s: 0 }));
-    let seconds = 0;
-    const timer = setInterval(() => {
-      seconds += 5;
-      if (seconds < 130) {
-        heartbeats.push(seconds);
-        response.write(frame({ type: 'heartbeat', quiet_s: seconds }));
-      } else {
-        clearInterval(timer);
-        response.end(frame({ type: 'done', result: reading }));
-      }
-    }, 5_000);
-    response.on('close', () => clearInterval(timer));
-    start();
-  });
-  const pending = explain();
-  let settled = false;
-  void pending.then(() => { settled = true; });
-  await started;
-  await fetch.mock.results[0].value;
-  await vi.advanceTimersByTimeAsync(125_000);
-  expect(settled).toBe(false);
-  expect(heartbeats).toHaveLength(25);
-  expect(heartbeats.at(-1)).toBe(125);
-  await vi.advanceTimersByTimeAsync(5_000);
-  await expect(pending).resolves.toEqual(reading);
-  expect(fetch).toHaveBeenCalledTimes(1);
-  expect(requests).toHaveLength(1);
-  expect(requests[0]).toMatchObject({ method: 'POST', body: question, path: '/api/projects/research/reader-foundation?stream=true',
-    headers: { authorization: 'Bearer test-pairing-token', 'content-type': 'application/json' } });
-});
-
-it('reassembles UTF-8, JSON and CRLF frame boundaries split into individual bytes', async () => {
-  const bytes = encoder.encode((frame({ type: 'heartbeat' }) + frame({ type: 'done', result: reading })).replaceAll('\n', '\r\n'));
-  let offset = 0;
-  const fetch = vi.fn(async () => new Response(new ReadableStream<Uint8Array>({
-    pull(controller) {
-      if (offset < bytes.length) controller.enqueue(bytes.slice(offset, ++offset));
-      else controller.close();
-    },
-  }), { headers: { 'Content-Type': 'text/event-stream' } }));
-  vi.stubGlobal('fetch', fetch);
-  await expect(explain()).resolves.toEqual(reading);
-  expect(fetch).toHaveBeenCalledTimes(1);
-});
-
-it('reports real explanation phases before the result without treating progress as completion', async () => {
-  let response!: ServerResponse;
-  const fetch = await serve(value => {
-    response = value;
-    value.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    value.write(frame({ type: 'heartbeat', quiet_s: 0 })
-      + frame({ type: 'progress', phase: 'waiting_for_source' })
-      + frame({ type: 'progress', phase: 'planning' })
-      + frame({ type: 'progress', phase: 'invented_percentage' }));
-  });
-  const phases: ExplanationPhase[] = [];
-  const pending = explain(phase => { phases.push(phase); });
-  let settled = false;
-  void pending.then(() => { settled = true; });
-  await vi.waitFor(() => expect(phases).toEqual(['waiting_for_source', 'planning']));
-  expect(settled).toBe(false);
-  response.write(frame({ type: 'progress', phase: 'writing' }));
-  await vi.waitFor(() => expect(phases.at(-1)).toBe('writing'));
-  expect(settled).toBe(false);
-  response.end(frame({ type: 'done', result: reading }));
-  await expect(pending).resolves.toEqual(reading);
-  expect(fetch).toHaveBeenCalledTimes(1);
-  expect(requests).toHaveLength(1);
-});
-
-it.each(['done', 'error'])('ignores late phases after %s while still draining the explanation stream', async type => {
-  await serve(response => {
-    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    response.end(frame({ type: 'progress', phase: 'writing' })
-      + frame({ type, result: reading, error: 'Observed failure' })
-      + frame({ type: 'progress', phase: 'reviewing' }));
-  });
-  const phases: ExplanationPhase[] = [];
-  const pending = api.askReaderFoundation('research', 'parent', question, phase => { phases.push(phase); });
-  if (type === 'done') await expect(pending).resolves.toEqual(reading);
-  else await expect(pending).rejects.toThrow('Observed failure');
-  expect(phases).toEqual(['writing']);
-  expect(requests).toHaveLength(1);
-});
-
-it.each([
-  ['reader', 'done'], ['reader', 'error'], ['manager', 'done'], ['manager', 'error'],
+  ['manager', 'done'], ['manager', 'error'],
 ])('drains the %s %s response through EOF without cancelling after its terminal frame', async (endpoint, type) => {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   let awaitingEOF!: () => void;
   const readingTail = new Promise<void>(resolve => { awaitingEOF = resolve; });
   const cancel = vi.fn();
-  const result = endpoint === 'reader' ? reading : { kind: 'chat', reply: '完整回答' };
+  const result = { kind: 'chat', reply: '完整回答' };
   let sent = false;
   const body = new ReadableStream<Uint8Array>({
     start(value) { controller = value; },
@@ -320,9 +65,7 @@ it.each([
   vi.stubGlobal('fetch', fetch);
   const onDone = vi.fn();
   const onError = vi.fn();
-  const pending = endpoint === 'reader'
-    ? explain()
-    : api.messageStream('s-research', 'Explain this', { onDone, onError });
+  const pending = api.messageStream('s-research', 'Explain this', { onDone, onError });
   const outcome = pending.then(value => ({ value }), error => ({ error }));
 
   // The terminal frame has been consumed, but HTTP EOF has not arrived yet.
@@ -334,36 +77,9 @@ it.each([
   }
   controller.enqueue(encoder.encode(': response complete\n\n'));
   controller.close();
-  if (endpoint === 'reader' && type === 'error') {
-    await expect(outcome).resolves.toEqual({ error: expect.objectContaining({ message: 'Review unavailable' }) });
-  } else {
-    await expect(outcome).resolves.toEqual({ value: endpoint === 'reader' ? reading : undefined });
-  }
+  await expect(outcome).resolves.toEqual({ value: undefined });
   expect(cancel).not.toHaveBeenCalled();
   expect(body.locked).toBe(false);
-  expect(fetch).toHaveBeenCalledTimes(1);
-});
-
-it.each([
-  ['terminal error', frame({ type: 'error', error: 'Explanation review unavailable', status: 503 }), 'Explanation review unavailable'],
-  ['early EOF', frame({ type: 'heartbeat' }), 'ended before a terminal event'],
-  ['truncated result', frame({ type: 'heartbeat' }) + 'data: {"type":"done","result":', 'ended before a terminal event'],
-])('rejects an HTTP %s without replaying the POST', async (_name, responseBody, message) => {
-  const fetch = await serve(response => {
-    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-    response.end(responseBody);
-  });
-  await expect(explain()).rejects.toThrow(message);
-  expect(fetch).toHaveBeenCalledTimes(1);
-  expect(requests).toHaveLength(1);
-});
-
-it('preserves an HTTP rejection before the stream opens without replaying the POST', async () => {
-  const fetch = await serve(response => {
-    response.writeHead(422, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ detail: 'event does not belong to the task' }));
-  });
-  await expect(explain()).rejects.toMatchObject({ status: 422 });
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 

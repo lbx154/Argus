@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Check, Folder, RotateCcw, Search, Settings2, Trash2 } from 'lucide-react';
+import { Check, Folder, RotateCcw, Settings2 } from 'lucide-react';
 import { api } from '../../api';
 import { ResourceStatusView } from '../../components/ResourceStatus';
 import { RawDisclosure } from '../../components/primitives';
 import { useI18n } from '../../i18n';
 import { RESOURCES_CAPABILITY, useCapability } from '../../lib/capabilities';
-import { isImeComposing } from '../../lib/ime';
 import { requestFailureText, routeRefused } from '../../lib/requestFailure';
 import type { ActiveWorkbenchPageProps } from './pageTypes';
 import './runtimeControl.css';
@@ -22,18 +21,14 @@ async function requireCommandSuccess(operation: Promise<unknown>) {
   return result;
 }
 
-/** The machine's resources and the project's upkeep: its directory, its conversation's context,
- * and the projects removed. Running and stopping the work is the header's, as everywhere. */
+/** Machine resources and project upkeep. Running and stopping belong to the header. */
 export function RuntimeControlPage({
-  sid, snapshot: snap, active, refresh, readOnly, onRestored,
-}: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void | Promise<void> }) {
+  sid, snapshot: snap, active, refresh, readOnly,
+}: ActiveWorkbenchPageProps & { readOnly: boolean }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [workdir, setWorkdir] = useState(snap.session.workdir ?? snap.session.cwd ?? '');
-  const [trashDraft, setTrashDraft] = useState('');
-  const [trashQuery, setTrashQuery] = useState('');
   const [busy, setBusy] = useState('');
   const busyRef = useRef(false);
   const [output, setOutput] = useState('');
@@ -42,10 +37,6 @@ export function RuntimeControlPage({
   const resources = useQuery({
     queryKey: ['runtime-resources'], queryFn: ({ signal }) => api.resources(signal),
     enabled: active && hasResources, refetchInterval: 10_000, retry: false,
-  });
-  const trash = useQuery({
-    queryKey: ['runtime-trash', trashQuery], queryFn: () => api.trash(trashQuery),
-    enabled: active && recoveryOpen && !readOnly, retry: false,
   });
   useEffect(() => {
     setWorkdir(snap.session.workdir ?? snap.session.cwd ?? '');
@@ -98,17 +89,6 @@ export function RuntimeControlPage({
         </div>
       </div>
     </details>
-    {!readOnly && <details className="runtime-section" open={recoveryOpen} onToggle={event => setRecoveryOpen(event.currentTarget.open)}>
-      <summary><Trash2 size={17} /><span>{zh ? '恢复已移除项目' : 'Restore removed projects'}</span></summary>
-      <div className="runtime-section-body">
-        <div className="runtime-field-row"><input aria-label={t('operations.searchTrash')} placeholder={t('operations.searchTrash')} value={trashDraft}
-          onChange={event => setTrashDraft(event.target.value)} onKeyDown={event => { if (!isImeComposing(event) && event.key === 'Enter') { event.preventDefault(); setTrashQuery(trashDraft); } }} />
-          <button className="button" onClick={() => setTrashQuery(trashDraft)}><Search size={15} />{zh ? '搜索' : 'Search'}</button></div>
-        {trash.error ? <p role="alert">{requestError(trash.error)}</p> : trash.isLoading ? <p>{t('common.loading')}</p> : !trash.data?.entries.length ? <p>{t('operations.trashEmpty')}</p> :
-          trash.data.entries.map(entry => <div className="runtime-restore-row" key={entry.trash_id}><span>{entry.label}</span><button className="button" disabled={disabled}
-            onClick={() => void run(`restore:${entry.trash_id}`, async () => { const result = await api.restoreTrash(entry.trash_id); await trash.refetch(); await onRestored(result.sid); }, zh ? '项目已恢复。' : 'Project restored.')}><RotateCcw size={15} />{zh ? '恢复' : 'Restore'}</button></div>)}
-        {trash.data && trash.data.total > trash.data.entries.length && <p>{zh ? `显示最近 ${trash.data.entries.length} 条，请缩小搜索范围。` : `Showing ${trash.data.entries.length} recent matches. Narrow the search for more.`}</p>}
-      </div>
-    </details>}
+
   </div>;
 }

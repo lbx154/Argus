@@ -21,7 +21,6 @@
 .experience-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .experience-footer { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 8px; padding: 16px 24px; border-top: 1px solid rgb(var(--line)); background: rgb(var(--panel-raised)); }
 .experience-footer small { margin-left: auto; color: rgb(var(--ink-faint)); font-size: 12px; }
-.conversation-version-reader h3 { color: rgb(var(--ink)); font-size: 15px; font-weight: 500; }
 .experience-empty { display: flex; flex-direction: column; gap: 8px; padding: 32px 16px; text-align: center; color: rgb(var(--ink-dim)); }
 .experience-empty strong { color: rgb(var(--ink)); font-weight: 500; }
 .experience-empty p { margin: 0 auto; max-width: 440px; font-size: 13px; }
@@ -62,8 +61,6 @@
 .edition-pane pre, .edition-note { border-color: transparent; background: rgb(var(--surface-2)); }
 .edition-note { color: rgb(var(--ink-dim)); font-size: 13px; }
 .edition-preview { border-color: transparent; font-size: 15px; line-height: 1.75; }
-.conversation-version-reader { border-top: 1px solid rgb(var(--line)); padding-top: 16px; max-height: 30dvh; overflow: auto; }
-.conversation-version-reader h3 { margin-bottom: 12px; }
 
 .composer-options { margin-top: 6px; font-size: 12px; color: rgb(var(--ink-dim)); }
 .composer-options > summary { cursor: pointer; min-height: 32px; padding: 6px 4px; width: fit-content; border-radius: var(--radius-sm); }

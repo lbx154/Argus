@@ -12,11 +12,9 @@ import type {
   EventMsg,
   ProjectRow,
   ProjectCostRow,
-  ProgressSourceRef,
   Snapshot,
 } from '../../core/src/types';
 import { ApiError, ensureResponseOk } from '../../core/src/http';
-import { readerPreview, type ReaderPreview } from './map/copyMode';
 import { observePageRelease, requireCurrentPage } from './lib/pageUpdate';
 import {
   RELEASE_ARTIFACT_DRIFT_WARNING,
@@ -298,15 +296,6 @@ interface AttachmentUploadState {
   attachment?: UploadedAttachment;
 }
 const pendingUploads = new WeakMap<File, Map<string, string>>();
-export interface TrashEntry {
-  trash_id: string;
-  sid: string;
-  label: string;
-  launch_cwd: string;
-  trash_path: string;
-  trashed_at: number;
-}
-
 const TOKEN_KEY = 'argus_web_token';
 let inMemoryToken: string | null = null;
 
@@ -732,9 +721,6 @@ export interface SSEFrame {
   [k: string]: unknown;
 }
 
-export type ExplanationPhase = 'waiting_for_source' | 'planning' | 'writing' | 'reviewing';
-const EXPLANATION_PHASES = new Set<unknown>(['waiting_for_source', 'planning', 'writing', 'reviewing']);
-
 /** The final ``done`` frame payload — same shape as blocking ``message()``. */
 export interface StreamDone {
   kind?: string;
@@ -809,37 +795,6 @@ async function readSSE(
   }
 }
 
-/** An explicitly selected preview uses the normal web request and its own cache. */
-function mapCopyPath(source: string, name: string, values: Record<string, string>, sessionId?: string, preview = readerPreview(), foundationId?: string | null): string {
-  const params = new URLSearchParams(values);
-  if (sessionId) params.set('session_id', sessionId);
-  if (preview === 'source-first') params.set('preview', 'true');
-  if (preview === 'learning-path') params.set('preview', 'learning-path');
-  if (preview === 'question-foundation') {
-    params.set('preview', 'question-foundation');
-    if (foundationId) params.set('foundation_id', foundationId);
-  }
-  return `/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`;
-}
-
-/** Both explanation purposes use the same stream and terminal/EOF semantics. */
-async function explanationResponse<T>(path: string, body: unknown, onProgress?: (phase: ExplanationPhase) => void): Promise<T> {
-  const response = await postResponse(path, body);
-  let receivedTerminal = false;
-  const terminal = await readSSE(response, 'Explanation stream', frame => {
-    if (frame.type === 'done' || frame.type === 'error') receivedTerminal = true;
-    if (!receivedTerminal && frame.type === 'progress' && EXPLANATION_PHASES.has(frame.phase))
-      onProgress?.(frame.phase as ExplanationPhase);
-  });
-  if (terminal.type === 'error') {
-    const detail = terminal.error && typeof terminal.error === 'object' ? terminal.error as Record<string, unknown> : undefined;
-    throw new ApiError(String(detail?.message ?? terminal.error ?? 'Explanation failed'),
-      typeof terminal.status === 'number' ? terminal.status : 0, 'POST', path,
-      typeof detail?.code === 'string' ? detail.code : '');
-  }
-  return terminal.result as T;
-}
-
 export interface ProjectPreference { pinned: boolean; archived: boolean; followup: boolean }
 export interface Edition { version: number; content: string; note: string; created: number }
 export interface SearchResult {
@@ -854,10 +809,10 @@ export const api = {
     postJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization', { sid, field, value }),
   searchHistory: (query: string, signal?: AbortSignal) =>
     getJson<{ results: SearchResult[]; partial: boolean; errors: string[] }>(`/api/search?q=${encodeURIComponent(query)}`, signal, 30_000),
-  editions: (sid: string, kind: 'artifact' | 'conversation', source: string) =>
-    getJson<{ original: string; versions: Edition[] }>(P(sid, `/editions/${kind}?source=${encodeURIComponent(source)}`)),
-  saveEdition: (sid: string, kind: 'artifact' | 'conversation', value: { source: string; content: string; note?: string; base_version: number; original?: string }) =>
-    postJson<{ version: number; content: string }>(P(sid, `/editions/${kind}`), value),
+  editions: (sid: string, source: string) =>
+    getJson<{ original: string; versions: Edition[] }>(P(sid, `/editions/artifact?source=${encodeURIComponent(source)}`)),
+  saveEdition: (sid: string, value: { source: string; content: string; note?: string; base_version: number }) =>
+    postJson<{ version: number; content: string }>(P(sid, '/editions/artifact'), value),
   /** What `content` changes in the text result `source` as it is now, as a unified diff. */
   editionDiff: (sid: string, source: string, content: string) =>
     postJson<{ diff: string; truncated: boolean }>(P(sid, '/editions/artifact/diff'), { source, content }),
@@ -872,18 +827,14 @@ export const api = {
     }
     return getJson<import('./map/model').Dataset>(P(sid, '/map') + (params.size ? `?${params}` : ''), signal);
   },
-  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string, preview?: ReaderPreview, foundationId?: string | null) => getJson<import('./map/presentation').MapCopy>(mapCopyPath(source, name, { locale }, sessionId, preview, foundationId), signal),
+  mapCopy: (source: string, name: string, locale: string, signal?: AbortSignal, sessionId?: string) => {
+    const params = new URLSearchParams({ locale });
+    if (sessionId) params.set('session_id', sessionId);
+    return getJson<import('./map/presentation').MapCopy>(`/api/map-copy/${source}/${encodeURIComponent(name)}?${params}`, signal);
+  },
   /** One task's recorded trajectory: what each role thought, said, ran and changed. */
   mapTrace: (sid: string, task: string, signal?: AbortSignal) =>
     getJson<import('./components/TaskTrace').TaskTraceData>(P(sid, '/map-trace') + `?task=${encodeURIComponent(task)}`, signal),
-  /** The explanation a reader is about to ask about, kept at that moment with the step's records. */
-  mapQuestionSource: (sid: string, body: { card_key: string; task_id: string; locale: 'zh-CN' | 'en-US'; preview?: ReaderPreview; foundation_id?: string }, signal?: AbortSignal) =>
-    postJson<ProgressSourceRef>(`/api/map-question-source/project/${encodeURIComponent(sid)}?session_id=${encodeURIComponent(sid)}`,
-      { ...body, preview: body.preview === 'source-first' ? true : body.preview ?? false }, signal),
-  generateReaderFoundation: (sid: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US'; source_task_id?: string; progress_source?: Pick<ProgressSourceRef, 'source_id'> }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
-    explanationResponse(P(sid, '/reader-foundation?stream=true'), body, onProgress),
-  askReaderFoundation: (sid: string, parentId: string, body: { request_id: string; question: string; locale: 'zh-CN' | 'en-US' }, onProgress?: (phase: ExplanationPhase) => void): Promise<ArtifactInfo> =>
-    explanationResponse(P(sid, `/reader-foundation/${encodeURIComponent(parentId)}/question?stream=true`), body, onProgress),
   mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
   mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,
@@ -989,8 +940,8 @@ export const api = {
       P(sid, `/backlog/${encodeURIComponent(id)}`),
       signal,
     ).then((r) => r.item),
-  artifacts: (sid: string, signal?: AbortSignal, includeReading = false) =>
-    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, `/artifacts${includeReading ? '?include_reading=true' : ''}`), signal)
+  artifacts: (sid: string, signal?: AbortSignal) =>
+    getJson<{ artifacts: ArtifactInfo[] }>(P(sid, '/artifacts'), signal)
       .then((r) => r.artifacts),
   artifact: (sid: string, path: string, signal?: AbortSignal) => {
     const q = new URLSearchParams({ path });
@@ -1024,17 +975,6 @@ export const api = {
       P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
   resources: (signal?: AbortSignal) =>
     getJson<ResourceStatus>('/api/system/resources', signal),
-  trash: (query = '', limit = 100, offset = 0, signal?: AbortSignal) => {
-    const params = new URLSearchParams({
-      query,
-      limit: String(limit),
-      offset: String(offset),
-    });
-    return getJson<{ entries: TrashEntry[]; total: number }>(
-      `/api/trash?${params}`,
-      signal,
-    );
-  },
   restoreTrash: (trashId: string) =>
     postJson<{ ok: boolean; sid: string }>(`/api/trash/${encodeURIComponent(trashId)}/restore`),
 

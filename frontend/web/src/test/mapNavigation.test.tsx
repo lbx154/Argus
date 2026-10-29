@@ -123,7 +123,6 @@ it("keeps the explicitly opened task reader when new copy arrives and background
   const key = ['map-copy', 'project', 'navigation', 'en-US', 'navigation'];
   const retained: MapCopy = { version: 22, available: true, relations: [], cards: { failed: {
     title: 'Retained task explanation', summary: 'A limited finding', detail: 'Retained evidence', generated_at: 1, version: 22,
-    reader_brief: { why: 'Original question', scope: 'Original scope', next: 'Original assignment', concept: null },
   } } };
   await act(async () => { client.setQueryData(key, retained); await new Promise(resolve => setTimeout(resolve, 0)); });
   act(() => nodes().find(node => node.id === 'failed')!.data.open('failed'));
@@ -145,7 +144,7 @@ it("keeps the explicitly opened task reader when new copy arrives and background
   expect(focused()).toBeUndefined();
   expect(reader().props['data-task-id']).toBe('failed');
   expect(reader().findByType(MapReaderContent).props.card.title).toBe('Updated task explanation');
-  expect(reader().findByType(MapReaderContent).props.selection.request.task_id).toBe('failed');
+  expect(reader().findByType(MapReaderContent).props.taskId).toBe('failed');
 
   act(() => renderer.root.findAllByType(Modal).find(modal => modal.props.label === 'Task explanation')!.props.onClose());
   expect(renderer.root.findAllByProps({ 'data-testid': 'map-task-reading' })).toHaveLength(0);
@@ -163,7 +162,7 @@ it("opens a task without a saved explanation on its own record and never asks fo
   const reading = renderer.root.findByProps({ 'data-testid': 'map-task-reading' });
   const reader = reading.findByType(MapReaderContent);
   expect(reader.props.card).toBeUndefined();
-  expect(reader.props.selection.request.task_id).toBe('failed');
+  expect(reader.props.taskId).toBe('failed');
   expect(reading.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
   // A live team task reads as its recorded trajectory, not a written explanation.
   expect(reading.findByType(TaskTrace).props.taskId).toBe('failed');

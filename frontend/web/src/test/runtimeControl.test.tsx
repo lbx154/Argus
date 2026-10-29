@@ -15,16 +15,15 @@ const snap: ActiveWorkbenchPageProps['snapshot'] = {
 };
 let client: QueryClient;
 let tree: ReactTestRenderer | undefined;
-let props: ActiveWorkbenchPageProps & { readOnly: boolean; onRestored: (sid: string) => void };
+let props: ActiveWorkbenchPageProps & { readOnly: boolean };
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   props = {
-    sid: 's-test', snapshot: snap, active: false, events: [], refresh: vi.fn(), readOnly: false, onRestored: vi.fn(),
+    sid: 's-test', snapshot: snap, active: false, events: [], refresh: vi.fn(), readOnly: false,
   };
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected unmocked request'); }));
   vi.stubGlobal('window', { confirm: vi.fn(() => true) });
   vi.spyOn(api, 'resources').mockResolvedValue({ schema_version: 1, enforcement: 'strict', accelerators: [] });
-  vi.spyOn(api, 'trash').mockResolvedValue({ entries: [], total: 0 });
 });
 afterEach(() => { act(() => tree?.unmount()); tree = undefined; client.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const element = () => <QueryClientProvider client={client}><RuntimeControlPage {...props} /></QueryClientProvider>;
@@ -51,13 +50,13 @@ describe('embedded runtime control page', () => {
     expect(html).not.toContain('<textarea');
     expect(html).not.toContain('Open skill library');
   });
-  it('only reads GPU data when active, and lazy loads the removed projects', async () => {
+  it('only reads resources when active and offers no removed-project section', async () => {
     await mount();
     expect(api.resources).not.toHaveBeenCalled();
     props.active = true;
     await act(async () => tree!.update(element()));
     expect(api.resources).toHaveBeenCalledTimes(1);
-    expect(api.trash).not.toHaveBeenCalled();
+    expect(JSON.stringify(tree!.toJSON())).not.toContain('Restore removed projects');
   });
   it('keeps maintenance disabled when read-only', async () => {
     props.readOnly = true;

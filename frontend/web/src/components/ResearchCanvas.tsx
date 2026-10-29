@@ -438,7 +438,7 @@ export function ResearchCanvas({
     && (selected.source === 'delivery' || selected.path === deliveryTargetPath),
   );
   const deliveryLabel = t(deliveryHeadingKey(delivery));
-  const title = filesFirst ? (locale === 'zh-CN' ? '文件与成果' : 'Files and results') : showingDelivery
+  const title = filesFirst ? (locale === 'zh-CN' ? '成果与文件' : 'Results & files') : showingDelivery
     ? deliveryLabel
     : showLiveProgress
       ? t('research.liveProgress')
@@ -459,14 +459,14 @@ export function ResearchCanvas({
 
   return (
     <section className={`glass-panel glass-panel--side flex min-h-0 flex-col overflow-hidden ${embedded ? '' : 'rounded-lg border'} ${className}`} aria-label={t('research.canvas')}>
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-line/50 bg-panel px-4">
+      <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-line/50 bg-panel px-3 py-2">
         {/* With a file's tools beside it the heading gives way, not the file's name. */}
         <div className="flex min-w-0 items-center gap-2">
           <span className={`h-2 w-2 shrink-0 rounded-full ${showingDelivery ? 'bg-ok' : liveStatus ? 'animate-pulse bg-blue' : 'bg-ink-faint/60'}`} />
           <h2 className="max-w-24 truncate text-sm font-semibold text-ink sm:max-w-48">{title}</h2>
         </div>
         {filesFirst || missionView || previewArtifacts.length > 0 ? (
-          <label className="min-w-28 flex-1">
+          <label className="min-w-0 flex-1 basis-28">
             <span className="sr-only">{t('research.previewArtifact')}</span>
             <select
               value={showFiles ? FILES_PATH : showLiveProgress ? LIVE_PROGRESS_PATH : selected?.path ?? FILES_PATH}

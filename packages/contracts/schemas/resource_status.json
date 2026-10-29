@@ -45,8 +45,7 @@
       "required": [
         "kind",
         "status",
-        "device_count",
-        "detail"
+        "device_count"
       ],
       "properties": {
         "kind": {
@@ -70,7 +69,10 @@
         "devices": {
           "type": "array",
           "items": {"$ref": "#/$defs/ResourceDeviceStatus"}
-        }
+        },
+        "load_average": {"type": "number", "minimum": 0},
+        "used_memory_gib": {"type": "number", "minimum": 0},
+        "total_memory_gib": {"type": "number", "minimum": 0}
       }
     }
   }

@@ -13,7 +13,7 @@ export function useAttentionSignals({ projectName, attention, zh, running = fals
   running?: boolean;
 }) {
   const [hidden, setHidden] = useState(() => typeof document !== 'undefined' && document.hidden);
-  const baseTitle = useRef<string>(typeof document !== 'undefined' ? document.title : '');
+  const baseTitle = useRef(typeof document !== 'undefined' && document.title || 'Argus');
 
   useEffect(() => {
     const update = () => setHidden(document.hidden);
@@ -22,10 +22,10 @@ export function useAttentionSignals({ projectName, attention, zh, running = fals
   }, []);
 
   useEffect(() => {
-    const base = baseTitle.current;
+    const base = projectName || baseTitle.current;
     const badge = attention && (attention.kind === 'reply' || hidden) ? attentionBadge(attention.kind, zh) : '';
-    document.title = badge ? `(${badge}) ${projectName ? `${projectName} · ` : ''}${base}`
-      : running ? `● ${zh ? '运行中' : 'Running'} · ${projectName ? `${projectName} · ` : ''}${base}` : base;
-    return () => { document.title = base; };
+    document.title = badge ? `(${badge}) ${base}`
+      : running ? `● ${zh ? '运行中' : 'Running'} · ${base}` : base;
+    return () => { document.title = baseTitle.current; };
   }, [attention, hidden, projectName, running, zh]);
 }

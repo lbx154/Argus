@@ -10,7 +10,7 @@ export const RESOURCES_CAPABILITY = 'system.resources.v1';
 export const MAP_CAPABILITY = 'map.annotations.v1';
 /** The composer's choice of Auto, Task or Chat for a message. */
 export const ROUTE_CAPABILITY = 'composer.route.v1';
-/** Versions of a result or a reply the operator edits, and their history. */
+/** Versions of a result the operator edits, and their history. */
 export const EDITIONS_CAPABILITY = 'project.editions.v1';
 /** Project state the page asks for again every few seconds: the snapshot, the project list, costs
  * and learning. Without it the server pushes each change (GET /api/projects/stream). */

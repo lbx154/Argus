@@ -5,7 +5,6 @@ import { MacroTaskNode, type MacroData, type MacroNode } from '../map/MacroTaskN
 import { MapReaderContent } from '../map/MapReaderContent';
 import { layoutSubmap, type SubmapStep } from '../map/submap';
 import type { CardCopy } from '../map/presentation';
-import { ReaderExplanation } from '../research-brief/ReaderExplanation';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Spinner } from '../components/primitives';
 import * as i18n from '../i18n';
@@ -19,8 +18,7 @@ const task = { id: 'historical-task', title: 'Recorded task', objective: 'Origin
 const step: SubmapStep = { id: 'earlier-review', kind: 'review', title: 'Earlier review', detail: 'Original result from that attempt.',
   status: 'failed', ts: 100, source: 'event', eventIds: ['old-event'] };
 const explanation = (title: string): CardCopy => ({ title, summary: title, detail: `${title} retained details`, generated_at: 120, version: 14,
-  task_revision: 'task-v1', event_ids: ['old-event'], event_revisions: ['event-v1'], reader_brief: { why: `${title} purpose`, scope: `${title} scope`, next: `${title} next`,
-    concept: { name: `${title} concept`, explanation: `${title} definition`, example: `${title} example`, connection: `${title} connection` } } });
+  task_revision: 'task-v1', event_ids: ['old-event'], event_revisions: ['event-v1'] });
 const oldCopy = explanation('Earlier Chinese explanation');
 const props = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({ id: 'historical-part', data: {
   id: 'historical-part', task, ordinal: 1, part: 1, partCount: 2, start: 1, end: 1, totalSteps: 2,
@@ -28,7 +26,6 @@ const props = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({ id: '
   canvasSize: { width: 1440, height: 960 }, zh: false, focused: true, detailed: true, live: true,
   source: 'live:project', readOnly: false, open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn(), readCopy: vi.fn(),
   copy: { version: 15, cards: { [task.id]: explanation('LATEST ROOT CONCLUSION'), [step.id]: oldCopy } },
-  readerCopy: { request: { key: step.id, task_id: task.id, kind: step.kind, event_ids: step.eventIds } },
   ...patch,
 } } as NodeProps<MacroNode>);
 let renderer: ReactTestRenderer | undefined;
@@ -40,22 +37,8 @@ it('uses the same explanation component for a historical step without borrowing 
   act(() => renderer!.root.findByProps({ 'data-step-id': step.id }).props.onClick());
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, step.id);
   const reader = renderer!.root.findByProps({ 'data-testid': 'map-reader' });
-  const explanation = reader.findByType(ReaderExplanation);
-  expect(explanation.props.brief).toEqual(oldCopy.reader_brief);
-  expect(explanation.props.detail).toBe(oldCopy.detail);
-  const teaching = oldCopy.reader_brief!;
-  expect(explanation.findAllByType(MarkdownContent).map(node => node.props.children)).toEqual([
-    teaching.why, teaching.concept!.explanation, teaching.concept!.example, teaching.concept!.connection,
-    teaching.scope, teaching.next, oldCopy.detail,
-  ]);
-  const details = explanation.findAllByType('details');
-  expect(details).toHaveLength(1);
-  expect(details[0].findByType('summary').children).toContain('Detailed explanation and conditions');
-  expect(details[0].props.open).toBeUndefined();
-  expect(details[0].findByType(MarkdownContent).props.children).toBe(oldCopy.detail);
-  expect(reader.findAllByType(MarkdownContent).filter(node => node.props.children === oldCopy.detail)).toHaveLength(1);
   const sources = reader.findAllByType(MarkdownContent).map(node => node.props.children).join('\n');
-  expect(sources).toContain(oldCopy.reader_brief!.concept!.example);
+  expect(reader.findAllByType(MarkdownContent).filter(node => node.props.children === oldCopy.detail)).toHaveLength(1);
   expect(sources).not.toContain(step.detail);
   expect(sources).toContain(oldCopy.detail);
   expect(sources).not.toContain('LATEST ROOT CONCLUSION');
@@ -68,33 +51,12 @@ it('uses the same explanation component for a historical step without borrowing 
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, null);
 });
 
-it('passes only the selected historical card’s learning path to the shared reader', () => {
-  const path = (prefix: string) => ({ question: `${prefix} question`, steps: [{ title: `${prefix} meaning`,
-    explanation: `${prefix} explanation`, example: `${prefix} example`,
-    check: { question: `${prefix} check`, answer: `${prefix} answer` } }] });
-  const retained = { ...oldCopy, learning_path: path('Earlier step') };
-  const value = props({ copy: { version: 25, cards: {
-    [task.id]: { ...explanation('LATEST ROOT CONCLUSION'), learning_path: path('LATEST ROOT') }, [step.id]: retained,
-  } } });
-  act(() => { renderer = create(<MacroTaskNode {...value} />); });
-  act(() => renderer!.root.findByProps({ 'data-step-id': step.id }).props.onClick());
-  const shared = renderer!.root.findByType(ReaderExplanation);
-  expect(shared.props.learningPath).toEqual(retained.learning_path);
-  expect(shared.findByProps({ 'data-reader-learning-path': step.id })).toBeDefined();
-  const text = shared.findAllByType(MarkdownContent).map(node => node.props.children).join('\n');
-  expect(text).toContain('Earlier step question');
-  expect(text).toContain(oldCopy.reader_brief!.scope);
-  expect(text).not.toContain('LATEST ROOT');
-  expect(renderer!.root.findByProps({ 'data-reader-card': step.id }).props['data-reader-task-id']).toBe(task.id);
-});
-
 it('keeps legacy step details readable and clears the reader selection when leaving a task', () => {
   const value = props({ copy: { version: 15, cards: { [task.id]: explanation('LATEST ROOT CONCLUSION'),
-    [step.id]: { ...oldCopy, version: 9, reader_brief: undefined } } } });
+    [step.id]: { ...oldCopy, version: 9 } } } });
   act(() => { renderer = create(<MacroTaskNode {...value} />); });
   act(() => renderer!.root.findByProps({ 'data-step-id': step.id }).props.onClick());
   const reader = renderer!.root.findByProps({ 'data-testid': 'map-reader' });
-  expect(reader.findAllByType(ReaderExplanation)).toHaveLength(0);
   expect(reader.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(oldCopy.detail);
   expect(reader.findAllByType('p').some(node => node.children.some(child => typeof child === 'string' && child.includes('explanation is pending')))).toBe(false);
   act(() => renderer!.update(<MacroTaskNode {...value} data={{ ...value.data, detailed: false, focused: false }} />));
@@ -111,9 +73,7 @@ it('opens a task explanation with only its own root key, including read-only vie
 
 it.each([true, false])('shows the card’s own record without writing, failure or retry status when it has no explanation (zh=%s)', zh => {
   vi.spyOn(i18n, 'useI18n').mockReturnValue({ locale: zh ? 'zh-CN' : 'en', setLocale: vi.fn(), t: key => key });
-  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} originalDetail={step.detail}
-    selection={props().data.readerCopy} />); });
-  expect(renderer!.root.findAllByType(ReaderExplanation)).toHaveLength(0);
+  act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} originalDetail={step.detail} zh={zh} />); });
   expect(renderer!.root.findByType(MarkdownContent).props.children).toBe(step.detail);
   expect(renderer!.root.findAllByProps({ 'data-testid': 'research-brief-status' })).toHaveLength(0);
   expect(renderer!.root.findAllByType(Spinner)).toHaveLength(0);
@@ -127,15 +87,14 @@ it('keeps useful explanation links without repeating source records or current t
   const onOpenArtifact = vi.fn();
   act(() => { renderer = create(<MapReaderContent cardKey={step.id} taskId={task.id} card={copy} task={currentTask}
     artifacts={[{ path: 'research/note.md', name: 'note.md', why: 'Recorded note', exists: true, kind: 'markdown', mime: 'text/markdown', size: 42, mtime: null }]} onOpenArtifact={onOpenArtifact}
-    originalDetail="Current loaded detail only" selection={{ request: { key: step.id, task_id: task.id, kind: 'review', event_ids: [] } }} />); });
+    originalDetail="Current loaded detail only" />); });
   const text = JSON.stringify(renderer!.toJSON());
   for (const shell of ['View evidence', 'Source record', 'Original record', 'Currently loaded task and step record', 'data-evidence', 'Current loaded detail only']) {
     expect(text).not.toContain(shell);
   }
-  const retainedDetails = renderer!.root.findByType(ReaderExplanation).findAllByType('details').find(node => node.findByType('summary').children.includes('Detailed explanation and conditions'))!;
-  expect(retainedDetails.findByType(MarkdownContent).props.children).toBe(copy.detail);
+  expect(renderer!.root.findByType(MarkdownContent).props.children).toBe(copy.detail);
   const preventDefault = vi.fn();
-  act(() => retainedDetails.findByProps({ 'data-artifact-path': 'research/note.md' }).props.onClick({ preventDefault }));
+  act(() => renderer!.root.findByProps({ 'data-artifact-path': 'research/note.md' }).props.onClick({ preventDefault }));
   expect(preventDefault).toHaveBeenCalledOnce();
   expect(onOpenArtifact).toHaveBeenCalledWith('research/note.md');
 });

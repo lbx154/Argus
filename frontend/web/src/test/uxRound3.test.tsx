@@ -5,8 +5,6 @@ import { addComposerFiles, attachmentMime, isSupportedAttachment, MESSAGE_ATTACH
 import { Sidebar } from '../components/Sidebar';
 import { api } from '../api';
 
-// The plugin list fetches on mount; it is not under test here.
-vi.mock('../components/PluginLauncher', () => ({ PluginLauncher: () => null }));
 
 const file = (name: string, type = '') => ({ name, type, size: 10, lastModified: 1 }) as File;
 

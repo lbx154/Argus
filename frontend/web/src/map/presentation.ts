@@ -135,25 +135,6 @@ export function projectBrief(tasks: MapTask[], events: MapEvent[], zh: boolean, 
   return { goal, current, conclusion, next };
 }
 
-/** Background explanation of recorded work, never an additional research result. */
-export interface ReaderBrief {
-  why: string;
-  concept: { name: string; explanation: string; example: string; connection: string } | null;
-  scope: string;
-  next: string;
-}
-
-/** A sequence of background explanations, separate from the run's evidence. */
-export interface ReaderLearningPath {
-  question: string;
-  steps: Array<{
-    title: string;
-    explanation: string;
-    example: string;
-    check: { question: string; answer: string };
-  }>;
-}
-
 export interface CardCopy {
   copy_revision?: number;
   version?: number;
@@ -161,23 +142,6 @@ export interface CardCopy {
   title: string;
   summary: string;
   detail: string;
-  /** Optional for existing cached cards created before presentation schema 10. */
-  reader_brief?: ReaderBrief;
-  learning_path?: ReaderLearningPath | null;
-  foundation_ref?: { id: string; path: string; question: string; version: number };
-  /** A teaching-text check is separate from the research task's review. */
-  teaching_review?: {
-    status?: 'accepted' | 'corrected' | 'unavailable';
-    kind: 'model_teaching_review';
-    reason?: string;
-    reviewed_at?: number | null;
-    review_version: number;
-    reading_review?: {
-      status: 'accepted' | 'corrected' | 'unavailable';
-      kind: 'model_readability_review';
-      reason?: string;
-    };
-  };
   generated_at: number;
   task_revision?: string;
   task_content_revision?: string;

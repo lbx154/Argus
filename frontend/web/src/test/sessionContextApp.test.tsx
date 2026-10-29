@@ -16,7 +16,7 @@ import { ArtifactModal } from '../components/ArtifactModal';
 import { ResearchCanvas } from '../components/ResearchCanvas';
 import { MapPanel } from '../map/MapPanel';
 import { DaemonManageModal } from '../components/DaemonManageModal';
-import { ConversationEditor } from '../components/ExperiencePanels';
+import { ActionNotice } from '../components/ActionNotice';
 import { EventStream } from '../components/EventStream';
 import { Capabilities } from '../lib/capabilities';
 
@@ -62,7 +62,6 @@ vi.mock('../components/ProjectInspectorModal', () => ({ ProjectInspectorModal: (
 vi.mock('../components/TaskDetailModal', () => ({ TaskDetailModal: () => null }));
 vi.mock('../components/MobileTabBar', () => ({ MobileTabBar: () => null }));
 vi.mock('../components/ConnectionProblemBanner', () => ({ ConnectionProblemBanner: () => null }));
-vi.mock('../research-brief/ProgressQuestions', () => ({ ProgressQuestionsProvider: ({ children }: { children: unknown }) => children, ProgressQuestionHistoryButton: () => null }));
 vi.mock('../useVisualViewport', () => ({ useVisualViewport: () => false }));
 vi.mock('../useGlobalKeyboardShortcuts', () => ({ useGlobalKeyboardShortcuts: () => undefined }));
 vi.mock('../useWorkbenchTheme', () => ({ useWorkbenchTheme: () => ({ themeMode: 'light', cycleTheme: () => undefined }) }));
@@ -130,21 +129,51 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
-  it('sends a revised question as typed and keeps the answer as a version of the original', async () => {
+  it.each(['trash/s-A-20261029000000', 'trash\\s-A-20261029000000'])('offers Undo without server paths after deletion and restores the project (%s)', async trash_path => {
+    fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, trash_path, workdir_preserved: true, workdir: '/private/server/workspaces/s-A' });
+    const restore = vi.spyOn(api, 'restoreTrash').mockResolvedValue({ ok: true, sid: 's-A' });
+    act(() => renderer.root.findByType(Sidebar).props.onManage('s-A'));
+    await act(async () => { expect(await renderer.root.findByType(DaemonManageModal).props.onDelete()).toBe(true); });
+    const notice = renderer.root.findByType(ActionNotice).props.notice;
+    expect(notice.message).toBe('Project moved to the trash.');
+    expect(notice.message).not.toContain('/');
+    expect(notice.action.label).toBe('Undo');
+    await act(async () => notice.action.onClick());
+    expect(restore).toHaveBeenCalledExactlyOnceWith('s-A-20261029000000');
+    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-A');
+    expect(renderer.root.findByType(ActionNotice).props.notice.message).toBe('Project restored.');
+  });
+  it('reports a failed restore without showing a successful restoration', async () => {
+    fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, trash_path: 'trash/s-A-20261029000000' });
+    vi.spyOn(api, 'restoreTrash').mockRejectedValue(new Error('restore refused'));
+    act(() => renderer.root.findByType(Sidebar).props.onManage('s-A'));
+    await act(async () => renderer.root.findByType(DaemonManageModal).props.onDelete());
+    await act(async () => renderer.root.findByType(ActionNotice).props.notice.action.onClick());
+    expect(renderer.root.findByType(ActionNotice).props.notice.tone).toBe('error');
+    expect(renderer.root.findByType(ActionNotice).props.notice.details.message).toBe('restore refused');
+  });
+  it('uses the selected project name as the tab title and follows renaming', () => {
+    expect(document.title).toBe('s-A');
+    fixture.index.data.projects = [{ id: 's-A', display_name: 'Renamed project' }];
+    refresh();
+    expect(document.title).toBe('Renamed project');
+    act(() => renderer.root.findByType(Sidebar).props.onNew());
+    expect(document.title).toBe('Argus');
+  });
+  it('puts the original question straight in the composer and sends the edit as a new message', async () => {
     vi.spyOn(api, 'editions').mockResolvedValue({ original: '', versions: [] });
     const save = vi.spyOn(api, 'saveEdition').mockResolvedValue({ version: 1, content: 'Revised answer' });
     const stream = vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
       handlers.onDone?.({ kind: 'message', reply: 'Revised answer' });
     });
-    const target = { source: 'original-question', prompt: 'Original question', answer: 'Original answer', mode: 'edit', baseVersion: 0 };
+    const target = 'Original question';
     await act(async () => { renderer.root.findByType(EventStream).props.onConversationAction(target); });
-    act(() => renderer.root.findByType(ConversationEditor).props.onCompose('/task revised question', target));
+    expect(props().value).toBe('Original question');
+    type('/task revised question');
     await act(async () => { expect(await props().onSend('/task revised question')).toBe(true); });
     expect(stream).toHaveBeenCalledWith('s-A', '/task revised question', expect.any(Object),
       expect.objectContaining({ routeOverride: 'auto' }));
-    expect(save).toHaveBeenCalledWith('s-A', 'conversation', expect.objectContaining({
-      source: 'original-question', original: 'Original answer', content: 'Revised answer', note: '/task revised question',
-    }));
+    expect(save).not.toHaveBeenCalled();
   });
   it('gives the chat composer the same runtime line as the map composer', () => {
     const footer = props().footer as { type?: unknown; props?: { sid?: string } };
@@ -324,7 +353,7 @@ describe('App session composer ownership', () => {
     await act(async () => { renderer.update(<Capabilities.Provider value={['manager.sse.v1']}>{mountedApp()}</Capabilities.Provider>); });
     expect(renderer.root.findByType(ComposerRuntime).props.onOpenSettings).toBeUndefined();
     expect(props().onRouteOverrideChange).toBeUndefined();
-    expect(renderer.root.findByType(EventStream).props.onConversationAction).toBeUndefined();
+    expect(renderer.root.findByType(EventStream).props.onConversationAction).toBeTypeOf('function');
     type('/help');
     await act(async () => { expect(await props().onSend('/help')).toBe(true); });
     expect(send).toHaveBeenCalledWith('s-A', '/help', expect.any(Object), expect.objectContaining({ routeOverride: 'auto' }));
@@ -425,10 +454,7 @@ describe('App desktop delivery session navigation', () => {
       primary_target: { path: 'results/report.md', label: 'Report', source: 'delivery', why: 'Synthetic fixture' }, targets: [] };
     fixture.turns = [{ role: 'argus', ts: 2, text: 'Synthetic result', delivery: receipt }];
     refresh();
-    // A new delivery announces itself without taking over the screen.
     expect(openPaths()).toEqual([]);
-    const deliveryToast = renderer.root.find(node => node.type === 'div' && node.props.className === 'delivery-toast');
-    act(() => deliveryToast.findAll(node => node.type === 'button').at(-1)!.props.onClick());
     expect(renderer.root.findAll(node => node.type === 'div' && node.props.className === 'delivery-toast')).toEqual([]);
     await toast(undefined, receipt.delivery_id);
     expect(api.artifact).toHaveBeenCalledWith('s-A', 'results/report.md', expect.any(AbortSignal));

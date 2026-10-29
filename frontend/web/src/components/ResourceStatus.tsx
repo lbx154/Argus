@@ -47,6 +47,11 @@ export function ResourceStatusView({
                     {statusLabel(accelerator.status, t)} · {t('resource.devices', { count: accelerator.device_count })}
                   </span>
                 </div>
+                {accelerator.kind === 'cpu' && accelerator.load_average !== undefined
+                  && accelerator.used_memory_gib !== undefined && accelerator.total_memory_gib !== undefined
+                  ? <p className="mt-2 text-xs text-ink-faint">{t('resource.cpuUsage', {
+                    load: accelerator.load_average.toFixed(2), used: accelerator.used_memory_gib.toFixed(1), total: accelerator.total_memory_gib.toFixed(1),
+                  })}</p> : null}
                 {accelerator.detail ? <p className="mt-2 text-xs text-ink-faint">{accelerator.detail}</p> : null}
               </div>
             ))}

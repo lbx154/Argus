@@ -50,7 +50,7 @@ export function workspace(project: (id: string) => Project): [string, RegExp, Ha
     // A file's bytes, as a result's are sent: shown as an image or a PDF, or downloaded.
     ['GET', /^\/api\/v2\/workspace\/(raw|download)$/, ({ params: [how], url, request, response }) => {
       const { found } = file(url);
-      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.path, how === 'download'));
+      sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, how === 'download'));
     }],
     ['GET', /^\/api\/v2\/workspace\/git$/, ({ url }) => git(named(url).workdir)],
   ];

@@ -23,14 +23,13 @@ import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
-import { ProgressQuestionsProvider } from './research-brief/ProgressQuestions';
 import {
   missionIsComplete,
   ResearchCanvas,
   selectCompletionArtifact,
   FILES_PATH,
 } from './components/ResearchCanvas';
-import { ActionNotice, type NoticeTone, type UiNotice } from './components/ActionNotice';
+import { ActionNotice, type NoticeAction, type NoticeTone, type UiNotice } from './components/ActionNotice';
 import { DaemonManageModal } from './components/DaemonManageModal';
 import { Sidebar } from './components/Sidebar';
 import { ProjectInspectorModal } from './components/ProjectInspectorModal';
@@ -61,7 +60,7 @@ import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
-import { ArtifactEditor, ConversationEditor, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
+import { ArtifactEditor, HistorySearch } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
@@ -71,8 +70,7 @@ import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { addComposerFiles, MESSAGE_TEXT_MAX_CHARS } from './lib/attachments';
 import './components/customerExperience.css';
 import { useDeliveryCenter } from './useDeliveryCenter';
-import { deliveryFiles, defaultDeliverySelection, selectActiveDelivery, hasPendingDeliveryDependents } from './components/deliveryPresentation';
-import { isStagePackage } from './lib/deliveryKind';
+import { deliveryFiles, defaultDeliverySelection, selectActiveDelivery } from './components/deliveryPresentation';
 import { projectAttention } from './lib/attention';
 import { progressHealth } from './lib/progressHealth';
 import { ProgressHealthBanner } from './components/ProgressHealthBanner';
@@ -146,7 +144,7 @@ export default function App() {
   const { locale, t } = useI18n();
   // The pairing error carries a fixed English message; show the localized copy instead.
   const landingErrorText = (error: unknown): string =>
-    error instanceof PairingRequiredError ? t('connection.pairingDetail') : errorText(error);
+    error instanceof PairingRequiredError ? t(holdsToken() ? 'connection.invalidLink' : 'connection.pairingDetail') : errorText(error);
   const queryClient = useQueryClient();
   const projectsQ = useProjects();
   const projectCostsQ = useProjectCosts();
@@ -230,8 +228,6 @@ export default function App() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ path: string; version?: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [conversationEditor, setConversationEditor] = useState<ConversationRevision | null>(null);
-  const [revisionContext, setRevisionContext] = useState<ConversationRevision | null>(null);
   const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
   const [highlightedTs, setHighlightedTs] = useState<number | undefined>();
   const homeRequest = useRef<{ text: string; files: File[] } | null>(null);
@@ -252,8 +248,8 @@ export default function App() {
   const cancelDeliveryNavigationRef = useRef<() => void>(() => undefined);
   const [notice, setNotice] = useState<UiNotice | null>(null);
   const dismissNotice = useCallback(() => setNotice(null), []);
-  const notify = useCallback((tone: NoticeTone, message: string, details?: unknown) => {
-    setNotice({ id: ++noticeSequence, tone, message, details });
+  const notify = useCallback((tone: NoticeTone, message: string, details?: unknown, action?: NoticeAction) => {
+    setNotice({ id: ++noticeSequence, tone, message, details, action });
   }, []);
 
   const cancelActiveMessage = useCallback(() => {
@@ -419,7 +415,7 @@ export default function App() {
   const snap = snapQ.data;
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   useEffect(() => {
-    setEditor(null); setConversationEditor(null); setRevisionContext(null); setHighlightedTs(undefined);
+    setEditor(null); setHighlightedTs(undefined);
   }, [activeSid]);
   const continuous = snap?.continuous;
   const artifactsQ = useArtifacts(loadedSid, true);
@@ -562,7 +558,8 @@ export default function App() {
     return state === 'running' || state === 'waiting';
   }, [snap]);
   useAttentionSignals({
-    projectName: snap?.session.display_name || '',
+    projectName: projects.find(project => project.id === activeSid)?.display_name?.trim()
+      || (loadedSid === activeSid ? snap?.session.display_name?.trim() : '') || '',
     attention,
     zh: locale === 'zh-CN',
     running: projectBusy,
@@ -590,15 +587,7 @@ export default function App() {
     setMobileView('preview');
     setPreviewPathRequest((current) => ({ path: target, token: current.token + 1 }));
   }, [artifactsQ.data, setMobileView, setRightPanelOpen, setWorkspaceView, workspaceView]);
-  const deliveryCenter = useDeliveryCenter(
-    loadedSid,
-    // A result is new only once the record it may already be in has been read.
-    Boolean(snap) && eventsSeeded && !transcriptQ.isPending,
-    delivery,
-    // Intermediate files stay quiet while downstream work runs; a stage package is
-    // announced precisely because the rest of the goal is still running.
-    !artifactPath && (isStagePackage(delivery) || !hasPendingDeliveryDependents(snap?.backlog ?? [], delivery?.item_id)),
-  );
+  const deliveryCenter = useDeliveryCenter(loadedSid);
   const openDelivery = deliveryCenter.open;
   const composeContext = (text: string) => {
     if (!loadedSid || loadedSid !== sidRef.current || kiosk) return false;
@@ -754,7 +743,6 @@ export default function App() {
   const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
     const requestSid = activeSid;
     if (!requestSid || requestSid !== sidRef.current || messageRequestRef.current) return false;
-    const revision = revisionContext;
 
     const requestId = ++messageEpochRef.current;
     const serverRequestId = newRequestId();
@@ -909,13 +897,6 @@ export default function App() {
               // A reply is its row in the record; a turn that ended without one reads as the record does.
               if (!gotDelta) setLocalConversationEvents((current) => dropOptimisticManagerReply(current, requestId));
               finishMessage(result);
-              if (revision && result.kind !== 'error' && typeof result.reply === 'string' && result.reply.trim()) {
-                void api.saveEdition(requestSid, 'conversation', {
-                  source: revision.source, content: result.reply, note: text, original: revision.answer,
-                  base_version: revision.baseVersion,
-                }).then(() => queryClient.invalidateQueries({ queryKey: ['editions', requestSid, 'conversation', revision.source] }))
-                  .catch(error => notify('error', `${locale === 'zh-CN' ? '回答已保留在对话中，但修订版本未保存：' : 'Answer kept in conversation, but version was not saved: '}${errorText(error)}`));
-              }
               const item = result.item as { id?: unknown } | undefined;
               if (result.kind !== 'task' || typeof item?.id !== 'string')
                 observe?.({ type: 'settled', outcome: result.kind === 'error' ? 'error' : 'message' });
@@ -952,7 +933,6 @@ export default function App() {
       }
     })();
 
-    if (revision) setRevisionContext(null);
     return true; // draft clears immediately on dispatch, not when stream finishes
   };
 
@@ -969,10 +949,6 @@ export default function App() {
       return false;
     }
     if (options?.whileRunning) {
-      if (revisionContext) {
-        notify('error', locale === 'zh-CN' ? '请等当前回复结束后再发送修订。' : 'Wait for the current reply before sending a revision.');
-        return false;
-      }
       if (files.length || draft.uploaded?.length) {
         notify('error', t('chat.attachWhileRunning'));
         return false;
@@ -1067,10 +1043,8 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projects, snap?.daemon.resumable, kiosk, continuous?.enabled, continuous?.open_ended, setComposerDraft, locale, t]);
 
-  const freshFiles = deliveryCenter.fresh ? deliveryFiles(deliveryCenter.fresh) : [];
   return (
     <DraftUploadContext.Provider value={draftUploadView}>
-    <ProgressQuestionsProvider sid={activeSid} readOnly={kiosk}>
     <WorkspaceShell
       ref={shellRef}
       style={{
@@ -1085,12 +1059,6 @@ export default function App() {
           if (projectCostsQ.isEnabled) void projectCostsQ.refetch();
         }}
       />
-      {freshFiles.length && !deliveryCenter.selection ? <div className="delivery-toast" role="status" aria-live="polite">
-        <strong>{t('delivery.fresh')}</strong>
-        <span>{freshFiles.length > 1 ? t('delivery.freshFiles', { file: freshFiles[0]!.label, count: freshFiles.length, more: freshFiles.length - 1 }) : freshFiles[0]!.label}</span>
-        <button type="button" onClick={() => openDelivery(deliveryCenter.fresh!)}>{locale === 'zh-CN' ? '查看' : 'Open'}</button>
-        <button type="button" aria-label={locale === 'zh-CN' ? '关闭' : 'Dismiss'} onClick={deliveryCenter.dismissFresh}>×</button>
-      </div> : null}
       {deliveryCenter.selection && <ArtifactModal
         key={`${deliveryCenter.selection.sid}:${deliveryCenter.selection.receipt.delivery_id}`}
         sid={deliveryCenter.selection.sid} path={deliveryCenter.selection.path}
@@ -1234,7 +1202,10 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                     onCompose={kiosk ? undefined : composeContext}
-                    onConversationAction={kiosk || messagePending || !editions ? undefined : setConversationEditor}
+                    onConversationAction={kiosk ? undefined : text => {
+                      if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
+                      setComposerDraft(text); setComposerFocus(value => value + 1);
+                    }}
                     requestedMessageTs={highlightedTs}
                     rememberPosition
                   />
@@ -1249,10 +1220,6 @@ export default function App() {
                       currentTaskId={missionView?.mission.id}
                       onAnswer={() => setPendingReplyOpen(true)}
                     />
-                    {revisionContext && <div className="experience-notice">
-                      <span>{locale === 'zh-CN' ? '发出后记作那次问答的改写' : 'Sent, it is kept as a rewrite of that question'}</span>
-                      <button type="button" onClick={() => setRevisionContext(null)}>{locale === 'zh-CN' ? '作为普通消息发' : 'Send as a plain message'}</button>
-                    </div>}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}
@@ -1289,8 +1256,7 @@ export default function App() {
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
                     <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
                       snapshot={loadedSid ? snap : undefined} failed={snapQ.isError} events={events}
-                      refresh={() => void snapQ.refetch()}
-                      onRestored={async restoredSid => { await projectsQ.refetch(); selectProject(restoredSid); }} />
+                      refresh={() => void snapQ.refetch()} />
                   </Suspense>
                 </div>
               ) : null}
@@ -1394,13 +1360,6 @@ export default function App() {
       {activeSid && editor && <ArtifactEditor key={`${activeSid}:${editor.path}:${editor.version ?? ''}`} sid={activeSid}
         path={editor.path} initialVersion={editor.version} onClose={() => setEditor(null)}
         onRequest={text => { if (composeContext(text)) setEditor(null); }} />}
-      {activeSid && conversationEditor && <ConversationEditor key={`${activeSid}:${conversationEditor.source}`} sid={activeSid}
-        target={conversationEditor} onClose={() => setConversationEditor(null)}
-        onCompose={(text, target) => {
-          if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
-          setComposerDraft(text); setRevisionContext(target);
-          setConversationEditor(null); setWorkspaceView('activity'); setMobileView('activity'); setComposerFocus(value => value + 1);
-        }} />}
       <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
         {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}
           onUse={kiosk ? undefined : useMaterial}
@@ -1485,7 +1444,6 @@ export default function App() {
         />
       ) : null}
     </WorkspaceShell>
-    </ProgressQuestionsProvider>
     </DraftUploadContext.Provider>
   );
 }

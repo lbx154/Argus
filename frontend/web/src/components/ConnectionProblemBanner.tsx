@@ -1,4 +1,4 @@
-import { isAuthenticationError, LocalArgusUnavailableError, pairWithToken } from '../api';
+import { holdsToken, isAuthenticationError, LocalArgusUnavailableError, pairWithToken } from '../api';
 import { errorText } from '../lib/format';
 import { useI18n } from '../i18n';
 import { canOpenDesktopSettings } from '../lib/desktopBridge';
@@ -55,7 +55,7 @@ export function ConnectionProblemBanner({
       <div role="alert" className="fixed inset-0 z-[100] flex items-center justify-center bg-bg/95 px-4 backdrop-blur">
         <div className="w-full max-w-md rounded-2xl border border-line bg-panel p-6 text-left shadow-2xl">
           <h1 className="text-base font-semibold text-ink">{t('connection.pairingTitle')}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-ink-dim">{t('connection.pairingDetail')}</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink-dim">{t(holdsToken() ? 'connection.invalidLink' : 'connection.pairingDetail')}</p>
           <form onSubmit={event => void repairPairing(event)} className="mt-4 flex flex-col gap-2">
             <label className="text-xs font-medium text-ink-dim" htmlFor="pairing-link">{t('connection.pairingInput')}</label>
             <div className="flex gap-2">

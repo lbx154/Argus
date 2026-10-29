@@ -48,7 +48,7 @@ export function DaemonManageModal({
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
-    await onRename(draftName.trim());
+    if (await onRename(draftName.trim())) onClose();
   };
   return (
     <Modal open={open} onClose={() => !busy && onClose()} label={t('manage.daemon')} width="max-w-lg">

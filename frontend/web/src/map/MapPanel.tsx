@@ -7,7 +7,7 @@ import { ComposerRuntime } from '../components/ComposerRuntime';
 import { WorkStatusBar } from '../components/WorkStatusBar';
 import { Button } from '../components/primitives';
 import { Modal, ModalHeader } from '../components/Modal';
-import { MapReaderContent, type MapReaderSelection } from './MapReaderContent';
+import { MapReaderContent } from './MapReaderContent';
 import { Activity, PackageCheck, MessageCircle, SlidersHorizontal } from 'lucide-react';
 import { AgentActivity } from '../components/AgentActivity';
 import { MapDispatchMotion, type MapDispatchFlight } from './MapDispatchMotion';
@@ -72,7 +72,6 @@ import { groupNotesByNode } from "./notes";
 import "./notes.css";
 import { INITIAL_VIEWPORT, openCanvasArea, useSemanticCamera } from "./useSemanticCamera";
 import { useMapCopy } from "./useMapCopy";
-import { useSelectedFoundation } from '../research-brief/foundation';
 import { MapComposer, type MapComposerProps } from "./MapComposer";
 import { referenceText, type CardReference } from "./presentation";
 import type { ArtifactInfo, DeliveryReceipt, EventMsg } from "../../../core/src/types";
@@ -235,14 +234,13 @@ export function MapCanvas({
   const [seenCards] = useState(() => new Set(savedView.current?.scene?.cards.map((card) => card.id)));
   const focusedNode = nodes.find((n) => n.id === camera.focusId);
   const finalReview = useMemo(() => latestCertifiedTask(data.tasks, data.events), [data.tasks, data.events]);
-  const foundationChoice = useSelectedFoundation(sessionId, zh ? 'zh-CN' : 'en-US');
-  const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string; foundationId: string | null } | null>(null);
+  const [readingCopy, setReadingCopy] = useState<{ nodeId: string; key: string } | null>(null);
   const readCopy = useCallback((nodeId: string, key: string | null) => {
     // An explicit task modal outlives changes to its background card's focus.
     // Step readers still close when their owning card leaves detailed mode.
-    setReadingCopy(previous => key ? { nodeId, key, foundationId: foundationChoice.id }
+    setReadingCopy(previous => key ? { nodeId, key }
       : previous?.nodeId === nodeId && !data.tasks.some(task => task.id === previous.key) ? null : previous);
-  }, [data.tasks, foundationChoice.id]);
+  }, [data.tasks]);
   useEffect(() => {
     setReadingCopy(previous => previous && (previous.nodeId === camera.focusId
       || data.tasks.some(task => task.id === previous.key)) ? previous : null);
@@ -265,18 +263,14 @@ export function MapCanvas({
     ...dependencies.downstream.map((task) => task.id),
   ]) : null, [tracedTask, dependencies]);
   // Opening a card reads what was saved for it; it does not ask for new text.
-  const { copy, ready: copyReady, readingRequest, questionContext } = useMapCopy(
+  const { copy, ready: copyReady, readingRequest } = useMapCopy(
     data,
     readingTask?.id || focusedNode?.data.task.id || null,
     zh,
     focusedNode?.data.layout.steps,
     sessionId,
     readingKey,
-    readingCopy?.foundationId,
   );
-  const readerSelection = useMemo<MapReaderSelection | undefined>(() => readingRequest ? {
-    request: readingRequest, questionContext,
-  } : undefined, [readingRequest, questionContext]);
   // Lines follow recorded relationships; time order never adds a dependency.
   const links = useMemo(
     () => connectMap(graph, copy?.relations || [], zh),
@@ -689,7 +683,6 @@ export function MapCanvas({
             [n.data.task.id, ...n.data.layout.steps.map((s) => s.id)]
               .filter((id) => copy.cards[id]).map((id) => [id, copy.cards[id]]),
           ) } : undefined,
-          readerCopy: readingCopy?.nodeId === n.id ? readerSelection : undefined,
           focused: n.id === camera.focusId,
           detailed: camera.detailed && n.id === camera.focusId,
           canvasSize: camera.canvasSize,
@@ -733,7 +726,6 @@ export function MapCanvas({
       cardSearchText,
       copy,
       readingCopy,
-      readerSelection,
       zh,
       growth,
       flight,
@@ -2017,11 +2009,10 @@ export function MapCanvas({
             )}
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} card={copy?.cards[readingTask.id]} task={readingTask}
-              readOnly={readOnly} sessionId={data.kind === 'live' ? sessionId : undefined} zh={zh}
+              sessionId={data.kind === 'live' ? sessionId : undefined} zh={zh}
               originalDetail={readingTask.turn_kind === 'qa'
                 ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.summary || (zh ? '尚无回答。' : 'No answer recorded.'))
                 : readingTask.objective || readingTask.summary || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
-              selection={readerSelection}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
             {!readOnly ? <Button className="mt-3 text-xs" onClick={() => quote({ source: data.id, task_id: readingTask.id,
               task_title: copy?.cards[readingTask.id]?.title || readingTask.title,

@@ -1,5 +1,5 @@
-// A result's versions. The operator's editions of a text result, or of an answer in the
-// conversation, are saved beside it and never over it, appended to the project's editions.jsonl;
+// A result's versions. The operator's editions of a text result are saved beside it and never
+// over it, appended to the project's editions.jsonl;
 // the first is saved with what it was made from, as version 0. And what changed: from a text result
 // as it is to an edition of it, saved or not, or in a file between two of its deliveries, read from
 // the copies kept of it as delivered (`keep`).
@@ -13,7 +13,7 @@ import { jsonLines } from './views.js';
 
 interface Edition { kind: string; source: string; version: number; content: string; note: string; created: number }
 
-const EDITIONS = /^\/api\/projects\/([^/]+)\/editions\/(artifact|conversation)$/;
+const EDITIONS = /^\/api\/projects\/([^/]+)\/editions\/artifact$/;
 const DIFF_CHARS = 128 * 1024;
 /** The unchanged lines shown around each change. */
 const AROUND = 3;
@@ -30,24 +30,24 @@ export function versions(store: Store, project: (id: string) => Project): [strin
     if (text === null) throw new HttpError(422, 'Only text results can be edited; other files can still be revised in conversation.', 'text_only');
     return text;
   };
-  const editions = (id: string, kind: string, source: string): Edition[] =>
-    (jsonLines(join(store.dir(id), 'editions.jsonl')).rows as unknown as Edition[]).filter(row => row.kind === kind && row.source === source);
+  const editions = (id: string, source: string): Edition[] =>
+    (jsonLines(join(store.dir(id), 'editions.jsonl')).rows as unknown as Edition[]).filter(row => row.kind === 'artifact' && row.source === source);
   return [
-    ['GET', EDITIONS, ({ params: [id, kind], url }) => {
+    ['GET', EDITIONS, ({ params: [id], url }) => {
       const work = project(id!);
       const source = url.searchParams.get('source') ?? '';
-      return { original: kind === 'artifact' ? original(work, source) : '', versions: editions(work.id, kind!, source) };
+      return { original: original(work, source), versions: editions(work.id, source) };
     }],
-    ['POST', EDITIONS, async ({ params: [id, kind], body }) => {
+    ['POST', EDITIONS, async ({ params: [id], body }) => {
       const work = project(id!);
-      const { source, content, note = '', base_version: base, original: given = '' } = await body();
+      const { source, content, note = '', base_version: base } = await body();
       if (typeof source !== 'string' || !source || typeof content !== 'string') throw new HttpError(400, 'an edition is the content of a source', 'invalid_request');
-      const first = kind === 'artifact' ? original(work, source) : String(given);
+      const first = original(work, source);
       // A save names the version it follows, and is refused after one it never saw.
-      const latest = editions(work.id, kind!, source).at(-1)?.version ?? 0;
+      const latest = editions(work.id, source).at(-1)?.version ?? 0;
       if (base !== latest) throw new HttpError(409, 'A newer version exists. Reload versions before saving.', 'version_conflict');
       const line = (version: number, content: string, note: string): string =>
-        `${JSON.stringify({ kind, source, version, content, note, created: Date.now() / 1000 })}\n`;
+        `${JSON.stringify({ kind: 'artifact', source, version, content, note, created: Date.now() / 1000 })}\n`;
       appendFileSync(join(store.dir(work.id), 'editions.jsonl'), (latest ? '' : line(0, first, '')) + line(latest + 1, content, String(note)));
       return { version: latest + 1, content };
     }],

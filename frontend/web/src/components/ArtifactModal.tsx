@@ -19,7 +19,7 @@ import { PdfPreview } from './PdfPreview';
 import { ModelPreview } from './ModelPreview';
 import { modelFormat } from '../lib/modelFiles';
 import { setDesktopLargePreview } from '../lib/desktopBridge';
-import { canEditArtifact, isMarkdownArtifact, readerFoundationTitle } from '../lib/artifactPresentation';
+import { canEditArtifact, isMarkdownArtifact } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 
 /** Authenticated preview/download for one registered project file. */
@@ -57,8 +57,6 @@ export function ArtifactModal({
   const info = artifactQ.data;
   // A result is named as the server named it when it was delivered.
   const deliveryTitle = delivery?.title || delivery?.primary_target?.path.split('/').at(-1) || '';
-  const foundation = info?.source === 'reader_foundation' ? info.reader_foundation : undefined;
-  const progressSnapshot = info?.source === 'progress_snapshot';
   const markdownPreview = info ? isMarkdownArtifact(info) : false;
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<unknown>(null);
@@ -163,15 +161,11 @@ export function ArtifactModal({
       {/* On a phone the file's tools wrap onto their own rows under its name. */}
       <div className={`flex shrink-0 flex-wrap items-start gap-2 border-b border-line px-4 py-3 sm:px-5 ${!path ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
-          <h2 className={`truncate text-sm font-semibold text-ink ${foundation || progressSnapshot ? '' : 'font-mono'}`} title={foundation?.question ?? info?.progress_source?.title ?? info?.storage_path ?? info?.path ?? path ?? ''}>
-            {foundation ? readerFoundationTitle(foundation) : progressSnapshot ? info?.progress_source?.title || t('artifact.title') : info?.name ?? path ?? t('artifact.title')}
+          <h2 className="truncate text-sm font-semibold text-ink font-mono" title={info?.storage_path ?? info?.path ?? path ?? ''}>
+            {info?.name ?? path ?? t('artifact.title')}
           </h2>
           <p className="mt-0.5 truncate text-[11px] text-ink-faint">
-            {foundation ? foundation.kind === 'clarification' || foundation.kind === 'progress_answer'
-              ? (zh ? '阅读问答' : 'Reading question and answer')
-              : (zh ? '背景说明 · 不计作研究进展' : 'Background explanation · separate from research progress')
-              : progressSnapshot ? (zh ? '保存的进展说明 · 提问来源' : 'Saved progress explanation · question source')
-                : info ? formatBytes(info.size) : zh ? '正在读取文件' : 'Loading file'}
+            {info ? formatBytes(info.size) : zh ? '正在读取文件' : 'Loading file'}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 max-sm:order-last max-sm:basis-full">
@@ -226,8 +220,7 @@ export function ArtifactModal({
                   : (zh ? '这是最近保存的审稿意见，文件更新后会自动刷新。' : 'This is the latest saved review. Changes to this file appear automatically.')}
               {info.mtime != null && <div>{zh ? '最近更新：' : 'Last updated: '}{new Date(info.mtime * 1000).toLocaleString(locale)}</div>}
             </div>}
-            <MarkdownContent sid={sid} basePath={path || ''} artifacts={[...linked, ...(foundation?.sources ?? []),
-              ...(foundation?.progress_source ? [{ path: foundation.progress_source.path }] : [])]} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
+            <MarkdownContent sid={sid} basePath={path || ''} artifacts={linked} onOpenArtifact={onSelectPath}>{info.preview || t('artifact.empty')}</MarkdownContent>
             {info.truncated ? <p role="status" className="mt-3 border-t border-line pt-2 text-xs text-ink-faint">
               {t('artifact.truncated')} · {t('artifact.downloadHint')}
             </p> : null}

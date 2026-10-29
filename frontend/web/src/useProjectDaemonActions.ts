@@ -1,7 +1,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { rankProjects } from '../../core/src/projects';
-import { type ProjectRow } from './api';
-import { type NoticeTone } from './components/ActionNotice';
+import { api, type ProjectRow } from './api';
+import { type NoticeAction, type NoticeTone } from './components/ActionNotice';
 import { type useProjectActions } from './hooks';
 import { type ProjectHistoryMode } from './useProjectSelection';
 import { translate } from './i18n';
@@ -28,7 +28,7 @@ interface UseProjectDaemonActionsOptions {
   activeSid: string | null;
   clearProjectSelection: (mode?: ProjectHistoryMode) => void;
   continuous: ContinuousSetting | null | undefined;
-  notify: (tone: NoticeTone, message: string, details?: unknown) => void;
+  notify: (tone: NoticeTone, message: string, details?: unknown, action?: NoticeAction) => void;
   refetchProjects: () => Promise<RefetchedProjects>;
   selectProject: (id: string, mode?: ProjectHistoryMode) => void;
   setDaemonManageOpen: (open: boolean) => void;
@@ -105,12 +105,19 @@ export function useProjectDaemonActions({
         const next = rankProjects(refreshed.data?.projects ?? [])[0];
         if (next) selectProject(next.id, 'replace');
       }
-      notify(
-        'success',
-        deleted.workdir_preserved
-          ? t('project.trashedKeepFiles', { path: deleted.workdir })
-          : t('project.trashed'),
-      );
+      notify('success', t('project.trashed'), undefined, {
+        label: t('project.undoDelete'),
+        onClick: async () => {
+          try {
+            const restored = await api.restoreTrash(deleted.trash_path.split(/[\\/]/).at(-1)!);
+            await refetchProjects();
+            selectProject(restored.sid);
+            notify('success', t('project.restored'));
+          } catch (error) {
+            notify('error', errorText(error), error);
+          }
+        },
+      });
       return true;
     } catch (error) {
       notify('error', errorText(error), error);

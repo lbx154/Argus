@@ -1,14 +1,16 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
 import { ErrorDetails } from './ErrorMessage';
 
 export type NoticeTone = 'success' | 'error' | 'info';
+export interface NoticeAction { label: string; onClick: () => Promise<void> }
 
 export interface UiNotice {
   id: number;
   tone: NoticeTone;
   message: string;
   details?: unknown;
+  action?: NoticeAction;
 }
 
 /** Short, accessible feedback for actions that otherwise change state silently; below the
@@ -21,9 +23,11 @@ export function ActionNotice({
   onClose: () => void;
 }) {
   const { locale } = useI18n();
+  const [pending, setPending] = useState(false);
   useEffect(() => {
+    setPending(false);
     if (!notice) return;
-    if (notice.tone === 'error') return;
+    if (notice.tone === 'error' || notice.action) return;
     const timeout = window.setTimeout(onClose, 5_000);
     return () => window.clearTimeout(timeout);
   }, [notice, onClose]);
@@ -47,6 +51,8 @@ export function ActionNotice({
         {notice.message}
         {notice.details ? <ErrorDetails error={notice.details} /> : null}
       </div>
+      {notice.action && <button type="button" disabled={pending} className="shrink-0 text-xs underline disabled:opacity-50"
+        onClick={() => { setPending(true); void notice.action!.onClick(); }}>{notice.action.label}</button>}
       <button
         type="button"
         aria-label={locale === 'zh-CN' ? '关闭提示' : 'Dismiss notification'}

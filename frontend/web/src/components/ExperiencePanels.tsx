@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api, type Edition, type SearchResult } from '../api';
+import { api, type SearchResult } from '../api';
 import { useI18n } from '../i18n';
 import { errorText } from '../lib/format';
 import { downloadBlob } from '../lib/downloadBlob';
@@ -31,7 +31,7 @@ export function HistorySearch({ open, onClose, onChoose }: {
     <div className="experience-shell history-search">
       <ModalHeader title={zh ? '搜索历史与成果' : 'Search history and results'} sub={zh ? '在项目、对话与成果中查找' : 'Find content across projects, conversations and results'} />
       <div className="experience-panel search-body">
-      <input autoFocus type="search" aria-label={zh ? '搜索历史内容' : 'Search history content'} className="experience-input"
+      <input data-autofocus type="search" aria-label={zh ? '搜索历史内容' : 'Search history content'} className="experience-input"
         placeholder={zh ? '搜索消息、结论、成果正文或修改稿…' : 'Search messages, conclusions, results or editions…'}
         value={input} onChange={event => setInput(event.target.value)} />
       {!query && <div className="experience-empty">
@@ -80,7 +80,7 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
   sid: string; path: string; initialVersion?: number; onClose: () => void; onRequest: (text: string) => void;
 }) {
   const zh = useI18n().locale === 'zh-CN';
-  const query = useQuery({ queryKey: ['editions', sid, 'artifact', path], queryFn: () => api.editions(sid, 'artifact', path), refetchOnWindowFocus: false });
+  const query = useQuery({ queryKey: ['editions', sid, 'artifact', path], queryFn: () => api.editions(sid, path), refetchOnWindowFocus: false });
   const [content, setContent] = useState('');
   const [selectedVersion, setSelectedVersion] = useState(-1);
   const [dirty, setDirty] = useState(false);
@@ -119,7 +119,7 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
   const save = async () => {
     setBusy(true); setError('');
     try {
-      await api.saveEdition(sid, 'artifact', { source: path, content, base_version: latest });
+      await api.saveEdition(sid, { source: path, content, base_version: latest });
       await query.refetch({ throwOnError: true });
       return true;
     } catch (problem) { setError(errorText(problem)); return false; }
@@ -183,45 +183,6 @@ export function ArtifactEditor({ sid, path, initialVersion, onClose, onRequest }
           {selection && <small>{zh ? `已选 ${selection.length} 字` : `${selection.length} characters selected`}</small>}
         </div>
       }
-    </div>
-  </Modal>;
-}
-
-export interface ConversationRevision {
-  source: string; prompt: string; answer: string; baseVersion: number;
-}
-export function ConversationEditor({ sid, target, onClose, onCompose }: {
-  sid: string; target: ConversationRevision; onClose: () => void;
-  onCompose: (text: string, target: ConversationRevision) => void;
-}) {
-  const zh = useI18n().locale === 'zh-CN';
-  const query = useQuery({ queryKey: ['editions', sid, 'conversation', target.source], queryFn: () => api.editions(sid, 'conversation', target.source), refetchOnWindowFocus: false });
-  const [prompt, setPrompt] = useState(target.prompt);
-  const [edition, setEdition] = useState<Edition | null>(null);
-  return <Modal open onClose={onClose} label={zh ? '改写后重发' : 'Rewrite and resend'} width="max-w-3xl">
-    <ModalHeader title={zh ? '改写后重发' : 'Rewrite and resend'}
-      sub={zh ? '改好的话放进输入框，发出去是一条新消息；原来的问答还在' : 'What you rewrite goes into the message box and is sent as a new message; the first question and answer stay'} />
-    <div className="experience-panel">
-      {query.isError && <p role="alert" className="text-err">{errorText(query.error)}</p>}
-      <select className="experience-select" aria-label={zh ? '哪一次问答' : 'Which question and answer'} value={edition?.version ?? 0} onChange={event => {
-        const next = query.data?.versions.find(item => item.version === Number(event.target.value)) ?? null;
-        setEdition(next); setPrompt(next?.note || target.prompt);
-      }}>
-        <option value={0}>{zh ? '最初的问答' : 'The first question and answer'}</option>
-        {query.data?.versions.filter(item => item.version > 0).map(item => <option key={item.version} value={item.version}>
-          {zh ? `第 ${item.version} 次改写` : `Rewrite ${item.version}`}</option>)}
-      </select>
-      <label>{zh ? '要重发的话' : 'What to send again'}
-        <textarea className="experience-input min-h-32" aria-label={zh ? '要重发的话' : 'What to send again'} maxLength={32_000}
-          value={prompt} onChange={event => setPrompt(event.target.value)} /></label>
-      {(edition?.content || target.answer) && <section className="conversation-version-reader">
-        <h3>{zh ? '当时的回答' : 'The answer then'}</h3>
-        <MarkdownContent>{edition?.content || target.answer}</MarkdownContent>
-      </section>}
-      <Button variant="primary" disabled={!prompt.trim() || query.isPending || query.isError}
-        onClick={() => onCompose(prompt, { ...target, baseVersion: query.data?.versions.at(-1)?.version ?? 0 })}>
-        {zh ? '放进输入框' : 'Put in the message box'}
-      </Button>
     </div>
   </Modal>;
 }

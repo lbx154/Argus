@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, type ProjectRow } from '../api';
 import { LearningLibraryEntry, type LearningScope } from './LearningLibrary';
-import { PluginLauncher } from './PluginLauncher';
 import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
@@ -258,7 +257,6 @@ export function Sidebar({
             </button>
             {advancedOpen ? <>
               {openKnowledge && <LearningLibraryEntry onOpen={openKnowledge} />}
-              <PluginLauncher />
             </> : null}
           </nav>
           {onSearch && <button type="button" onClick={onSearch}

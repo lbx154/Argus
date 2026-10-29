@@ -6,7 +6,7 @@ import './SessionWorkdir.css';
 export function SessionWorkdir({ session }: { session: Pick<Snapshot['session'], 'workdir' | 'cwd'> }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
-  const label = zh ? '项目目录' : 'Session directory';
+  const label = zh ? '项目目录' : 'Project folder';
   const path = session.workdir || session.cwd || '';
   const value = path || (zh ? '待确认' : 'Pending confirmation');
   return <details className="session-workdir" data-session-workdir>

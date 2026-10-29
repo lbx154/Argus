@@ -431,27 +431,24 @@ describe('web API protocol handshake', () => {
   });
 
   it('wires the complete Web administration surface', async () => {
-    const fetchMock = vi.fn(async (path: string, _init?: RequestInit) => {
-      if (path.startsWith('/api/trash?')) return Response.json({ entries: [], total: 0 });
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => {
       return Response.json({ ok: true, rc: 0, sid: 's-restored' });
     });
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
 
-    await api.trash();
     await api.setConfig('s-test', 'manager_model', 'gpt-5.6-sol');
     await api.resetManager('s-test');
     await api.setLaunchCwd('s-test', '/workspace');
     await api.setWorkdir('s-test', '/workspace');
-    await api.restoreTrash('0:projects_trash/20260712/s-old');
+    await api.restoreTrash('p-old-20261029000000');
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      '/api/trash?query=&limit=100&offset=0',
       '/api/projects/s-test/config/set',
       '/api/projects/s-test/reset',
       '/api/projects/s-test/launch-cwd',
       '/api/projects/s-test/workdir',
-      '/api/trash/0%3Aprojects_trash%2F20260712%2Fs-old/restore',
+      '/api/trash/p-old-20261029000000/restore',
     ]);
   });
 

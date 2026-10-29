@@ -71,12 +71,6 @@ export function useCreateDaemonSession({
       selectProject(result.sid);
       void refetchProjects();
       window.setTimeout(onFocusComposer, 0);
-      notify(
-        startCampaign ? 'info' : 'success',
-        startCampaign
-          ? (translate ? translate('new.createdStarting') : 'Session created and selected. Campaign is starting in the background.')
-          : (translate ? translate('new.createdIdle') : 'Session created and selected.'),
-      );
       if (startCampaign) {
         void startCampaign()
           .then(() => {

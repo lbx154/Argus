@@ -47,4 +47,10 @@ describe('source-bound Chinese display guides (not runtime instructions)', () =>
     expect(libraryVertical('research', 'zh-CN')).toBe('科研');
     expect(libraryVertical('new-domain', 'zh-CN')).toBe('new-domain');
   });
+  it('shows only the skill name in Chinese when no Chinese description is available', () => {
+    const item = { ...row('global/engineer/presentation-master.md'), is_default: false, description: 'Original English description' };
+    expect(skillPresentation(item, 'zh-CN')).toMatchObject({ title: item.name, summary: '' });
+    expect(skillPresentation(item, 'en').summary).toBe(item.description);
+    expect(skillPresentation({ ...item, description: '已有中文描述' }, 'zh-CN').summary).toBe('已有中文描述');
+  });
 });

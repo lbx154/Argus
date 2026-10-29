@@ -29,7 +29,7 @@
 .file-browser button { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 16px 4px; border: 0; border-bottom: 1px solid rgb(var(--line)); text-align: left; background: transparent; }
 .file-browser button:hover { background: rgb(var(--surface-2)); }
 .file-browser strong { display: block; overflow-wrap: anywhere; color: rgb(var(--ink)); font-size: 14px; }
-.file-browser small { display: block; color: rgb(var(--ink-faint)); margin-top: 4px; font-size: 12px; }
+.file-browser small { display: block; overflow-wrap: anywhere; color: rgb(var(--ink-faint)); margin-top: 4px; font-size: 12px; }
 .sidebar-global-search { display: flex; flex: none; align-items: center; gap: 10px; min-height: var(--control-height); margin: 12px 12px 0; padding: 8px 12px; border-radius: var(--radius-control); color: rgb(var(--ink-dim)); font-size: 14px; text-align: left; }
 .sidebar-global-search:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 .sidebar-project-search { display: flex; align-items: center; gap: 8px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-control); padding: 0 8px; background: rgb(var(--surface)); transition: border-color 160ms ease; }

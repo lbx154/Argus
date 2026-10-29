@@ -12,8 +12,11 @@ export interface ResourceAcceleratorStatus {
   readonly "kind": string;
   readonly "status": "available" | "absent" | "inaccessible" | "degraded";
   readonly "device_count": number;
-  readonly "detail": string;
+  readonly "detail"?: string;
   readonly "devices"?: ReadonlyArray<ResourceDeviceStatus>;
+  readonly "load_average"?: number;
+  readonly "used_memory_gib"?: number;
+  readonly "total_memory_gib"?: number;
 }
 
 export interface ResourceStatus {

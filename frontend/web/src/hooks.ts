@@ -13,7 +13,6 @@ export const PROJECT_POLL_MS = 15_000;
 export const PROJECT_COST_POLL_MS = 5_000;
 export const SNAPSHOT_POLL_MS = 8_000;
 export const ACTIVE_DAEMON_POLL_MS = 2_000;
-export const ARTIFACTS_POLL_MS = 10_000;
 
 export function queryRetryPolicy(failureCount: number, error: unknown): boolean {
   return !isAuthenticationError(error) && !(error instanceof PageUpdateRequiredError) && failureCount < 1;
@@ -111,7 +110,6 @@ export const useArtifacts = (sid: string | null, enabled = true) =>
     queryKey: ['artifacts', sid],
     queryFn: ({ signal }) => api.artifacts(sid!, signal),
     enabled: !!sid && enabled,
-    refetchInterval: enabled ? ARTIFACTS_POLL_MS : false,
   });
 
 export const useArtifact = (

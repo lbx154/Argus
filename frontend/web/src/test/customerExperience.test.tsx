@@ -15,7 +15,6 @@ vi.mock('../i18n', () => ({ useI18n: () => ({
   locale: 'zh-CN', setLocale: vi.fn(),
   t: (key: string, vars?: Record<string, unknown>) => `${key}${vars?.name ? ` ${vars.name}` : ''}`,
 }) }));
-vi.mock('../components/PluginLauncher', () => ({ PluginLauncher: () => null }));
 vi.mock('../hooks', () => ({ useArtifact: () => ({ data: undefined, isLoading: false, isError: false }) }));
 vi.mock('../components/MarkdownContent', () => ({ MarkdownContent: ({ children }: { children: string }) => <pre>{children}</pre> }));
 let view: ReactTestRenderer;

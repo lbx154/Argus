@@ -1,16 +1,37 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { DeliveryReceipt } from '../../../core/src/types';
+import type { ArtifactInfo, DeliveryReceipt } from '../../../core/src/types';
 import { ArtifactModal } from '../components/ArtifactModal';
 import { Modal } from '../components/Modal';
 import { PdfPreview } from '../components/PdfPreview';
 import { loadPdfEngine } from '../lib/pdfEngine';
 
-vi.mock('../hooks', () => ({ useArtifact: () => ({ data: undefined, isLoading: false, isError: false }) }));
+const artifact = vi.hoisted(() => ({ data: undefined as ArtifactInfo | undefined }));
+vi.mock('../hooks', () => ({ useArtifact: () => ({ data: artifact.data, isLoading: false, isError: false }) }));
 vi.mock('../lib/pdfEngine', () => ({ loadPdfEngine: vi.fn(), resetPdfEngine: vi.fn() }));
 
 let tree: ReactTestRenderer | undefined;
-afterEach(() => { act(() => tree?.unmount()); tree = undefined; vi.unstubAllGlobals(); });
+afterEach(() => { act(() => tree?.unmount()); tree = undefined; artifact.data = undefined; vi.unstubAllGlobals(); });
+
+it('previews a project file by its name and size, edits it, and opens registered Markdown links', () => {
+  artifact.data = {
+    path: 'report.md', name: 'report.md', storage_path: '/workspace/report.md', why: '', exists: true,
+    kind: 'markdown', mime: 'text/markdown', size: 48, mtime: 1,
+    preview: '# Report\n\nSee [the table](results/table.csv).',
+  };
+  const onEdit = vi.fn();
+  const onSelectPath = vi.fn();
+  act(() => { tree = create(<ArtifactModal sid="s" path="report.md" onEdit={onEdit} onSelectPath={onSelectPath}
+    artifacts={[{ path: 'results/table.csv' }]} onClose={() => {}} />); });
+  const heading = tree!.root.findByType('h2');
+  expect(heading.children).toEqual(['report.md']);
+  expect(heading.props.title).toBe('/workspace/report.md');
+  expect(tree!.root.findAllByType('p').some(node => node.children.includes('48 B'))).toBe(true);
+  act(() => tree!.root.find(node => node.type === 'button' && node.children.includes('Edit & versions')).props.onClick());
+  expect(onEdit).toHaveBeenCalledExactlyOnceWith('report.md');
+  act(() => tree!.root.findByProps({ 'data-artifact-path': 'results/table.csv' }).props.onClick({ preventDefault() {} }));
+  expect(onSelectPath).toHaveBeenCalledExactlyOnceWith('results/table.csv');
+});
 
 it('reads a delivery summary as Markdown whose links open the delivered files', () => {
   const onSelectPath = vi.fn();

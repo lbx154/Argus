@@ -50,9 +50,9 @@ export function Modal({
       )
       .fromTo(
         dialogRef.current,
-        { autoAlpha: 0, y: align === 'top' ? -6 : align === 'bottom' ? 14 : 8, scale: align === 'bottom' ? 1 : 0.992 },
+        { opacity: 0, y: align === 'top' ? -6 : align === 'bottom' ? 14 : 8, scale: align === 'bottom' ? 1 : 0.992 },
         {
-          autoAlpha: 1,
+          opacity: 1,
           y: 0,
           scale: 1,
           duration: 0.2,

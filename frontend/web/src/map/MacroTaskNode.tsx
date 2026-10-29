@@ -18,7 +18,7 @@ import { isPauseStatus } from "../../../core/src/missionOutcome";
 import { plainStopKind } from "../lib/plainStatus";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
-import { MapReaderContent, type MapReaderSelection } from "./MapReaderContent";
+import { MapReaderContent } from "./MapReaderContent";
 import type { ArtifactInfo } from "../api";
 import type { MapCopy, CardReference } from "./presentation";
 import { ACTIVE, plainTitle, replacedNote, requestChip, statusKey } from "./model";
@@ -56,7 +56,6 @@ export type MacroData = MapCard & {
   detailed: boolean;
   copy?: Pick<MapCopy, "cards" | "version">;
   readCopy?: (nodeId: string, key: string | null) => void;
-  readerCopy?: MapReaderSelection;
   live: boolean;
   paused?: boolean;
   growthDelay?: number;
@@ -733,8 +732,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             <h3><MarkdownExcerpt>{stepCopy(detail)?.title || detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
               <MapReaderContent cardKey={detail.id} taskId={task.id} card={stepCopy(detail)} task={task}
-                readOnly={data.readOnly}
-                originalDetail={detail.detail || noDetails(zh)} selection={data.readerCopy}
+                originalDetail={detail.detail || noDetails(zh)}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
             </div>
             <footer>
