@@ -12,7 +12,7 @@ import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
-import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, Monitor } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, LogOut } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 
@@ -76,7 +76,7 @@ export function Sidebar({
   resultsCount = 0,
   onNew,
   onSearch,
-  onDevices,
+  onSignOut,
   loading,
   creating = false,
   error,
@@ -104,7 +104,7 @@ export function Sidebar({
   resultsCount?: number;
   onNew: () => void;
   onSearch?: () => void;
-  onDevices?: () => void;
+  onSignOut?: () => void;
   loading: boolean;
   creating?: boolean;
   error?: string;
@@ -477,11 +477,11 @@ export function Sidebar({
               <Settings size={15} />{zh ? '设置' : 'Settings'}
             </button>}
             <details className="sidebar-more">
-              <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '设备、语言与外观' : 'Devices, language and appearance'}>
+              <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '语言、外观与登录' : 'Language, appearance and sign-in'}>
                 <span aria-hidden="true" className="tracking-[0.12em]">···</span>
               </summary>
               <div className="sidebar-more-menu">
-                {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={15} />{zh ? '设备' : 'Devices'}</button>}
+                {onSignOut && <button type="button" onClick={onSignOut} className="icon-control flex h-8 items-center gap-2 px-2 text-xs"><LogOut size={15} />{zh ? '退出登录' : 'Sign out'}</button>}
                 {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
                   <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
                     className="icon-control flex h-8 w-8 items-center justify-center">

@@ -551,6 +551,31 @@ export function adoptTokenFromUrl(): void {
   }
 }
 
+/** Open the page again with a pasted token, which `adoptTokenFromUrl` keeps, if the server takes
+ * it; whether it did. */
+export async function pairWithToken(credential: string): Promise<boolean> {
+  const response = await fetch('/api/meta', { headers: { Authorization: `Bearer ${credential}` } });
+  await ensureResponseOk(response, 'GET', '/api/meta');
+  if (!(await response.json() as ApiMeta).authentication?.authenticated) return false;
+  const page = new URL(window.location.href);
+  page.searchParams.set('token', credential);
+  window.location.replace(page);
+  return true;
+}
+
+/** Forget this browser's token and open the page again, unpaired: the server holds no session to end. */
+export function signOut(): void {
+  inMemoryToken = null;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    // Nothing was kept there.
+  }
+  window.location.reload();
+}
+
+export const holdsToken = (): boolean => Boolean(token());
+
 const token = (): string | null => {
   if (inMemoryToken) return inMemoryToken;
   try {
@@ -1031,7 +1056,6 @@ export interface SearchResult {
 }
 
 export const api = {
-  pairingLink: () => postJson<{ path: string; expires_in: number }>('/api/pairing-links'),
   organization: () => getJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization'),
   organize: (sid: string, field: keyof ProjectPreference, value: boolean) =>
     postJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization', { sid, field, value }),
@@ -1041,15 +1065,6 @@ export const api = {
     getJson<{ original: string; versions: Edition[] }>(P(sid, `/editions/${kind}?source=${encodeURIComponent(source)}`)),
   saveEdition: (sid: string, kind: 'artifact' | 'conversation', value: { source: string; content: string; note?: string; base_version: number; original?: string }) =>
     postJson<{ version: number; content: string }>(P(sid, `/editions/${kind}`), value),
-  connectBrowser: async (credential: string) => {
-    const response = await fetch('/api/browser-session', { method: 'POST', headers: { Authorization: `Bearer ${credential}` } });
-    await ensureResponseOk(response, 'POST', '/api/browser-session');
-  },
-  disconnectBrowser: async () => {
-    const response = await fetch('/api/browser-session', { method: 'DELETE', headers: authHeaders() });
-    await ensureResponseOk(response, 'DELETE', '/api/browser-session');
-    localStorage.removeItem(TOKEN_KEY);
-  },
   workflows: workflowClient(getJson, postJson),
   advisorSettings: (sid: string, signal?: AbortSignal) => getJson<AdvisorSettings>(P(sid, '/advisor/config'), signal),
   saveAdvisorSettings: (sid: string, config: Partial<Omit<AdvisorConfig, 'schema_version'>>) => postJson<AdvisorSettings>(P(sid, '/advisor/config'), config),

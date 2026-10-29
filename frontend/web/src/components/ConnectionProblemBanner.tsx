@@ -1,4 +1,4 @@
-import { api, isAuthenticationError, LocalArgusUnavailableError } from '../api';
+import { isAuthenticationError, LocalArgusUnavailableError, pairWithToken } from '../api';
 import { errorText } from '../lib/format';
 import { useI18n } from '../i18n';
 import { canOpenDesktopSettings } from '../lib/desktopBridge';
@@ -11,17 +11,6 @@ export function pairingTokenFromInput(input: string): string {
   try {
     const parsed = new URL(value, window.location.href);
     return parsed.searchParams.get('token')?.trim() ?? '';
-  } catch {
-    return '';
-  }
-}
-
-export function temporaryPairingLinkFromInput(input: string): string {
-  try {
-    const current = new URL(window.location.href);
-    const target = new URL(input.trim(), current);
-    return target.origin === current.origin && /^\/pair\/[\w-]{32}$/.test(target.pathname)
-      ? target.toString() : '';
   } catch {
     return '';
   }
@@ -44,11 +33,6 @@ export function ConnectionProblemBanner({
 
   const repairPairing = async (event: FormEvent) => {
     event.preventDefault();
-    const link = temporaryPairingLinkFromInput(pairingInput);
-    if (link) {
-      window.location.replace(link);
-      return;
-    }
     const token = pairingTokenFromInput(pairingInput);
     if (!token) {
       setPairingError(t('connection.pairingInvalid'));
@@ -56,13 +40,12 @@ export function ConnectionProblemBanner({
     }
     setConnecting(true);
     try {
-      await api.connectBrowser(token);
-      localStorage.removeItem('argus_web_token');
-      window.location.reload();
+      if (await pairWithToken(token)) return;
+      setPairingError(t('connection.pairingRejected'));
     } catch (problem) {
       setPairingError(errorText(problem));
-      setConnecting(false);
     }
+    setConnecting(false);
   };
 
   if (pairing) {

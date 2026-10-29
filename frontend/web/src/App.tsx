@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -70,7 +70,7 @@ import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
 import { hostedTrialBuild } from './lib/verticalStore';
-import { ArtifactEditor, ConversationEditor, DeviceAccess, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
+import { ArtifactEditor, ConversationEditor, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
@@ -250,7 +250,6 @@ export default function App() {
   const [artifactPath, setArtifactPath] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ path: string; version?: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [devicesOpen, setDevicesOpen] = useState(false);
   const [conversationEditor, setConversationEditor] = useState<ConversationRevision | null>(null);
   const [revisionContext, setRevisionContext] = useState<ConversationRevision | null>(null);
   const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
@@ -1265,7 +1264,6 @@ export default function App() {
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
-      ...(hostedTrialBuild() ? [] : [{ id: 'device-access', label: locale === 'zh-CN' ? '设备与登录' : 'Devices and sign-in', group: t('palette.view'), run: () => setDevicesOpen(true) }]),
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
       { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
@@ -1389,8 +1387,8 @@ export default function App() {
           resultsCount={loadedSid ? deliveryHistory.length : 0}
           onNew={() => startNewSession()}
           onSearch={() => setSearchOpen(true)}
-          // The trial portal owns sign-in; device pairing is for self-hosted Argus.
-          onDevices={hostedTrialBuild() ? undefined : () => setDevicesOpen(true)}
+          // The trial portal owns sign-in; a token kept here is this browser's own.
+          onSignOut={hostedTrialBuild() || !holdsToken() ? undefined : signOut}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
@@ -1671,7 +1669,6 @@ export default function App() {
         setSearchTarget(result); selectProject(result.sid);
         setWorkspaceView('activity'); setMobileView('activity'); setSidebarOpen(false);
       }} />
-      <DeviceAccess open={devicesOpen} onClose={() => setDevicesOpen(false)} />
       {activeSid && editor && <ArtifactEditor key={`${activeSid}:${editor.path}:${editor.version ?? ''}`} sid={activeSid}
         path={editor.path} initialVersion={editor.version} onClose={() => setEditor(null)}
         onRequest={text => { if (composeContext(text)) setEditor(null); }} />}
