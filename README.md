@@ -258,6 +258,15 @@ packaged previews are under
 [lbx154/Argus Releases](https://github.com/lbx154/Argus/releases).
 Source fixes do not update an already published EXE.
 
+Source installations require Git and Node.js 22.12+/npm. Build the Web and TUI
+assets from the selected checkout before starting Argus or building a wheel.
+The tracked `frontend/web/dist`, `frontend/tui/bundle` and release manifest may
+belong to an older release. A direct pip ZIP install does not run npm or refresh
+them. If downloading [the source ZIP](https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip),
+extract it and run the same dependency/build steps below before installation.
+Use a new source directory when the suggested path already contains local work.
+The generated assets stay local; do not commit them.
+
 ### Recommended: Agent-assisted installation
 
 Send this prompt to an already installed Code Agent:
@@ -279,13 +288,20 @@ The agent follows the **[installation execution contract](docs/agent-install.md)
 ### Windows 10/11 — direct pip, no virtual environment
 
 Install Python 3.11+ from [python.org](https://www.python.org/downloads/windows/)
-and select **Add Python to PATH** in the installer. Then open a new PowerShell:
+and select **Add Python to PATH** in the installer. Install Git and Node.js
+22.12+/npm, then open a new PowerShell:
 
 ```powershell
 py --version
 node --version
-py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade pip build
+git clone https://github.com/microsoft/ArgusAgent.git "$env:USERPROFILE\Argus"
+Set-Location "$env:USERPROFILE\Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+py -m argus.release_tools.build_release
+py -m pip install --upgrade --force-reinstall .
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -318,13 +334,18 @@ WSL2 remains optional rather than required for this path. The Windows Desktop in
 ### macOS — managed command install, no manual virtual environment
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if needed,
-then:
+and Git, then:
 
 ```bash
 uv --version
 node --version
-uv tool install --force --python 3.12 \
-  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
+cd "$HOME/Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+uv run --no-project --python 3.12 --with build python -m argus.release_tools.build_release
+uv tool install --force --python 3.12 --reinstall .
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
@@ -338,6 +359,7 @@ uv tool update-shell
 `ARGUS_BIN` works immediately even when uv's tool directory was not previously
 on PATH. `uv tool update-shell` makes plain `argus` available in a new terminal.
 `uv tool` already owns the isolated environment; do not create another venv.
+`--reinstall` refreshes the build even when the package version stays unchanged.
 
 ### Linux — isolated source venv
 
@@ -350,7 +372,11 @@ git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
 cd "$HOME/Argus"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e . build
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+.venv/bin/python -m argus.release_tools.build_release
 ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
 "$ARGUS_BIN" --version
 "$ARGUS_BIN" --setup
@@ -361,13 +387,20 @@ ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
 
 Private-preview collaborators use
 `https://github.com/lbx154/argus-skill.git` in the Linux clone command. On
-Windows/macOS, install a private wheel or authenticated private archive rather
-than putting a GitHub token in shell history.
+Windows/macOS, build the authorized private checkout with the same asset steps,
+or install a wheel produced from rebuilt assets. Keep credentials out of shell history.
 
 Do not rely on a globally installed `argus` on Linux. In a new shell, use
 `$HOME/Argus/.venv/bin/argus` (or activate that venv explicitly). If venv
 creation reports that `ensurepip` is unavailable, install the distribution's
 `python3-venv` package and rerun the command.
+
+Wheel packaging must follow these same dependency and asset-build steps.
+From the rebuilt checkout, run `python -m argus.release_tools.check_artifacts`
+and `python -m build --wheel` with its build interpreter (`py` on Windows,
+`.venv/bin/python` on Linux, or `uv run --no-project --python 3.12 --with build python`
+on macOS). Install that wheel file; do not substitute a raw source ZIP. See
+[wheel commands](docs/getting-started.md#upgrade-and-wheel-packaging).
 
 ### Backend notes
 
@@ -649,64 +682,68 @@ The most capable setup is often an Argus instance deliberately adapted to your o
 
 ## Update
 
-For source checkouts, pip ZIP installations, and uv-managed installations, use
-the installed Argus command:
+Source upgrades must rebuild assets. Let active work finish and stop the old
+Web/TUI before switching; retain the state directory and repository channel.
+Use a new persistent directory (Argus-next below). Preserve existing directories
+and local changes; a previous build modifies tracked generated files.
 
-```bash
-argus update
-argus --version
-argus doctor --advisor none --verify
-```
-
-`argus --update` and `argus -update` are equivalent aliases. The updater keeps
-the installation's existing source and channel, uses its package manager, and
-does not switch between the official and preview repositories. Source checkouts
-must be clean and on a branch; updates only fast-forward.
-
-If `argus` is not on PATH, use the executable from installation: `& $Argus update`
-in Windows PowerShell, `"$(uv tool dir --bin)/argus" update` for uv, or
-`"$HOME/Argus/.venv/bin/argus" update` for the Linux source checkout.
-
-Older versions do not yet include this updater. Bootstrap once with the
-original installation command below, keeping the original repository URL
-(replace `microsoft/ArgusAgent` with `lbx154/Argus` for an existing preview
-installation). Subsequent upgrades can use `argus update`.
-
-Windows bootstrap:
+Windows PowerShell:
 
 ```powershell
-py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade pip build
+git clone https://github.com/microsoft/ArgusAgent.git "$env:USERPROFILE\Argus-next"
+Set-Location "$env:USERPROFILE\Argus-next"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+py -m argus.release_tools.build_release
+py -m pip install --upgrade --force-reinstall .
 $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts'))") "argus.exe"
 & $Argus --version
 & $Argus doctor --advisor none --verify
 ```
 
-macOS bootstrap:
+macOS:
 
 ```bash
-uv tool install --force --python 3.12 \
-  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus-next"
+cd "$HOME/Argus-next"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+uv run --no-project --python 3.12 --with build python -m argus.release_tools.build_release
+uv tool install --force --python 3.12 --reinstall .
 "$(uv tool dir --bin)/argus" --version
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```
 
-Source-checkout bootstrap (inspect local changes first):
+Linux:
 
 ```bash
-git -C "$HOME/Argus" status --short
-git -C "$HOME/Argus" pull --ff-only
-"$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
-"$HOME/Argus/.venv/bin/argus" --version
-"$HOME/Argus/.venv/bin/argus" doctor --advisor none --verify
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus-next"
+cd "$HOME/Argus-next"
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e . build
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+.venv/bin/python -m argus.release_tools.build_release
+ARGUS_BIN="$HOME/Argus-next/.venv/bin/argus"
+"$ARGUS_BIN" --version
+"$ARGUS_BIN" doctor --advisor none --verify
 ```
 
-Only continue the source bootstrap when `git status --short` is empty and the
-branch tracks the intended repository. Argus detects stale local WebAPI and
-daemon processes and replaces them at a controlled task boundary. Verification
-with `--advisor none --verify` does not spend a model call.
+Keep the existing repository URL; development previews use lbx154/Argus.
+A clean existing checkout can use `git pull --ff-only`, followed by every
+platform dependency/build step above before launch.
 
-Packaged Desktop EXEs use the separate signed desktop update channel. The CLI
-updater does not replace a signed EXE; see [Windows Desktop](docs/windows-desktop.md).
+`argus update` (aliases `argus --update` and `argus -update`) updates and reinstalls
+the Python package; it does not run npm or rebuild Web/TUI assets. The same is true
+of a pip ZIP installation. It alone does not complete this source upgrade.
+Even after `"$HOME/Argus/.venv/bin/argus" update` on a previously clean checkout,
+complete the asset build before launch. Verification with `--advisor none --verify`
+makes no model call. Packaged Desktop installers retain their signed update channel.
 
 ## Renamed: argus-skill → argus
 
@@ -736,6 +773,9 @@ pre-rename entry-point group are still discovered (with a warning).
 **Migrating an install.** Uninstall the old distribution before installing the
 new one, then restart any running daemon or `--web` server:
 
+Rebuild the selected checkout with the source-install commands above before
+reinstalling; the local source paths below must contain those rebuilt assets.
+
 ```bash
 # editable checkout (Linux / macOS venv)
 "$HOME/Argus/.venv/bin/python" -m pip uninstall -y argus-skill && "$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
@@ -744,8 +784,7 @@ new one, then restart any running daemon or `--web` server:
 ```bash
 # macOS uv tool
 uv tool uninstall argus-skill
-uv tool install --force --python 3.12 \
-  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+uv tool install --force --python 3.12 --reinstall "$HOME/Argus"
 ```
 
 `argus update` on a pip install that is still named `argus-skill` does the

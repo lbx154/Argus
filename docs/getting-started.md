@@ -1,10 +1,9 @@
 # Getting started with Argus
 
 This guide takes you from an empty machine to a finished first task. It covers
-three ways to work: the command line, the web UI, and the desktop app. Every
-command below was checked against the `argus` CLI in this checkout
-(`argus 0.1.8`); the example runs are real projects, with their times and costs
-taken from their own logs.
+three ways to work: the command line, the web UI, and the desktop app. The
+commands target this checkout's `argus 0.1.8` CLI; the example runs are real
+projects, with their times and costs taken from their own logs.
 
 Companion guides: [best practices](best-practices.md) (objectives, changing
 direction mid-run, models and spend) and
@@ -52,6 +51,11 @@ must be the one kept in `~/.copilot/config.json`.
 ## Install
 
 The commands are the README's, repeated here so this page stands alone.
+Install Git and Node.js 22.12+/npm. The tracked Web/TUI assets can predate the
+source, so each source installation must install the Node dependencies and run
+`argus.release_tools.build_release` before launch. Direct pip ZIP installation
+does not rebuild assets. Preserve the repository channel on upgrades, and use a
+new checkout directory if the suggested path already contains local work.
 
 Linux (isolated venv; use this on servers):
 
@@ -60,7 +64,11 @@ git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
 cd "$HOME/Argus"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e . build
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+.venv/bin/python -m argus.release_tools.build_release
 ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
 "$ARGUS_BIN" --version
 ```
@@ -68,14 +76,26 @@ ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
 Windows (PowerShell, no venv):
 
 ```powershell
-py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade pip build
+git clone https://github.com/microsoft/ArgusAgent.git "$env:USERPROFILE\Argus"
+Set-Location "$env:USERPROFILE\Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+py -m argus.release_tools.build_release
+py -m pip install --upgrade --force-reinstall .
 ```
 
 macOS (managed command):
 
 ```bash
-uv tool install --force --python 3.12 "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
+cd "$HOME/Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+uv run --no-project --python 3.12 --with build python -m argus.release_tools.build_release
+uv tool install --force --python 3.12 --reinstall .
 ```
 
 On Linux, `argus` below means `$HOME/Argus/.venv/bin/argus` unless the venv is
@@ -84,6 +104,30 @@ in this guide and in [building a vertical](building-a-vertical.md) is also the
 venv's interpreter, which is the one that can import `argus`). Everywhere, `python -m argus ...` runs the same CLI without ever
 starting the Node cockpit; it is what you want in scripts and over SSH without
 a terminal.
+
+## Upgrade and wheel packaging
+
+For an upgrade, stop the old server after active work finishes, keep its state
+and repository channel, and repeat the platform source-install/build commands
+in a new persistent directory. Full commands are in [README Update](../README.md#update).
+A clean existing checkout can be fast-forwarded, but must then repeat all npm
+installs and `build_release`. The generated files from a previous build make a
+checkout dirty; preserve local work rather than discarding it to satisfy the
+updater. `argus update` reinstalls Python without rebuilding these assets.
+
+To distribute a wheel, run the dependency and asset-build steps first, then
+package that same checkout. For the Linux venv above:
+
+```bash
+.venv/bin/python -m argus.release_tools.check_artifacts
+.venv/bin/python -m build --wheel
+```
+
+Windows uses `py -m argus.release_tools.check_artifacts` and `py -m build --wheel`.
+On macOS use `uv run --no-project --python 3.12 --with build python -m` with each
+module above. Install the resulting wheel file, not the unbuilt source ZIP.
+Wheel consumers need no npm build; its packager must have rebuilt the assets.
+Do not commit generated dist, bundle, release manifest or wheel files.
 
 ## First-time setup and a health check
 
@@ -128,18 +172,16 @@ argus doctor — cross-platform diagnostics
 all blocking checks passed
 ```
 
-A `!` line is advice, not a failure; the desktop warning above only matters if
-you intend to build the desktop app from this checkout. A fresh source checkout
-may show other `!` lines too, for example `ARGUS-ASSET-002
-[install/assets_stale]` (the committed Web/TUI bundle predates a frontend
-source change; its fix is for maintainers, and the bundled UI still works) or
-`ARGUS-PATH-001 [install/path_memory_missing]` (no path memory recorded yet).
-Only a line that is not `✓` or `!`, and a final line other than `all blocking
-checks passed`, needs action before you continue. When something is
-wrong, `argus doctor --fix-safe` applies the repairs the doctor itself marked
-safe and reruns; `argus doctor --advisor auto` lets one of the installed agent
-CLIs inspect and repair. Without one of those two options `doctor` changes
-nothing.
+The desktop dependency warning only matters if you intend to build the desktop.
+`ARGUS-PATH-001 [install/path_memory_missing]` can mean no path memory has been
+recorded yet. `ARGUS-ASSET-002 [install/assets_stale]` means the Web/TUI bundle
+predates the source: stop before launching, repeat the npm dependency installation
+and `build_release` commands above, then rerun Doctor. Its warning severity does
+not establish that an old webpage implements the current source.
+
+For other findings, `argus doctor --fix-safe` applies the repairs Doctor marks
+safe and reruns; `argus doctor --advisor auto` lets an installed Agent CLI
+inspect and repair. Without those options Doctor changes nothing.
 
 A note on help: `argus --help` (and `argus doctor --help`,
 `argus verticals --help`) print the same short overview. The complete flag
@@ -319,8 +361,10 @@ python -m argus --web            # over SSH: then `ssh -L 8799:127.0.0.1:8799 us
 
 Binding to a LAN address (`--web-host 0.0.0.0`) always requires a bearer
 token: `ARGUS_SKILL_WEB_TOKEN` if set, otherwise one is minted for the run and
-printed with a QR code. The web assets are checked into the repository and
-packaged with the wheel, so nothing needs building first.
+printed with a QR code. The source installation above rebuilds the assets this
+server serves. A release wheel contains the assets prepared by its packager;
+build the source assets before creating that wheel too. The tracked dist alone
+is not evidence that the webpage matches the source.
 
 ### The first screen
 
@@ -398,11 +442,12 @@ MSVC Build Tools on Windows or Xcode command-line tools on macOS), the
 sequence in [desktop builds](windows-desktop.md) is:
 
 ```bash
-python -m pip install -e . "pyinstaller>=6.11,<7" tzdata
+python -m pip install -e . build "pyinstaller>=6.11,<7" tzdata
+npm ci
 npm --prefix frontend/web ci
 npm --prefix frontend/tui ci
 npm --prefix desktop-tauri ci
-npm --prefix frontend/web run build && npm --prefix frontend/tui run build
+python -m argus.release_tools.build_release
 npm --prefix desktop-tauri run build:backend
 npm --prefix desktop-tauri run build:unsigned
 ```

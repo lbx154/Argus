@@ -233,6 +233,13 @@ argus --status
 [lbx154/Argus Releases](https://github.com/lbx154/Argus/releases)。
 源码中的修复不会自动更新已经发布的 EXE。
 
+源码安装需要 Git、Node.js 22.12+ 和 npm。启动 Argus 或构建 wheel 前，必须从所选
+源码安装前端依赖并重建 Web/TUI 资产。仓库跟踪的 `frontend/web/dist`、
+`frontend/tui/bundle` 和 release manifest 可能仍属于旧版本；直接 pip ZIP 安装不会
+执行 npm 或刷新它们。若下载[源码 ZIP](https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip)，
+先解压，再按下列步骤安装依赖和构建。建议目录已有本地工作时，另选新目录。
+生成的资产留在本地，不提交 Git。
+
 ### 推荐：使用 Agent 一键安装
 
 把下面整段发送给已安装的 Code Agent：
@@ -251,13 +258,19 @@ Agent 将遵循 **[安装执行规范](docs/agent-install.md)**。
 ### Windows 10/11：直接 pip 安装，不创建虚拟环境
 
 从 [python.org](https://www.python.org/downloads/windows/) 安装 Python 3.11+
-并勾选 **Add Python to PATH**。重新打开 PowerShell 后执行：
+并勾选 **Add Python to PATH**。安装 Git 和 Node.js 22.12+/npm，重新打开 PowerShell 后执行：
 
 ```powershell
 py --version
 node --version
-py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade pip build
+git clone https://github.com/microsoft/ArgusAgent.git "$env:USERPROFILE\Argus"
+Set-Location "$env:USERPROFILE\Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+py -m argus.release_tools.build_release
+py -m pip install --upgrade --force-reinstall .
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -285,13 +298,18 @@ Native Windows 上每个 provider turn 有自己的 Job Object：角色启动的
 
 ### macOS：uv tool 管理安装，不手工创建虚拟环境
 
-按需安装 [uv](https://docs.astral.sh/uv/getting-started/installation/) 后执行：
+安装 Git，并按需安装 [uv](https://docs.astral.sh/uv/getting-started/installation/) 后执行：
 
 ```bash
 uv --version
 node --version
-uv tool install --force --python 3.12 \
-  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
+cd "$HOME/Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+uv run --no-project --python 3.12 --with build python -m argus.release_tools.build_release
+uv tool install --force --python 3.12 --reinstall .
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
@@ -304,7 +322,7 @@ uv tool update-shell
 
 即使 uv 的 tool bin 尚未加入 PATH，`ARGUS_BIN` 也能立即工作。
 `uv tool update-shell` 会让新终端可以直接使用 `argus`。隔离环境已经由 uv 管理，
-不要再套一层 venv。
+不要再套一层 venv。`--reinstall` 保证版本号未变时仍刷新构建。
 
 ### Linux：保留隔离源码 venv
 
@@ -316,7 +334,11 @@ git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
 cd "$HOME/Argus"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e . build
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+.venv/bin/python -m argus.release_tools.build_release
 ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
 "$ARGUS_BIN" --version
 "$ARGUS_BIN" --setup
@@ -327,11 +349,17 @@ ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
 
 私有 Preview 协作者在 Linux clone 命令中改用
 `https://github.com/lbx154/argus-skill.git`。Windows/macOS 应安装私有 wheel
-或经过认证的私有 archive，不要把 GitHub token 写进 shell history。
+（打包前重建资产），或对获授权的私有 checkout 执行同样的构建；不要把 GitHub token 写进 shell history。
 
 Linux 新终端不要依赖全局 `argus`；请使用
 `$HOME/Argus/.venv/bin/argus`（或显式激活该 venv）。如果创建 venv 时提示缺少
 `ensurepip`，安装发行版的 `python3-venv` 包后重试。
+
+分发 wheel 前也必须完成上述依赖安装和资产重建，再用构建解释器运行
+`python -m argus.release_tools.check_artifacts` 和 `python -m build --wheel`。
+Windows 用 `py`，Linux 用 `.venv/bin/python`，macOS 用
+`uv run --no-project --python 3.12 --with build python`。安装生成的 wheel 文件；
+其使用者无需 npm 构建，打包者必须先构建。见[完整打包命令](docs/getting-started.md#upgrade-and-wheel-packaging)。
 
 ### Backend 说明
 
@@ -578,60 +606,64 @@ argus --web
 
 ## 更新
 
-源码 checkout、pip ZIP 安装和 uv 管理的安装，现在统一使用已安装的 Argus 命令：
+源码升级需要重新构建资产。先让正在运行的任务收尾并停止旧 Web/TUI，保留原来的状态目录
+和仓库渠道。建议使用新的持久目录（下面以 Argus-next 为例）；已有目录或本地修改都要保留，
+不要为通过更新器的干净检查而丢弃它们。旧构建会修改受跟踪的生成文件。
 
-```bash
-argus update
-argus --version
-argus doctor --advisor none --verify
-```
-
-`argus --update` 和 `argus -update` 是等价别名。更新器会保持现有安装来源和渠道，
-使用对应的包管理器，不会在官方仓库和开发预览仓库之间切换。
-源码更新要求工作区干净且位于分支上，只做 fast-forward。
-
-如果 `argus` 不在 PATH 中，请使用安装时确定的完整路径：Windows PowerShell 执行
-`& $Argus update`，uv 安装执行 `"$(uv tool dir --bin)/argus" update`，
-Linux 源码安装执行 `"$HOME/Argus/.venv/bin/argus" update`。
-
-旧版本尚未包含这个更新器，需要先按原安装方式引导更新一次。下面命令中的仓库 URL
-必须与原安装保持一致；已有开发预览安装应将 `microsoft/ArgusAgent` 替换为
-`lbx154/Argus`。完成后，后续升级即可使用 `argus update`。
-
-Windows 首次引导更新：
+Windows PowerShell:
 
 ```powershell
-py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade pip build
+git clone https://github.com/microsoft/ArgusAgent.git "$env:USERPROFILE\Argus-next"
+Set-Location "$env:USERPROFILE\Argus-next"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+py -m argus.release_tools.build_release
+py -m pip install --upgrade --force-reinstall .
 $Argus = Join-Path (py -c "import sysconfig; print(sysconfig.get_path('scripts'))") "argus.exe"
 & $Argus --version
 & $Argus doctor --advisor none --verify
 ```
 
-macOS 首次引导更新：
+macOS:
 
 ```bash
-uv tool install --force --python 3.12 \
-  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus-next"
+cd "$HOME/Argus-next"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+uv run --no-project --python 3.12 --with build python -m argus.release_tools.build_release
+uv tool install --force --python 3.12 --reinstall .
 "$(uv tool dir --bin)/argus" --version
 "$(uv tool dir --bin)/argus" doctor --advisor none --verify
 ```
 
-源码 checkout 首次引导更新（先检查本地修改）：
+Linux:
 
 ```bash
-git -C "$HOME/Argus" status --short
-git -C "$HOME/Argus" pull --ff-only
-"$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
-"$HOME/Argus/.venv/bin/argus" --version
-"$HOME/Argus/.venv/bin/argus" doctor --advisor none --verify
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus-next"
+cd "$HOME/Argus-next"
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e . build
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+.venv/bin/python -m argus.release_tools.build_release
+ARGUS_BIN="$HOME/Argus-next/.venv/bin/argus"
+"$ARGUS_BIN" --version
+"$ARGUS_BIN" doctor --advisor none --verify
 ```
 
-只有 `git status --short` 没有输出、且当前分支跟踪预期仓库时，才继续执行后续源码
-引导命令。更新后 Argus 会识别过期的本地 WebAPI 与 daemon，并在受控任务边界完成替换。
-使用 `--advisor none --verify` 的验收不消耗模型调用。
+把仓库 URL 保持为已有安装的渠道；开发预览使用 lbx154/Argus。若在干净的已有 checkout
+执行 `git pull --ff-only`，同样要重复对应平台的全部依赖安装与资产构建步骤再启动。
 
-打包的 Desktop EXE 使用独立的桌面签名更新渠道。CLI 更新器不会替换签名 EXE，
-参见 [Windows Desktop](docs/windows-desktop.md)。
+`argus update`（别名 `argus --update`、`argus -update`）会更新并重装 Python 包，
+不会执行 npm 或重建 Web/TUI；pip ZIP 安装也如此。单独运行它不能完成这里的源码升级。
+即使以前执行了 `"$HOME/Argus/.venv/bin/argus" update`，也必须完成资产构建。
+使用 `--advisor none --verify` 验收不调用模型。独立桌面安装包继续使用其签名更新渠道。
 
 ## 重命名:argus-skill → argus
 
@@ -653,6 +685,8 @@ git -C "$HOME/Argus" pull --ff-only
 
 **迁移已有安装。** 先卸载旧发行再装新发行,然后重启正在运行的守护进程或 `--web` 服务:
 
+重装前先按前面的源码安装步骤完成资产构建；下面的本地源码目录必须已经构建。
+
 ```bash
 # 可编辑 checkout(Linux / macOS venv)
 "$HOME/Argus/.venv/bin/python" -m pip uninstall -y argus-skill && "$HOME/Argus/.venv/bin/python" -m pip install -e "$HOME/Argus"
@@ -661,8 +695,7 @@ git -C "$HOME/Argus" pull --ff-only
 ```bash
 # macOS uv tool
 uv tool uninstall argus-skill
-uv tool install --force --python 3.12 \
-  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+uv tool install --force --python 3.12 --reinstall "$HOME/Argus"
 ```
 
 对仍叫 `argus-skill` 的 pip 安装,`argus update` 会自己先卸载;旧名字的 `uv tool` 环境会被拒绝并给出

@@ -18,6 +18,15 @@ Windows packaged previews are separate from source installation. See
 [Windows Desktop](windows-desktop.md) for the official and preview release
 pages; an EXE may not yet contain fixes present on `main`.
 
+Source installation includes a Web/TUI build. A pip ZIP installation such as
+one originally downloaded from
+`https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip` does not run
+npm and can contain old tracked assets. Use the platform source/build commands
+below, or a wheel built after those commands. Preserve the existing repository
+channel and choose a new directory if the suggested path already contains work.
+Never report `install/assets_stale` as ready to use: rebuild before starting the
+cockpit. Do not commit generated dist, bundle or release manifest files.
+
 ## Safety contract
 
 - Argus has no separate Argus account. Use one supported Agent CLI and its
@@ -127,13 +136,19 @@ Get-Command copilot,codex,claude,agent,cursor-agent,pi,opencode,grok,qodercli,ds
 ```
 
 Require Python 3.11+ from python.org with **Add Python to PATH** selected,
-Node.js 22.12+, and one authenticated Agent CLI.
+Node.js 22.12+/npm, Git, and one authenticated Agent CLI.
 
 ### Install — no virtual environment
 
 ```powershell
-py -m pip install --upgrade pip
-py -m pip install --upgrade --force-reinstall "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+py -m pip install --upgrade pip build
+git clone https://github.com/microsoft/ArgusAgent.git "$env:USERPROFILE\Argus"
+Set-Location "$env:USERPROFILE\Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+py -m argus.release_tools.build_release
+py -m pip install --upgrade --force-reinstall .
 $Scripts = py -c "import sysconfig; print(sysconfig.get_path('scripts'))"
 $Argus = Join-Path $Scripts "argus.exe"
 if (-not (Test-Path $Argus)) { throw "Argus entry point not found at $Argus" }
@@ -144,8 +159,8 @@ $env:Path = "$Scripts;$env:Path"
 Do not ask the user to create or activate a venv on Windows. A packaged Desktop
 installer may be used instead when a release provides one.
 
-Always retain `--force-reinstall` while installing the moving preview: its
-package version may stay unchanged when the archive contents change.
+The Windows install builds assets before pip packages the checkout. Retain
+`--force-reinstall` when replacing the same package version with a new build.
 
 ### Configure and verify
 
@@ -179,18 +194,25 @@ node --version
 for cli in copilot codex claude agent cursor-agent pi opencode grok qodercli dsh; do command -v "$cli" || true; done
 ```
 
-Require Node.js 22.12+, one authenticated Agent CLI, and uv. Install uv only with
+Require Git, Node.js 22.12+/npm, one authenticated Agent CLI, and uv. Install uv only with
 the user's approval and its official installer.
 
 ### Install — uv-managed command, no manual venv
 
 ```bash
-uv tool install --force --python 3.12 \
-  "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip"
+git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
+cd "$HOME/Argus"
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+uv run --no-project --python 3.12 --with build python -m argus.release_tools.build_release
+uv tool install --force --python 3.12 --reinstall .
 ARGUS_BIN="$(uv tool dir --bin)/argus"
 test -x "$ARGUS_BIN"
 "$ARGUS_BIN" --version
 ```
+
+`--reinstall` refreshes the local package build even when its version is unchanged.
 
 ### Configure and verify
 
@@ -237,14 +259,20 @@ git clone https://github.com/microsoft/ArgusAgent.git "$HOME/Argus"
 cd "$HOME/Argus"
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e .
+.venv/bin/python -m pip install -e . build
+npm ci
+npm --prefix frontend/web ci
+npm --prefix frontend/tui ci
+.venv/bin/python -m argus.release_tools.build_release
 ARGUS_BIN="$HOME/Argus/.venv/bin/argus"
 "$ARGUS_BIN" --version
 ```
 
 Private-preview collaborators may use the authorized private repository instead.
 If the checkout already exists, inspect `git status`; update only a clean branch
-with `git pull --ff-only`, then refresh the editable install.
+with `git pull --ff-only`, then repeat all dependency and asset-build commands
+before launching. A previously built checkout has generated local changes; use
+a fresh checkout for the upgrade rather than discarding local work.
 
 ### Configure and verify
 
@@ -260,6 +288,13 @@ Linux keeps the explicit venv because server Python/CUDA dependencies and
 long-running process ownership must remain reproducible. Never substitute a
 global `argus`; it may be stale. If venv creation reports missing `ensurepip`,
 install the distribution's `python3-venv` package and retry.
+
+Wheel packaging must follow these same dependency and asset-build steps.
+From the rebuilt checkout, run `python -m argus.release_tools.check_artifacts`
+and `python -m build --wheel` with its build interpreter (`py` on Windows,
+`.venv/bin/python` on Linux, or `uv run --no-project --python 3.12 --with build python`
+on macOS). Install that wheel file; do not substitute a raw source ZIP. See
+[wheel commands](getting-started.md#upgrade-and-wheel-packaging).
 
 ## Confirm the backend model selector
 
@@ -291,31 +326,25 @@ Never paste the key into chat or commit it.
 
 ## Upgrade and deterministic verification
 
-Use `argus update` with the exact executable established during installation.
-`argus --update` and `argus -update` are equivalent aliases. This updater handles
-source checkouts, pip ZIP installations, and uv-managed installations while
-preserving the existing source and channel. It selects the corresponding
-package manager; source checkouts must be clean and on a branch, and only
-fast-forward updates are allowed.
+A source upgrade includes dependency installation and Web/TUI asset rebuilding.
+Use a fresh persistent checkout and repeat this guide's platform installation
+commands, selecting the existing repository channel. The [README update section](../README.md#update)
+gives complete Windows, macOS and Linux commands with a new directory. Preserve
+the old checkout and state; a previous build leaves generated local changes.
+For a clean, attached checkout updated with `git pull --ff-only`, repeat every
+npm installation and `build_release` step before starting the new server.
 
-When PATH is not configured, use `& $Argus update` in Windows PowerShell,
-`"$(uv tool dir --bin)/argus" update` for uv, or
-`"$HOME/Argus/.venv/bin/argus" update` for the Linux source checkout.
+`argus update`, `argus --update` and `argus -update` only update/reinstall Python;
+they do not build assets. Neither does a direct pip ZIP install. Do not treat
+`& $Argus update`, `"$(uv tool dir --bin)/argus" update`, or
+`"$HOME/Argus/.venv/bin/argus" update` as a completed source upgrade without the
+asset-build steps. For older versions, use the same source-build installation
+commands rather than bootstrapping with an unbuilt archive.
 
-Older versions do not include this updater. Bootstrap once using the original
-installation command on Windows/macOS, including `--force-reinstall`/`--force`
-and the existing repository URL. For a source checkout, inspect its local
-changes and configured upstream first; only on a clean, attached branch run
-`git pull --ff-only`, then reinstall with that environment's Python using
-`-m pip install -e .`. Never change channels to bootstrap the updater.
-
-After an upgrade, run the exact executable with `--version` and
-`doctor --advisor none --verify`. Do not invoke a second Agent repair turn merely
-to prove an unchanged installation.
-
-Packaged Desktop EXEs use their separate signed desktop update channel. The CLI
-updater does not replace a signed EXE; use the [Windows Desktop](windows-desktop.md)
-instructions for those installations.
+After switching, use the exact installed executable with `--version` and
+`doctor --advisor none --verify`, then check the webpage served by the new
+process. Do not invoke an Agent repair turn merely to verify the installation.
+Packaged Desktop installers keep their separate signed update channel.
 
 ## Completion report
 
