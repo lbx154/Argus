@@ -87,7 +87,7 @@ def test_daemon_refuses_a_mismatched_configured_source_root(
     monkeypatch.setenv("ARGUS_SKILL_SOURCE_ROOT", str(tmp_path / "other-worktree"))
     worker = LifeWorker(LifeWorkerConfig(life_dir=tmp_path, backend="memory"))
 
-    assert worker._rf_vault_preflight(SimpleNamespace(cfg=worker.config)) == 2
+    assert worker._rf_preflight(SimpleNamespace(cfg=worker.config)) == 2
 
 
 def test_daemon_bootstrap_pins_pip_user_off_for_inherited_child_env(
@@ -775,11 +775,6 @@ def test_life_worker_separates_boundary_stop_from_mission_interrupt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "1")
-    monkeypatch.setattr(
-        "argus.core.backend_readiness.check_backend_readiness",
-        lambda *_args, **_kwargs: SimpleNamespace(ok=True),
-    )
     cfg = LifeWorkerConfig(life_dir=tmp_path, backend="codex", poll_interval=0.1)
     LifeMemory.open(tmp_path).init()
     captured: dict[str, Any] = {}

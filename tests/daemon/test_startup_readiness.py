@@ -12,8 +12,8 @@ class _FakeWorker(LifeWorkerBootMixin):
     def _rf_bootstrap_environment(self) -> None:
         self.calls.append("bootstrap")
 
-    def _rf_vault_preflight(self, _state):
-        self.calls.append("readiness")
+    def _rf_preflight(self, _state):
+        self.calls.append("preflight")
         return 2 if self.reject else None
 
     def _rf_build_memory_runner_sink(self, _state) -> None:
@@ -39,8 +39,8 @@ class _FakeWorker(LifeWorkerBootMixin):
         return 0
 
 
-def test_failed_readiness_precedes_provider_and_state_construction() -> None:
+def test_failed_preflight_precedes_provider_and_state_construction() -> None:
     worker = _FakeWorker(reject=True)
 
     assert worker.run_forever() == 2
-    assert worker.calls == ["bootstrap", "readiness"]
+    assert worker.calls == ["bootstrap", "preflight"]

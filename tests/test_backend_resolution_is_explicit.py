@@ -168,15 +168,14 @@ def test_the_export_runs_before_anything_resolves_a_role(tmp_path: Path) -> None
     """Ordering is the whole point: a late export would fix nothing.
 
     ``_rf_bootstrap_environment`` is ``run_forever``'s first call and the export
-    happens inside it, ahead of the vault preflight (which itself resolves the
-    reviewer's backend to decide whether to probe the codex vault).
+    happens inside it, ahead of the preflight and everything after it.
     """
     import inspect
 
     from argus.daemon._life_worker_boot import LifeWorkerBootMixin
 
     boot = inspect.getsource(LifeWorkerBootMixin.run_forever)
-    assert boot.index("_rf_bootstrap_environment") < boot.index("_rf_vault_preflight")
+    assert boot.index("_rf_bootstrap_environment") < boot.index("_rf_preflight")
 
     bootstrap = inspect.getsource(LifeWorkerBootMixin._rf_bootstrap_environment)
     assert "_rf_export_configured_backend" in bootstrap
@@ -232,7 +231,7 @@ def test_the_daemon_refuses_to_boot_on_a_corrupt_knob_file(tmp_path, monkeypatch
     mixin = LifeWorkerRunMixin.__new__(LifeWorkerRunMixin)
     state = SimpleNamespace(cfg=SimpleNamespace(backend="copilot"))
 
-    assert LifeWorkerRunMixin._rf_vault_preflight(mixin, state) == 2
+    assert LifeWorkerRunMixin._rf_preflight(mixin, state) == 2
 
 
 def test_the_config_page_shows_the_corruption_instead_of_dying_of_it(

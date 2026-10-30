@@ -657,9 +657,7 @@ def _build_worker_config(args: argparse.Namespace):
     # See main(): the typed flag wins, then the chain, then an explicit codex.
     # value becomes LifeWorkerConfig.backend, which the daemon now exports as
     # ARGUS_SKILL_RUNNER_BACKEND at boot (LifeWorkerBootMixin
-    # ._rf_bootstrap_environment) so every later role resolution sees it. It is
-    # safe to assume codex here only because _cmd_daemon_start has already run
-    # check_backend_readiness on the same value and refused if it is not usable.
+    # ._rf_bootstrap_environment) so every later role resolution sees it.
     # ``--backend`` was typed on this invocation; it outranks the ambient env
     # and the persisted knob. This value becomes LifeWorkerConfig.backend, which
     # the daemon exports as ARGUS_SKILL_RUNNER_BACKEND at boot, so a stale env
@@ -711,19 +709,14 @@ def _build_worker_config(args: argparse.Namespace):
 
 
 def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
-    from ...core.backend_readiness import (
-        check_backend_readiness,
-        format_backend_readiness,
-    )
     from ...core.knobs import resolve_role_backend
     from ...daemon.commands import execute_daemon_command
     from ...daemon.life_worker import run_foreground, spawn_detached_daemon
 
     # Same resolution as main(): the typed flag wins, then the chain, then an
-    # explicit codex. Safe here because backend_default only feeds
-    # the "is it memory?" continuous gate. The backend that will really be used
-    # is validated for real by check_backend_readiness below, which refuses the
-    # daemon start (rc 3) rather than letting an unusable backend through.
+    # explicit codex. backend_default only feeds the "is it memory?"
+    # continuous gate; the backend is not probed before start (no login,
+    # version or model-API check), the same as the TypeScript runtime.
     # ``--backend`` parses with ``default=None``, so a value here was typed on
     # THIS invocation and is the most explicit signal available: it outranks an
     # ambient env var or a persisted knob, both of which may be stale. Letting
@@ -740,26 +733,6 @@ def _cmd_daemon_start(args: argparse.Namespace, *, foreground: bool) -> int:
     if continuous_error:
         sys.stderr.write(f"argus: {continuous_error}\n")
         return 2
-    if bool(getattr(args, "allow_prerelease", False)):
-        os.environ["ARGUS_SKILL_ALLOW_BACKEND_PRERELEASE"] = "1"
-    skip_vault_probe = (
-        os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() == "1"
-    )
-    readiness = check_backend_readiness(
-        getattr(args, "backend", None) or backend_default,
-        getattr(args, "auth_mode", None),
-        probe_auth=True,
-        probe_vault=not skip_vault_probe,
-        allow_prerelease=getattr(args, "allow_prerelease", None),
-    )
-    if not readiness.ok:
-        sys.stderr.write(format_backend_readiness(readiness) + "\n")
-        return 3
-    if skip_vault_probe:
-        sys.stderr.write(
-            "argus: UNSAFE diagnostic override: model-api network "
-            "readiness probe skipped; backend/auth/config checks still passed.\n"
-        )
     cfg = _build_worker_config(args)
     if foreground:
         return run_foreground(cfg)
@@ -1272,9 +1245,8 @@ def _cmd_ask(args: argparse.Namespace) -> int:
         run_label="manager-ask",
     )
     # A permanent spawn failure (missing runner binary, backend down) is a
-    # backend fault, not an empty reply. Gate on it the way the daemon gates
-    # on readiness (``daemon/_life_worker_run.py:_rf_vault_preflight``), so the
-    # operator sees the actual reason instead of "received an empty reply".
+    # backend fault, not an empty reply, so the operator sees the actual
+    # reason instead of "received an empty reply".
     exit_code = int(getattr(result, "exit_code", 0) or 0)
     fatal_error = str(getattr(result, "fatal_error", "") or "").strip()
     if exit_code != 0 or fatal_error:

@@ -65,15 +65,12 @@ from ._life_worker_boot import (
     _RunForeverState,  # noqa: F401 — re-exported, see __all__
 )
 
-# -- re-exports: manager-handoff identity + vault/backend preflight ---------
+# -- re-exports: manager-handoff identity ---------------------------------
 from ._life_worker_identity import (  # noqa: F401 — re-exported, see __all__
     _apply_continuous_suppression,
     _daemon_objective_requires_stage_reset,
-    _preflight_route_on_codex,
     _rearm_operator_drain_for_resume,
-    _worker_vault_preflight_routes,
     _write_manager_handoff_identity,
-    required_codex_routes,
 )
 from ._life_worker_run import LifeWorkerRunMixin
 

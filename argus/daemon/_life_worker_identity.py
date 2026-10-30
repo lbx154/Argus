@@ -1,4 +1,4 @@
-"""Manager-handoff identity persistence and vault/backend preflight helpers
+"""Manager-handoff identity persistence helpers
 for the 7x24 daemon worker.
 
 Split out of ``daemon.life_worker`` so that module stays under the
@@ -351,72 +351,6 @@ def _resume_matches_manager_handoff(
     )
 
 
-def _preflight_route_on_codex(route: str) -> bool:
-    """Will this preflight route actually run on the codex/Azure backend?
-
-    EN: Uses the SAME canonical resolution as the role runners
-    (``core.knobs.resolve_role_backend``:
-    ``ARGUS_SKILL_RUNNER_BACKEND`` → ``ARGUS_SKILL_LIFE_BACKEND`` → persisted
-    knob store → the default this call site names, which is codex — see the
-    comment on the resolve below). A copilot/claude/opencode/pi backend authenticates through
-    its OWN CLI (the copilot subscription / claude), NOT the ``model_api`` vault
-    — so probing its Azure route is a FALSE gate. Reading the resolver (not raw
-    ``os.environ``) is load-bearing: a non-interactive launcher (the web
-    autostart, a bare ``tmux`` exec) never sources the operator's ``.bashrc``,
-    so a copilot choice that lives only in an interactive-shell export would be
-    invisible here and the daemon would wrongly probe — and fail on — the codex
-    vault. The persisted ``/backend`` switch is honoured for exactly this case.
-    Unknown/typo'd values fall back to codex so the safety probe is preserved.
-    中文：与角色 runner 用同一套规范解析（``resolve_role_backend``：
-    RUNNER_BACKEND → LIFE_BACKEND → 持久化 knob → 本调用点显式传入的默认值，
-    此处为 codex）。读解析后的后端而非裸
-    ``os.environ`` 是关键：web/tmux 这类非交互启动器不 source ``.bashrc``，只写在
-    交互 shell 里的 copilot 选择在这里就看不见，daemon 会误探并崩在 codex 金库上；
-    持久化的 ``/backend`` 切换正是为这种情况兜底。未知值回退 codex 保留安全探测。
-    """
-    from ..agent_cli.runner_backend import (
-        BACKEND_CODEX,
-        resolve_available_runner,
-    )
-    from ..core.backend_readiness import (
-        AUTH_MODE_MODEL_API,
-        resolve_backend_profile,
-    )
-    from ..core.knobs import resolve_role_backend
-
-    role = route if route in ("engineer", "reviewer", "planner", "manager") else ""
-    # default=BACKEND_CODEX: this is a SAFETY gate — answering "yes, codex" only
-    # keeps the vault probe armed, while answering "no" would skip it. When
-    # nothing is configured the run will itself land on codex, so keeping the
-    # probe is both the correct and the conservative answer. Same reason the
-    # unknown-value branch below returns True.
-    chosen = resolve_role_backend(role, default=BACKEND_CODEX)
-    if str(chosen).strip().lower() not in {
-        "codex",
-        "copilot",
-        "claude",
-        "cursor",
-        "opencode",
-        "pi",
-        "grok",
-        "qoder",
-        "dsh",
-    }:
-        return True
-    configured = os.environ.get("ARGUS_SKILL_RUNNER_BIN", "").strip()
-    try:
-        effective, _runner_bin = resolve_available_runner(
-            chosen,
-            configured or None,
-        )
-        return (
-            effective == BACKEND_CODEX
-            and resolve_backend_profile(chosen).auth_mode == AUTH_MODE_MODEL_API
-        )
-    except Exception:  # noqa: BLE001 — unknown value: keep the safety probe
-        return True
-
-
 def _rearm_operator_drain_for_resume(
     *,
     cfg: LifeWorkerConfig,
@@ -449,28 +383,6 @@ def _rearm_operator_drain_for_resume(
         )
         return read_continuous_state(runtime_root)
     return state
-
-
-def required_codex_routes(required: Iterable[str] | None = None) -> list[str]:
-    """The subset of preflight routes that will hit the codex/Azure model_api.
-
-    Roles routed to copilot/claude/opencode/pi are excluded (they never touch the Azure
-    vault). When this returns ``[]`` the daemon can skip the vault preflight
-    entirely — e.g. a fully copilot-backed run needs no Azure routes at all.
-    返回真正会打到 codex/Azure model_api 的预检路由子集；copilot/claude 的角色被排除。
-    返回 ``[]`` 时可整体跳过 vault 预检（如全 copilot 运行无需任何 Azure 路由）。
-    """
-    from ..core.vault_preflight import DEFAULT_REQUIRED_ROUTES
-
-    routes = list(required) if required is not None else list(DEFAULT_REQUIRED_ROUTES)
-    return [r for r in routes if _preflight_route_on_codex(r)]
-
-
-def _worker_vault_preflight_routes(worker_backend: str) -> list[str]:
-    """Return Codex routes to probe for this worker; memory never uses providers."""
-    if str(worker_backend or "").strip().lower() == "memory":
-        return []
-    return required_codex_routes()
 
 
 def _effective_runner_backend(runner: Any, configured_backend: str) -> str:

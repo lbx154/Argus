@@ -19,7 +19,7 @@ from typing import Any, Callable
 from ..core import process_stop
 from ..core.daemon_lock import is_pid_running
 from ._life_worker_boot import _RunForeverState
-from ._life_worker_identity import _effective_runner_backend, _worker_vault_preflight_routes
+from ._life_worker_identity import _effective_runner_backend
 from .state import (
     GRACEFUL_STOP_REASON,
     HOST_SHUTDOWN_STOP_REASON,
@@ -480,8 +480,13 @@ class LifeWorkerRunMixin:
     def _deployment_handoff_after_mission(self, _outcome: object) -> str:
         return self._deployment_handoff_gate()
 
-    def _rf_vault_preflight(self, rf_state: _RunForeverState) -> int | None:
-        """Validate backend/auth before constructing providers or mutating state."""
+    def _rf_preflight(self, rf_state: _RunForeverState) -> int | None:
+        """Refuse an inconsistent install before constructing providers or mutating state.
+
+        The backend itself is not probed here (no login, version or model-API
+        check): like the TypeScript runtime, a backend that cannot serve fails
+        on its first real call, where the error reaches the project.
+        """
         # An unreadable knob file is checked HERE, before anything resolves a
         # role. Every resolver reads that file, so without this the first
         # resolution to run — somewhere deep in role construction — raises
@@ -513,33 +518,6 @@ class LifeWorkerRunMixin:
             log.error("daemon refused mismatched source root: %s", source_error)
             return 2
 
-        from ..core.backend_readiness import (
-            check_backend_readiness,
-            format_backend_readiness,
-        )
-
-        if str(rf_state.cfg.backend or "").strip().lower() == "memory":
-            return None
-        skip_vault_probe = (
-            os.environ.get("ARGUS_SKILL_SKIP_VAULT_PREFLIGHT", "").strip() == "1"
-        )
-        if skip_vault_probe:
-            log.warning(
-                "UNSAFE diagnostic override: skipping model-api network probe; "
-                "backend/auth/config validation remains enabled"
-            )
-        readiness = check_backend_readiness(
-            rf_state.cfg.backend,
-            probe_auth=True,
-            probe_vault=not skip_vault_probe,
-            required_routes=_worker_vault_preflight_routes(rf_state.cfg.backend),
-        )
-        if not readiness.ok:
-            log.error(
-                "daemon refused before Manager/provider/state mutation:\n%s",
-                format_backend_readiness(readiness),
-            )
-            return 2
         return None
 
     def _rf_start_services(self, rf_state: _RunForeverState) -> None:

@@ -85,9 +85,9 @@ class LifeWorkerBootMixin:
         rf_state = _RunForeverState()
         self._rf_bootstrap_environment()
         rf_state.cfg = self.config
-        readiness_result = self._rf_vault_preflight(rf_state)
-        if readiness_result is not None:
-            return readiness_result
+        preflight_result = self._rf_preflight(rf_state)
+        if preflight_result is not None:
+            return preflight_result
         self._rf_build_memory_runner_sink(rf_state)
         self._rf_resolve_continuous_boot_state(rf_state)
         self._rf_manager_divide_on_boot(rf_state)
