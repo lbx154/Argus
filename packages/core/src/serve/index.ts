@@ -52,7 +52,8 @@ export interface Served { url: string; close(): Promise<void> }
 const BRAND = { schema: 1, id: 'argus', name: 'Argus', tagline: 'Autonomous Work Lab', terminal_wordmark: 'argus', assets: {} };
 const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const STARTED = new Date().toISOString();
-const BODY_LIMIT = 1 << 20;
+// A million-character message, escaped as \uXXXX by some clients, plus its JSON.
+const BODY_LIMIT = 8 << 20;
 
 export class HttpError extends Error {
   constructor(readonly status: number, message: string, readonly code = '') { super(message); }

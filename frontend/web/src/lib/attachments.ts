@@ -1,6 +1,6 @@
 import type { UploadedAttachment } from '../api';
 
-export const MESSAGE_TEXT_MAX_CHARS = 32_000;
+export const MESSAGE_TEXT_MAX_CHARS = 1_000_000;
 export interface AttachmentLimits {
   max_count: number;
   max_bytes_per_file: number;
