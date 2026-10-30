@@ -697,6 +697,10 @@ export default function App() {
               setRouteOverride('auto');
               void queryClient.invalidateQueries({ queryKey: ['artifacts', requestSid] });
               if (result.kind === 'task' && result.reply && !onRejected) notify('success', result.reply);
+              // The reply has ended: its row and the project's state are read once. A page whose
+              // stream a proxy holds back (a Cloudflare quick tunnel passes none) learns it no other way.
+              void transcriptQ.refetch();
+              void snapQ.refetch();
             },
             onError: (err) => {
               if (isCurrent()) streamErr = err;
@@ -719,8 +723,10 @@ export default function App() {
             notify('error', errorText(streamErr), streamErr);
             onRejected?.();
           }
-          // Once taken, what became of it is its row, which the page's stream brings, on
-          // reconnecting too. A lost stream never retries the POST or discards a partial reply.
+          // Once taken, what became of it is its row: read once, as when it ends. A lost
+          // stream never retries the POST or discards a partial reply.
+          void transcriptQ.refetch();
+          void snapQ.refetch();
         }
       } finally {
         resetCurrentRequest();
