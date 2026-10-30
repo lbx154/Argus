@@ -67,7 +67,7 @@ test("answers stay beside their question, and a task's row comes below the last 
     { type: 'step', role: 'engineer', task: work.tasks[1]!.id, kind: 'command', text: 'python train.py', ts: at(7) },
   ];
   work.tasks[0]!.status = 'closed';
-  const rows = rowsOf(events, work, { since: 1, calls: [{ role: 'engineer', task: work.tasks[1]!.id }], requests: [] });
+  const rows = rowsOf(events, work, { since: 1, calls: [{ started_ts: 1, role: 'engineer', task: work.tasks[1]!.id }], requests: [] });
   const dialogue = rows.filter(row => row.type !== 'ui.task');
   assert.deepEqual(dialogue.map(row => row.text), [questions[1]!.question, 'Second choice', questions[0]!.question, 'First choice']);
   assert.deepEqual(rows.filter(row => row.type === 'ui.task').map(row => [row.item_id, row.order]), [[work.tasks[1]!.id, 4.2], [work.tasks[0]!.id, 5.2]]);
@@ -95,12 +95,12 @@ test('snapshot status distinguishes stopped tasks, unanswered questions and conc
   work.questions = [{ role: 'engineer', task: work.tasks[0]!.id, question: 'Choose?' }];
   work.status = 'asking';
   assert.equal(snapshot(store, work, idle).work_status?.label['zh-CN'], '等你回答');
-  const live: Live = { since: 1, calls: [{ role: 'engineer', task: work.tasks[1]!.id }], requests: [] };
+  const live: Live = { since: 1, calls: [{ started_ts: 1, role: 'engineer', task: work.tasks[1]!.id }], requests: [] };
   assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '1 个任务进行中');
   work.questions = [];
   work.status = 'working';
   assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '1 个任务进行中');
-  live.calls.push({ role: 'reviewer', task: work.tasks[0]!.id });
+  live.calls.push({ started_ts: 1, role: 'reviewer', task: work.tasks[0]!.id });
   assert.equal(snapshot(store, work, live).work_status?.label['zh-CN'], '2 个任务进行中');
   work.questions = [{ role: 'engineer', task: work.tasks[0]!.id, question: 'Choose?' }];
   live.requests.push('r1');
@@ -119,7 +119,7 @@ test('real stopped conversation: refresh retains the original request and Resume
   assert.equal(stopped.length, 2);
   assert.match(String(stopped[0]?.text), /不要丢掉这条消息/);
   assert.equal(stopped[1]?.status, 'stopped');
-  const resumed = rowsOf(stoppedRecord, { ...work, status: 'working' }, { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'stop-request-1' }], requests: [] });
+  const resumed = rowsOf(stoppedRecord, { ...work, status: 'working' }, { since: 1, calls: [{ started_ts: 1, role: 'manager', task: undefined, answers: 'stop-request-1' }], requests: [] });
   assert.equal(resumed[1]?.message_id, stopped[1]?.message_id);
   assert.equal(resumed[1]?.live, true);
   assert.equal(resumed[1]?.text, '');
@@ -141,7 +141,7 @@ test('a queued operator message keeps its own reply and a letter from the team d
     { type: 'step', role: 'manager', kind: 'message', text: 'Checking your question', ts: at(6) },
     { type: 'message', from: 'operator', text: 'One more question', request_id: 'r-more', ts: at(7) },
   ];
-  const live: Live = { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'r-new' }], requests: [] };
+  const live: Live = { since: 1, calls: [{ started_ts: 1, role: 'manager', task: undefined, answers: 'r-new' }], requests: [] };
   const rows = rowsOf(events, { ...project, tasks: [], status: 'working', forManager: [{ text: 'One more question', request_id: 'r-more' }] }, live);
   assert.equal(rows.find(row => row.text === 'On the team report')?.request_id, undefined);
   assert.equal(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.text, '');

@@ -48,7 +48,7 @@ it.each<Locale>(['en', 'zh-CN'])('replays the same waiting, stopped and closed m
       selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0,
       data: { ...card, layout: scene.layouts[card.id], frame: scene.frames[card.id],
         canvasSize: { width: 1440, height: 960 }, zh: locale === 'zh-CN', focused: false, detailed: false,
-        paused: phase === 'stopped', readOnly: false, source: 'fixture', open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn() },
+        workStatus: snapshot(store, work, idle).work_status, readOnly: false, source: 'fixture', open: vi.fn(), quote: vi.fn(), menu: vi.fn(), readStep: vi.fn() },
     };
     expect(renderToStaticMarkup(<MacroTaskNode {...props} />)).toContain(words);
     if (!closed) {

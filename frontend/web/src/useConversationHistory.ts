@@ -41,12 +41,12 @@ export function useConversationHistory(
     const data = client.getQueryData<InfiniteData<ConversationPage>>(['conversation', sid])!;
     let cursor = Math.max(...data.pages.map(page => page.cursor));
     let closed = false;
-    let firstFrame = true;
     setConnection({ sid, connected: false });
     const close = openConversation(sid, cursor, frame => {
       if (closed) return;
       const updates = frame.rows as EventMsg[];
-      client.setQueryData<InfiniteData<ConversationPage>>(['conversation', sid], current => {
+      const roleEvents = frame.role_events as EventMsg[];
+      if (updates.length) client.setQueryData<InfiniteData<ConversationPage>>(['conversation', sid], current => {
         if (!current) return current;
         const changed = new Set(updates.map(row => row.row_id));
         return { ...current, pages: current.pages.map((page, index) => ({
@@ -54,34 +54,21 @@ export function useConversationHistory(
           rows: [...page.rows.filter(row => !changed.has(row.row_id)), ...index === 0 ? updates : []],
         })) };
       });
-      client.setQueryData<RoleLog>(roleLogKey(sid), current => ({ round: Number(frame.round),
+      if (roleEvents.length) client.setQueryData<RoleLog>(roleLogKey(sid), current => ({ round: Number(frame.round),
         events: newestPerRole([...new Map([...(current?.events ?? []).filter(row => Number(row.event_id) >= Number(frame.round)),
-          ...frame.role_events as EventMsg[]].map(row => [row.event_id, row])).values()].sort((a, b) => Number(a.event_id) - Number(b.event_id))),
+          ...roleEvents].map(row => [row.event_id, row])).values()].sort((a, b) => Number(a.event_id) - Number(b.event_id))),
       }));
-      // Role logs are bounded: after a connection gap they may have lost a file
-      // change. Catch up existing reads once when the first frame advances our
-      // cursor; unchanged historical frames must not trigger another read.
-      const fresh = [...updates, ...frame.role_events as EventMsg[]].filter(event => Number(event.event_id) > cursor);
-      const advanced = Number(frame.cursor) > cursor;
-      if (advanced) {
-        void client.invalidateQueries({ queryKey: ['runtime-resources'] });
-      }
-      // Task rows also change for plain progress messages. File steps, call
-      // completion and deliveries cover changes to their files.
-      if ((firstFrame && advanced) || fresh.some(event => event.delivery
-        || event.type === 'provider.request.completed'
-        || ['file_change', 'command_execution'].includes(String(event.kind)))) {
+      const fresh = [...updates, ...roleEvents].filter(event => Number(event.event_id) > cursor);
+      if (fresh.some(event => event.delivery || event.type === 'provider.request.completed')) {
         void client.invalidateQueries({ queryKey: ['artifacts', sid], exact: true });
         for (const key of ['workspace-tree', 'workspace-git', 'workspace-file']) {
           void client.invalidateQueries({ queryKey: [key, sid] });
         }
       }
-      firstFrame = false;
       cursor = Math.max(cursor, Number(frame.cursor));
     }, {
       onOpen: () => {
         if (!closed) {
-          firstFrame = true;
           setConnection({ sid, connected: true });
         }
       },

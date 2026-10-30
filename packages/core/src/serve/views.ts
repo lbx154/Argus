@@ -4,7 +4,7 @@
 import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import {
-  newestPerRole, SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type Daemon, type DeliveryReceipt, type EventMsg, type OperatorDecisionCard, type ProjectRow,
+  newestPerRole, SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type BacklogSummary, type Daemon, type DeliveryReceipt, type EventMsg, type OperatorDecisionCard, type ProjectRow,
   type Snapshot, type UsageSummary, type ConversationPage, type ProjectWorkStatus,
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
@@ -19,7 +19,7 @@ export interface Live {
   since: number | null;
   /** Each call under way, by its role and the task it is on: tasks run side by side; a Manager's
    * turn on an operator message names it. */
-  calls: Array<{ role: Role; task: string | undefined; answers?: string }>;
+  calls: Array<{ role: Role; task: string | undefined; started_ts: number; answers?: string }>;
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
@@ -76,15 +76,14 @@ export const readEvents = (store: Store, id: string): Recorded[] =>
   jsonLines(join(store.dir(id), 'events.jsonl')).rows as unknown as Recorded[];
 
 /** Where a fold of the record has got to: the next line, the operator's messages to the Manager not
- * yet answered (by request, at their line), the one the Manager's turn under way answers, and the
- * call under way of each role on each task, which tasks run side by side, and how often each file
- * has been delivered. A Manager turn and its letter name the message they answer: nothing here is
+ * yet answered (by request, at their line), the call under way of each role on each task, and
+ * how often each file has been delivered. Tasks run side by side. A Manager turn and its letter name the message they answer: nothing here is
  * inferred from the order of the record. */
-export interface Fold { line: number; asked: Map<string, number>; turn: string | null; calls: Map<string, string>; deliveries: Map<string, number> }
+export interface Fold { line: number; asked: Map<string, number>; calls: Map<string, string>; deliveries: Map<string, number> }
 
 /** The record in the cockpit's event vocabulary, folded on from `fold`. `event_id` is the line,
  * so a replay and the live stream agree; a reply's message id names the operator message it answers. */
-export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() }): EventMsg[] {
+export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }): EventMsg[] {
   const rows: EventMsg[] = [];
   const { calls } = fold;
   const counts = fold.deliveries;
@@ -103,13 +102,11 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new
           ...(event.attachments ? { attachments: event.attachments } : {}) });
         break;
       case 'call.start':
-        if (event.role === 'manager') fold.turn = event.answers ?? null;
         calls.set(caller, `c${line}`);
         row('provider.request.started', { call_id: `c${line}`, run_label: event.role, agent_layer: event.role, ...where });
         break;
       case 'call.end':
         // An interrupted message stays unanswered; Resume takes it up again.
-        if (event.role === 'manager') fold.turn = null;
         row('provider.request.completed', {
           call_id: calls.get(caller) ?? '', run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
         });
@@ -153,7 +150,7 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new
  * cockpit events of the lines appended since the last, the first call those of all. */
 export function follow(store: Store, id: string): () => EventMsg[] {
   const path = join(store.dir(id), 'events.jsonl');
-  const fold: Fold = { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() };
+  const fold: Fold = { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() };
   let offset = 0;
   return () => {
     const { rows, end } = jsonLines(path, offset);
@@ -184,21 +181,24 @@ const unanswered = (project: Project): Set<string> =>
 const resumable = (project: Project): boolean => Boolean(project.forManager?.length) || project.status === 'failed'
   || project.status === 'stopped' && (openTasks(project).length > 0 || project.inbox.length > 0);
 
-export function daemon(project: Project, live: Live): Daemon {
+export function daemon(project: Project, live: Live, qa?: MapReading['qa']): Daemon {
   const { since } = live;
   return {
     // Alive until interrupted calls finish recording their ends.
     alive: since !== null, resumable: since === null && resumable(project), pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
     backend_label: BACKEND_LABELS[project.backend],
+    calls: live.calls.map(({ task, ...call }) => ({ ...call, ...task ? { task } : {},
+      ...call.answers && qa?.has(call.answers) ? { request_card_id: qa.get(call.answers)!.id } : {},
+    })),
   };
 }
 
 /** Each task as the map draws it: after the tasks it waits for, and as it stands. */
-function backlog(project: Project): BacklogItem[] {
+function backlog(project: Project): BacklogSummary[] {
   const closed = new Set(project.tasks.filter(task => task.status === 'closed').map(task => task.id));
   return project.tasks.map(task => ({
-    id: task.id, title: task.title, objective: task.objective, priority: 0, deps: task.after ?? [],
+    id: task.id, title: task.title, priority: 0, deps: task.after ?? [],
     status: task.status === 'closed' ? 'done' : asked(project, task.id) ? 'blocked'
       : project.failures?.some(failure => failure.task === task.id) ? 'failed'
       : (task.after ?? []).every(id => closed.has(id)) ? 'in_progress' : 'pending',
@@ -234,7 +234,7 @@ export interface Reading {
   activityAt: number | null;
   stateLine: number;
   calls: Set<string>;
-  tasks: Map<string, { title: string; line: number; ts: number }>;
+  tasks: Map<string, { title: string; line: number }>;
   questions: Map<string, EventMsg>;
   /** The results the Manager handed over, by delivery (`d` and its line), each with its files as delivered. */
   delivered: Map<string, Extract<Recorded, { type: 'handoff' }>>;
@@ -242,7 +242,7 @@ export interface Reading {
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
-  end: 0, fold: { line: 0, asked: new Map(), turn: null, calls: new Map(), deliveries: new Map() }, rows: new Map(),
+  end: 0, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
   roleEvents: [], round: 0, activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
     answered: null, briefed: null, worked: new Set(), follows: new Map() },
@@ -283,7 +283,7 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       const operator = reading.rows.get(operatorId);
       if (operator) reading.rows.set(operatorId, { ...operator, answer: event.letter, event_id: line });
     }
-    if (event.type === 'task.added') reading.tasks.set(event.task.id, { title: event.task.title, line, ts });
+    if (event.type === 'task.added') reading.tasks.set(event.task.id, { title: event.task.title, line });
     // A task's row is below the last word the conversation shows on it: the operator's answer to it,
     // or the Manager's letter to it.
     else if ((event.type === 'message' || event.type === 'handoff' && event.role === 'manager') && event.task) {
@@ -333,18 +333,17 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
   }
   const rows = [...projected.values()];
   const items = backlog(project);
-  const { actions, opened, closed } = reading.map;
   for (const [id, task] of reading.tasks) {
     const item = items.find(item => item.id === id);
     const role = live.calls.find(call => call.task === id)?.role;
     // What was last said on it, unless it waits for an answer, and once it has closed, its result.
-    const action = asked(project, id) ? undefined : actions.get(id);
+    const { latest_action: action, result_paths } = taskPresentation(reading.map, project, id);
     const state = item?.status === 'done' ? 'done' : item?.status === 'blocked' ? 'asking'
       : item?.status === 'failed' ? 'failed' : project.status === 'stopped' ? 'paused'
       : item?.status === 'pending' ? 'queued' : live.since !== null ? 'running' : 'paused';
     rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: task.title, state, role,
-      progress: action ? firstLine(action.text) : '', result_paths: closed.has(id) ? opened.get(id) ?? [] : [],
-      ts: task.ts, event_id: Math.max(reading.stateLine, actions.get(id)?.line ?? 0), order: task.line + 0.2 });
+      progress: action ? firstLine(action.text) : '', result_paths,
+      ts: reading.map.added.get(id)!, event_id: Math.max(reading.stateLine, reading.map.actions.get(id)?.line ?? 0), order: task.line + 0.2 });
   }
   return rows.sort((a, b) => Number(a.order) - Number(b.order));
 }
@@ -398,7 +397,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
       id, display_name: named(project), objective: project.request, created: seconds(project.created),
       last_active: lastActive(store, id), workdir,
     },
-    daemon: daemon(project, live),
+    daemon: daemon(project, live, reading.map.qa),
     work_status: projectStatus(project, live, reading.activityAt),
     roles: ROLES.map(role => {
       const under = live.calls.filter(call => call.role === role);
@@ -415,7 +414,6 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     pending_questions: questions(project),
     manager_requests: [...new Set([...live.requests, ...live.calls.flatMap(call => call.answers ?? [])])]
       .map(request_id => ({ request_id, status: 'running' as const })),
-    goal: project.request,
   };
 }
 
@@ -458,8 +456,8 @@ interface MapReading {
  * hands over files. Clarifications before the original request starts work share its card,
  * which always stays. Request ids and the Manager's `answers` join the letters to their card,
  * and task handoffs join work to the request that set it going. The line cursor pages letters. */
-export function progressMap(store: Store, project: Project, after: number) {
-  return mapProjection(readRecord(store, project.id), project, after);
+export function progressMap(store: Store, project: Project, after: number, calls: Live['calls'] = []) {
+  return mapProjection(readRecord(store, project.id), project, after, calls);
 }
 
 function foldMap(reading: MapReading, event: Recorded, line: number): void {
@@ -513,8 +511,19 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
   }
 }
 
-function mapProjection(record: Reading, project: Project, after: number) {
-  const { added, closed, actions, opened, letters, qa, worked, follows } = record.map;
+/** Dialogue and map share the task's visible progress and closing files. */
+function taskPresentation(reading: MapReading, project: Project, id: string) {
+  const question = asked(project, id);
+  const action = question ? undefined : reading.actions.get(id);
+  return {
+    latest_action: action ? { role: action.role, text: action.text, ts: action.ts } : undefined,
+    result_paths: reading.closed.has(id) ? reading.opened.get(id) ?? [] : [],
+    ...(question ? { pending_question: question.question } : {}),
+  };
+}
+
+function mapProjection(record: Reading, project: Project, after: number, calls: Live['calls']) {
+  const { added, closed, actions, letters, qa, worked, follows } = record.map;
   // An answered message stays if it is the original request, the latest one, or set work going; one
   // still to be answered while the team answers, and the original request even while it is stopped.
   const answering = project.status !== 'stopped' && project.status !== 'failed';
@@ -522,6 +531,9 @@ function mapProjection(record: Reading, project: Project, after: number) {
   const first = cards[0];
   const last = cards.at(-1);
   const waiting = new Set([...unanswered(project)].flatMap(request => qa.get(request) ?? []));
+  // The Manager may answer a new message while the team stays stopped. Keep that call's
+  // request card until the call ends; the usual filter still removes replaced requests.
+  const active = new Set(calls.flatMap(call => call.role === 'manager' && call.answers ? qa.get(call.answers) ?? [] : []));
   // Work handed to the team is done once the tasks it went to, or that follow its message, have
   // closed, or with none of its own, once the team has no work going.
   const done = (card: MapCard): number | null => {
@@ -533,18 +545,16 @@ function mapProjection(record: Reading, project: Project, after: number) {
     const found = actions.get(id);
     return found ? { role: found.role, text: found.text, ts: found.ts } : undefined;
   };
-  const tasks = [...cards.filter(card => card.status ? card === first || card === last || worked.has(card.id)
-    : waiting.has(card) && (answering || card === first)).map(card => {
+  const tasks = [...cards.filter(card => active.has(card) || (card.status ? card === first || card === last || worked.has(card.id)
+    : waiting.has(card) && (answering || card === first))).map(card => {
     const finished = card.status === 'in_progress' ? done(card) : card.finished_ts;
     return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: action(card.id) };
   }), ...backlog(project).map((item, index) => {
-    const question = asked(project, item.id);
     const follow = follows.get(item.id);
     return {
-      ...item, deps: item.deps?.length || !follow ? item.deps : [follow], ts: added.get(item.id), started_ts: added.get(item.id),
+      ...item, objective: project.tasks[index]!.objective, deps: item.deps?.length || !follow ? item.deps : [follow], ts: added.get(item.id), started_ts: added.get(item.id),
       finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
-      latest_action: question ? undefined : action(item.id), result_paths: closed.has(item.id) ? opened.get(item.id) ?? [] : [],
-      ...(question ? { pending_question: question.question } : {}),
+      ...taskPresentation(record.map, project, item.id),
     };
   })].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
   return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks,

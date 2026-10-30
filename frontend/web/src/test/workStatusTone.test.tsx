@@ -21,7 +21,7 @@ describe('status dot tone', () => {
     session: { id: 's', display_name: 'Timer', objective: 'Make a timer', workdir: '/w', last_active: 100 },
     daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: 'codex' },
     work_status: { state: alive ? 'running' : 'idle', reason: '', role: alive ? 'engineer' : '', roles: alive ? ['engineer'] : [], taskId: 't1', title: 'Write timer.html', foreground: false, activityAt: null, label: { 'zh-CN': alive ? '1 个任务进行中' : '已完成', en: alive ? '1 task in progress' : 'Done' } },
-    roles, backlog: [{ id: 't1', title: 'Write timer.html', objective: '', status: alive ? 'in_progress' : 'done', priority: 0 }], }) as Snapshot;
+    roles, backlog: [{ id: 't1', title: 'Write timer.html', status: alive ? 'in_progress' : 'done', priority: 0 }], }) as Snapshot;
 
 
   it('says where the work stands in one phrase, the same at the top and above the map', () => {

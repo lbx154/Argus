@@ -23,6 +23,7 @@ import { ArtifactModal } from './components/ArtifactModal';
 import {
   ResearchCanvas,
   FILES_PATH,
+  selectPreviewArtifacts,
 } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeAction, type NoticeTone, type UiNotice } from './components/ActionNotice';
 import { DaemonManageModal } from './components/DaemonManageModal';
@@ -48,6 +49,7 @@ import { errorText, managerStreamFailureMessage, shortcut } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
+import { questionRole } from '../../core/src/decisions';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
 import { ArtifactEditor, HistorySearch, ProjectTrash } from './components/ExperiencePanels';
@@ -440,6 +442,19 @@ export default function App() {
     pendingQuestions: snap?.pending_questions,
     refetchSnapshot: snapQ.refetch,
   });
+  const openedProject = useRef<string | null>(null);
+  useEffect(() => { openedProject.current = null; }, [activeSid]);
+  useEffect(() => {
+    if (openedProject.current === loadedSid) return;
+    // Cached content can predate a question. Finish choosing the opening view only
+    // after a fresh snapshot, or as soon as the held snapshot already has a question.
+    if (loadedSid && !pendingReply && (!snapQ.isFetchedAfterMount || snapQ.isError)) return;
+    openedProject.current = loadedSid;
+    if (loadedSid && pendingReply && !kiosk) {
+      setWorkspaceView('activity');
+      setMobileView('activity');
+    }
+  }, [loadedSid, pendingReply, snapQ.isFetchedAfterMount, snapQ.isError, kiosk, setWorkspaceView, setMobileView]);
   const delivery = useMemo(
     () => latestConversationDelivery(activityEvents),
     [activityEvents],
@@ -460,7 +475,7 @@ export default function App() {
   }, [snap]);
   useAttentionSignals({
     projectName: projects.find(project => project.id === activeSid)?.display_name?.trim()
-      || (loadedSid === activeSid ? snap?.session.display_name?.trim() : '') || '',
+      || (loadedSid === activeSid ? snap?.session.display_name?.trim() || snap?.session.objective.split('\n')[0]?.trim() : '') || '',
     attention,
     zh: locale === 'zh-CN',
     running: projectBusy,
@@ -643,6 +658,18 @@ export default function App() {
     toggleSidebarCollapse: toggleSidebar,
   });
 
+  const prepareMessageAttachments = async (requestSid: string, files: File[], options?: AttachmentUploadOptions, signal: AbortSignal = new AbortController().signal): Promise<UploadedAttachment[]> => {
+    if (!files.length && !options?.ready?.length) return [];
+    const known = options?.completed ?? new Map<File, never>();
+    if (files.some(file => !known.has(file))) setWaitingForUploads(true);
+    try {
+      const completed = await draftUploads.settle(requestSid, files, known, signal);
+      signal?.throwIfAborted();
+      for (const [file, attachment] of completed) if (!known.has(file)) options?.onUploaded?.(file, attachment);
+      return (await api.uploadAttachments(requestSid, files, signal, { ready: options?.ready, completed })).attachments;
+    } finally { setWaitingForUploads(false); }
+  };
+
   const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
     const requestSid = activeSid;
     if (rewriting || !requestSid || requestSid !== sidRef.current || messageRequestRef.current) return false;
@@ -676,17 +703,8 @@ export default function App() {
     if (attachments.length || uploadOptions?.ready?.length) {
       if (messageRequestRef.current) messageRequestRef.current.uploading = true;
       try {
-        // Files started uploading when chosen; wait for the ones still on
-        // their way. Cancelling this wait leaves those uploads running.
-        const known = uploadOptions?.completed ?? new Map<File, never>();
-        if (attachments.some(file => !known.has(file))) setWaitingForUploads(true);
-        const completed = await draftUploads.settle(requestSid, attachments, known, controller.signal);
+        attachmentRefs = await prepareMessageAttachments(requestSid, attachments, uploadOptions, controller.signal);
         if (!isCurrent()) return false;
-        for (const [file, attachment] of completed) if (!known.has(file)) uploadOptions?.onUploaded?.(file, attachment);
-        setWaitingForUploads(false);
-        const uploaded = await api.uploadAttachments(requestSid, attachments, controller.signal, { ready: uploadOptions?.ready, completed });
-        if (!isCurrent()) return false;
-        attachmentRefs = uploaded.attachments;
         if (messageRequestRef.current) messageRequestRef.current.uploading = false;
         setWaitingForUploads(false);
       } catch (error) {
@@ -809,13 +827,17 @@ export default function App() {
       notify('error', locale === 'zh-CN' ? '刷新前的附件尚未上传。请重新选择，或在对话中移除提醒后再发送。' : 'Files selected before reloading were not uploaded. Select them again or discard their reminder in the conversation before sending.');
       return false;
     }
+    const uploadOptions: AttachmentUploadOptions = {
+      ready: draft.uploaded?.filter(item => !item.file).map(item => item.attachment),
+      completed: new Map(draft.uploaded?.flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])),
+      onUploaded: (file, attachment) => rememberUploaded(draft, file, attachment),
+    };
     if (pendingReply) {
-      if (files.length || draft.uploaded?.length) {
-        notify('error', locale === 'zh-CN' ? '回答问题请先移除附件。' : 'Remove attachments before answering the question.');
-        return false;
+      const accepted = await answerPendingReply(text, () => prepareMessageAttachments(draft.sid, files, uploadOptions));
+      if (accepted) {
+        consumeDraft(draft, files);
+        draftUploads.forget(files);
       }
-      const accepted = await answerPendingReply(text);
-      if (accepted) consumeDraft(draft, files);
       return accepted;
     }
     if (options?.whileRunning) {
@@ -840,11 +862,7 @@ export default function App() {
         failedBeforeAcceptance = true;
         if (cleared) restoreDraft(cleared, draft);
       }
-    }, {
-      ready: draft.uploaded?.filter(item => !item.file).map(item => item.attachment),
-      completed: new Map(draft.uploaded?.flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])),
-      onUploaded: (file, attachment) => rememberUploaded(draft, file, attachment),
-    });
+    }, uploadOptions);
     if (accepted && !failedBeforeAcceptance) {
       cleared = consumeDraft(draft, files);
       draftUploads.forget(files);
@@ -945,9 +963,14 @@ export default function App() {
           onOpenLearning={openLearningLibrary}
           onOpenResults={() => {
             const selection = defaultDeliverySelection(deliveryHistory);
-            if (selection) { openDelivery(selection.receipt, selection.path); setSidebarOpen(false); }
+            if (selection) openDelivery(selection.receipt, selection.path);
+            else {
+              setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 }));
+              openPreview();
+            }
+            setSidebarOpen(false);
           }}
-          resultsCount={loadedSid ? deliveryHistory.length : 0}
+          resultsCount={loadedSid ? selectPreviewArtifacts(artifactsQ.data).length : 0}
           onNew={() => { startNewSession(); setSidebarOpen(false); }}
           onSearch={() => setSearchOpen(true)}
           // The trial portal owns sign-in; a token kept here is this browser's own.
@@ -1069,7 +1092,8 @@ export default function App() {
                       onChange={setComposerDraft}
                       onSend={sendComposerMessage}
                       disabled={!loadedSid || pendingReplyBusy}
-                      pending={messagePending}
+                      pending={pendingReply ? pendingReplyBusy : messagePending}
+                      answeringRole={pendingReply ? questionRole(pendingReply) : undefined}
                       focusSignal={composerFocus}
                       embedded
                       onRewrite={rewriteDraft}

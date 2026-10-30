@@ -38,7 +38,7 @@ describe('embedded runtime control page', () => {
     expect(api.resources).not.toHaveBeenCalled();
   });
   it('says nothing of where the work stands and offers no run or pause: the header does', async () => {
-    props.snapshot = { ...snap, backlog: [{ id: 't1', title: 'A task', objective: '', status: 'done', priority: 0 }] };
+    props.snapshot = { ...snap, backlog: [{ id: 't1', title: 'A task', status: 'done', priority: 0 }] };
     await mount();
     const html = JSON.stringify(tree!.toJSON());
     for (const words of ['Start work', 'Resume', 'Pause safely', 'Describe a task', 'Done']) expect(html).not.toContain(words);

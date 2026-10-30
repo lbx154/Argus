@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import fs, { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import test, { type TestContext } from 'node:test';
 import { chmod, mkdir, mkdtemp, readFile, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -281,6 +282,25 @@ test('unknown file extensions preview UTF-8 text, including JSONL, and leave bin
   for (const path of ['nul.unknown', 'invalid.unknown']) {
     assert.equal((await get(`${P}/artifact?path=${path}`)).kind, 'binary');
     assert.equal((await call(`${P}/artifact/raw?path=${path}&download=true`)).status, 200);
+  }
+});
+
+test('raw downloads sniff an unknown type once and preserve it through ranges and HEAD', async t => {
+  const content = '研究记录\n';
+  const { project, call } = await setup(t, { 'notes.unknown': content });
+  const reads = t.mock.method(fs, 'readSync');
+  syncBuiltinESMExports();
+  t.after(() => { reads.mock.restore(); syncBuiltinESMExports(); });
+  const url = `/api/projects/${project.id}/artifact/raw?path=notes.unknown&download=true`;
+  for (const init of [{}, { headers: { range: 'bytes=0-5' } }, { method: 'HEAD' }]) {
+    reads.mock.resetCalls();
+    const response = await call(url, init);
+    assert.equal(response.status, 'headers' in init ? 206 : 200);
+    assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(response.headers.get('content-disposition'), "attachment; filename*=UTF-8''notes.unknown");
+    const body = Buffer.from(await response.arrayBuffer());
+    assert.deepEqual(body, init.method === 'HEAD' ? Buffer.alloc(0) : 'headers' in init ? Buffer.from(content).subarray(0, 6) : Buffer.from(content));
+    assert.equal(reads.mock.calls.filter(call => Array.from(call.arguments)[3] === 8192).length, 1);
   }
 });
 

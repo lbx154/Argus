@@ -8,10 +8,6 @@ export interface ApiCompatibility {
   meta?: ApiMeta;
 }
 
-export interface ApiRuntimeExpectation {
-  releaseId: string;
-}
-
 type JsonObject = Record<string, unknown>;
 
 function object(value: unknown): JsonObject | null {
@@ -30,7 +26,6 @@ export function describeApiRuntime(meta: ApiMeta): string {
 
 export function inspectApiMeta(
   value: unknown,
-  expected?: ApiRuntimeExpectation,
 ): ApiCompatibility {
   const root = object(value);
   const protocol = object(root?.protocol);
@@ -47,7 +42,6 @@ export function inspectApiMeta(
     typeof runtime.source_root !== 'string'
     || number(runtime.pid) === null
     || typeof runtime.package_version !== 'string'
-    || typeof runtime.release_id !== 'string'
   ) {
     return { compatible: false, reason: 'malformed /api/meta runtime identity' };
   }
@@ -80,21 +74,13 @@ export function inspectApiMeta(
   if (missing.length > 0) {
     return { compatible: false, reason: `missing capabilities: ${missing.join(', ')}`, meta };
   }
-  if (expected && runtime.release_id !== expected.releaseId) {
-    return {
-      compatible: false,
-      reason: 'backend and client installations are out of sync; restart or reinstall Argus',
-      meta,
-    };
-  }
   return { compatible: true, reason: '', meta };
 }
 
 export function requireCompatibleApiMeta(
   value: unknown,
-  expected?: ApiRuntimeExpectation,
 ): ApiMeta {
-  const result = inspectApiMeta(value, expected);
+  const result = inspectApiMeta(value);
   if (!result.compatible || !result.meta) {
     throw new Error(`incompatible Argus API: ${result.reason}`);
   }

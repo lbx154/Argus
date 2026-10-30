@@ -3,7 +3,9 @@ import test, { type TestContext } from 'node:test';
 import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectApiMeta, RELEASE_ID, REQUIRED_API_CAPABILITIES, requireSnapshotContract, type ConversationPage, type EventMsg, type Snapshot } from '@argus/contracts';
+import { gzipSync } from 'node:zlib';
+import corePackage from '../package.json' with { type: 'json' };
+import { inspectApiMeta, REQUIRED_API_CAPABILITIES, requireSnapshotContract, type ConversationPage, type EventMsg, type Snapshot } from '@argus/contracts';
 import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { SKILLS } from '../src/prompts.js';
 import { Store } from '../src/store.js';
@@ -125,11 +127,12 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
 
   const metaResponse = await call('/api/meta');
   assert.equal(metaResponse.headers.get('x-argus-release'), null);
-  const compatibility = inspectApiMeta(await metaResponse.json(), { releaseId: RELEASE_ID });
+  const compatibility = inspectApiMeta(await metaResponse.json());
   assert.equal(compatibility.compatible, true, compatibility.reason);
   assert.equal(compatibility.meta?.service, 'argus-webapi');
+  assert.equal(compatibility.meta?.runtime.package_version, corePackage.version);
   assert.deepEqual(Object.keys(compatibility.meta!.runtime).sort(), [
-    'package_version', 'release_id', 'pid', 'started_at', 'source_root', 'executable', 'state_root',
+    'package_version', 'pid', 'started_at', 'source_root', 'executable', 'state_root',
   ].sort());
   assert.deepEqual(compatibility.meta?.authentication, { required: false, authenticated: true });
   // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
@@ -397,6 +400,42 @@ test('the built pages are served with the shell uncached and the assets immutabl
   assert.equal((await call('/api/projects/..%2F..%2Fx/snapshot')).status, 404);
 });
 
+test('static gzip negotiation preserves the original type, content and cache policy', async t => {
+  const { call, home } = await setup(t, []);
+  for (const [path, mime, cache] of [
+    ['index.html', 'text/html; charset=utf-8', 'no-store'],
+    ['assets/app-1.js', 'text/javascript; charset=utf-8', 'public, max-age=31536000, immutable'],
+  ]) {
+    const file = join(home, 'web', path!);
+    const original = await readFile(file);
+    const compressed = gzipSync(original);
+    await writeFile(`${file}.gz`, compressed);
+    const url = path === 'index.html' ? '/' : `/${path}`;
+    for (const [encoding, accepted] of [
+      ['gzip', true], ['gzip, deflate, br, zstd', true], ['br', false], ['identity', false], ['', false],
+    ] as const) {
+      const response = await call(url, { headers: { 'accept-encoding': encoding } });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-encoding'), accepted ? 'gzip' : null, encoding);
+      assert.equal(response.headers.get('content-type'), mime);
+      assert.equal(response.headers.get('cache-control'), cache);
+      assert.equal(response.headers.get('vary'), 'Accept-Encoding');
+      assert.equal(response.headers.get('content-length'), String(accepted ? compressed.length : original.length));
+      // fetch decodes the wire representation, so both versions must read identically.
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), original);
+    }
+    const head = await call(url, { method: 'HEAD', headers: { 'accept-encoding': 'gzip' } });
+    assert.equal(head.headers.get('content-encoding'), 'gzip');
+    assert.equal(head.headers.get('content-length'), String(compressed.length));
+    assert.equal(await head.text(), '');
+  }
+  await writeFile(join(home, 'web', 'assets', 'no-sidecar.css'), 'body { color: red }');
+  const uncompressed = await call('/assets/no-sidecar.css', { headers: { 'accept-encoding': 'gzip' } });
+  assert.equal(uncompressed.headers.get('content-encoding'), null);
+  assert.equal(uncompressed.headers.get('content-type'), 'text/css; charset=utf-8');
+  assert.equal(await uncompressed.text(), 'body { color: red }');
+});
+
 test('with a token, project requests need it and the handshake tells the page to pair', async t => {
   const { call } = await setup(t, [], 'secret');
   const unpaired = await call('/api/meta', { headers: { authorization: '' } });
@@ -440,6 +479,47 @@ test('stop and start interrupt and resume the work', async t => {
   assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer', 'manager', 'engineer', 'reviewer', 'manager']);
   // The interrupted Engineer starts afresh: its backend reported no session to go on in.
   assert.equal(requests[3]!.resume, undefined);
+});
+
+test('a stopped team keeps only the request currently being answered on the live map, including a replacement after another stop', async t => {
+  const { get, post, store, requests } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: brief },
+    { role: 'engineer', hang: true },
+    { role: 'manager', hang: true },
+    { role: 'manager', hang: true },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Build the CSV tool.', request_id: 'original' }));
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), value => value.roles.some(role => role.role === 'engineer' && role.active));
+  await post(`${P}/daemon/stop`, {});
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), value => !value.daemon.alive);
+  type Map = { cursor: string; tasks: Array<{ id: string; objective: string; status: string }> };
+  let replaced: string | undefined;
+  for (const request of ['stopped-old', 'stopped-new']) {
+    const before = Date.now() / 1000;
+    const pending = post(`${P}/message/followup`, { text: request, request_id: request });
+    try {
+      const current = await eventually(() => get<Snapshot>(`${P}/snapshot`), value => value.daemon.calls?.some(call => call.answers === request) === true);
+      assert.equal(store.load(sid).status, 'stopped');
+      assert.equal(current.work_status?.state, 'running');
+      assert.deepEqual(current.daemon.calls?.map(call => [call.role, call.answers]), [['manager', request]]);
+      const call = current.daemon.calls![0]!;
+      assert.ok(call.started_ts >= before && call.started_ts <= current.read_at! / 1000);
+      assert.ok(call.request_card_id);
+      const map = await get<Map>(`${P}/map`);
+      assert.ok(map.tasks.some(card => card.id === call.request_card_id && card.objective === request && card.status === 'in_progress'));
+      assert.ok((await get<Map>(`${P}/map?after=${map.cursor}`)).tasks.some(card => card.id === call.request_card_id));
+      assert.ok(!replaced || !map.tasks.some(card => card.id === replaced));
+      replaced = call.request_card_id;
+    } finally {
+      await post(`${P}/daemon/stop`, {});
+      await pending;
+      await eventually(() => get<Snapshot>(`${P}/snapshot`), value => !value.daemon.alive);
+    }
+    assert.ok(!(await get<Map>(`${P}/map`)).tasks.some(card => card.id === replaced));
+  }
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer', 'manager', 'manager']);
 });
 
 test("a project whose work comes to rest ends its sessions, unless a question waits in one, though it was stopped and started on the way", async t => {
@@ -702,6 +782,60 @@ test('deleting a project stops its work and moves its directory to the trash, it
 
 interface Attachment { attachment_id: string; relative_path: string; original_name: string; stored_name: string; mime: string; size_bytes: number }
 interface UploadState { attachment_id: string; offset: number; size_bytes: number; complete: boolean; attachment?: Attachment }
+
+// Reuse the recorded clarification and uploaded message, with the recorded task as its recipient.
+// The fixture sources and controlled role/state variations are described beside the input.
+for (const route of ['resolve', 'domain_answer']) for (const role of ['engineer', 'reviewer', 'planner'] as const) for (const stopped of [false, true]) {
+  test(`${route}: an attachment answer reaches only its ${role}${stopped ? ' after Resume' : ''}`, async t => {
+    const recorded = JSON.parse(await readFile(new URL('fixtures/pending-answer/record.json', import.meta.url), 'utf8'));
+    const { store, call, get, post, requests } = await setup(t, [{ role, to: 'operator', letter: 'Next question.' }]);
+    const work = store.create({ workdir: '', request: 'Recorded question and attachment', backend: 'codex', model: null });
+    const task = { ...recorded.task, holder: role };
+    const taskId = role === 'planner' ? null : task.id;
+    work.tasks = taskId ? [task] : [];
+    work.questions = [{ role, task: taskId, question: recorded.question }];
+    work.status = stopped ? 'stopped' : 'asking';
+    store.save(work);
+    if (taskId) store.append(work.id, { type: 'task.added', task });
+    store.append(work.id, { type: 'handoff', role, ...taskId ? { task: taskId } : {}, to: 'operator', letter: recorded.question });
+    const P = `/api/projects/${work.id}`;
+    const card = `${role}${taskId ? `-${taskId}` : ''}`;
+    const answer = (attachments: unknown) => route === 'resolve'
+      ? post(`${P}/decisions/${card}/resolve`, { option_id: 'custom', note: `  ${recorded.message.text}  `, attachments })
+      : post(`${P}/message`, { domain_answer: { id: card, note: `  ${recorded.message.text}  ` }, attachments });
+    // Both answer routes use ordinary messages' receipt validation before consuming the question.
+    assert.equal((await answer(recorded.message.attachments)).status, 400);
+    const begun = await (await post(`${P}/attachments/uploads`, { name: 'unfinished.txt', size_bytes: 8 })).json() as UploadState;
+    assert.equal((await answer([{ ...recorded.message.attachments[0], attachment_id: begun.attachment_id }])).status, 400);
+    assert.equal(store.load(work.id).questions.length, 1);
+    assert.equal(readEvents(store, work.id).filter(event => event.type === 'message').length, 0);
+
+    const form = new FormData();
+    form.append('files', new Blob(['a,b\n1,2\n'], { type: 'text/csv' }), recorded.message.attachments[0].original_name);
+    const uploaded = await (await call(`${P}/attachments`, { method: 'POST', body: form })).json() as { attachments: Attachment[] };
+    assert.equal((await answer(Array(6).fill(uploaded.attachments[0]))).status, 400);
+    assert.equal((await answer(uploaded.attachments)).status, 200);
+    const messages = readEvents(store, work.id).filter(event => event.type === 'message');
+    assert.equal(messages.length, 1);
+    assert.deepEqual(messages[0], { ts: messages[0]!.ts, type: 'message', from: 'operator', to: role,
+      ...taskId ? { task: taskId } : {}, text: recorded.message.text, attachments: uploaded.attachments });
+    const { rows } = await get<{ rows: EventMsg[] }>(`${P}/conversation`);
+    const projected = rows.filter(row => row.type === 'ui.operator');
+    assert.equal(projected.length, 1);
+    assert.deepEqual(projected[0]!.attachments, uploaded.attachments);
+    assert.equal(projected[0]!.text, recorded.message.text);
+    if (stopped) {
+      assert.equal(store.load(work.id).status, 'stopped');
+      assert.equal(requests.length, 0);
+      assert.equal((await get<Snapshot>(`${P}/snapshot`)).daemon.alive, false);
+      await post(`${P}/daemon/start`, {});
+    }
+    await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => requests.length === 1 && !snapshot.daemon.alive);
+    assert.equal(requests[0]!.role, role);
+    assert.ok(requests[0]!.prompt.includes(`You asked the operator: ${recorded.question}\nThey answered: ${recorded.message.text}\n\nAttached, in the workdir:\n- ${uploaded.attachments[0]!.relative_path}`));
+    assert.equal(store.load(work.id).tasks.length, taskId ? 1 : 0);
+  });
+}
 
 test('attached files land in the workdir, and the message that carries them says where', async t => {
   const { store, call, get, post, requests } = await setup(t, [{ role: 'manager', to: 'manager', letter: 'Read them.' }]);

@@ -37,8 +37,7 @@
       "source_root": "/fixture/argus",
       "pid": 123,
       "executable": "/fixture/python",
-      "started_at": "2026-09-22T00:00:00Z",
-      "release_id": "fixture-release"
+      "started_at": "2026-09-22T00:00:00Z"
     }
   },
   "projects": {

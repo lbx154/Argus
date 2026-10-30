@@ -26,12 +26,21 @@ export interface Daemon {
   started_at_iso?: string | null;
   backend: string | null;
   backend_label?: string | null;
+  /** Current calls only. Request ids retain their raw meaning; the card id joins the map. */
+  calls?: Array<{
+    role: string;
+    task?: string;
+    answers?: string;
+    request_card_id?: string;
+    /** Actual call.start arrival time, in Unix seconds. */
+    started_ts: number;
+  }>;
 }
 
-export interface BacklogItem {
+/** A task summary carried by snapshots; its full brief comes from the detail or map API. */
+export interface BacklogSummary {
   id: string;
   title: string;
-  objective: string;
   status: string;
   priority: number;
   iterate?: boolean;
@@ -62,6 +71,11 @@ export interface BacklogItem {
   decision_rule?: string;
   non_goals?: string[];
   outcome?: MissionOutcomeDimensions;
+}
+
+/** A task detail or map card, including the full brief. */
+export interface BacklogItem extends BacklogSummary {
+  objective: string;
 }
 
 export interface MissionOutcomeDimensions {
@@ -147,15 +161,13 @@ export interface Snapshot {
   work_status?: ProjectWorkStatus;
   /** The newest model call this project opened: what it actually ran on. */
   last_call?: { backend: string; model: string; effort: string; run_label: string; role?: string; ts: number } | null;
-  backlog: BacklogItem[];
+  backlog: BacklogSummary[];
   spend_usd?: number | null;
   spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
   usage_summary?: UsageSummary;
   pending_questions?: Array<Record<string, unknown>>;
   /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
   manager_requests?: Array<{ request_id: string; status: 'running' }>;
-  /** The committed operator objective, for overview headings. */
-  goal?: string;
 }
 
 /** How many of a role's newest entries its log holds: a round can run for hours, and its earlier

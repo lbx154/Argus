@@ -13,7 +13,6 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/protocol.js';
 
 import { ApiClient } from '../src/api.js';
 import {
@@ -34,8 +33,7 @@ function meta(overrides: Record<string, unknown> = {}): Record<string, unknown> 
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES],
     runtime: {
-      package_version: RELEASE_ID.split('+')[0],
-      release_id: RELEASE_ID,
+      package_version: 'fixture',
       source_root: '/home/dev/current/argus',
       pid: 123,
       executable: '/venv/bin/python',
@@ -137,9 +135,10 @@ test('startup probe preserves stale Argus process identity for verified local re
   }
 });
 
-test('startup probe reports generic backend status', async () => {
+test('startup probe accepts a different package version with a compatible protocol', async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => new Response(JSON.stringify(meta()), {
+  const body = meta({ runtime: { ...(meta().runtime as object), package_version: 'another-version' } });
+  globalThis.fetch = (async () => new Response(JSON.stringify(body), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   })) as typeof fetch;
@@ -166,11 +165,11 @@ test('warning reporter emits each warning only once', () => {
 });
 
 
-// ── Stale-release recovery ──────────────────────────────────────────────────
+// ── Incompatible-protocol recovery ─────────────────────────────────────────
 
 const staleProbe: ApiProbeResult = {
   state: 'incompatible' as const,
-  message: 'backend and client installations are out of sync; restart or reinstall Argus',
+  message: 'server protocol minor 5 is older than required',
 };
 const downProbe: ApiProbeResult = {
   state: 'unreachable',
@@ -178,7 +177,7 @@ const downProbe: ApiProbeResult = {
 };
 const currentProbe: ApiProbeResult = {
   state: 'compatible' as const,
-  message: 'current release',
+  message: 'compatible protocol',
 };
 const currentProbeWithPid = (pid: number): ApiProbeResult => ({
   ...currentProbe,
@@ -194,7 +193,6 @@ const staleMeta = meta({
     ...(meta().runtime as Record<string, unknown>),
     pid: 4321,
     started_at: '2026-07-14T00:00:00Z',
-    release_id: '0.1.0+stale',
   },
 }) as unknown as ApiMeta;
 const probeSequence = (...values: ApiProbeResult[]) => {
@@ -382,7 +380,7 @@ test('compatible local API is adopted for the next automatic upgrade', async () 
     dependencies: {
       probeApi: async () => ({
         state: 'compatible',
-        message: 'current release',
+        message: 'compatible protocol',
         meta: meta() as unknown as ApiMeta,
       }),
       readOwnedApi: async () => null,

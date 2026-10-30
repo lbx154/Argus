@@ -30,7 +30,9 @@ export class Runs {
   }
 
   /** The answer goes to whoever asked; it throws when the question was answered meanwhile. */
-  answer(id: string, question: Question, text: string): Promise<void> { return this.start(id, flow => flow.answer(id, question, text)); }
+  answer(id: string, question: Question, text: string, attachments?: UploadedAttachment[]): Promise<void> {
+    return this.start(id, flow => flow.answer(id, question, text, attachments));
+  }
 
   resume(id: string): void { this.start(id, flow => flow.resume(id)).catch(error => log(id, error)); }
 
@@ -108,7 +110,7 @@ export class Runs {
     const flow = new Flow(this.store, this.callAgent, {
       signal: controller.signal,
       onEvent: event => {
-        if (event.type === 'call.start') calls.push({ role: event.role, task: event.task, ...event.answers ? { answers: event.answers } : {} });
+        if (event.type === 'call.start') calls.push({ role: event.role, task: event.task, started_ts: Date.now() / 1000, ...event.answers ? { answers: event.answers } : {} });
         else if (event.type === 'call.end') calls.splice(calls.findIndex(call => call.role === event.role && call.task === event.task), 1);
         this.changed(id, event);
       },

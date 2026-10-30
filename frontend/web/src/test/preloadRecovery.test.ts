@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { installStaleChunkRecovery } from '../lib/preloadRecovery';
+import { version } from '../../../../packages/core/package.json';
 
 function failure(message: string) {
   return Object.assign(new Event('vite:preloadError', { cancelable: true }), {
@@ -32,7 +33,7 @@ describe('stale frontend chunk recovery', () => {
 
   it('reloads a missing app chunk at most once, including after navigation', () => {
     const storage = persistence();
-    const options = { buildId: 'release-1', storage: () => storage };
+    const options = { buildId: version, storage: () => storage };
     const reload = vi.fn();
     const target = new EventTarget();
     installStaleChunkRecovery(target, reload, options);
@@ -40,10 +41,15 @@ describe('stale frontend chunk recovery', () => {
     expect(target.dispatchEvent(failure(message))).toBe(false);
     expect(target.dispatchEvent(failure(message))).toBe(false);
     expect(reload).toHaveBeenCalledTimes(1);
+    expect(storage.getItem('argus.stale-chunk-reloaded')).toBe(version);
     const afterNavigation = new EventTarget();
     installStaleChunkRecovery(afterNavigation, reload, options);
     expect(afterNavigation.dispatchEvent(failure(message))).toBe(true);
     expect(reload).toHaveBeenCalledTimes(1);
+    const nextVersion = new EventTarget();
+    installStaleChunkRecovery(nextVersion, reload, { ...options, buildId: `${version}-next` });
+    expect(nextVersion.dispatchEvent(failure(message))).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 
   it('does not auto-reload when navigation history cannot be persisted', () => {

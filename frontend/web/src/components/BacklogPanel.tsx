@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useI18n } from '../i18n';
-import type { BacklogItem } from '../api';
+import type { BacklogSummary } from '../../../core/src/types';
 import { PanelHeader, EmptyHint, Chip } from './primitives';
 import { isRepeating, visibleBacklogItems } from '../../../core/src/backlog';
 import { statusLabel } from '../lib/enumLabels';
@@ -21,7 +21,7 @@ export function BacklogPanel({
   items,
   onInspect,
 }: {
-  items: BacklogItem[];
+  items: BacklogSummary[];
   onInspect?: (id: string) => void;
 }) {
   const { t } = useI18n();
@@ -57,7 +57,7 @@ export function BacklogPanel({
                 className="block max-w-full truncate text-left text-xs font-medium text-ink enabled:hover:text-blue-sky enabled:focus-visible:outline-none enabled:focus-visible:underline"
                 title={onInspect ? t('backlog.viewDetails') : undefined}
               >
-                {it.title || it.objective}
+                {it.title}
               </button>
               <div className="mt-0.5 flex items-center gap-1.5">
                 <Chip color={color}>{statusLabel(it.status, t)}</Chip>

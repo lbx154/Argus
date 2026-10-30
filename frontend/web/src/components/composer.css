@@ -1,4 +1,4 @@
-.conversation-composer { width: 100%; max-width: 760px; margin: 0 auto; }
+.conversation-composer, .pending-question { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; }
 .composer-surface { min-width: 0; }
 .map-composer {
   display: flex; align-items: flex-end; gap: 8px;

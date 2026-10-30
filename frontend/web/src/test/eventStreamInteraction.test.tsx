@@ -6,7 +6,16 @@ import type { EventMsg, Snapshot } from '../api';
 import { CopyButton } from '../components/CopyButton';
 import { EventStream } from './serverSnapshot';
 import { referenceText } from '../map/presentation';
+import { optimisticOperatorEvent } from '../lib/conversationEvents';
 
+const delayed = vi.hoisted(() => ({ events: undefined as EventMsg[] | undefined }));
+vi.mock('react', async importOriginal => {
+  const actual = await importOriginal<typeof import('react')>();
+  return { ...actual, useDeferredValue: <T,>(value: T) => {
+    const current = actual.useDeferredValue(value);
+    return (delayed.events ?? current) as T;
+  } };
+});
 vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
 vi.mock('../components/MarkdownContent', () => ({
   MarkdownContent: ({ children }: { children: ReactNode }) => <div data-markdown>{children}</div>,
@@ -31,6 +40,7 @@ let observers: { targets: Set<object>; notify: () => void }[];
 let nextFrame: number;
 
 beforeEach(() => {
+  delayed.events = undefined;
   frames = new Map();
   nextFrame = 0;
   outer = scrollNode();
@@ -89,9 +99,62 @@ function resize(target: object) {
 }
 function scrollConversation(top: number) {
   outer.scrollTop = top;
-  const listener = outer.addEventListener.mock.calls.find(([name]) => name === 'scroll')![1];
+  const listener = outer.addEventListener.mock.calls.filter(([name]) => name === 'scroll').at(-1)![1];
   act(() => listener());
 }
+
+it('resumes following once for a new message from this page, then follows its reply', () => {
+  const saved: EventMsg[] = [{ type: 'ui.argus', text: 'Saved answer', ts: 1 }];
+  mount(saved);
+  scrollConversation(100);
+  const local = optimisticOperatorEvent('s', 'new-request', 'My new message');
+  outer.scrollHeight = 1200;
+  update([...saved, local]);
+  expect(outer.scrollTop).toBe(900);
+  outer.scrollHeight = 1500;
+  update([...saved, { ...local, message_id: 'm2-operator', event_id: 2 }, { type: 'ui.argus', text: 'New reply', ts: 3 }]);
+  resize(content); paint();
+  expect(outer.scrollTop).toBe(1200);
+  scrollConversation(160);
+  update([...saved, { ...local, message_id: 'm2-operator', event_id: 2 }, { type: 'ui.argus', text: 'New reply grows', ts: 3 }]);
+  resize(content); paint();
+  expect(outer.scrollTop).toBe(160);
+});
+
+it('retains the send intention when recorded rows replace the local row before deferred rendering catches up', () => {
+  const saved: EventMsg[] = [{ type: 'ui.argus', text: 'Saved answer', ts: 1 }];
+  mount(saved);
+  scrollConversation(100);
+  delayed.events = saved;
+  const local = optimisticOperatorEvent('s', 'fast-request', 'My new message');
+  update([...saved, local]);
+  expect(outer.scrollTop).toBe(100);
+  const recorded = [...saved, { ...local, message_id: 'm2-operator', event_id: 2 },
+    { type: 'ui.argus', text: 'Immediate recorded reply', ts: 3 }];
+  update(recorded);
+  expect(outer.scrollTop).toBe(100);
+  // Neither committed list above contained the local placeholder. The next
+  // visible list already has the durable message and its completed reply.
+  delayed.events = undefined;
+  outer.scrollHeight = 1500;
+  update(recorded);
+  expect(outer.scrollTop).toBe(1200);
+  scrollConversation(160);
+  update([...recorded, { type: 'ui.argus', text: 'Another page replied', ts: 4 }]);
+  resize(content); paint();
+  expect(outer.scrollTop).toBe(160);
+});
+
+it('keeps reading history when a remote operator row or an older local placeholder is mounted', () => {
+  const local = optimisticOperatorEvent('s', 'held-request', 'Sent before this view opened');
+  mount([local]);
+  scrollConversation(120);
+  outer.scrollHeight = 1500;
+  update([{ type: 'ui.operator', message_id: 'm1-operator', text: 'Older page', ts: 1 }, local,
+    { type: 'ui.operator', message_id: 'm3-operator', text: 'Another page sent this', ts: 3 }]);
+  resize(content); paint();
+  expect(outer.scrollTop).toBe(120);
+});
 function timelineSections() {
   return renderer!.root.findAll(node => node.type === 'section'
     && (node.props['data-task-work'] || String(node.props.className).includes('conversation-thread')));
@@ -251,7 +314,7 @@ describe('conversation references', () => {
     expect(visibleText(quote)).toContain('Compare the evidence');
     expect(visibleText(quote)).toContain('Part 2');
     expect(visibleText(quote)).not.toContain('event-1');
-    expect(renderer!.root.findByProps({ 'data-markdown': true }).children).toEqual(['Please explain this in plain language.']);
+    expect(renderer!.root.findByProps({ 'data-operator-text': true }).children).toEqual(['Please explain this in plain language.']);
     expect(renderer!.root.findByType(CopyButton).props.text).toBe(message);
   });
 
@@ -263,7 +326,7 @@ describe('conversation references', () => {
   ])('preserves malformed reference syntax as normal message text: %s', message => {
     mount([{ type: 'ui.operator', text: message, ts: 1 }]);
     expect(renderer!.root.findAllByType('blockquote')).toHaveLength(0);
-    expect(renderer!.root.findByProps({ 'data-markdown': true }).children).toEqual([message]);
+    expect(renderer!.root.findByProps({ 'data-operator-text': true }).children).toEqual([message]);
   });
 
   it('keeps multiple valid references while leaving malformed lines and normal text intact', () => {
@@ -272,7 +335,7 @@ describe('conversation references', () => {
     const body = '[[Argus引用 broken]]\nKeep my normal question.';
     mount([{ type: 'ui.operator', text: referenceText(first) + referenceText(second) + body, ts: 1 }]);
     expect(renderer!.root.findAllByType('blockquote').map(visibleText)).toEqual(['ReferenceFirst task', 'ReferenceSecond task']);
-    expect(renderer!.root.findByProps({ 'data-markdown': true }).children).toEqual([body]);
+    expect(renderer!.root.findByProps({ 'data-operator-text': true }).children).toEqual([body]);
   });
 });
 
@@ -282,7 +345,7 @@ function runtimeFixture(alive = true) {
     session: { id: 'session', display_name: 'Research', objective: '', workdir: '/tmp', last_active: now },
     daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 30, backend: 'pi'},
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Working', age_s: 1, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null }],
-    backlog: [{ id: 'task-a', title: 'Research task A', objective: '', status: 'running', started_ts: now - 20, priority: 1 }],
+    backlog: [{ id: 'task-a', title: 'Research task A', status: 'running', started_ts: now - 20, priority: 1 }],
 
     work_status: { state: alive ? 'running' : 'idle', roles: alive ? ['engineer'] : [], role: '', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } },
   };
@@ -551,7 +614,7 @@ it('shows the task of each record after a running role is opened', () => {
     daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'codex' },
     work_status: { state: 'running', roles: ['engineer'], role: '', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } },
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Engineer', age_s: null, backend: 'codex', backend_label: 'Codex', model: '', effort: null, tasks: ['t1', 't2'] }],
-    backlog: ['primes', 'fib'].map((name, i) => ({ id: `t${i + 1}`, title: `Write ${name}.py`, objective: '', status: 'in_progress', priority: 1 })),
+    backlog: ['primes', 'fib'].map((name, i) => ({ id: `t${i + 1}`, title: `Write ${name}.py`, status: 'in_progress', priority: 1 })),
   });
   act(() => { renderer = create(<EventStream events={[]} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
   expect(roleGroup().props['data-open']).toBe('false');

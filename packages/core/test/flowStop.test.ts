@@ -241,7 +241,7 @@ test('a message sent after another to a stopped project waits on that one, not f
   const b = flow.say(id, 'B', { request_id: 'B' });
   await until(() => scripted.requests.length === 1);
   const c = flow.say(id, 'C', { request_id: 'C' });
-  const live: Live = { since: 1, calls: [{ role: 'manager', task: undefined, answers: 'B' }], requests: ['B', 'C'] };
+  const live: Live = { since: 1, calls: [{ started_ts: 1, role: 'manager', task: undefined, answers: 'B' }], requests: ['B', 'C'] };
   assert.deepEqual(replies(store, id, live), [['A', 'replaced'], ['B', 'running'], ['C', 'waiting']]);
   release();
   await Promise.all([b, c]);

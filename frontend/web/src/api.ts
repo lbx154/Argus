@@ -14,7 +14,6 @@ import type {
   Snapshot,
 } from '../../core/src/types';
 import { ApiError, ensureResponseOk } from '../../core/src/http';
-import { observePageRelease, requireCurrentPage } from './lib/pageUpdate';
 import {
   requireCompatibleApiMeta,
   requireSnapshotContract,
@@ -333,11 +332,6 @@ async function fetchArgus(path: string, init: RequestInit): Promise<Response> {
     if (init.signal?.aborted) throw error;
     throw new LocalArgusUnavailableError(String(init.method ?? 'GET'), path);
   }
-  if (response.ok) {
-    // Do not decode a newer snapshot with the old UI schema. Mutation
-    // receipts still belong to their accepted request and must be delivered.
-    if (!init.method || init.method === 'GET') requireCurrentPage();
-  }
   return response;
 }
 
@@ -414,7 +408,6 @@ async function postResponse(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {
-  requireCurrentPage();
   const r = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -439,7 +432,6 @@ async function uploadRequest<T>(
   body?: Blob | Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<T> {
-  requireCurrentPage();
   return requestWithTimeout(path, {
     method,
     headers: {
@@ -458,7 +450,6 @@ function uploadSmallAttachments(
   path: string, files: File[], signal?: AbortSignal,
   onProgress?: AttachmentUploadOptions['onProgress'],
 ): Promise<AttachmentUploadResponse> {
-  requireCurrentPage();
   signal?.throwIfAborted();
   const xhr = new XMLHttpRequest();
   const abort = () => xhr.abort();
@@ -522,7 +513,6 @@ async function mutationJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  requireCurrentPage();
   const r = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -589,7 +579,6 @@ export function compatibleApiMeta(): Promise<ApiMeta> {
           }
           await ensureResponseOk(response, 'GET', path);
           const payload = await response.json();
-          observePageRelease(payload?.runtime?.release_id);
           return requireCompatibleApiMeta(payload);
         },
       );
@@ -837,6 +826,7 @@ export const api = {
     decisionId: string,
     optionId: string,
     note: string,
+    attachments: UploadedAttachment[] = [],
   ) => postJson<{
     resolved: boolean;
     stopped?: boolean;
@@ -844,7 +834,7 @@ export const api = {
     daemon?: { rc?: number; error?: string };
   }>(
     P(sid, `/decisions/${encodeURIComponent(decisionId)}/resolve`),
-    { option_id: optionId, note },
+    { option_id: optionId, note, ...(attachments.length ? { attachments } : {}) },
   ),
   attachmentLimits: (sid: string, signal?: AbortSignal) => getJson<AttachmentLimits>(P(sid, '/attachments/limits'), signal),
   uploadAttachments: async (

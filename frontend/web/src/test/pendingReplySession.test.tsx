@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { usePendingReplySession } from '../usePendingReplySession';
 import { api } from '../api';
+import record from '../../../../packages/core/test/fixtures/pending-answer/record.json';
 
 vi.mock('../api', () => ({ api: { resolveDecision: vi.fn() } }));
 const notify = vi.fn();
@@ -27,7 +28,7 @@ it('answers only the displayed question even when the next project opens', async
   expect(await session.answerPendingReply('duplicate')).toBe(false);
   act(() => renderer.update(<Probe sid="p-two" pending={[questions[1]]} />));
   await act(async () => { finish({ resolved: true }); expect(await answer).toBe(true); });
-  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('p-one', 'reviewer-t1', 'custom', 'Use the small dataset');
+  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('p-one', 'reviewer-t1', 'custom', 'Use the small dataset', []);
   expect(notify).not.toHaveBeenCalled();
   expect(refetchSnapshot).toHaveBeenCalledOnce();
   expect(session.pendingReply.id).toBe('engineer-t1');
@@ -49,4 +50,29 @@ it('reports a rejected answer and refreshes the pending question', async () => {
   await act(async () => { expect(await session.answerPendingReply('Use UTF-8')).toBe(false); });
   expect(notify).toHaveBeenCalledWith('error', expect.any(String), 'Question already answered');
   expect(refetchSnapshot).toHaveBeenCalledOnce();
+});
+
+it('waits for attachments and sends their receipts to the question captured before switching projects', async () => {
+  let uploaded!: (value: typeof record.message.attachments) => void;
+  const prepare = vi.fn(() => new Promise<typeof record.message.attachments>(resolve => { uploaded = resolve; }));
+  vi.mocked(api.resolveDecision).mockResolvedValue({ resolved: true });
+  act(() => { renderer = create(<Probe />); });
+  let answer!: Promise<boolean>;
+  act(() => { answer = session.answerPendingReply(record.message.text, prepare); });
+  expect(session.pendingReplyBusy).toBe(true);
+  expect(api.resolveDecision).not.toHaveBeenCalled();
+  expect(await session.answerPendingReply('duplicate')).toBe(false);
+  act(() => renderer.update(<Probe sid="p-two" pending={[questions[1]]} />));
+  await act(async () => { uploaded(record.message.attachments); expect(await answer).toBe(true); });
+  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith('p-one', 'reviewer-t1', 'custom', record.message.text, record.message.attachments);
+});
+
+it('keeps an upload failure visible without resolving the question', async () => {
+  act(() => { renderer = create(<Probe />); });
+  await act(async () => {
+    expect(await session.answerPendingReply(record.message.text, async () => { throw new Error('Upload failed'); })).toBe(false);
+  });
+  expect(api.resolveDecision).not.toHaveBeenCalled();
+  expect(notify).toHaveBeenCalledWith('error', expect.any(String), expect.objectContaining({ message: 'Upload failed' }));
+  expect(session.pendingReplyBusy).toBe(false);
 });

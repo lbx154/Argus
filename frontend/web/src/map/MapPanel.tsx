@@ -59,7 +59,7 @@ import "./submap.css";
 import "./atlas.css";
 import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
-import { livePollInterval, mapIsPaused, mergeMapProgress } from "./incremental";
+import { livePollInterval, mergeMapProgress } from "./incremental";
 import { latestManagerMessage } from "../lib/taskLanguage";
 import { taskFigures } from "./cardFigure";
 import { MapCardFigureContext } from "./cardContext";
@@ -114,11 +114,9 @@ export function MapCanvas({
   zh,
   pending,
   snapshot,
-  pendingLabel,
   readOnly,
   sessionId,
   viewKey,
-  paused,
   actions,
   immersive = false,
   onImmersiveChange,
@@ -130,16 +128,15 @@ export function MapCanvas({
   zh: boolean;
   pending: boolean;
   snapshot: Snapshot;
-  pendingLabel?: string;
   readOnly: boolean;
   viewKey: string;
-  paused: boolean;
   actions: MapWorkspaceActions;
   /** Whether plan-replacement links are drawn; the panel owns the switch so
    * the options menu can flip it on screens that hide the legend. */
   immersive?: boolean;
   onImmersiveChange?: (immersive: boolean) => void;
 }) {
+  const paused = snapshot.work_status?.state === 'paused';
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [minimapOpen, setMinimapOpen] = useState(false);
   const [conversationOpen, setConversationOpen] = useState(false);
@@ -321,8 +318,10 @@ export function MapCanvas({
           open: openCard,
           readStep: camera.readStep,
           readCopy,
-          managerMessage: card.task.role === 'manager' && ACTIVE.has(card.task.status) ? pendingLabel : undefined,
-          paused,
+          liveCall: snapshot.daemon.calls?.find(call => card.task.turn_kind === 'qa'
+            ? call.role === 'manager' && call.request_card_id === card.task.id
+            : call.task === card.task.id),
+          workStatus: snapshot.work_status && { state: snapshot.work_status.state, reason: snapshot.work_status.reason },
           seenCards,
           restoring: !!savedView.current?.camera && !initialFit.current,
           layout: scene.layouts[card.id],
@@ -341,8 +340,9 @@ export function MapCanvas({
     openCard,
     camera.readStep,
     readCopy,
-    pendingLabel,
-    paused,
+    snapshot.daemon.calls,
+    snapshot.work_status?.state,
+    snapshot.work_status?.reason,
     seenCards,
   ]);
   useEffect(() => {
@@ -1006,9 +1006,9 @@ export function MapCanvas({
           )}
         </div>
       </div>
-      <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={readingTask?.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} width="max-w-3xl map-task-modal">
+      <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={readingTask?.turn_kind === 'qa' ? (zh ? '请求' : 'Request') : zh ? "任务说明" : "Task explanation"} width="max-w-3xl map-task-modal">
         {readingTask ? <>
-          <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '问答' : 'Q&A') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : readingTask.title} />
+          <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '请求' : 'Request') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : readingTask.title} />
           <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} task={readingTask}
@@ -1082,7 +1082,6 @@ export const MapPanel = memo(function MapPanel({
     gcTime: 2 * 60 * 60 * 1000,
     refetchOnMount: "always",
     refetchInterval: (query) => livePollInterval(query.state.data, snapshot), });
-  const paused = mapIsPaused(snapshot);
   const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
     /^(life\.(mission\.|phase\.|planner\.task_added)|manager\.turn\.|round\.|agent\.message|engineer\.progress|ui\.argus)/.test(String(e.type))).at(-1);
   const updateKey = JSON.stringify([
@@ -1092,7 +1091,8 @@ export const MapPanel = memo(function MapPanel({
     latestMapEvent?.updated_ts,
     latestMapEvent?.status,
     snapshot.backlog,
-    paused,
+    snapshot.work_status?.state,
+    snapshot.work_status?.reason,
   ]);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // A refresh that lands mid-gesture commits a fresh node set under the
@@ -1202,9 +1202,7 @@ export const MapPanel = memo(function MapPanel({
             onTaskLocated={onTaskLocated}
             actions={actions}
             snapshot={snapshot}
-            pendingLabel={managerMessage}
             viewKey={viewKey}
-            paused={paused}
             sessionId={snapshot.session.id}
             zh={zh}
             readOnly={readOnly}

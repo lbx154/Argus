@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
@@ -92,30 +91,6 @@ def test_bundled_workbench_identity_tracks_source_not_dependencies(tmp_path):
         generated.parent.mkdir(parents=True, exist_ok=True)
         generated.write_text('{"local": true}')
     assert list(source_files(tmp_path)) == ["argus/verticals/sample/tools.mjs"]
-
-
-def test_checked_in_frontend_contract_matches_current_release() -> None:
-    root = Path(__file__).parents[2]
-    manifest = release_manifest()
-    generated = (root / "packages/contracts/src/release.generated.ts").read_text(
-        encoding="utf-8"
-    )
-    assert manifest["release_id"] in generated
-
-    tui = (root / "frontend/tui/bundle/argus.mjs").read_text(encoding="utf-8")
-    assert manifest["release_id"] in tui
-
-    web_root = root / "frontend/web/dist"
-    index = (web_root / "index.html").read_text(encoding="utf-8")
-    assets = [
-        web_root / ref.lstrip("/")
-        for ref in re.findall(r'(?:src|href)="([^"]+\.js)"', index)
-    ]
-    assert assets
-    assert any(
-        manifest["release_id"] in path.read_text(encoding="utf-8")
-        for path in assets
-    )
 
 
 @pytest.fixture

@@ -7,10 +7,9 @@ import { errorText } from './lib/format';
 import { Capabilities } from './lib/capabilities';
 import { I18nProvider, useI18n, translate } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
-import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
-import { RELEASE_ID } from '../../core/src/protocol';
+import { version } from '../../../packages/core/package.json';
 import { persistQueryCache, restoreQueryCache } from './lib/queryPersistence';
 import { loadApplicationBrand } from './applicationBrand';
 import '@fontsource-variable/geist';
@@ -23,7 +22,7 @@ const App = lazy(() => import('./App'));
 // A cockpit left open across an update can still reference a deleted hashed
 // chunk. Reload the no-store shell before React turns that import into a blank UI.
 installStaleChunkRecovery(window, () => window.location.reload(), {
-  buildId: RELEASE_ID,
+  buildId: version,
   storage: () => window.sessionStorage,
 });
 
@@ -44,8 +43,8 @@ const queryClient = new QueryClient({
 // A reload in this tab starts from the views it last showed.
 {
   const storage = () => window.sessionStorage;
-  restoreQueryCache(queryClient, storage, RELEASE_ID);
-  persistQueryCache(queryClient, storage, RELEASE_ID);
+  restoreQueryCache(queryClient, storage, version);
+  persistQueryCache(queryClient, storage, version);
 }
 
 function WorkbenchEntry() {
@@ -70,7 +69,6 @@ function WebApp() {
   const { locale } = useI18n();
   return (
     <>
-      <PageUpdateNotice />
       <WorkspaceErrorBoundary locale={locale}>
         <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-ink-faint">{locale === 'zh-CN' ? '正在加载工作台…' : 'Loading workbench…'}</div>}>
           <WorkbenchEntry />

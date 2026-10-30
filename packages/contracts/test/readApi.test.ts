@@ -8,9 +8,13 @@ import {
 
 const fixtures = JSON.parse(readFileSync(new URL('../fixtures/read-api.json', import.meta.url), 'utf8')) as Record<string, unknown>;
 
-test('shared metadata validation checks releases when requested', () => {
-  assert.equal(inspectApiMeta(fixtures.meta, { releaseId: 'fixture-release' }).compatible, true);
-  assert.equal(inspectApiMeta(fixtures.meta, { releaseId: 'different-release' }).compatible, false);
+test('shared metadata compatibility depends on protocol, capabilities and snapshot schema', () => {
+  const meta = fixtures.meta as { runtime: object; protocol: object };
+  assert.equal(inspectApiMeta(meta).compatible, true);
+  assert.equal(inspectApiMeta({ ...meta, runtime: { ...meta.runtime, package_version: 'another-version' } }).compatible, true);
+  assert.equal(inspectApiMeta({ ...meta, protocol: { ...meta.protocol, major: 999 } }).compatible, false);
+  assert.equal(inspectApiMeta({ ...meta, capabilities: [] }).compatible, false);
+  assert.equal(inspectApiMeta({ ...meta, snapshot_schema_version: -1 }).compatible, false);
 });
 
 test('the new read-only service cannot pass the full WebAPI handshake', () => {

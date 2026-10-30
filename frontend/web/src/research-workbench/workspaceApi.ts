@@ -41,19 +41,12 @@ export interface WorkspaceFile {
   extension: string;
 }
 
-export interface WorkspaceRemote { name: string; fetch: string; push: string }
 export interface WorkspaceGit {
   available: boolean;
   branch: string;
   status: string;
-  stat: string;
   diff: string;
   log: string;
-  remotes: WorkspaceRemote[];
-  upstream: string;
-  ahead: number;
-  behind: number;
-  identity: { name: string; email: string; valid: boolean };
   truncated?: boolean;
 }
 

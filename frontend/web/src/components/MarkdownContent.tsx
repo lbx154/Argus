@@ -115,7 +115,7 @@ function MarkdownImage({ src, alt, sid, path, delivery, className = 'my-2 h-auto
     };
   }, [sid, path, src, delivery]);
   if (failed || !src) {
-    return <span className="text-xs text-ink-faint">Image unavailable{alt ? ` · ${alt}` : ''}</span>;
+    return <span className="text-xs text-ink-faint">{alt}</span>;
   }
   if (sid && path && !previewUrl) return <span className="text-xs text-ink-faint">{alt || '…'}</span>;
   return (
@@ -253,15 +253,17 @@ export function MarkdownContent({
       return <WorkspaceImage src={src} alt={alt} delivery={live.current.delivery} sid={live.current.sid} path={path} onOpen={path && live.current.onOpenArtifact ? () => live.current.onOpenArtifact?.(path) : undefined} />;
     },
   }), []);
-  return (
-    <ReactMarkdown
-      remarkPlugins={markdownRemarkPlugins}
-      rehypePlugins={rehypePlugins}
-      urlTransform={(url, key) => key === 'href' && onOpenArtifact
-        && (artifactPathFromHref(url, artifacts, basePath) || localFileReference(url)) ? url : defaultUrlTransform(url)}
-      components={components}
-    >
-      {children}
-    </ReactMarkdown>
-  );
+  // ReactMarkdown is a synchronous parser returning React elements. Keep that
+  // result when the content and rendering context are unchanged; the stable
+  // renderers above still read the latest callbacks from live.current.
+  const artifactPaths = JSON.stringify(artifacts.map(artifact => artifact.path));
+  const opensArtifacts = Boolean(onOpenArtifact);
+  return useMemo(() => ReactMarkdown({
+    children,
+    remarkPlugins: markdownRemarkPlugins,
+    rehypePlugins,
+    urlTransform: (url, key) => key === 'href' && live.current.onOpenArtifact
+      && (artifactPathFromHref(url, live.current.artifacts, live.current.basePath) || localFileReference(url)) ? url : defaultUrlTransform(url),
+    components,
+  }), [children, rehypePlugins, components, artifactPaths, opensArtifacts, basePath, sid, delivery]);
 }

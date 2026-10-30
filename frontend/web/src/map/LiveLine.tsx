@@ -7,9 +7,9 @@ import { MarkdownExcerpt } from '../components/MarkdownExcerpt';
 import type { MapTask } from './model';
 
 /** One quiet sentence on the card being worked on right now: who is at it and
- * for how long this run. The clock ticks on its own so the rest of the card
+ * for how long this call. The clock ticks on its own so the rest of the card
  * stays still. */
-export function LiveLine({ role, since, zh, message }: { role?: string; since?: number | null; zh: boolean; message?: string }) {
+export function LiveLine({ role, since, zh }: { role?: string; since?: number | null; zh: boolean }) {
   const [now, setNow] = useState(() => Date.now() / 1000);
   useEffect(() => {
     if (since == null) return;
@@ -21,7 +21,7 @@ export function LiveLine({ role, since, zh, message }: { role?: string; since?: 
     <div className="map-card-live" data-testid="map-card-live" aria-live="off">
       <i aria-hidden="true" />
       <span>
-        {roleActionLabel(role, zh, '', message)}
+        {roleActionLabel(role, zh)}
         {elapsed ? (zh ? ` · 本次已进行 ${elapsed}` : ` · ${elapsed} this run`) : ""}
       </span>
     </div>
@@ -34,9 +34,10 @@ export function CardNow({ task, zh }: { task: MapTask; zh: boolean }) {
   const { t } = useI18n();
   const said = task.latest_action;
   const holder = task.status === 'done' || task.role === said?.role ? undefined : task.role;
-  if (!holder && !said) return null;
+  if (!holder && !said && !task.pending_question) return null;
   return (
     <div className="map-card-now" data-testid="map-card-now">
+      {task.pending_question ? <p className="map-card-question" data-testid="map-card-question">{task.pending_question}</p> : null}
       {holder ? <p className="map-card-said" data-testid="map-card-owner">
         {zh ? '负责人：' : 'Owner: '}{roleLabel(holder, t)}
       </p> : null}

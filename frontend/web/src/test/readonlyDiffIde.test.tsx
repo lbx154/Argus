@@ -25,8 +25,7 @@ beforeEach(() => {
 afterEach(() => { if (view) act(() => view.unmount()); client.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 function openWorkspace(overrides: Partial<WorkspaceGit> = {}) {
   client.setQueryData(['workspace-git', 's-A', 'workspace-A'], {
-    available: true, branch: 'synthetic', status: ' M demo.txt', diff, log: '', stat: '', remotes: [], upstream: '',
-    ahead: 0, behind: 0, identity: { name: '', email: '', valid: false },
+    available: true, branch: 'synthetic', status: ' M demo.txt', diff, log: '',
     ...overrides,
   });
   act(() => { view = create(<QueryClientProvider client={client}><IdePage {...props} /></QueryClientProvider>); });
@@ -82,7 +81,7 @@ it('reads the active stopped workspace once, then updates tree, git and the open
   const tree = vi.spyOn(workspaceApi, 'tree').mockResolvedValue({ root: '/synthetic', truncated: false, entries: [
     { path: 'demo.txt', name: 'demo.txt', type: 'file', size: 6, mtime: 1, extension: '.txt' },
   ] });
-  const git = vi.spyOn(workspaceApi, 'git').mockResolvedValue({ available: false, branch: '', status: '', stat: '', diff: '', log: '', remotes: [], upstream: '', ahead: 0, behind: 0, identity: { name: '', email: '', valid: false } });
+  const git = vi.spyOn(workspaceApi, 'git').mockResolvedValue({ available: false, branch: '', status: '', diff: '', log: '' });
   const file = vi.spyOn(workspaceApi, 'file').mockResolvedValue({ root: '/synthetic', workspace_id: 'workspace-A', path: 'demo.txt', content: 'before', size: 6, mtime: 1, extension: '.txt' });
   await act(async () => { view = create(<QueryClientProvider client={client}><IdePage {...props} active /></QueryClientProvider>); await vi.advanceTimersByTimeAsync(10); });
   const select = view.root.findAllByType('button').find(button => button.findAllByType('span').some(span => span.children.includes('demo.txt')))!;
@@ -96,4 +95,17 @@ it('reads the active stopped workspace once, then updates tree, git and the open
   });
   expect([profiles, tree, git, file].map(read => read.mock.calls.length)).toEqual([0, 2, 2, 2]);
   expect(view.root.findByProps({ className: 'vscode-code' }).findByType('code').children).toContain('after');
+});
+
+it('opens source control on commit history and reads the selected commit without repository settings', () => {
+  const hash = 'a'.repeat(40);
+  client.setQueryData(['workspace-commit', 's-A', 'workspace-A', hash], { diff, truncated: false });
+  openWorkspace({ log: `${hash}\t2026-10-29T12:00:00Z\tAuthor\tSaved report` });
+  expect(view.root.findAllByType('button').filter(button => button.children.join('') === 'Repository')).toHaveLength(0);
+  expect(view.root.findByProps({ className: 'vscode-sc-tabs' }).findAllByType('button').map(button => button.children.join(''))).toEqual(['Changes', 'Timeline']);
+  expect(view.root.findByProps({ className: 'vscode-commits' }).findAllByType('strong')[0].children).toEqual(['Saved report']);
+  act(() => view.root.findByProps({ className: 'vscode-commits' }).findByType('button').props.onClick());
+  expect(view.root.findAllByProps({ 'data-readonly-diff': true })).toHaveLength(1);
+  expect(JSON.stringify(view.toJSON())).toContain('Commit diff');
+  expect(fetch).not.toHaveBeenCalled();
 });

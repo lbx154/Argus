@@ -1,4 +1,6 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { inspectApiMeta } from '../../frontend/core/src/protocol';
 import { startSessionFixture, deferred, FIXTURE_AUTH, REPORT_PATH } from './session-context-fixture.mjs';
 
 type Fixture = Awaited<ReturnType<typeof startSessionFixture>>;
@@ -64,6 +66,14 @@ test.afterEach(async ({}, info) => {
 });
 
 test('snapshot fixtures use schema 8 without retired snapshot or daemon fields', async () => {
+  const meta = await fetch(`${fixture.origin}/api/meta`, {
+    headers: { Authorization: `Bearer ${FIXTURE_AUTH}` },
+  }).then(response => response.json());
+  expect(inspectApiMeta(meta).compatible).toBe(true);
+  expect(meta.runtime.package_version).toBe(JSON.parse(
+    readFileSync(new URL('../../packages/core/package.json', import.meta.url), 'utf8'),
+  ).version);
+  expect(Object.keys(meta.runtime).sort()).toEqual(['package_version', 'source_root', 'pid', 'executable', 'started_at'].sort());
   for (const sid of ['s-A', 's-B']) {
     const response = await fetch(`${fixture.origin}/api/projects/${sid}/snapshot`, {
       headers: { Authorization: `Bearer ${FIXTURE_AUTH}` },

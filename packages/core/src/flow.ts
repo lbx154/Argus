@@ -11,6 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
@@ -22,6 +23,10 @@ const TURN: Record<Role, { form: Form; access: Access }> = {
   engineer: { form: 'engineer', access: 'write' },
   reviewer: { form: 'review', access: 'read' },
 };
+
+/** Uploaded files use the same workdir instructions for every recipient. */
+const operatorText = ({ text, attachments }: OperatorMessage): string => text + (attachments?.length
+  ? `\n\nAttached, in the workdir:\n${attachments.map(file => `- ${file.relative_path}`).join('\n')}` : '');
 
 export interface FlowOptions {
   onEvent?: (event: FlowEvent) => void;
@@ -56,18 +61,19 @@ export class Flow {
   }
 
   /** The operator's answer to one of the open questions goes to whoever asked it. */
-  answer(id: string, asked: Question, text: string): void {
+  answer(id: string, asked: Question, text: string, attachments?: UploadedAttachment[]): void {
     const project = this.project(id);
     const at = project.questions.findIndex(({ task, question }) => task === asked.task && question === asked.question);
     if (at < 0) throw new Error(`${id} has no such open question`);
     const [question] = project.questions.splice(at, 1) as [Question];
-    this.record(project, { type: 'message', from: 'operator', text, to: question.role, ...question.task ? { task: question.task } : {} });
+    const message: OperatorMessage = { text, ...attachments?.length ? { attachments } : {} };
+    this.record(project, { type: 'message', from: 'operator', ...message, to: question.role, ...question.task ? { task: question.task } : {} });
     // A stopped project stays stopped: the asker reads the answer when it resumes.
     if (project.status !== 'stopped') {
       this.retry(project);
       this.status(project, 'working');
     }
-    const note = answered(question.question, text);
+    const note = answered(question.question, operatorText(message));
     if (question.role === 'planner') project.inbox.push(note);
     else Object.assign(this.task(project, question.task), { holder: question.role, note: { from: 'operator', text: note } });
     this.run(project);
@@ -176,9 +182,7 @@ export class Flow {
 
   private async managerTurn(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
     const operator = typeof letter !== 'string';
-    const message = typeof letter === 'string' ? letter : letter.text;
-    const input = message + (typeof letter !== 'string' && letter.attachments?.length
-      ? `\n\nAttached, in the workdir:\n${letter.attachments.map(file => `- ${file.relative_path}`).join('\n')}` : '');
+    const input = typeof letter === 'string' ? letter : operatorText(letter);
     const answers = typeof letter === 'string' ? undefined : letter.request_id;
     const handoff = (await this.call(project, 'manager', null,
       resumed => managerPrompt(input, resumed), answers ? { answers } : {}))?.handoff ?? null;

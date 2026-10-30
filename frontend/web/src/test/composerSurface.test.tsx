@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ComposerSurface } from '../components/ComposerSurface';
 import { ChatBox } from '../components/ChatBox';
 import { referenceText } from '../map/presentation';
+import * as i18n from '../i18n';
 
 const mainProps = {
   value: 'Research question', onChange: vi.fn(), onSend: vi.fn(async () => false), 
@@ -55,7 +56,21 @@ describe('shared conversation surface', () => {
     act(() => renderer.unmount());
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+  it.each(['engineer', 'reviewer', 'planner'])('names the %s as the recipient and passes attachments on ordinary Enter', async role => {
+    vi.spyOn(i18n, 'useI18n').mockReturnValue({ locale: 'zh-CN', setLocale: vi.fn(), t: (key, vars) => i18n.translate(key, vars, 'zh-CN') });
+    const file = new File(['a,b\n1,2\n'], '问题材料.csv', { type: 'text/csv' });
+    const send = vi.fn(async () => true);
+    let renderer!: ReturnType<typeof create>;
+    act(() => { renderer = create(createElement(ChatBox, { ...mainProps, answeringRole: role, attachments: [file], onSend: send })); });
+    const textarea = renderer.root.findByType('textarea');
+    expect(textarea.props.placeholder).toBe(`回答${i18n.translate(`role.${role}`, undefined, 'zh-CN')}…`);
+    await act(async () => textarea.props.onKeyDown({ key: 'Enter', shiftKey: false,
+      nativeEvent: { isComposing: false }, preventDefault: vi.fn() }));
+    expect(send).toHaveBeenCalledExactlyOnceWith(mainProps.value, [file]);
+    act(() => renderer.unmount());
+  });
 
   it('mirrors only the visible text under the gray suggestion, in the textarea\'s own font', () => {
     const value = `${referenceText({ source: 'map', task_id: 't1', task_title: 'Study', event_ids: [] })}Compare`;

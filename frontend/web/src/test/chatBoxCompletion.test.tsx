@@ -82,7 +82,7 @@ beforeEach(() => {
   send = vi.fn(() => false);
   sources = {
     sid: 's1', history: ['请比较两个基线的结果'], wantFiles: vi.fn(),
-    tasks: [{ id: 't2', title: '基线对比', objective: '', status: 'done', priority: 0, ts: 2 }],
+    tasks: [{ id: 't2', title: '基线对比', status: 'done', priority: 0, ts: 2 }],
     files: [entry('src', 'directory'), entry('src/train.py'), entry('src/tools', 'directory'), entry('src/tools/trace.py'), entry('train.md')],
   };
 });

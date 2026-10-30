@@ -22,9 +22,7 @@ export async function startSessionFixture(options = {}) {
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(resolve(parent, 'session-context-'));
   const dist = options.dist || process.env.ARGUS_SESSION_WEB_DIST || resolve(checkout, 'frontend/web/dist');
-  const manifestPath = process.env.ARGUS_SESSION_WEB_DIST
-    ? resolve(dist, 'fixture-release.json') : resolve(checkout, 'argus/release_manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const { version } = JSON.parse(await readFile(resolve(checkout, 'packages/core/package.json'), 'utf8'));
   const protocol = await readFile(resolve(checkout, 'packages/contracts/src/apiProtocol.generated.ts'), 'utf8');
   const service = JSON.parse(protocol.match(/API_SERVICE = ("[^"]+");/)[1]);
   const capabilities = [...protocol.split('REQUIRED_API_CAPABILITIES = [')[1].split('] as const')[0].matchAll(/"([^"]+)"/g)].map(match => match[1]);
@@ -93,9 +91,8 @@ export async function startSessionFixture(options = {}) {
       if (url.pathname === '/api/meta') return json(response, {
         service, protocol: { name: 'argus.webapi', major: 1, minor }, snapshot_schema_version: schema, capabilities,
         authentication: { required: true, authenticated: true },
-        runtime: { package_version: manifest.package_version, source_root: checkout,
-          pid: process.pid, executable: 'deterministic-node-fixture', started_at: '2026-09-17T00:00:00Z',
-          release_id: manifest.release_id },
+        runtime: { package_version: version, source_root: checkout,
+          pid: process.pid, executable: 'deterministic-node-fixture', started_at: '2026-09-17T00:00:00Z' },
       });
       if (method === 'GET' && options.read) {
         const extra = await options.read({ url, state, root });

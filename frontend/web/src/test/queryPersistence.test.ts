@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import { QUERY_CACHE_KEY, QUERY_CACHE_MAX_CHARS, persistQueryCache, restoreQueryCache } from '../lib/queryPersistence';
+import { version } from '../../../../packages/core/package.json';
 
 function memoryStorage(fail = false) {
   const values = new Map<string, string>();
@@ -38,7 +39,7 @@ describe('conversation cache across reloads', () => {
     const { storage, values } = memoryStorage();
     const clock = timers();
     const before = new QueryClient();
-    const stop = persistQueryCache(before, () => storage, 'build-1', clock.target);
+    const stop = persistQueryCache(before, () => storage, version, clock.target);
     before.setQueryData(['snapshot', 's-1'], { session: { id: 's-1' } }, { updatedAt: 1_000 });
     before.setQueryData(['conversation', 's-1', 120], [{ role: 'operator', text: 'Hello', ts: 1 }], { updatedAt: 1_000 });
     before.setQueryData(['artifacts', 's-1'], [{ path: 'big.bin' }], { updatedAt: 1_000 });
@@ -46,15 +47,16 @@ describe('conversation cache across reloads', () => {
     clock.run();
     stop();
     expect(values.has(QUERY_CACHE_KEY)).toBe(true);
+    expect(JSON.parse(values.get(QUERY_CACHE_KEY)!).build).toBe(version);
 
     const after = new QueryClient({ defaultOptions: { queries: { staleTime: 3_000 } } });
-    expect(restoreQueryCache(after, () => storage, 'build-1', 2_000)).toBe(2);
+    expect(restoreQueryCache(after, () => storage, version, 2_000)).toBe(2);
     expect(after.getQueryData(['conversation', 's-1', 120])).toEqual([{ role: 'operator', text: 'Hello', ts: 1 }]);
     expect(after.getQueryState(['snapshot', 's-1'])?.dataUpdatedAt).toBe(1_000);
     expect(after.getQueryData(['artifacts', 's-1'])).toBeUndefined();
     expect(after.getQueryData(['events', 's-1'])).toBeUndefined();
     // Another build may read different shapes: it starts clean.
-    expect(restoreQueryCache(new QueryClient(), () => storage, 'build-2', 2_000)).toBe(0);
+    expect(restoreQueryCache(new QueryClient(), () => storage, `${version}-next`, 2_000)).toBe(0);
   });
 
   it('keeps the newest views within the size cap and writes before the page goes away', () => {

@@ -20,7 +20,7 @@ describe("the living status line", () => {
     expect(text(root)).toBe("正在检查结果是否正确");
     act(() => root.unmount());
   });
-  it('uses the current Manager message and clears it at the next call boundary', () => {
+  it('keeps global Manager narration out of the card’s live line', () => {
     // The TS rows stream's projection of call.start and step/message records.
     const records = [
       { type: 'provider.request.started', agent_layer: 'manager', call_id: 'c1' },
@@ -30,11 +30,10 @@ describe("the living status line", () => {
     ];
     const message = latestManagerMessage(records);
     let root!: ReturnType<typeof create>;
-    act(() => { root = create(<LiveLine role="manager" message={message} zh />); });
-    expect(text(root)).toBe('已找到长路径的显示入口，正在检查手机详情。');
-    expect(latestManagerMessage([...records, { type: 'provider.request.started', agent_layer: 'manager', call_id: 'c2' }])).toBe('');
-    act(() => root.update(<LiveLine role="manager" message="" zh />));
+    expect(message).toBe('已找到长路径的显示入口，正在检查手机详情。');
+    act(() => { root = create(<LiveLine role="manager" zh />); });
     expect(text(root)).toBe('正在回复你的消息');
+    expect(latestManagerMessage([...records, { type: 'provider.request.started', agent_layer: 'manager', call_id: 'c2' }])).toBe('');
     expect(roleActionLabel('manager', false)).toBe('Replying to your message');
     act(() => root.unmount());
   });

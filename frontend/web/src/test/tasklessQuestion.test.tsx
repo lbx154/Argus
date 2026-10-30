@@ -48,10 +48,10 @@ it('keeps a Planner question taskless from the server snapshot through the banne
   expect(session.pendingReply.task_title).toBeUndefined();
   const words = () => renderer!.root.findAll(node => typeof node.type === 'string')
     .flatMap(node => node.children.filter(child => typeof child === 'string')).join('');
-  expect(words()).toContain(`规划者问：${question}`);
+  expect(words()).toBe(question);
   expect(words()).not.toContain('The Planner asks');
   expect(words()).not.toContain('Argus');
   await act(async () => { expect(await session.answerPendingReply('只研究已有数据。')).toBe(true); });
-  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith(project.id, 'planner', 'custom', '只研究已有数据。');
+  expect(api.resolveDecision).toHaveBeenCalledExactlyOnceWith(project.id, 'planner', 'custom', '只研究已有数据。', []);
   expect(notify).not.toHaveBeenCalled();
 });

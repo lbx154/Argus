@@ -18,9 +18,10 @@ import { DaemonManageModal } from '../components/DaemonManageModal';
 import { ActionNotice } from '../components/ActionNotice';
 import { EventStream } from '../components/EventStream';
 import { Capabilities } from '../lib/capabilities';
+import pendingAnswer from '../../../../packages/core/test/fixtures/pending-answer/record.json';
 
 const fixture = vi.hoisted(() => {
-  const idle = { data: undefined as unknown, isPending: false, isLoading: false, isError: false, isSuccess: true, refetch: vi.fn(async () => ({})) };
+  const idle = { data: undefined as unknown, isPending: false, isLoading: false, isError: false, isSuccess: true, isFetching: false, isFetchedAfterMount: true, refetch: vi.fn(async () => ({})) };
   const mutation = { isPending: false, mutate: vi.fn(), mutateAsync: vi.fn() };
   return {
     idle,
@@ -92,6 +93,7 @@ const toast = async (sessionId?: string, deliveryId = 'completion:s-A:task-A', p
 
 beforeEach(async () => {
   fixture.turns = [];
+  fixture.artifacts = [];
   fixture.index.isError = false;
   fixture.index.isSuccess = true;
   fixture.idle.refetch.mockReset().mockResolvedValue({});
@@ -124,6 +126,50 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
+  it('opens the conversation when a cached project refreshes with a question and preserves a later map choice', () => {
+    const view = () => renderer.root.findAll(node => node.props.className === 'workspace-tab')
+      .find(node => node.props['data-selected'])!.children.join('');
+    const map = () => act(() => renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props.onClick());
+    const cached = snapshot('s-A');
+    const asked = { ...cached, pending_questions: [{ id: pendingAnswer.task.id, operator_decision: {
+      id: `engineer-${pendingAnswer.task.id}`, item_id: pendingAnswer.task.id,
+      status: 'pending', question: pendingAnswer.question, options: [],
+    } }] };
+    map();
+    select('s-B');
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: cached, isFetching: true, isFetchedAfterMount: false });
+    select('s-A');
+    expect(view()).toBe('Research map');
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: asked });
+    refresh();
+    expect(view()).toBe('Conversation');
+    expect(props().answeringRole).toBe('engineer');
+    map();
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...asked, read_at: 2 } });
+    refresh();
+    expect(view()).toBe('Research map');
+    fixture.snapshots.set('s-B', { ...fixture.idle, data: snapshot('s-B'), isFetching: true, isFetchedAfterMount: false });
+    select('s-B');
+    select('s-A');
+    expect(view()).toBe('Conversation');
+  });
+
+  it('does not replace a map choice with a question that arrives after the opening refresh', () => {
+    select('s-B');
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: snapshot('s-A'), isFetching: true, isFetchedAfterMount: false });
+    select('s-A');
+    act(() => renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props.onClick());
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: snapshot('s-A') });
+    refresh();
+    const asked = { ...snapshot('s-A'), pending_questions: [{ id: pendingAnswer.task.id, operator_decision: {
+      id: `engineer-${pendingAnswer.task.id}`, item_id: pendingAnswer.task.id,
+      status: 'pending', question: pendingAnswer.question, options: [],
+    } }] };
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: asked });
+    refresh();
+    expect(renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props['data-selected']).toBe(true);
+  });
+
   it('answers the displayed question through the main composer without sending a Manager message', async () => {
     const current = snapshot('s-A');
     current.pending_questions = [{ id: 't1', operator_decision: {
@@ -136,7 +182,7 @@ describe('App session composer ownership', () => {
     const followup = vi.spyOn(api, 'queueFollowup').mockResolvedValue({ ok: true, queued: true, message_id: 'followup' });
     type('Use UTF-8');
     await act(async () => { expect(await props().onSend('Use UTF-8', [], { whileRunning: true })).toBe(true); });
-    expect(answer).toHaveBeenCalledExactlyOnceWith('s-A', 'reviewer-t1', 'custom', 'Use UTF-8');
+    expect(answer).toHaveBeenCalledExactlyOnceWith('s-A', 'reviewer-t1', 'custom', 'Use UTF-8', []);
     expect(stream).not.toHaveBeenCalled();
     expect(followup).not.toHaveBeenCalled();
     expect(props().value).toBe('');
@@ -195,6 +241,45 @@ describe('App session composer ownership', () => {
     expect(document.title).toBe('Renamed project');
     act(() => renderer.root.findByType(Sidebar).props.onNew());
     expect(document.title).toBe('Argus');
+  });
+  it('counts the visible result files, even when the same files were delivered repeatedly', () => {
+    fixture.artifacts = [{ path: 'report.md', name: 'report.md', kind: 'markdown', source: 'delivery' },
+      { path: 'data.csv', name: 'data.csv', kind: 'table', source: 'delivery' }] as never[];
+    fixture.turns = [1, 2, 3].map(n => ({ type: 'ui.argus', ts: n, event_id: n, delivery: {
+      schema_version: 1, delivery_id: `d${n}`, title: 'Result', kind: 'result', item_id: '', summary: '',
+      status: 'done', review_status: '', delivered_at: n,
+      targets: fixture.artifacts.map((file: { path: string }) => ({ path: file.path, label: file.path, source: 'manager' })), primary_target: null,
+    } }));
+    refresh();
+    expect(renderer.root.findByType(Sidebar).props.resultsCount).toBe(2);
+    act(() => renderer.root.findByType(Sidebar).props.onOpenResults());
+    const deliveryModal = renderer.root.findAllByType(ArtifactModal).find(node => node.props.delivery)!;
+    expect(deliveryModal.props.delivery.delivery_id).toBe('d3');
+    act(() => deliveryModal.props.onClose());
+    act(() => renderer.root.find(node => node.type === 'button' && node.children.includes('Results & files')).props.onClick());
+    expect(renderer.root.findByType(ResearchCanvas).props.artifacts).toHaveLength(2);
+  });
+  it('opens the counted file list from the sidebar before any delivery exists', () => {
+    fixture.artifacts = [{ path: 'draft.md', name: 'draft.md', kind: 'markdown' }] as never[];
+    refresh();
+    const sidebar = renderer.root.findByType(Sidebar);
+    expect(sidebar.props.resultsCount).toBe(1);
+    expect(renderer.root.findAllByType(ResearchCanvas)).toHaveLength(0);
+    act(() => sidebar.props.onOpenResults());
+    const canvas = renderer.root.findByType(ResearchCanvas);
+    expect(canvas.props.requestedPath).toBe('__argus_files__');
+    expect(canvas.props.filesFirst).toBe(true);
+    expect(canvas.props.artifacts.map((file: { path: string }) => file.path)).toEqual(['draft.md']);
+    expect(renderer.root.findAllByType(ArtifactModal).filter(node => node.props.delivery)).toHaveLength(0);
+    expect(renderer.root.findByType(Sidebar).props.mobileOpen).toBe(false);
+  });
+  it('uses the existing session objective as the tab title when the project has no display name', () => {
+    fixture.index.data.projects = [{ id: 's-A', display_name: '' }];
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...snapshot('s-A'), session: {
+      ...snapshot('s-A').session, display_name: '', objective: 'Saved request title\nFull request body',
+    } } });
+    refresh();
+    expect(document.title).toBe('Saved request title');
   });
   it('puts the original question straight in the composer and sends the edit as a new message', async () => {
     vi.spyOn(api, 'editions').mockResolvedValue({ original: '', versions: [] });

@@ -13,6 +13,7 @@ import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import { useDraftUploadView } from '../lib/draftUploads';
 import { ComposerSurface } from './ComposerSurface';
 import { RouteSegment } from './RouteSegment';
+import { roleLabel } from '../lib/enumLabels';
 
 /** The focused textarea's caret as of the visible text it was read from; blur or any
  *  other text (a restored draft, a rewrite, another tab) leaves no caret, so nothing pops
@@ -23,7 +24,7 @@ export function ChatBox({
   value, onChange, onSend, disabled, pending, focusSignal,
   attachments, onAttachmentsChange, onRewrite, onUndoRewrite, rewriting = false,
   completionSelection, onCompletionSelectionChange, routeOverride = 'auto', onRouteOverrideChange, footer, pendingNote,
-  completion,
+  completion, answeringRole,
 }: {
   value: string;
   onChange: (text: string) => void;
@@ -48,6 +49,7 @@ export function ChatBox({
   pendingNote?: string;
   /** What `@`, `#` and the gray text complete from; only the project conversation has it. */
   completion?: PromptSources;
+  answeringRole?: string;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -231,7 +233,8 @@ export function ChatBox({
         'aria-autocomplete': completion ? 'both' : 'list',
         'aria-controls': completionOpen ? PROMPT_COMPLETION_LISTBOX_ID : undefined, 'aria-expanded': completionOpen,
         'aria-activedescendant': activeCompletion ? promptCompletionOptionId(activeCompletion.id) : undefined,
-        placeholder: disabled ? t('chat.selectSession') : t('chat.placeholder'),
+        placeholder: answeringRole ? (zh ? `回答${roleLabel(answeringRole, t)}…` : `Reply to the ${roleLabel(answeringRole, t)}…`)
+          : disabled ? t('chat.selectSession') : t('chat.placeholder'),
       }} />
     {completion ? <span className="sr-only" role="status">{whole && t('completion.ghostHint', { text: whole })}</span> : null}
     <div className="composer-meta">

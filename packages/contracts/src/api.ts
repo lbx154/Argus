@@ -9,7 +9,6 @@ export interface ApiRuntimeIdentity {
   pid: number;
   executable: string;
   started_at: string;
-  release_id: string;
 }
 
 export interface ApiMeta {

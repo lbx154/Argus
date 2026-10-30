@@ -1,4 +1,4 @@
-"""A matching old release id must not hide newer source in a checkout."""
+"""Release artifacts must exist and the Python manifest must track source."""
 
 import json
 from pathlib import Path
@@ -18,12 +18,11 @@ def release_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (web / "assets").mkdir(parents=True)
     tui = tmp_path / "frontend" / "tui" / "bundle" / "argus.mjs"
     tui.parent.mkdir(parents=True)
-    release_id = "0.1.8+0123456789ab"
     manifest = source.parent / "release_manifest.json"
-    manifest.write_text(json.dumps({"release_id": release_id, "source_files": source_files(tmp_path)}))
+    manifest.write_text(json.dumps({"source_files": source_files(tmp_path)}))
     (web / "index.html").write_text('<script type="module" src="./assets/entry.js"></script>')
-    (web / "assets" / "entry.js").write_text(f'export const release = "{release_id}";')
-    tui.write_text(f'export const release = "{release_id}";')
+    (web / "assets" / "entry.js").write_text('// web entry')
+    tui.write_text('// tui entry')
     monkeypatch.setattr(check_artifacts, "ROOT", tmp_path)
     monkeypatch.setattr(check_artifacts, "MANIFEST", manifest)
     monkeypatch.setattr(check_artifacts, "TUI_BUNDLE", tui)
@@ -35,7 +34,7 @@ def test_current_source_and_frontends_pass(release_tree: Path) -> None:
     assert check_artifacts.check() == []
 
 
-def test_source_update_rejects_old_frontends_even_when_their_release_ids_match(
+def test_source_update_rejects_a_stale_manifest(
     release_tree: Path,
 ) -> None:
     (release_tree / "argus" / "app.py").write_text("VERSION = 20\n")
@@ -45,16 +44,13 @@ def test_source_update_rejects_old_frontends_even_when_their_release_ids_match(
     assert "does not match current source" in failures[0]
 
 
-def test_current_entry_must_match_even_when_an_old_asset_has_the_release_id(
+def test_current_entry_must_exist_even_when_an_old_asset_is_present(
     release_tree: Path,
 ) -> None:
     web = release_tree / "frontend" / "web" / "dist"
     (web / "assets" / "entry.js").rename(web / "assets" / "historical.js")
-    (web / "assets" / "entry.js").write_text('export const release = "outdated";')
-
-    failures = check_artifacts.check()
-    assert len(failures) == 1
-    assert "entry bundle does not embed current release" in failures[0]
+    with pytest.raises(RuntimeError, match="missing release artifact"):
+        check_artifacts.check()
 
 
 def test_checked_in_frontends_match_the_checked_in_source():

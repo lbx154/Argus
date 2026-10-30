@@ -61,7 +61,7 @@ const data: Dataset = {
   events: [{ id: "failure", item_id: "failed", ts: 1, type: "life.mission.failed", text: "The path is disconnected." }],
 };
 const props: ComponentProps<typeof MapCanvas> = {
-  data, zh: false, sessionId: "navigation", viewKey: "navigation", paused: true, readOnly: true,
+  data, zh: false, sessionId: "navigation", viewKey: "navigation", readOnly: true,
   snapshot: {
     session: { id: "navigation", display_name: "Navigation", objective: "", last_active: 0, workdir: "" },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null},
@@ -112,6 +112,30 @@ it("omits the empty status row and ambient decoration without hiding active work
     pending={true} snapshot={{ ...props.snapshot, work_status: { state: "running", reason: "", role: "manager", roles: ["manager"], taskId: "", title: "", activityAt: null, foreground: true, label: { "zh-CN": "正在处理你的请求", en: "Working on your request" } } }} /></QueryClientProvider>));
   expect(renderer.root.findAllByProps({ className: "map-status-text" })).toHaveLength(0);
   expect(renderer.root.findAllByProps({ className: "map-progress" })).toHaveLength(0);
+});
+
+it('associates the live manager call with one request card and keeps each card’s own action', () => {
+  const requests: Dataset = { ...data, tasks: ['q0', 'q4'].map((id, index) => ({
+    id, title: `Request ${index}`, objective: '', status: 'in_progress', role: 'manager', turn_kind: 'qa', ts: index,
+    latest_action: { role: 'manager', text: `Only for ${id}`, ts: index },
+  })), events: [] };
+  const call = { role: 'manager', answers: 'raw-request', request_card_id: 'q4', started_ts: 185 };
+  const snapshot: ComponentProps<typeof MapCanvas>['snapshot'] = { ...props.snapshot,
+    daemon: { ...props.snapshot.daemon, alive: true, calls: [call] },
+    work_status: { state: 'running', reason: '', role: 'manager', roles: ['manager'], taskId: '', title: '',
+      activityAt: 185, foreground: true, label: { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' } },
+  };
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={requests} snapshot={snapshot} /></QueryClientProvider>));
+  expect(nodes().map(node => [node.id, node.data.task.latest_action?.text, node.data.liveCall])).toEqual([
+    ['q0', 'Only for q0', undefined], ['q4', 'Only for q4', call],
+  ]);
+  const next = { ...snapshot, daemon: { ...snapshot.daemon, calls: [{ ...call, request_card_id: 'q0', started_ts: 195 }] } };
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={requests} snapshot={next} /></QueryClientProvider>));
+  expect(nodes().filter(node => node.data.liveCall).map(node => [node.id, node.data.liveCall?.started_ts])).toEqual([['q0', 195]]);
+  const before = nodes();
+  act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={requests}
+    snapshot={{ ...next, work_status: { ...next.work_status!, activityAt: 200 } }} /></QueryClientProvider>));
+  expect(nodes()).toBe(before);
 });
 
 it("keeps the task reader open when background focus changes and reads the real trajectory", () => {

@@ -34,10 +34,5 @@ export function livePollInterval(
   if (data?.history_loading) return 400;
   // SSE invalidation is the primary refresh trigger while work is active;
   // this interval is only a safety net for missed events.
-  return mapIsPaused(snapshot) ? false : 15_000;
-}
-
-export function mapIsPaused(snapshot: Snapshot): boolean {
-  if (snapshot.manager_requests?.some(request => request.status === 'running')) return false;
-  return !snapshot.daemon.alive;
+  return snapshot.work_status?.state === 'running' || snapshot.work_status?.state === 'waiting' ? 15_000 : false;
 }

@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
 import { operatorDecisionCards } from '../../core/src/decisions';
-import { api, type BacklogItem } from './api';
+import { api, type Snapshot, type UploadedAttachment } from './api';
 import { type NoticeTone } from './components/ActionNotice';
 import { errorText } from './lib/format';
 
 export function usePendingReplySession({ activeSid, backlog, notify, pendingQuestions, refetchSnapshot }: {
   activeSid: string | null;
-  backlog: BacklogItem[] | undefined;
+  backlog: Snapshot['backlog'] | undefined;
   notify: (tone: NoticeTone, message: string, details?: unknown) => void;
   pendingQuestions: Array<Record<string, unknown>> | undefined;
   refetchSnapshot: () => Promise<unknown>;
@@ -17,12 +17,13 @@ export function usePendingReplySession({ activeSid, backlog, notify, pendingQues
     pendingQuestions ?? [], backlog?.map(item => ({ ...item })) ?? [],
   )[0] ?? null, [backlog, pendingQuestions]);
 
-  const answerPendingReply = async (note: string): Promise<boolean> => {
+  const answerPendingReply = async (note: string, prepareAttachments?: () => Promise<UploadedAttachment[]>): Promise<boolean> => {
     if (!activeSid || !pendingReply || !note.trim() || submitting.current) return false;
     submitting.current = true;
     setPendingReplyBusy(true);
     try {
-      const result = await api.resolveDecision(activeSid, pendingReply.id, 'custom', note.trim());
+      const attachments = await prepareAttachments?.() ?? [];
+      const result = await api.resolveDecision(activeSid, pendingReply.id, 'custom', note.trim(), attachments);
       if (result.resolved === false || ('kind' in result && ['error', 'cancelled'].includes(String(result.kind)))) {
         notify('error', errorText(result.reply, undefined, 'message_failed'), result.reply);
         await refetchSnapshot();

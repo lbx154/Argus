@@ -4,7 +4,6 @@ import {
   REQUIRED_API_CAPABILITIES,
   SNAPSHOT_SCHEMA_VERSION,
 } from '../../../core/src/protocol';
-import { RELEASE_ID } from '../../../core/src/protocol';
 
 const currentMeta = {
   service: 'argus-webapi',
@@ -12,8 +11,7 @@ const currentMeta = {
   snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
   capabilities: [...REQUIRED_API_CAPABILITIES],
   runtime: {
-    package_version: RELEASE_ID.split('+')[0],
-    release_id: RELEASE_ID,
+    package_version: 'fixture',
     source_root: '/checkout/argus',
     pid: 12,
     executable: '/venv/bin/python',
@@ -115,14 +113,37 @@ describe('web API protocol handshake', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a mismatched release before any protected project read', async () => {
-    const fetchMock = vi.fn(async () => Response.json({ ...currentMeta,
-      runtime: { ...currentMeta.runtime, release_id: 'another-build' },
-    }));
+  it('accepts a different package version when the protocol is compatible', async () => {
+    const fetchMock = vi.fn(async (path: string) => Response.json(path === '/api/meta'
+      ? { ...currentMeta, runtime: { ...currentMeta.runtime, package_version: 'another-version' } }
+      : { projects: [] }));
     vi.stubGlobal('fetch', fetchMock);
     const { api } = await import('../api');
-    await expect(api.projectIndex()).rejects.toThrow(/out of sync/);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(api.projectIndex()).resolves.toEqual({ projects: [] });
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta', '/api/projects']);
+  });
+
+  it('shares an in-flight handshake and reuses it for successive snapshot reads', async () => {
+    let finishHandshake!: () => void;
+    const handshake = new Promise<void>(resolve => { finishHandshake = resolve; });
+    const fetchMock = vi.fn(async (path: string) => {
+      if (path === '/api/meta') {
+        await handshake;
+        return Response.json(currentMeta);
+      }
+      return Response.json(currentSnapshot);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('../api');
+    const first = api.snapshot('s-test');
+    const second = api.snapshot('s-test');
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual(['/api/meta']);
+    finishHandshake();
+    await expect(Promise.all([first, second])).resolves.toEqual([currentSnapshot, currentSnapshot]);
+    await expect(api.snapshot('s-test')).resolves.toEqual(currentSnapshot);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      '/api/meta', '/api/projects/s-test/snapshot', '/api/projects/s-test/snapshot', '/api/projects/s-test/snapshot',
+    ]);
   });
 
   it('performs one compatible handshake before project reads', async () => {
@@ -597,7 +618,6 @@ describe('small attachment batch fast path', () => {
     status = 200;
     statusText = 'OK';
     responseText = '';
-    release = RELEASE_ID;
     headers: Record<string, string> = {};
     body = new FormData();
     upload: {
@@ -610,7 +630,6 @@ describe('small attachment batch fast path', () => {
     ontimeout: (() => void) | null = null;
     open(method: string, path: string) { this.method = method; this.path = path; }
     setRequestHeader(name: string, value: string) { this.headers[name] = value; }
-    getResponseHeader() { return this.release; }
     send(body: FormData) { this.body = body; requests.push(this); }
     abort() { this.onabort?.(); }
     files() {

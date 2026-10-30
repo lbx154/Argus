@@ -4,7 +4,7 @@ import { TaskDetailModal } from './TaskDetailModal';
 import { splitMessageAttachments } from '../lib/attachments';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import type { UploadedAttachment } from '../api';
-import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGsapMotion } from '../lib/motion';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
@@ -22,7 +22,7 @@ import {
   type StepStatus,
 } from '../lib/feedSteps';
 import { theme } from '../lib/theme';
-import { clockOf } from '../lib/format';
+import { clockOf, dateOf } from '../lib/format';
 import { EmptyHint } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 import { deliveryFileUpdated, deliveryOptionLabel, deliveryFiles } from './deliveryPresentation';
@@ -288,16 +288,25 @@ function FeedRows({ rows }: { rows: FeedRow[] }) {
   );
 }
 
-function ConversationRow({
+function conversationTime(ev: EventMsg) {
+  const date = dateOf(ev);
+  const today = new Date();
+  const clock = clockOf(ev);
+  if (!date || date.toDateString() === today.toDateString()) return clock;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${clock}`;
+}
+
+const ConversationRow = memo(function ConversationRow({
   ev,
-  r,
+  fallbackText,
   artifacts,
   onOpenArtifact,
   rewritePrompt,
   managerMessage,
 }: {
   ev: EventMsg;
-  r: RenderedLine;
+  fallbackText: string;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   rewritePrompt?: string;
@@ -310,8 +319,8 @@ function ConversationRow({
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
   const operator = String(ev.type) === 'ui.operator';
-  const message = operator ? splitMessageAttachments(typeof ev.text === 'string' ? ev.text : r.text, ev.attachments as UploadedAttachment[] | undefined) : null;
-  const reportText = message?.text ?? (typeof ev.text === 'string' ? ev.text : r.text);
+  const message = operator ? splitMessageAttachments(typeof ev.text === 'string' ? ev.text : fallbackText, ev.attachments as UploadedAttachment[] | undefined) : null;
+  const reportText = message?.text ?? (typeof ev.text === 'string' ? ev.text : fallbackText);
   const draft = operator ? splitDraft(reportText) : null;
   const references = draft?.refs ?? [];
   const text = draft && references.length ? draft.text : reportText;
@@ -356,7 +365,7 @@ function ConversationRow({
                   ? <div>{reference.step_title}</div> : null}
               </blockquote>)}
             </div> : null}
-            {text ? <MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{text}</MarkdownContent> : null}
+            {text ? <div data-operator-text className="whitespace-pre-wrap break-words">{text}</div> : null}
           </div>
         </div>
       ) : (
@@ -374,7 +383,7 @@ function ConversationRow({
         </div>
       )}
       {ev.live !== true && <div className={`conversation-meta ${operator ? 'justify-end' : ''}`}>
-        <time>{clockOf(ev)}</time>
+        <time>{conversationTime(ev)}</time>
         <div className="conversation-tools">
         {reportText ? <CopyButton text={reportText} label={t('copy.message')} copiedLabel={t('copy.copied')} className="conversation-copy" /> : null}
         {/* The operator edits the message in the composer before sending it again. */}
@@ -383,7 +392,7 @@ function ConversationRow({
       </div>}
     </article>
   );
-}
+});
 
 function RoleLogGroup({
   role,
@@ -693,7 +702,7 @@ function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDe
   const { locale, t } = useI18n();
   const delivery = deliveryFromEvent(row.ev);
   const openArtifact = delivery && onOpenDelivery ? (path: string) => onOpenDelivery(delivery, path) : onOpenArtifact;
-  const reply = <ConversationRow managerMessage={managerMessage} ev={row.ev} r={row.r} artifacts={artifacts} onOpenArtifact={openArtifact}
+  const reply = <ConversationRow managerMessage={row.ev.status === 'running' ? managerMessage : ''} ev={row.ev} fallbackText={row.r.text} artifacts={artifacts} onOpenArtifact={openArtifact}
     rewritePrompt={row.ev.type === 'ui.operator' && !row.ev.answer_to ? row.r.text : undefined} />;
   const to = String(row.ev.to ?? '');
   return <section className="conversation-thread">
@@ -902,6 +911,23 @@ export function EventStream({
       lastScrollTop.current = scroller.current.scrollTop;
     }
   };
+
+  const localMessageId = events.filter(event => event.type === 'ui.operator'
+    && event.message_id === `local-${event.request_id}-operator`).at(-1)?.message_id;
+  const seenLocalMessage = useRef(localMessageId);
+  const pendingLocalJump = useRef(false);
+  useEffect(() => {
+    // History and server messages have durable identities. Only a new local
+    // placeholder from this page resumes following. Remember the intention
+    // even if its durable row arrives before the deferred list catches up.
+    if (localMessageId && localMessageId !== seenLocalMessage.current) pendingLocalJump.current = true;
+    seenLocalMessage.current = localMessageId;
+    if (deferredEvents !== events) return;
+    if (pendingLocalJump.current) {
+      pendingLocalJump.current = false;
+      jump();
+    }
+  }, [localMessageId, deferredEvents, events]);
 
   return (
     <ConversationActionContext.Provider value={onConversationAction}>

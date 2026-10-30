@@ -1,4 +1,4 @@
-import type { BacklogItem, EventMsg } from '../api';
+import type { BacklogSummary, EventMsg } from '../../../core/src/types';
 import { PROMPT_COMPLETION_VISIBLE_ROWS as ROWS, type CompletionItem } from '../components/PromptCompletionMenu';
 import type { Locale } from '../i18n';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
@@ -12,7 +12,7 @@ export const HISTORY_MIN_CHARS = 3;
 /** What the main composer completes from; absent on the landing page. */
 export interface PromptSources {
   sid: string;
-  tasks: readonly BacklogItem[];
+  tasks: readonly BacklogSummary[];
   /** {@link promptHistory}, newest first. */
   history: readonly string[];
   /** Undefined until the first `@` loads the workspace listing. */

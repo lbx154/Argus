@@ -6,10 +6,8 @@ import { debuglog } from 'node:util';
 import {
   describeApiRuntime,
   inspectApiMeta,
-  type ApiRuntimeExpectation,
   type ApiMeta,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/protocol.js';
 import {
   claimApiOwnership as claimApiOwnershipImpl,
   isLocalApiHost,
@@ -142,14 +140,6 @@ async function waitForStartupPoll(
   ]);
 }
 
-function localRuntimeExpectation(
-  env: NodeJS.ProcessEnv = process.env,
-): ApiRuntimeExpectation {
-  return {
-    releaseId: env.ARGUS_TUI_LOCAL_RELEASE_ID?.trim() || RELEASE_ID,
-  };
-}
-
 export async function probeApi(
   host: string,
   port: number,
@@ -180,8 +170,7 @@ export async function probeApi(
             stateRootMismatch: Boolean(stateRoot),
           };
         }
-        const expectation = localRuntimeExpectation();
-        const compatibility = inspectApiMeta(body, expectation);
+        const compatibility = inspectApiMeta(body);
         const stateError = stateRoot ? apiStateRootError(compatibility.meta, stateRoot) : '';
         if (stateError) {
           return {

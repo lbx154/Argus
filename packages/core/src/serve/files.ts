@@ -70,7 +70,7 @@ export function sendFile(request: IncomingMessage, response: ServerResponse, fil
     }
   }
   response.writeHead(partial ? 206 : 200, {
-    'content-type': typeOf(file)[1], ...headers, 'accept-ranges': 'bytes', 'content-length': String(Math.max(0, end - start + 1)),
+    ...headers, 'accept-ranges': 'bytes', 'content-length': String(Math.max(0, end - start + 1)),
     ...(partial ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
   });
   if (request.method === 'HEAD' || size === 0) response.end();
@@ -231,6 +231,12 @@ export function sendStatic(request: IncomingMessage, response: ServerResponse, w
   const found = under(web, pathname === '/' ? 'index.html' : `.${pathname}`);
   if (!found) return false;
   const cache = found.path === 'index.html' ? 'no-store' : found.path.startsWith('assets/') ? 'public, max-age=31536000, immutable' : '';
-  sendFile(request, response, found.file, found.stat.size, cache ? { 'cache-control': cache } : {});
+  // The build keeps a gzipped copy beside each file it shrinks.
+  const gzip = /\bgzip\b/i.test(request.headers['accept-encoding'] ?? '') ? under(web, `${found.path}.gz`) : null;
+  const sent = gzip ?? found;
+  sendFile(request, response, sent.file, sent.stat.size, {
+    'content-type': typeOf(found.file, found.path)[1], vary: 'Accept-Encoding',
+    ...(cache ? { 'cache-control': cache } : {}), ...(gzip ? { 'content-encoding': 'gzip' } : {}),
+  });
   return true;
 }

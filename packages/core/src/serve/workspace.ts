@@ -117,33 +117,21 @@ async function commitDiff(root: string, commit: string) {
 /** What git says of the workdir; a workdir that is not a repository of its own has nothing to say. */
 async function git(root: string) {
   const read = reader(root);
-  const [name, email] = await Promise.all([read('config', 'user.name'), read('config', 'user.email')]);
-  const identity = { name: name.trim(), email: email.trim(), valid: Boolean(name.trim() && email.trim()) };
   if (!existsSync(join(root, '.git'))) {
-    return { available: false, branch: '', status: '', diff: '', log: '', remotes: [], upstream: '', ahead: 0, behind: 0, identity };
+    return { available: false, branch: '', status: '', diff: '', log: '' };
   }
   const off = await filtersOff(read);
-  const [status, staged, unstaged, log, remote] = await Promise.all([
+  const [status, staged, unstaged, log] = await Promise.all([
     read(...off, 'status', '--short', '--branch', '--ignore-submodules'),
     read(...off, 'diff', '--cached', '--no-ext-diff', '--no-textconv', '--ignore-submodules', '--unified=2'),
     read(...off, 'diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules', '--unified=2'),
     read('log', '-20', '--date=iso-strict', '--pretty=format:%H%x09%ad%x09%an%x09%s'),
-    read('remote', '-v'),
   ]);
   // The first line of the status: `## main...origin/main [ahead 1, behind 2]`.
   const [head = '', ...changes] = status.split('\n');
-  const [, branch = '', upstream = '', counts = ''] = /^## (?:No commits yet on )?(\S+?)(?:\.\.\.(\S+))?(?: \[(.*)\])?$/.exec(head) ?? [];
-  const remotes = new Map<string, { name: string; fetch: string; push: string }>();
-  for (const [, name, address, use] of remote.matchAll(/^(\S+)\t(\S+) \((fetch|push)\)$/gm)) {
-    const row = remotes.get(name!) ?? { name: name!, fetch: '', push: '' };
-    // Never a credential written into the address.
-    row[use as 'fetch' | 'push'] = address!.replace(/\/\/[^/@]*@/, '//');
-    remotes.set(name!, row);
-  }
+  const [, branch = ''] = /^## (?:No commits yet on )?(\S+?)(?:\.\.\.\S+)?(?: \[.*\])?$/.exec(head) ?? [];
   const diff = `${staged}\n${unstaged}`.trim();
   return {
-    available: true, branch, status: changes.join('\n'), diff, log, remotes: [...remotes.values()], upstream,
-    ahead: Number(/ahead (\d+)/.exec(counts)?.[1] ?? 0), behind: Number(/behind (\d+)/.exec(counts)?.[1] ?? 0),
-    identity, truncated: diff.includes(CUT),
+    available: true, branch, status: changes.join('\n'), diff, log, truncated: diff.includes(CUT),
   };
 }

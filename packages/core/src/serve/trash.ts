@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { PROJECT_ID, type Project, type Store } from '../store.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
+import { named } from './views.js';
 
 export function trash(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
   const bin = join(store.home, 'trash');
@@ -17,7 +18,7 @@ export function trash(store: Store, runs: Runs, project: (id: string) => Project
       try {
         const work = JSON.parse(readFileSync(join(bin, name, 'project.json'), 'utf8')) as Project;
         return [{
-          trash_id: name, sid: work.id, label: work.name || work.request.split('\n')[0] || work.id, launch_cwd: work.workdir,
+          trash_id: name, sid: work.id, label: named(work) || work.id, launch_cwd: work.workdir,
           trash_path: join('trash', name), trashed_at: statSync(join(bin, name)).ctimeMs / 1000,
         }];
       } catch { return []; }

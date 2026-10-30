@@ -7,6 +7,7 @@ import { PdfPreview } from '../components/PdfPreview';
 import { api } from '../api';
 import { useArtifact } from '../hooks';
 import { loadPdfEngine } from '../lib/pdfEngine';
+import deliveredRecord from '../../../../packages/core/test/fixtures/delivery-versions/record.json';
 
 const artifact = vi.hoisted(() => ({ data: undefined as ArtifactInfo | undefined, isError: false, error: undefined as unknown }));
 vi.mock('../hooks', () => ({ useArtifact: vi.fn(() => ({ ...artifact, isLoading: false })) }));
@@ -126,4 +127,28 @@ it('keeps the selected delivery in file downloads and archive downloads', async 
   expect(blob).toHaveBeenCalledWith('s', 'report.md', true, undefined, 'd2');
   await act(async () => tree!.root.find(node => node.type === 'button' && node.children.includes('Download all (zip)')).props.onClick());
   expect(bundle).toHaveBeenCalledWith('s', ['report.md', 'data.csv'], 'Report', '# Report\n\nExplanation', undefined, 'd2');
+});
+
+it('offers Revise only for the latest delivery of each file in the recorded repeated deliveries', () => {
+  const deliveries: DeliveryReceipt[] = deliveredRecord.text.events.flatMap((event, line) => event.type === 'handoff' && 'open' in event ? [{
+    schema_version: 1, delivery_id: `d${line}`, kind: 'result', item_id: '', title: event.title!, summary: event.letter!,
+    status: 'done', review_status: '', delivered_at: Date.parse(event.ts) / 1000, primary_target: null,
+    targets: event.open!.map(path => ({ path, label: path, source: 'manager' })), snapshots: event.snapshots,
+  }] : []);
+  const revise = vi.fn();
+  artifact.data = { path: 'report.md', name: 'report.md', kind: 'text', mime: 'text/plain', size: 37, mtime: 1 };
+  const show = (delivery?: DeliveryReceipt, path = 'report.md') => act(() => {
+    const modal = <ArtifactModal sid="s" path={path} delivery={delivery} deliveries={deliveries} onRevise={revise} onClose={() => {}} />;
+    if (tree) tree.update(modal); else tree = create(modal);
+  });
+  const buttons = () => tree!.root.findAll(node => node.type === 'button' && node.children.includes('Revise'));
+  show(deliveries[0]); expect(buttons()).toHaveLength(0);
+  // The repeated second version is still an older delivery occurrence.
+  show(deliveries[1]); expect(buttons()).toHaveLength(0);
+  show(deliveries[2]); expect(buttons()).toHaveLength(1);
+  act(() => buttons()[0].props.onClick()); expect(revise).toHaveBeenLastCalledWith('report.md');
+  // A later delivery of a different path leaves this file's newest edition editable.
+  deliveries.push({ ...deliveries[2], delivery_id: 'other', delivered_at: 100, primary_target: null, targets: [{ path: 'other.md', label: 'other.md', source: 'manager' }] });
+  show(deliveries[2]); expect(buttons()).toHaveLength(1);
+  show(); expect(buttons()).toHaveLength(1);
 });

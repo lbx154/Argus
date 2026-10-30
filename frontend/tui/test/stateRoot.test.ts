@@ -6,7 +6,6 @@ import {
   API_SERVICE, API_PROTOCOL, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION,
   type ApiMeta,
 } from '../../core/src/protocol.js';
-import { RELEASE_ID } from '../../core/src/protocol.js';
 import { apiStateRootError, ensureApi, probeApi } from '../src/ensureApi.js';
 import { selectApiPort } from '../src/portSelection.js';
 
@@ -19,7 +18,7 @@ function meta(root: string | null = '/state/chosen'): ApiMeta {
     runtime: {
       state_root: root, package_version: 'fixture', source_root: '/code',
       pid: 123, executable: '/node',
-      started_at: '', release_id: RELEASE_ID,
+      started_at: '',
     },
   };
 }
@@ -32,15 +31,14 @@ test('data directory identity handles POSIX and Windows canonical paths', () => 
   assert.match(apiStateRootError(undefined, '/state/chosen'), /cannot verify/);
 });
 
-test('real HTTP probe rejects another state directory even when the release matches', async (t) => {
-  const names = ['ARGUS_TUI_LOCAL_STATE_ROOT', 'ARGUS_TUI_LOCAL_RELEASE_ID'];
+test('real HTTP probe rejects another state directory when the protocol is compatible', async (t) => {
+  const names = ['ARGUS_TUI_LOCAL_STATE_ROOT'];
   const previous = names.map((name) => process.env[name]);
   t.after(() => names.forEach((name, index) => {
     if (previous[index] === undefined) delete process.env[name];
     else process.env[name] = previous[index];
   }));
   process.env.ARGUS_TUI_LOCAL_STATE_ROOT = '/state/chosen';
-  process.env.ARGUS_TUI_LOCAL_RELEASE_ID = RELEASE_ID;
   let body = meta('/state/other');
   let status = 200;
   const server = createServer((_request, response) => {
@@ -115,15 +113,13 @@ test('another application is never claimed, signalled or replaced', async () => 
 });
 
 test('HTTP probe checks application ownership in both directions', async (t) => {
-  const names = ['ARGUS_APPLICATION_ROUTES', 'ARGUS_TUI_LOCAL_STATE_ROOT',
-    'ARGUS_TUI_LOCAL_RELEASE_ID'];
+  const names = ['ARGUS_APPLICATION_ROUTES', 'ARGUS_TUI_LOCAL_STATE_ROOT'];
   const previous = names.map(name => process.env[name]);
   t.after(() => names.forEach((name, index) => {
     if (previous[index] === undefined) delete process.env[name];
     else process.env[name] = previous[index];
   }));
   delete process.env.ARGUS_TUI_LOCAL_STATE_ROOT;
-  process.env.ARGUS_TUI_LOCAL_RELEASE_ID = RELEASE_ID;
   process.env.ARGUS_APPLICATION_ROUTES = 'example:register';
   const body = meta();
   const server = createServer((_request, response) => {

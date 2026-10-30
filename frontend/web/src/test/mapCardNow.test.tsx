@@ -90,6 +90,37 @@ describe('the task holder, the latest thing said and results on the map card', (
     act(() => tree!.update(shown({ ...task, status: 'done', latest_action: { role: 'reviewer', text: 'See report.md', ts: 3 }, result_paths: [] })));
     expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('打开结果'))).toHaveLength(0);
   });
+
+  it('shows the pending question and distinguishes waiting for an answer from stopping', () => {
+    const waiting = { ...task, pending_question: '请问输出用中文还是英文？' };
+    const props = card(waiting);
+    act(() => { tree = create(<MacroTaskNode {...props} />); });
+    expect(tree!.root.findByProps({ 'data-testid': 'map-card-question' }).children.join('')).toBe(waiting.pending_question);
+    expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('等你回答');
+    expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-live' })).toHaveLength(0);
+    const workStatus = { state: 'paused', reason: 'operator_input' } as NonNullable<MacroData['workStatus']>;
+    const request = card({ ...task, id: 'q0', role: 'manager', turn_kind: 'qa' });
+    act(() => tree!.update(<MacroTaskNode {...request} data={{ ...request.data, workStatus }} />));
+    expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('等你回答');
+    act(() => tree!.update(<MacroTaskNode {...request} data={{ ...request.data, workStatus: { ...workStatus, reason: 'not_running' } }} />));
+    expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('已停止');
+  });
+
+  it('shows a live clock only for the request being answered, from its actual call start', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(200_000);
+    const request = card({ ...task, id: 'q0', role: 'manager', turn_kind: 'qa', started_ts: 1 });
+    act(() => { tree = create(<MacroTaskNode {...request} />); });
+    expect(tree!.root.findByProps({ className: 'map-card-kind' }).children).toContain('请求');
+    expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('进行中');
+    expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-live' })).toHaveLength(0);
+    act(() => tree!.update(<MacroTaskNode {...request} data={{ ...request.data,
+      liveCall: { role: 'manager', answers: 'raw-request', request_card_id: 'q0', started_ts: 185 } }} />));
+    const clock = tree!.root.findByProps({ 'data-testid': 'map-card-live' });
+    expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('正在回答');
+    expect(clock.findByType('span').children.join('')).toBe('正在回复你的消息 · 本次已进行 15 秒');
+    expect(tree!.root.findByProps({ 'data-testid': 'map-card-action' }).props.title).toBe(task.latest_action!.text);
+    vi.restoreAllMocks();
+  });
 });
 
 describe('the figure on a task’s card', () => {

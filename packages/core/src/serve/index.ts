@@ -9,8 +9,9 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  API_PROTOCOL, API_SERVICE, RELEASE_ID, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
+  API_PROTOCOL, API_SERVICE, REQUIRED_API_CAPABILITIES, SNAPSHOT_SCHEMA_VERSION, type ApiMeta,
 } from '@argus/contracts';
+import corePackage from '../../package.json' with { type: 'json' };
 import { rewritePrompt } from '../prompts.js';
 import { PROJECT_ID, asker, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
@@ -126,7 +127,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     snapshot_schema_version: SNAPSHOT_SCHEMA_VERSION,
     capabilities: [...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', ...CAPABILITIES],
     runtime: {
-      package_version: RELEASE_ID.split('+')[0]!, release_id: RELEASE_ID, pid: process.pid, started_at: STARTED,
+      package_version: corePackage.version, pid: process.pid, started_at: STARTED,
       source_root: authenticated ? SOURCE_ROOT : '<redacted>', executable: authenticated ? process.execPath : '<redacted>',
       state_root: authenticated ? store.home : null,
     },
@@ -142,12 +143,14 @@ export async function serve(options: ServeOptions): Promise<Served> {
     };
   };
   /** The operator's answer to one of the open questions, in their own words. */
-  const answer = async (id: string, card: string, note: string): Promise<void> => {
-    const question = project(id).questions.find(question => asker(question) === card);
+  const answer = async (id: string, card: string, note: string, files?: unknown): Promise<void> => {
+    const work = project(id);
+    const question = work.questions.find(question => asker(question) === card);
     if (!question) throw new HttpError(409, 'This question is no longer open.', 'question_closed');
     if (!note.trim()) throw new HttpError(400, 'empty answer', 'input_required');
+    const uploaded = attached(work, files);
     // Answered by another request meanwhile, while the work under way stopped.
-    await runs.answer(id, question, note.trim()).catch(() => { throw new HttpError(409, 'This question is no longer open.', 'question_closed'); });
+    await runs.answer(id, question, note.trim(), uploaded).catch(() => { throw new HttpError(409, 'This question is no longer open.', 'question_closed'); });
   };
   /** The message a request carries, checked before any reply is under way. */
   const message = async ({ params: [id], body }: Context): Promise<(send: (frame: Frame) => void) => Promise<Frame>> => {
@@ -243,7 +246,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       return conversationPage(conversationRows(reading, work, runs.live(work.id)), reading.fold.line - 1, limit, before);
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/map$/, ({ params: [id], url }) =>
-      progressMap(store, project(id!), Number(url.searchParams.get('after')) || 0)],
+      progressMap(store, project(id!), Number(url.searchParams.get('after')) || 0, runs.live(id!).calls)],
     ['GET', /^\/api\/projects\/([^/]+)\/map-trace$/, ({ params: [id], url }) => taskTrace(store, project(id!), url.searchParams.get('task') ?? '')],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/stream$/, async context => {
       const reply = await message(context);
@@ -274,18 +277,18 @@ export async function serve(options: ServeOptions): Promise<Served> {
         ...rewritten ? {} : { error_code: 'rewrite_failed' } };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/message$/, async context => {
-      const { domain_answer: card } = await context.body();
+      const { domain_answer: card, attachments: files } = await context.body();
       if (card && typeof card === 'object') {
         const { id, note } = card as Record<string, unknown>;
-        await answer(context.params[0]!, String(id), String(note ?? ''));
+        await answer(context.params[0]!, String(id), String(note ?? ''), files);
         return { kind: 'chat', reply: null, resolved: true };
       }
       const frame = await (await message(context))(() => {});
       return frame.type === 'done' ? frame.result : { kind: 'error', reply: frame.error };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/decisions\/([^/]+)\/resolve$/, async ({ params: [id, card], body }) => {
-      const { note } = await body();
-      await answer(id!, card!, String(note ?? ''));
+      const { note, attachments: files } = await body();
+      await answer(id!, card!, String(note ?? ''), files);
       return { resolved: true };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/daemon\/start$/, async ({ params: [id], body }) => {

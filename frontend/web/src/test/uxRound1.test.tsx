@@ -55,7 +55,7 @@ describe('spend estimate', () => {
 
 describe('attention signals', () => {
   it('puts an open question before results', () => {
-    const asking = snapshot({ backlog: [{ id: 'q', title: '选数据集', objective: 'x', status: 'paused_operator', priority: 1, operator_decision: { id: 'q', revision: 1, item_id: 'q', status: 'pending', title: '选数据集', reason: '', question: '用哪个数据集？', evidence: [], options: [], selected_option: '', note: '' } }] });
+    const asking = snapshot({ backlog: [{ id: 'q', title: '选数据集', status: 'paused_operator', priority: 1, operator_decision: { id: 'q', revision: 1, item_id: 'q', status: 'pending', title: '选数据集', reason: '', question: '用哪个数据集？', evidence: [], options: [], selected_option: '', note: '' } }] });
     const reply = projectAttention({ snapshot: asking, zh: true });
     expect(reply?.kind).toBe('reply');
     expect(reply?.body).toContain('用哪个数据集');
@@ -82,7 +82,7 @@ describe('plain error messages', () => {
 describe('one Stop, in the header, while anything is under way', () => {
   const running = snapshot({
     daemon: { alive: true, pid: 1, uptime_seconds: 10, backend: null },
-    backlog: [{ id: 'a', title: 'one', objective: 'one', status: 'running', priority: 1 }],
+    backlog: [{ id: 'a', title: 'one', status: 'running', priority: 1 }],
   });
 
   it('offers Stop while the team works or a reply is awaited, and neither pause nor resume', () => {
@@ -98,7 +98,7 @@ describe('one Stop, in the header, while anything is under way', () => {
 describe('work stopped short can be resumed from the header', () => {
   const stopped = (resumable: boolean) => snapshot({
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: null, resumable },
-    backlog: [{ id: 'a', title: '视频去噪', objective: 'x', status: resumable ? 'in_progress' : 'done', priority: 1 }],
+    backlog: [{ id: 'a', title: '视频去噪', status: resumable ? 'in_progress' : 'done', priority: 1 }],
   } as Partial<Snapshot>);
 
   it('shows Resume as the primary header action when the server says there is work to take up', () => {

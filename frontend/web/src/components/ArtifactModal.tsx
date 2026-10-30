@@ -54,6 +54,8 @@ export function ArtifactModal({
   /** What a link in the summary or a Markdown file may open here. */
   const linked = [...artifacts, ...files.map((file) => ({ path: file.path }))];
   const deliveryId = delivery?.delivery_id;
+  const latest = !delivery || !deliveries.some(other => other.delivered_at > delivery.delivered_at
+    && deliveryFiles(other).some(file => file.path === path));
   const updated = Boolean(delivery && path && deliveryFileUpdated(delivery, deliveries, path));
   const artifactQ = useArtifact(sid, path, null, deliveryId);
   const info = artifactQ.data;
@@ -174,7 +176,7 @@ export function ArtifactModal({
         {delivery && <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? (zh ? '收起预览' : 'Exit full screen') : (zh ? '全屏预览' : 'Full screen preview')} title={zh ? '切换全屏预览' : 'Toggle full screen preview'} className="artifact-tool shrink-0 p-2">{expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>}
         {!delivery && onEdit && path && info && canEditArtifact(info)
           && <button type="button" onClick={() => onEdit(path)} className="artifact-tool shrink-0">{zh ? '编辑与版本' : 'Edit & versions'}</button>}
-        {onRevise && path && <button type="button" disabled={!info} onClick={() => onRevise(path)}
+        {onRevise && path && latest && <button type="button" disabled={!info} onClick={() => onRevise(path)}
           className="artifact-tool shrink-0 disabled:opacity-50">{zh ? '继续修改' : 'Revise'}</button>}
         <button
           type="button"

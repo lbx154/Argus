@@ -10,10 +10,12 @@ const [card] = operatorDecisionCards([{ id: 't1', operator_decision: {
 } }], [{ id: 't1', title: '编写并运行 hello.py' }]);
 afterEach(() => vi.restoreAllMocks());
 
-it('joins the actual role, task name and question in one sentence without a dialog', () => {
+it('shows only the question beside the main composer', () => {
   vi.spyOn(i18n, 'useI18n').mockReturnValue({ locale: 'zh-CN', setLocale: vi.fn(), t: (key, vars) => i18n.translate(key, vars, 'zh-CN') });
   const html = renderToStaticMarkup(<PendingBanner reply={card} />);
-  expect(html).toContain('工程师在「编写并运行 hello.py」上问：请问输出用中文还是英文？');
+  expect(html).toContain('请问输出用中文还是英文？');
+  expect(html).not.toContain('编写并运行 hello.py');
+  expect(html).not.toContain('工程师');
   expect(html.match(/请问输出用中文还是英文？/g)).toHaveLength(1);
   expect(html).not.toContain('role="dialog"');
   expect(html).not.toMatch(/<textarea|<form|<button/);

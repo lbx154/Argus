@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify that shipped Web/TUI artifacts and release identity match the source."""
+"""Verify the Python release manifest and the presence of its shipped frontends."""
 
 from __future__ import annotations
 
@@ -30,29 +30,20 @@ def _web_entry_assets(index: str) -> list[Path]:
 
 def check() -> list[str]:
     manifest = json.loads(_read(MANIFEST))
-    expected = str(manifest.get("release_id") or "")
-    if not expected:
-        return ["release manifest has no release_id"]
     failures: list[str] = []
     if manifest.get("source_files") != source_files(ROOT):
         failures.append(
             "release manifest does not match current source; "
             "run python -m argus.release_tools.build_release"
         )
-    if expected not in _read(TUI_BUNDLE):
-        failures.append(
-            f"frontend/tui/bundle/argus.mjs does not embed current release {expected}"
-        )
+    _read(TUI_BUNDLE)
     index = _read(WEB_INDEX)
     entry_assets = _web_entry_assets(index)
     if not entry_assets:
         failures.append("frontend/web/dist/index.html references no JS/CSS entry assets")
     else:
-        js_assets = [path for path in entry_assets if path.suffix == ".js"]
-        if not js_assets or not any(expected in _read(path) for path in js_assets):
-            failures.append(
-                f"frontend/web/dist entry bundle does not embed current release {expected}"
-            )
+        for path in entry_assets:
+            _read(path)
     return failures
 
 

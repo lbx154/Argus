@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { buildMap, latestMissionCompletion, type Dataset } from "../map/model";
 import { layoutScene } from "../map/submap";
-import { mapIsPaused, mergeMapProgress } from "../map/incremental";
+import { livePollInterval, mergeMapProgress } from "../map/incremental";
 import type { Snapshot } from "../api";
 
 const first: Dataset = {
@@ -62,9 +62,14 @@ it("keeps completion scope across event-only pages without leaking an earlier at
   }])).toBeUndefined();
 });
 
-it("pauses from daemon liveness while a foreground request keeps the map active", () => {
+it("polls from work status, including a question at rest and an operator stop", () => {
   const snapshot = { daemon: { alive: false }, roles: [] } as unknown as Snapshot;
-  expect(mapIsPaused(snapshot)).toBe(true);
-  expect(mapIsPaused({ ...snapshot, daemon: { ...snapshot.daemon, alive: true } })).toBe(false);
-  expect(mapIsPaused({ ...snapshot, manager_requests: [{ request_id: 'self', status: 'running' }] })).toBe(false);
+  const status = (state: string, reason = '') => ({ ...snapshot,
+    work_status: { state, reason } as Snapshot['work_status'],
+  });
+  expect(livePollInterval(undefined, status('paused', 'operator_input'))).toBe(false);
+  expect(livePollInterval(undefined, status('paused', 'not_running'))).toBe(false);
+  expect(livePollInterval(undefined, status('running'))).toBe(15_000);
+  expect(livePollInterval(undefined, status('waiting'))).toBe(15_000);
+  expect(livePollInterval({ history_loading: true }, status('paused'))).toBe(400);
 });

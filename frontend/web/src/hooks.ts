@@ -3,7 +3,6 @@ import { useEffect } from 'react';
 import { api, isAuthenticationError, openProjectStates, type ProjectIndex, type Snapshot } from './api';
 import { POLL_CAPABILITY, useCapability } from './lib/capabilities';
 import { cacheProjectName } from './lib/projectName';
-import { PageUpdateRequiredError } from './lib/pageUpdate';
 import { workspaceApi } from './research-workbench/workspaceApi';
 
 /* ------------------------------------------------------------------ REST */
@@ -13,7 +12,7 @@ export const SNAPSHOT_POLL_MS = 8_000;
 export const ACTIVE_DAEMON_POLL_MS = 2_000;
 
 export function queryRetryPolicy(failureCount: number, error: unknown): boolean {
-  return !isAuthenticationError(error) && !(error instanceof PageUpdateRequiredError) && failureCount < 1;
+  return !isAuthenticationError(error) && failureCount < 1;
 }
 
 export function projectPollInterval(index?: ProjectIndex): number {

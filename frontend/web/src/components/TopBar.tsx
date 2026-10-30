@@ -54,10 +54,10 @@ export function TopBar({
   const work = currentWorkStatus(snap);
   const roleName = work.role || 'manager';
   const roleActive = work.state === 'running' && streamOk && !snapshotStale;
+  const title = snap.session.display_name || snap.session.objective.split('\n')[0] || t('sidebar.unnamedSession');
   const activeItem = snap.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
   const focus = relativizeWorkspacePaths(work.title
     || activeItem?.title
-    || activeItem?.objective
     || snap.session.objective
     || '', snap.session.workdir);
   const phase = teamPhase(work);
@@ -72,8 +72,8 @@ export function TopBar({
 
   return (
     <WorkspaceHeader className="project-header">
-      <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 tracking-[-0.005em] text-ink" title={snap.session.display_name || snap.session.id}>
-        {snap.session.display_name || t('sidebar.unnamedSession')}
+      <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 tracking-[-0.005em] text-ink" title={title}>
+        {title}
       </div>
       {showStatus && <div className="topbar-status min-w-0 items-center text-xs text-ink-faint">
         <span

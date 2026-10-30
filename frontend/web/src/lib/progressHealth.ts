@@ -1,4 +1,4 @@
-import type { BacklogItem, Snapshot } from '../../../core/src/types';
+import type { BacklogSummary, Snapshot } from '../../../core/src/types';
 
 const FAILED = new Set(['failed', 'error']);
 export const REPEATED_FAILURE_THRESHOLD = 3;
@@ -13,8 +13,8 @@ export interface ProgressHealth {
   latestFailure?: { title: string; reason: string };
 }
 
-function failed(item: BacklogItem): boolean {
-  const outcome = (item as BacklogItem & { outcome?: Record<string, unknown> }).outcome;
+function failed(item: BacklogSummary): boolean {
+  const outcome = (item as BacklogSummary & { outcome?: Record<string, unknown> }).outcome;
   return FAILED.has(item.status) || outcome?.execution_status === 'failed';
 }
 
@@ -39,7 +39,7 @@ export function progressHealth(snapshot: Pick<Snapshot, 'backlog' | 'daemon'>, n
     if (failed(item)) failures += 1;
   }
   const latest = finished.find(failed);
-  const latestFailure = latest ? { title: latest.title || latest.objective, reason: String(latest.last_error || '') } : undefined;
+  const latestFailure = latest ? { title: latest.title, reason: String(latest.last_error || '') } : undefined;
   if (failures >= REPEATED_FAILURE_THRESHOLD && latest) {
     return { problem: 'repeated_failures', key: `failures:${latest.id}`, failures, hoursWithoutAccepted: 0, latestFailure };
   }

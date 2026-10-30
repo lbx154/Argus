@@ -1,4 +1,5 @@
 import React from 'react';
+import type { BacklogSummary } from '../../../core/src/types.js';
 import { Box, Text } from 'ink';
 import { theme, effortColor } from '../theme.js';
 import { helpGroups } from '../input/slash.js';
@@ -315,7 +316,7 @@ function DoctorPanel({ r }: { r: DoctorReport }) {
   );
 }
 
-function BacklogPanel({ items, all, selected, pageSize }: { items: BacklogItem[]; all: boolean; selected: number; pageSize: number }) {
+function BacklogPanel({ items, all, selected, pageSize }: { items: BacklogSummary[]; all: boolean; selected: number; pageSize: number }) {
   const shown = all ? items : visibleBacklogItems(items, false);
   const safeSelection = Math.min(Math.max(0, selected), Math.max(0, shown.length - 1));
   const view = pageSlice(shown, Math.floor(safeSelection / pageSize), pageSize);
@@ -338,7 +339,7 @@ function BacklogPanel({ items, all, selected, pageSize }: { items: BacklogItem[]
             <Text color={focused ? theme.accent : 'gray'}>{focused ? '› ' : '  '}</Text>
             <Text color={color(it.status)}>{it.status.padEnd(10)}</Text>
             <Text dimColor>{`${it.id.slice(0, 8)}  `}</Text>
-            <Text bold={focused}>{it.title || it.objective}</Text>
+            <Text bold={focused}>{it.title}</Text>
           </Box>
           );
         })

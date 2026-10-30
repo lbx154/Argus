@@ -17,7 +17,7 @@ import { isPauseStatus } from "../../../core/src/missionOutcome";
 import { MarkdownExcerpt } from "../components/MarkdownExcerpt";
 import { Button } from "../components/primitives";
 import { MapReaderContent } from "./MapReaderContent";
-import type { ArtifactInfo } from "../api";
+import type { ArtifactInfo, Snapshot } from "../api";
 import { ACTIVE, plainTitle, statusKey } from "./model";
 import {
   STEP_KINDS,
@@ -42,8 +42,8 @@ export type MacroData = MapCard & {
   focused: boolean;
   detailed: boolean;
   readCopy?: (nodeId: string, key: string | null) => void;
-  managerMessage?: string;
-  paused?: boolean;
+  liveCall?: NonNullable<Snapshot['daemon']['calls']>[number];
+  workStatus?: Pick<NonNullable<Snapshot['work_status']>, 'state' | 'reason'>;
   growthDelay?: number;
   growingSteps?: Record<string, number>;
   growingLinks?: Record<string, number>;
@@ -170,6 +170,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   data,
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
+  const paused = data.workStatus?.state === 'paused';
   const { artifacts, onOpenArtifact, workspace } = useContext(MapArtifactContext);
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
@@ -200,7 +201,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ? "recorded"
     : task.status === "missing"
       ? "missing"
-      : data.paused && ACTIVE.has(task.status) ? "paused" : statusKey(task);
+      : task.pending_question ? 'question'
+      : paused && ACTIVE.has(task.status) ? data.workStatus?.reason === 'operator_input' ? 'question' : 'paused' : statusKey(task);
   const summaryScale = Math.min(
     data.frame.width / 288,
     data.frame.height / 280,
@@ -219,9 +221,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           .reverse()
           .find((s) => !["plan", "result"].includes(s.kind))?.id
       : null;
-  const activeStep = data.paused ? null : activityStep;
+  const activeStep = paused || task.pending_question ? null : activityStep;
   const stepStatus = (step: SubmapStep) =>
-    activityStep === step.id ? data.paused ? 'paused' : 'running' : step.status;
+    activityStep === step.id ? paused || task.pending_question ? state : 'running' : step.status;
   const readerWidth = Math.min(
     640,
     layout.width - 48,
@@ -269,6 +271,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ] ?? STATES.unknown)[zh ? 0 : 1];
   const taskStateLabel = data.completionScope
     ? zh ? "当次结束 · 当时目标未完成" : "Execution ended · goal incomplete then"
+    : task.turn_kind === 'qa' && state === 'running' && !data.liveCall ? stateLabel(state)
     : task.turn_kind === 'qa' && ['done', 'running', 'cancelled', 'failed'].includes(state)
     ? ({ done: ['已回答', 'Answered'], running: ['正在回答', 'Answering'], cancelled: ['已中断', 'Interrupted'], failed: ['回答失败', 'Answer failed'] } as Record<string, string[]>)[state][zh ? 0 : 1]
     : stateLabel(state);
@@ -293,7 +296,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
       data-detailed={detailed}
       aria-label={title}
       data-completed-now={completedNow}
-      data-active={!data.paused && ACTIVE.has(task.status)}
+      data-active={!paused && !task.pending_question && ACTIVE.has(task.status)}
     >
       {(["source", "target"] as const).flatMap((type) =>
         [Position.Left, Position.Right, Position.Top, Position.Bottom].map(
@@ -332,7 +335,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         >
           <div className="map-card-top">
             <span className="map-card-kind">
-              {task.turn_kind === 'qa' ? (zh ? "问答" : "Q&A") : (zh ? "任务" : "MISSION")}
+              {task.turn_kind === 'qa' ? (zh ? "请求" : "Request") : (zh ? "任务" : "MISSION")}
             </span>
             {/* A closed execution can still have an incomplete goal. */}
             {(state !== "recorded" || data.completionScope) && (
@@ -352,12 +355,12 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </span>
             )}
           </div>
-          <h3>
+          <h3 title={title}>
             <MarkdownExcerpt>{title}</MarkdownExcerpt>
           </h3>
           {/* The overview shows the current holder and latest word; past steps
               stay in the detail pages. */}
-          <div className="map-card-state">
+          <div className="map-card-state" data-question={!!task.pending_question}>
             <CardNow task={task} zh={zh} />
             <CardFigure taskId={task.id} title={title} />
           </div>
@@ -382,7 +385,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </div>
           )}
           {(() => {
-            const live = !data.paused && ACTIVE.has(task.status);
+            const live = !paused && !task.pending_question && ACTIVE.has(task.status) && !!data.liveCall;
             // The state is on the chip at the top of the card; it is not said
             // again down here unless the card has no chip.
             const chip = state !== "recorded" || !!data.completionScope;
@@ -390,7 +393,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             return (
               <div className="map-card-stages">
                 {live
-                  ? <LiveLine role={task.role} since={task.started_ts} zh={zh} message={data.managerMessage} />
+                  ? <LiveLine role={data.liveCall!.role} since={data.liveCall!.started_ts} zh={zh} />
                   : chip ? null
                   : <span className="map-card-recorded">{taskStateLabel}</span>}
               </div>
@@ -398,7 +401,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           })()}
           <div className="map-card-bottom">
             <span title={range}>
-              {task.turn_kind === 'qa' ? (zh ? '问题与回答' : 'Question and answer') : `${data.totalSteps} ${zh ? "个环节" : "steps"}`}
+              {task.turn_kind === 'qa' ? (zh ? '请求与回复' : 'Request and reply') : `${data.totalSteps} ${zh ? "个环节" : "steps"}`}
             </span>
             <span className="map-card-submap-hint">
               {task.turn_kind === 'qa' ? (zh ? "查看回答" : "Read answer") : zh ? "查看进展" : "View progress"}
@@ -434,7 +437,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                 ? zh
                   ? `第 ${data.part} / ${data.partCount} 部分`
                   : `Part ${data.part} / ${data.partCount}`
-                : task.turn_kind === 'qa' ? (zh ? '问答内容' : 'Q&A') : zh
+                : task.turn_kind === 'qa' ? (zh ? '请求内容' : 'Request') : zh
                   ? "任务内部"
                   : "INSIDE THIS TASK"}
             </small>

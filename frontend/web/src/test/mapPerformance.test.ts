@@ -36,8 +36,8 @@ it("assigns identical lanes to the quadratic prefix filter, including shared pai
   }
 });
 
-const snapshot = (alive: boolean) =>
-  ({ daemon: { alive }, roles: [] }) as unknown as Snapshot;
+const snapshot = (running: boolean) =>
+  ({ daemon: { alive: false }, roles: [], work_status: { state: running ? 'running' : 'paused' } }) as unknown as Snapshot;
 const dataset = (history_loading: boolean): Pick<Dataset, "history_loading"> => ({ history_loading });
 
 it("polls fast only while history pages load, then falls back to a slow SSE safety net", () => {

@@ -1,0 +1,25 @@
+{
+  "question": "这三个骰子分别用几面？",
+  "task": {
+    "id": "t1",
+    "title": "编写 a.py：计算平方和",
+    "from": "planner",
+    "objective": "编写 a.py：计算平方和\n\n在工作目录 /work/pm2-b 编写 a.py，满足用户要求：“打印 1 到 10 的平方和”。使用已确认可用的 python3 和标准库，预期结果为 385。\n\n此任务与 b.py 任务同时开始，只负责 a.py，使用单个 CPU 进程，无需 GPU。完成后报告文件已就绪，由后续汇总任务运行脚本。",
+    "status": "open",
+    "holder": "engineer",
+    "note": null
+  },
+  "message": {
+    "text": "请回答附件中的问题，保留这句话。",
+    "attachments": [
+      {
+        "attachment_id": "att-6a969086776d",
+        "relative_path": ".argus/attachments/att-6a969086776d/问题材料.csv",
+        "original_name": "问题材料.csv",
+        "stored_name": "问题材料.csv",
+        "mime": "text/csv",
+        "size_bytes": 8
+      }
+    ]
+  }
+}
