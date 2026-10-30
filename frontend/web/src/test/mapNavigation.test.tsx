@@ -51,7 +51,7 @@ vi.mock("../components/Modal", () => ({
 vi.mock("../map/viewMemory", () => ({ recalledView: () => memory, rememberView: () => {} }));
 
 const data: Dataset = {
-  id: "live:navigation", title: "Navigation", description: "", kind: "live", read_only: false,
+  id: "live:navigation",
   tasks: [
     { id: "parent", title: "Route data", status: "done", deps: [], ts: 1 },
     { id: "failed", title: "Route algorithm", status: "failed", deps: ["parent"], ts: 2 },
@@ -136,6 +136,18 @@ it('associates the live manager call with one request card and keeps each card�
   act(() => renderer.update(<QueryClientProvider client={client}><MapCanvas {...props} data={requests}
     snapshot={{ ...next, work_status: { ...next.work_status!, activityAt: 200 } }} /></QueryClientProvider>));
   expect(nodes()).toBe(before);
+});
+
+it('updates a request from stopped to interrupted while the server state stays paused', () => {
+  const requests: Dataset = { ...data, tasks: [{ id: 'q0', title: '帮我写一句问候语', status: 'in_progress', role: 'manager', turn_kind: 'qa' }] };
+  const status = { state: 'paused', reason: 'not_running', role: '', roles: [], taskId: '', title: '', activityAt: null, foreground: false,
+    label: { 'zh-CN': '已停止', en: 'Stopped' } } as NonNullable<typeof props.snapshot.work_status>;
+  const show = (work_status: typeof status) => <QueryClientProvider client={client}><MapCanvas {...props} data={requests} snapshot={{ ...props.snapshot, work_status }} /></QueryClientProvider>;
+  act(() => renderer.update(show(status)));
+  expect(nodes()[0].data.workStatus?.label).toEqual(status.label);
+  const interrupted = { ...status, label: { 'zh-CN': '执行中断', en: 'Interrupted' } };
+  act(() => renderer.update(show(interrupted)));
+  expect(nodes()[0].data.workStatus?.label).toEqual(interrupted.label);
 });
 
 it("keeps the task reader open when background focus changes and reads the real trajectory", () => {
@@ -273,7 +285,7 @@ it("keeps normal card navigation when the traced task disappears from the live m
   act(() => button("Trace dependencies").props.onClick());
   act(() => renderer.update(
     <QueryClientProvider client={client}>
-      <MapCanvas {...props} data={{ ...data, kind: "live", tasks: data.tasks.filter((task) => task.id !== "question") }} />
+      <MapCanvas {...props} data={{ ...data, tasks: data.tasks.filter((task) => task.id !== "question") }} />
     </QueryClientProvider>,
   ));
   expect(button("Trace dependencies").props["aria-pressed"]).toBe(false);

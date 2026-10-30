@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
+import { I18nProvider } from '../i18n';
 import { EventStream } from './serverSnapshot';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -20,5 +21,22 @@ it('a task shows the whole title, its progress, and opens each delivered file wi
   const file = root.root.findAllByType('button').find(button => button.children.join('') === 'result.md')!;
   act(() => file.props.onClick());
   expect(open).toHaveBeenCalledWith('result.md');
+  act(() => root.unmount());
+});
+
+it.each(['zh-CN', 'en'])('names the current role on the running task, including a handoff, in %s', locale => {
+  vi.stubGlobal('localStorage', { getItem: () => locale });
+  vi.stubGlobal('document', { documentElement: { lang: '' } });
+  vi.stubGlobal('window', { requestAnimationFrame: vi.fn(() => 1), cancelAnimationFrame: vi.fn() });
+  const task = { type: 'ui.task', row_id: 'task-t1', item_id: 't1', title: '日报工具与测试', state: 'running', result_paths: [], ts: 1 };
+  const labels = locale === 'zh-CN' ? ['工程师在做', '审阅者在查', '规划者在排'] : ['Engineer working', 'Reviewer checking', 'Planner planning'];
+  const shown = (role: string) => <I18nProvider><EventStream events={[{ ...task, role }]} connected showReasoning={false} /></I18nProvider>;
+  let root!: ReturnType<typeof create>;
+  act(() => { root = create(shown('engineer')); });
+  for (const [index, role] of ['engineer', 'reviewer', 'planner'].entries()) {
+    act(() => root.update(shown(role)));
+    const line = root.root.findByProps({ 'data-task-work': 't1' });
+    expect(line.findByType('button').children.join('')).toBe(`${labels[index]}${locale === 'zh-CN' ? '：' : ': '}日报工具与测试`);
+  }
   act(() => root.unmount());
 });

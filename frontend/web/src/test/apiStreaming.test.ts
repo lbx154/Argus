@@ -2,6 +2,7 @@ import { createServer, type IncomingHttpHeaders, type Server, type ServerRespons
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { api } from '../api';
+import failureRecord from '../../../../packages/core/test/fixtures/message-failure/record.json';
 
 const nativeFetch = globalThis.fetch;
 const encoder = new TextEncoder();
@@ -118,4 +119,29 @@ it('keeps Manager terminal errors on the existing callback and does not replay t
   expect(onError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ message: 'Manager unavailable' }));
   expect(onDone).not.toHaveBeenCalled();
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('replays the recorded acceptance before a Manager business failure, without another POST', async () => {
+  const fetch = await serve(response => {
+    response.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    response.end(failureRecord.frames.map(frame).join(''));
+  });
+  const calls: string[] = [];
+  await api.messageStream(failureRecord.project.id, failureRecord.project.request, {
+    onAccepted: () => { calls.push('accepted'); },
+    onError: error => { calls.push(error.message); },
+  });
+  expect(calls).toEqual(['accepted', failureRecord.project.failures[0].error]);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each([401, 503])('does not confirm acceptance or retry when HTTP refuses the send (%s)', async status => {
+  const fetch = await serve(response => {
+    response.writeHead(status, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ detail: 'Request refused' }));
+  });
+  const onAccepted = vi.fn();
+  await expect(api.messageStream('p-refused', 'Keep the draft', { onAccepted })).rejects.toMatchObject({ status });
+  expect(onAccepted).not.toHaveBeenCalled();
+  expect(fetch).toHaveBeenCalledOnce();
 });

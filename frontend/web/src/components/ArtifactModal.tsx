@@ -1,6 +1,6 @@
 import { ErrorMessage } from './ErrorMessage';
 import type { DeliveryReceipt } from '../../../core/src/types';
-import { deliveryFiles, previousDeliveryVersion, deliveryOptionLabel, deliveryFileUpdated } from './deliveryPresentation';
+import { deliveryFiles, previousDeliveryVersion, deliveryNumberLabel, deliveryTimeLabel, deliveryFileUpdated } from './deliveryPresentation';
 import { DeliveryChanges } from './DeliveryChanges';
 import { PackageCheck, Maximize2, Minimize2 } from 'lucide-react';
 import './delivery.css';
@@ -41,7 +41,7 @@ export function ArtifactModal({
   onClose: () => void;
   delivery?: DeliveryReceipt | null;
   deliveries?: DeliveryReceipt[];
-  onSelectDelivery?: (receipt: DeliveryReceipt) => void;
+  onSelectDelivery?: (receipt: DeliveryReceipt, path: string | null) => void;
   onSelectPath?: (path: string) => void;
   reviewActivity?: 'revising' | 'reviewing';
   artifacts?: Array<{ path: string }>;
@@ -51,6 +51,7 @@ export function ArtifactModal({
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const files = delivery ? deliveryFiles(delivery) : [];
+  const fileVersions = path ? deliveries.filter(receipt => deliveryFiles(receipt).some(file => file.path === path)) : [];
   /** What a link in the summary or a Markdown file may open here. */
   const linked = [...artifacts, ...files.map((file) => ({ path: file.path }))];
   const deliveryId = delivery?.delivery_id;
@@ -154,8 +155,8 @@ export function ArtifactModal({
           {!isStagePackage(delivery) && <p>{zh ? '交付成果' : 'Your results'}</p>}
           <h2>{deliveryTitle || t(deliveryHeadingKey(delivery))}</h2>
         </div><button type="button" onClick={onClose} className="delivery-return">{zh ? '返回工作' : 'Back to work'} ×</button></div>
-        {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
-          {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{deliveryOptionLabel(receipt, zh)}</option>)}
+        {fileVersions.length > 1 ? <select aria-label={zh ? '文件版本' : 'File versions'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = fileVersions.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt, path); }}>
+          {fileVersions.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{[deliveryNumberLabel(deliveryFiles(receipt).find(file => file.path === path)!, zh), deliveryTimeLabel(receipt, zh)].filter(Boolean).join(' · ')}</option>)}
         </select> : null}
         {files.length > 1 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : zh ? '下载全部（zip）' : 'Download all (zip)'}</button></div> : null}
         {/* With a file open the summary folds above it; with none it is the page. */}

@@ -167,8 +167,6 @@ export function MapCanvas({
       || data.tasks.some(task => task.id === previous.key)) ? previous : null);
   }, [camera.focusId, data.tasks]);
   const readingTask = readingCopy ? data.tasks.find(task => task.id === readingCopy.key) : undefined;
-  const readingAnswer = readingTask?.turn_kind === 'qa'
-    ? data.events.filter(event => event.item_id === readingTask.id && event.type === 'turn.replied').at(-1) : undefined;
   const [traceId, setTraceId] = useState<string | null>(null);
   const tracedTask = graph.tasks.find((task) => task.id === traceId);
   const dependencies = useMemo(
@@ -312,7 +310,7 @@ export function MapCanvas({
           liveCall: snapshot.daemon.calls?.find(call => card.task.turn_kind === 'qa'
             ? call.role === 'manager' && call.request_card_id === card.task.id
             : call.task === card.task.id),
-          workStatus: snapshot.work_status && { state: snapshot.work_status.state, reason: snapshot.work_status.reason },
+          workStatus: snapshot.work_status && { state: snapshot.work_status.state, reason: snapshot.work_status.reason, label: snapshot.work_status.label },
           seenCards,
           restoring: !!savedView.current?.camera && !initialFit.current,
           layout: scene.layouts[card.id],
@@ -334,6 +332,7 @@ export function MapCanvas({
     snapshot.daemon.calls,
     snapshot.work_status?.state,
     snapshot.work_status?.reason,
+    snapshot.work_status?.label,
     seenCards,
   ]);
   useEffect(() => {
@@ -610,9 +609,9 @@ export function MapCanvas({
     return () => window.removeEventListener("keydown", onKey);
   }, [showOverview, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds]);
   const artifactScope = useMemo(
-    () => ({ artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact,
+    () => ({ sessionId, artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact,
       workspace: snapshot.session.workdir }),
-    [actions.artifacts, actions.onOpenArtifact, snapshot.session.workdir],
+    [sessionId, actions.artifacts, actions.onOpenArtifact, snapshot.session.workdir],
   );
   // The reveal strip floats over the canvas during replay, so the canvas never resizes and the
   // overview camera stays where the reader left it.
@@ -903,7 +902,7 @@ export function MapCanvas({
           {graph.tasks.length === 0 ? (
             <div className="map-empty">
               <GitBranch size={36} />
-              <h3>{zh ? "把一个目标，变成可见的成果" : "Turn a goal into a visible result"}</h3>
+              <h2>{zh ? "把一个目标，变成可见的成果" : "Turn a goal into a visible result"}</h2>
               <p>
                 {readOnly
                   ? zh
@@ -1000,9 +999,6 @@ export function MapCanvas({
             <MapTaskReader task={readingTask}
               sessionId={sessionId} zh={zh}
               workspace={artifactScope.workspace}
-              answer={readingTask.turn_kind === 'qa'
-                ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : (zh ? '尚无回答。' : 'No answer recorded.'))
-                : undefined}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
           </div>
         </> : null}
@@ -1109,7 +1105,7 @@ export const MapPanel = memo(function MapPanel({
       )}
       {live.isError && !data ? (
         <div className="map-empty">
-          <h3>{zh ? "地图暂时无法读取" : "Map unavailable"}</h3>
+          <h2>{zh ? "地图暂时无法读取" : "Map unavailable"}</h2>
           <p>{errorText(live.error, zh ? "zh-CN" : "en")}</p>
           <button
             onClick={() =>

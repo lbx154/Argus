@@ -9,6 +9,8 @@ vi.mock('../useWorkbenchTheme', () => ({
 let tree: ReactTestRenderer;
 let layout: ReturnType<typeof useWorkbenchLayout>;
 let storage: Map<string, string>;
+let reads: string[];
+let writes: string[];
 function Harness() {
   layout = useWorkbenchLayout();
   return <div data-view={layout.workspaceView} />;
@@ -16,11 +18,12 @@ function Harness() {
 
 beforeEach(() => {
   storage = new Map();
+  reads = []; writes = [];
   vi.stubGlobal('window', { location: { search: '' },
     innerWidth: 1440, addEventListener: vi.fn(), removeEventListener: vi.fn(),
   });
-  vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) ?? null,
-    setItem: (key: string, value: string) => storage.set(key, value) });
+  vi.stubGlobal('localStorage', { getItem: (key: string) => { reads.push(key); return storage.get(key) ?? null; },
+    setItem: (key: string, value: string) => { writes.push(key); storage.set(key, value); } });
 });
 afterEach(() => { act(() => tree?.unmount()); vi.unstubAllGlobals(); });
 const mount = () => act(() => { tree = create(<Harness />); });
@@ -104,26 +107,46 @@ describe('full canvas map', () => {
   });
 });
 
-describe('results visibility with a saved desktop preference', () => {
-  it.each([1024, 390])('starts the %s px reading view closed without losing the saved preference', width => {
+describe('results visibility belongs to the open project', () => {
+  it.each([1440, 1024, 390])('starts closed at %s px and never reads or writes the old global switch', width => {
     window.innerWidth = width;
     storage.set('argus.preview.expanded.v6', 'true');
     mount();
     expect(layout.mobileView).toBe('activity');
     expect(layout.rightPanelVisible).toBe(false);
-    expect(storage.get('argus.preview.expanded.v6')).toBe('true');
     act(() => layout.openPreview());
     expect(layout.rightPanelVisible).toBe(true);
     expect(layout.mobileView).toBe('preview');
-    act(() => layout.setMobileView('activity'));
+    act(() => { layout.setRightPanelOpen(false); layout.setMobileView('activity'); });
     expect(layout.rightPanelVisible).toBe(false);
-    expect(storage.get('argus.preview.expanded.v6')).toBe('true');
+    expect(reads).not.toContain('argus.preview.expanded.v6');
+    expect(writes).not.toContain('argus.preview.expanded.v6');
   });
 
-  it('restores a wide results panel and keeps it out of an unopened map', () => {
-    storage.set('argus.preview.expanded.v6', 'true');
+  it.each([1440, 1024, 390])('closes on project switch and return at %s px, while retaining width', width => {
+    window.innerWidth = width;
+    window.location.search = '?project=first';
+    storage.set('argus.preview.width.v2', '560');
     mount();
+    expect(layout.rightWidth).toBe(560);
+    act(() => layout.setRightWidth(600));
+    expect(storage.get('argus.preview.width.v2')).toBe('600');
+    act(() => layout.openPreview());
     expect(layout.rightPanelVisible).toBe(true);
+    act(() => { window.location.search = '?project=second'; tree.update(<Harness />); });
+    expect(layout.mobileView).toBe('activity');
+    expect(layout.rightPanelVisible).toBe(false);
+    act(() => layout.openPreview());
+    act(() => { window.location.search = '?project=first'; tree.update(<Harness />); });
+    expect(layout.rightPanelVisible).toBe(false);
+    act(() => tree.unmount());
+    mount();
+    expect(layout.rightPanelVisible).toBe(false);
+    expect(layout.rightWidth).toBe(Number(storage.get('argus.preview.width.v2')));
+  });
+
+  it('keeps the results panel out of an unopened map', () => {
+    mount();
     act(() => layout.setWorkspaceView('map'));
     expect(layout.rightPanelVisible).toBe(false);
     act(() => layout.openPreview());

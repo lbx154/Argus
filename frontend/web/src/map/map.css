@@ -276,7 +276,7 @@
   border-radius: 50%;
   background: currentColor;
 }
-.map-card h3 {
+.map-card h2 {
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.1px;
@@ -459,7 +459,7 @@
   color: rgb(var(--ink-faint));
   font-size: 12px;
 }
-.map-empty h3 {
+.map-empty h2 {
   font-size: 16px;
   color: rgb(var(--ink-dim));
 }

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { DispatchObserver, MapSendOptions } from './map/submission';
+import type { MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useProjects, useSnapshot, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
@@ -34,13 +34,12 @@ import { Landing } from './components/Landing';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
 import { useQueryClient } from '@tanstack/react-query';
-import { finishManagerMessage } from './lib/messageResult';
 import { EDITIONS_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
   mergeManagerReply,
   optimisticOperatorEvent,
 } from './lib/conversationEvents';
-import { errorText, managerStreamFailureMessage, shortcut } from './lib/format';
+import { errorText, shortcut } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
 import { useGlobalKeyboardShortcuts } from './useGlobalKeyboardShortcuts';
 import { usePendingReplySession } from './usePendingReplySession';
@@ -618,7 +617,7 @@ export default function App() {
     } finally { setWaitingForUploads(false); }
   };
 
-  const sendMessage = async (text: string, attachments: File[] = [], observe?: DispatchObserver, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
+  const sendMessage = async (text: string, attachments: File[] = [], onRejected?: () => void, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
     const requestSid = activeSid;
     if (rewriting || !requestSid || requestSid !== sidRef.current || messageRequestRef.current) return false;
 
@@ -670,38 +669,11 @@ export default function App() {
       optimisticOperatorEvent(requestSid, serverRequestId, text, Date.now(), attachmentRefs),
     ]);
 
-    const dispatchTask = (result: Record<string, unknown>) => {
-      if (!isCurrent()) return;
-      const daemon = result.daemon && typeof result.daemon === 'object'
-        ? result.daemon as Record<string, unknown>
-        : null;
-      // Use result.reply (persisted by backend) as a non-durable accessibility
-      // notice — the conversation event is already in the transcript refetch.
-      const reply = typeof result.reply === 'string' ? result.reply : null;
-      if (daemon && Number(daemon.rc ?? 0) !== 0) {
-        notify('error', t('error.command_failed'), reply);
-      } else if (reply && !observe) {
-        notify('success', reply);
-      }
-      snapQ.refetch?.();
-    };
-
-    const finishMessage = (result: Record<string, unknown>) => {
-      if (!isCurrent()) return;
-      void queryClient.invalidateQueries({ queryKey: ['artifacts', requestSid] });
-      finishManagerMessage(result, {
-        dispatchTask,
-        notifyError: (error) => notify('error', errorText(error, locale, 'message_failed'), error),
-        refetchTranscript: () => {
-          void transcriptQ.refetch();
-        },
-      });
-    };
-
     // Dispatch the streaming work fire-and-forget so the draft clears immediately.
-    // Errors that surface during the stream are surfaced via notify().
+    // The phase frame confirms the server took the request. Later failures belong
+    // to its recorded reply, not to the send or the draft that was already cleared.
     void (async () => {
-      let gotDelta = false;
+      let accepted = false;
       let streamErr: Error | null = null;
       // A project's first message names it and starts its work: the list and the project are
       // read again once the server has it.
@@ -710,6 +682,7 @@ export default function App() {
         try {
           await api.messageStream(requestSid, text, {
             onAccepted: () => {
+              accepted = true;
               if (!isCurrent() || named) return;
               named = true;
               void projectsQ.refetch();
@@ -717,14 +690,17 @@ export default function App() {
             },
             onDelta: (reply) => {
               if (!isCurrent()) return;
-              gotDelta = true;
               setLocalConversationEvents((current) => mergeManagerReply(current, serverRequestId, reply));
             },
             onDone: (result) => {
               if (!isCurrent()) return;
-              if (result.kind !== 'error') setRouteOverride('auto');
-              finishMessage(result);
-              observe?.({ type: 'settled', outcome: result.kind === 'error' ? 'error' : 'message' });
+              setRouteOverride('auto');
+              void queryClient.invalidateQueries({ queryKey: ['artifacts', requestSid] });
+              if (result.kind === 'task') {
+                if (result.reply && !onRejected) notify('success', result.reply);
+                void snapQ.refetch();
+              }
+              void transcriptQ.refetch();
             },
             onError: (err) => {
               if (isCurrent()) streamErr = err;
@@ -742,14 +718,17 @@ export default function App() {
         if (!isCurrent()) return;
 
         if (streamErr) {
-          // Retrying the POST automatically can execute a task twice when the
-          // server accepted the first request but the SSE connection broke.
-          // Keep any partial reply visible and let the operator choose retry.
-          notify('error', managerStreamFailureMessage(streamErr, gotDelta), streamErr);
-          observe?.({ type: 'settled', outcome: 'error' });
+          if (!accepted) {
+            setLocalConversationEvents(current => current.filter(event => event.request_id !== serverRequestId));
+            notify('error', errorText(streamErr), streamErr);
+            onRejected?.();
+          }
+          // Read the recorded failure once, in the existing conversation row.
+          // A lost stream never retries the POST or discards a partial reply.
+          void transcriptQ.refetch();
+          void snapQ.refetch();
         }
       } finally {
-        if (controller.signal.aborted) observe?.({ type: 'settled', outcome: 'cancelled' });
         resetCurrentRequest();
       }
     })();
@@ -799,18 +778,16 @@ export default function App() {
       return true;
     }
     let cleared: DraftSnapshot | null = null;
-    let failedBeforeAcceptance = false;
-    const accepted = await sendMessage(text, files, (result) => {
-      if (result.type === 'settled' && result.outcome === 'error') {
-        failedBeforeAcceptance = true;
-        if (cleared) restoreDraft(cleared, draft);
-      }
+    let rejected = false;
+    const dispatched = await sendMessage(text, files, () => {
+      rejected = true;
+      if (cleared) restoreDraft(cleared, draft);
     }, uploadOptions);
-    if (accepted && !failedBeforeAcceptance) {
+    if (dispatched && !rejected) {
       cleared = consumeDraft(draft, files);
       draftUploads.forget(files);
     }
-    return accepted;
+    return dispatched;
   };
   const composerSendRef = useRef(sendComposerMessage);
   composerSendRef.current = sendComposerMessage;
@@ -892,6 +869,17 @@ export default function App() {
       ) : null}
       {!kiosk ? (
         <Sidebar
+          separator={sidebarShown ? (
+            <SplitHandle
+              label={t('common.resizeSessions')}
+              value={leftWidth}
+              min={220}
+              max={400}
+              onPointerDown={(event) => resizeSidebar('left', event)}
+              onReset={() => setLeftWidth(256)}
+              onNudge={(delta) => setLeftWidth((value) => Math.max(220, Math.min(400, value + delta)))}
+            />
+          ) : null}
           onOpenTrash={() => { setTrashOpen(true); setSidebarOpen(false); }}
           projects={projects}
           activeId={activeSid}
@@ -928,17 +916,6 @@ export default function App() {
           onToggleCollapse={toggleSidebar}
           themeMode={themeMode}
           onCycleTheme={cycleTheme}
-        />
-      ) : null}
-      {!kiosk && sidebarShown ? (
-        <SplitHandle
-          label={t('common.resizeSessions')}
-          value={leftWidth}
-          min={220}
-          max={400}
-          onPointerDown={(event) => resizeSidebar('left', event)}
-          onReset={() => setLeftWidth(256)}
-          onNudge={(delta) => setLeftWidth((value) => Math.max(220, Math.min(400, value + delta)))}
         />
       ) : null}
 

@@ -106,13 +106,34 @@ it('selects delivery-specific queries, distinguishes repeated names, and offers 
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.some(child => typeof child === 'string' && child.includes('(zip)')))).toHaveLength(0);
   const select = tree!.root.findByType('select');
   act(() => select.props.onChange({ target: { value: 'd2' } }));
-  expect(onSelectDelivery).toHaveBeenCalledWith(second);
+  expect(onSelectDelivery).toHaveBeenCalledWith(second, 'index.html');
   // A single HTML file uses its existing page-and-assets zip; it has no Download all button.
   artifact.data = { path: file.path, name: file.path, kind: 'html', mime: 'text/html', size: 10, mtime: 1 };
   act(() => tree!.update(<ArtifactModal sid="s" path="index.html" delivery={second} onClose={() => {}} />));
   expect(useArtifact).toHaveBeenLastCalledWith('s', 'index.html', null, 'd2');
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('Download page (zip)'))).toHaveLength(1);
   expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('Download all (zip)'))).toHaveLength(0);
+});
+
+it('lists only the selected file versions with that file’s recorded count and keeps its path on selection', () => {
+  const report = { path: 'report.md', label: 'report.md', source: 'manager', delivery_number: 3 };
+  const data = { path: 'data.csv', label: 'data.csv', source: 'manager', delivery_number: 2 };
+  const latest: DeliveryReceipt = { schema_version: 1, delivery_id: 'd3', title: 'Report and data', kind: 'result', item_id: '', summary: '',
+    status: 'done', review_status: '', delivered_at: 3, targets: [report, data], primary_target: report };
+  const previous = { ...latest, delivery_id: 'd2', delivered_at: 2, targets: [{ ...report, delivery_number: 2 }, { ...data, delivery_number: 1 }] };
+  const reportOnly = { ...latest, delivery_id: 'd1', delivered_at: 1, targets: [{ ...report, delivery_number: 1 }], primary_target: { ...report, delivery_number: 1 } };
+  const onSelectDelivery = vi.fn();
+  act(() => { tree = create(<ArtifactModal sid="s" path="data.csv" delivery={latest} deliveries={[latest, previous, reportOnly]}
+    onSelectDelivery={onSelectDelivery} onClose={() => {}} />); });
+  const select = tree!.root.findByProps({ 'aria-label': 'File versions' });
+  expect(select.findAllByType('option').map(option => [option.props.value, option.children.join('')])).toEqual([
+    ['d3', `Delivery 2 · ${new Date(3000).toLocaleString('en')}`],
+    ['d2', `Delivery 1 · ${new Date(2000).toLocaleString('en')}`],
+  ]);
+  act(() => select.props.onChange({ target: { value: 'd2' } }));
+  expect(onSelectDelivery).toHaveBeenCalledWith(previous, 'data.csv');
+  act(() => tree!.update(<ArtifactModal sid="s" path="data.csv" delivery={previous} deliveries={[previous, reportOnly]} onClose={() => {}} />));
+  expect(tree!.root.findAllByType('select')).toHaveLength(0);
 });
 
 it('keeps the selected delivery in file downloads and archive downloads', async () => {

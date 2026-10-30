@@ -34,9 +34,9 @@ export function useWorkbenchLayout() {
     setWorkspaceView(openingView);
     setMobileView('activity');
   }, [project, openingView]);
-  const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v6', false));
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  useEffect(() => setRightPanelOpen(false), [project]);
   const [narrow, setNarrow] = useState(() => window.innerWidth < 1200);
-  // The saved desktop preference does not open the narrow reading view.
   const rightPanelVisible = mobileView === 'preview' || (!narrow && rightPanelOpen && workspaceView !== 'map');
   const [leftWidth, setLeftWidth] = useState(() => {
     const value = Number(readLocalStorage('argus.sidebar.width.v2') || 256);
@@ -70,10 +70,9 @@ export function useWorkbenchLayout() {
 
   useEffect(() => {
     writeLocalStorage('argus.sidebar.expanded.v4', String(leftPanelOpen));
-    writeLocalStorage('argus.preview.expanded.v6', String(rightPanelOpen));
     writeLocalStorage('argus.sidebar.width.v2', String(leftWidth));
     writeLocalStorage('argus.preview.width.v2', String(rightWidth));
-  }, [leftPanelOpen, leftWidth, rightPanelOpen, rightWidth]);
+  }, [leftPanelOpen, leftWidth, rightWidth]);
 
   const openPreview = useCallback(() => {
     setRightPanelOpen(true);

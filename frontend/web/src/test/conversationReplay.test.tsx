@@ -1,18 +1,37 @@
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Store } from '../../../../packages/core/src/store';
-import { readEvents, snapshot, projectRecord, conversationRows, conversationPage, type Reading } from '../../../../packages/core/src/serve/views';
+import { readEvents, snapshot, projectRecord, conversationRows, conversationPage, type Reading, type Recorded } from '../../../../packages/core/src/serve/views';
 import type { EventMsg } from '../api';
 import { EventStream } from './serverSnapshot';
 import { mergeConversationEvents, mergeManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
+import failureRecord from '../../../../packages/core/test/fixtures/message-failure/record.json';
+import type { Project } from '../../../../packages/core/src/store';
+import { I18nProvider } from '../i18n';
 
 // Real records: the Manager doing small work itself, and a brief it handed the Planner for three tasks.
 // Each message is named, and the Manager's turn and letter on it name it, as the record now holds them.
 const store = new Store(fileURLToPath(new URL('./fixtures/home', import.meta.url)));
 const PROJECTS = ['p-0444b8d3', 'p-c855623c'];
+afterEach(() => vi.unstubAllGlobals());
 
 describe('one record, one conversation', () => {
+  it.each(['zh-CN', 'en'])('keeps the recorded Manager failure reason visible once, including after reload (%s)', locale => {
+    vi.stubGlobal('localStorage', { getItem: () => locale });
+    const project = failureRecord.project as Project;
+    const reading = projectRecord(failureRecord.events as Recorded[]);
+    const rows = conversationRows(reading, project, { since: null, calls: [], requests: [] });
+    const failed = rows.find(row => row.type === 'ui.argus')!;
+    expect(failed.status).toBe('failed');
+    expect(failed.text).toBe(project.failures![0]!.error);
+    const local = optimisticOperatorEvent(project.id, project.requestId!, project.request);
+    for (const events of [mergeConversationEvents(rows, [local]), rows]) {
+      const html = renderToStaticMarkup(<I18nProvider><EventStream events={events} connected showReasoning={false} embedded /></I18nProvider>);
+      expect(html.split(String(failed.text))).toHaveLength(2);
+      expect(html).not.toContain('<details');
+    }
+  });
   it.each(PROJECTS)('%s reads the same line by line, as the page that sent each message saw it, as loaded at once', (id) => {
     const record = readEvents(store, id);
     const snap = snapshot(store, store.load(id), { since: null, calls: [], requests: [] });

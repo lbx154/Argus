@@ -1,0 +1,74 @@
+{
+  "project": {
+    "id": "p-2b511872",
+    "created": "2026-10-30T05:36:20.803Z",
+    "workdir": "/fixture/work",
+    "request": "帮我写一句问候语 FAIL-NOCLI",
+    "backend": "codex",
+    "model": null,
+    "status": "failed",
+    "error": "codex is not installed (not found on PATH). Install it with: npm install -g @openai/codex@latest",
+    "questions": [],
+    "tasks": [],
+    "inbox": [],
+    "sessions": {},
+    "requestId": "fixture-record",
+    "forManager": [
+      {
+        "text": "帮我写一句问候语 FAIL-NOCLI",
+        "request_id": "fixture-record"
+      }
+    ],
+    "failures": [
+      {
+        "role": "manager",
+        "task": null,
+        "error": "codex is not installed (not found on PATH). Install it with: npm install -g @openai/codex@latest"
+      }
+    ]
+  },
+  "events": [
+    {
+      "ts": "2026-10-30T05:36:27.536Z",
+      "type": "message",
+      "from": "operator",
+      "text": "帮我写一句问候语 FAIL-NOCLI",
+      "request_id": "fixture-record"
+    },
+    {
+      "ts": "2026-10-30T05:36:27.538Z",
+      "type": "call.start",
+      "role": "manager",
+      "answers": "fixture-record"
+    },
+    {
+      "ts": "2026-10-30T05:36:28.028Z",
+      "type": "call.end",
+      "role": "manager",
+      "callId": "20261030053627-b8f724",
+      "threadId": "f838af43-c413-480b-b1c5-fe2ecdc8429a",
+      "completed": false,
+      "error": "codex is not installed (not found on PATH). Install it with: npm install -g @openai/codex@latest",
+      "model": "fake",
+      "usage": null,
+      "ms": 472
+    },
+    {
+      "ts": "2026-10-30T05:36:28.029Z",
+      "type": "status",
+      "status": "failed",
+      "error": "codex is not installed (not found on PATH). Install it with: npm install -g @openai/codex@latest"
+    }
+  ],
+  "frames": [
+    {
+      "type": "phase",
+      "role": "manager",
+      "label": "Manager"
+    },
+    {
+      "type": "error",
+      "error": "codex is not installed (not found on PATH). Install it with: npm install -g @openai/codex@latest"
+    }
+  ]
+}

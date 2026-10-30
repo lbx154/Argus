@@ -7,12 +7,13 @@ import { cleanDeliverySummary } from '../components/deliveryPresentation';
 import { TaskTrace } from '../components/TaskTrace';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { ACTIVE, type MapTask } from './model';
-export function MapReaderContent({ cardKey, taskId, task, originalDetail, artifacts, onOpenArtifact, sessionId, workspace, zh = true }: {
+export function MapReaderContent({ cardKey, taskId, task, eventId, originalDetail, artifacts, onOpenArtifact, sessionId, workspace, zh = true }: {
   cardKey: string; taskId: string; originalDetail: string;
-  task?: MapTask; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
+  eventId?: string; task?: MapTask; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void;
   /** A live project's session: its team tasks show their recorded trajectory. */
   sessionId?: string; workspace?: string; zh?: boolean;
 }) {
+  if (sessionId && eventId) return <MapLetterReader {...{ cardKey, taskId, eventId, artifacts, onOpenArtifact, sessionId, workspace, zh }} />;
   const shown = (text: string) => relativizeWorkspacePaths(text, workspace);
   if (task?.turn_kind === 'qa') {
     return <div className="macro-reader-markdown" data-reader-card={cardKey} data-reader-task-id={taskId}>
@@ -33,6 +34,15 @@ export function MapReaderContent({ cardKey, taskId, task, originalDetail, artifa
   </div>;
 }
 
+function MapLetterReader(props: { cardKey: string; taskId: string; eventId: string; artifacts?: ArtifactInfo[]; onOpenArtifact?: (path: string) => void; sessionId: string; workspace?: string; zh: boolean }) {
+  const detail = useBacklogItem(props.sessionId, props.taskId, props.eventId);
+  return detail.isPending ? <p role="status">{props.zh ? '正在读取信件…' : 'Reading the letter…'}</p>
+    : detail.isError ? <p role="alert"><ErrorMessage error={detail.error} locale={props.zh ? 'zh-CN' : 'en'} /></p>
+    : <div className="macro-reader-markdown" data-reader-card={props.cardKey} data-reader-task-id={props.taskId}>
+      <MarkdownContent artifacts={props.artifacts} onOpenArtifact={props.onOpenArtifact}>{relativizeWorkspacePaths(detail.data.notes || '', props.workspace)}</MarkdownContent>
+    </div>;
+}
+
 /** The task's full latest words, or its status before progress has arrived. */
 function plainConclusion(task: MapTask, zh: boolean): string {
   if (task.latest_action) return task.latest_action.text;
@@ -41,8 +51,8 @@ function plainConclusion(task: MapTask, zh: boolean): string {
 }
 
 /** The map carries an excerpt; its reader asks for the original brief and progress. */
-export function MapTaskReader({ task, sessionId, answer, artifacts, onOpenArtifact, workspace, zh = true }: {
-  task: MapTask; sessionId: string; answer?: string; artifacts?: ArtifactInfo[];
+export function MapTaskReader({ task, sessionId, artifacts, onOpenArtifact, workspace, zh = true }: {
+  task: MapTask; sessionId: string; artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void; workspace?: string; zh?: boolean;
 }) {
   const detail = useBacklogItem(sessionId, task.id);
@@ -53,7 +63,7 @@ export function MapTaskReader({ task, sessionId, answer, artifacts, onOpenArtifa
       {detail.isPending ? <p role="status">{zh ? '正在读取任务说明…' : 'Reading the task brief…'}</p>
         : detail.isError ? <p role="alert"><ErrorMessage error={detail.error} locale={zh ? 'zh-CN' : 'en'} /></p>
         : <MapReaderContent cardKey={task.id} taskId={task.id} task={{ ...task, latest_action: detail.data.latest_action }} sessionId={sessionId}
-          originalDetail={task.turn_kind === 'qa' ? answer || '' : detail.data.objective || ''}
+          originalDetail={task.turn_kind === 'qa' ? detail.data.latest_action?.text || (task.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : ACTIVE.has(task.status) ? (zh ? '正在回答…' : 'Answering…') : (zh ? '尚无回答。' : 'No answer recorded.')) : detail.data.objective || ''}
           artifacts={artifacts} onOpenArtifact={onOpenArtifact} workspace={workspace} zh={zh} />}
     </div>
   </>;

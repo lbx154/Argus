@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { api, type ConfigSnapshot } from '../api';
 import { ConfigModal } from '../components/InfoModals';
 import { ModelPicker } from '../components/ModelPicker';
+import { I18nProvider } from '../i18n';
 
 let renderer: ReactTestRenderer | undefined;
 let client: QueryClient | undefined;
@@ -31,6 +32,18 @@ async function mount(config: ConfigSnapshot, snapshot?: unknown) {
     renderer = create(<QueryClientProvider client={client!}><ConfigModal sid="one" open onClose={() => {}} /></QueryClientProvider>);
   });
 }
+
+it.each(['zh-CN', 'en'] as const)('names the service connection without a maintainer qualifier in %s', async locale => {
+  await mount(baseConfig());
+  vi.stubGlobal('localStorage', { getItem: () => locale });
+  vi.stubGlobal('document', { documentElement: { lang: '' } });
+  await act(async () => renderer!.update(<I18nProvider><QueryClientProvider client={client!}>
+    <ConfigModal sid="one" open onClose={() => {}} />
+  </QueryClientProvider></I18nProvider>));
+  expect(renderer!.root.findAllByType('summary').map(node => textOf(node as never)))
+    .toContain(locale === 'zh-CN' ? '服务连接设置' : 'Service connection');
+  expect(textOf(renderer!.root as never)).not.toMatch(/由维护者配置|Maintainer settings/);
+});
 
 it('saves a backend switch only on Apply, never on the dropdown change', async () => {
   const setConfig = vi.spyOn(api, 'setConfig').mockResolvedValue({} as never);

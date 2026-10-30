@@ -25,7 +25,7 @@ import { theme } from '../lib/theme';
 import { clockOf, dateOf } from '../lib/format';
 import { EmptyHint } from './primitives';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
-import { deliveryFileUpdated, deliveryOptionLabel, deliveryFiles } from './deliveryPresentation';
+import { deliveryFileUpdated, deliveryTimeLabel, deliveryFiles } from './deliveryPresentation';
 
 const IMAGE_FILE = /\.(png|jpe?g|gif|webp|svg)$/i;
 import { ModelThumbnail } from './ModelPreview';
@@ -625,7 +625,7 @@ function DeliveryCard({
           {t(deliveryHeadingKey(delivery))}
         </div>
         <div className="result-card-title" title={delivery.title}>{delivery.title}</div>
-        <p className="text-xs text-ink-faint">{deliveryOptionLabel(delivery, zh)}</p>
+        <p className="text-xs text-ink-faint">{deliveryTimeLabel(delivery, zh)}</p>
         {listed.length ? <ul className="result-card-files">
           {listed.map(file => <li key={file.path} title={file.path}>
             <span aria-hidden="true">{fileGlyph(file.path)}</span>{file.label || file.path.split('/').pop()}
@@ -655,6 +655,11 @@ const TASK_STATE_LABEL: Record<Exclude<TaskCardState, 'running' | 'idle'>, [stri
 };
 
 const TASK_TONE: Partial<Record<TaskCardState, string>> = { running: 'running', done: 'done', failed: 'failed', asking: 'waiting' };
+const TASK_RUNNING_LABEL: Record<string, [string, string]> = {
+  engineer: ['工程师在做', 'Engineer working'],
+  reviewer: ['审阅者在查', 'Reviewer checking'],
+  planner: ['规划者在排', 'Planner planning'],
+};
 
 /**
  * A task in the conversation: one line on where it stands, and its results.
@@ -665,7 +670,7 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
   const title = String(event.title ?? '');
   const paths = event.result_paths as string[];
   const progress = String(event.progress ?? '');
-  const label = state === 'running' ? (locale === 'zh-CN' ? '进行中' : 'In progress')
+  const label = state === 'running' ? (TASK_RUNNING_LABEL[String(event.role)] ?? ['进行中', 'In progress'])[locale === 'zh-CN' ? 0 : 1]
     : state === 'idle' ? '' : TASK_STATE_LABEL[state][locale === 'zh-CN' ? 0 : 1];
   return <section data-task-work={String(event.item_id)} data-state={state}
     className="task-line mx-auto w-full max-w-full px-4 py-1 sm:px-6 lg:max-w-[808px]">

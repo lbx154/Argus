@@ -11,22 +11,19 @@ export interface MapTask
   role?: string;
   turn_kind?: 'qa';
 }
-/** The server sends task letters, operator clarifications and Manager replies. */
+/** Canvas summaries of recorded letters. Explicit readers request the original by id. */
 export interface MapEvent {
   id: string;
   item_id: string;
   type: 'handoff' | 'turn.asked' | 'turn.replied';
   ts: number;
+  /** A short heading for the drawing, never the historical body. */
   text: string;
   role?: string;
   to?: string;
 }
 export interface Dataset {
   id: string;
-  title: string;
-  kind: "live";
-  description: string;
-  read_only: boolean;
   tasks: MapTask[];
   events: MapEvent[];
   /** The next recorded line to request when following map history. */

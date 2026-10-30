@@ -244,7 +244,7 @@
   text-align: right;
   color: rgb(var(--ink-faint));
 }
-.submap-step h4 {
+.submap-step h3 {
   font-size: 14px;
   line-height: 1.45;
   font-weight: 600;

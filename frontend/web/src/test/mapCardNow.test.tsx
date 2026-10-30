@@ -57,7 +57,7 @@ describe('the task holder, the latest thing said and results on the map card', (
   } as MacroData } as NodeProps<MacroNode>);
 
   it('refreshes the holder and the latest thing said, as text rather than Markdown, through the existing map merge', () => {
-    const first: Dataset = { id: 'live:p', kind: 'live', title: '', description: '', read_only: false, tasks: [task], events: [] };
+    const first: Dataset = { id: 'live:p', tasks: [task], events: [] };
     act(() => { tree = create(<MacroTaskNode {...card(first.tasks[0])} />); });
     expect(tree!.root.findByProps({ 'data-testid': 'map-card-owner' }).children.join('')).toBe('负责人：工程师');
     const said = tree!.root.findByProps({ 'data-testid': 'map-card-action' });
@@ -75,7 +75,7 @@ describe('the task holder, the latest thing said and results on the map card', (
 
   it('opens every file from the closing handoff with the existing preview callback, in order', () => {
     const open = vi.fn();
-    const first: Dataset = { id: 'live:p', kind: 'live', title: '', description: '', read_only: false, tasks: [task], events: [] };
+    const first: Dataset = { id: 'live:p', tasks: [task], events: [] };
     const next = mergeMapProgress(first, { ...first, tasks: [{ ...task, status: 'done', result_paths: ['report.md', 'data.csv'] }] });
     const shown = (value: MapTask) => <MapArtifactContext.Provider value={{ onOpenArtifact: open }}><MacroTaskNode {...card(value)} /></MapArtifactContext.Provider>;
     act(() => { tree = create(shown(first.tasks[0])); });
@@ -98,11 +98,11 @@ describe('the task holder, the latest thing said and results on the map card', (
     expect(JSON.stringify(tree!.toJSON())).not.toContain('请问输出用中文还是英文？');
     expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('等你回答');
     expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-live' })).toHaveLength(0);
-    const workStatus = { state: 'paused', reason: 'operator_input' } as NonNullable<MacroData['workStatus']>;
+    const workStatus: NonNullable<MacroData['workStatus']> = { state: 'paused', reason: 'operator_input', label: { 'zh-CN': '等你回答', en: 'Waiting for your answer' } };
     const request = card({ ...task, id: 'q0', role: 'manager', turn_kind: 'qa' });
     act(() => tree!.update(<MacroTaskNode {...request} data={{ ...request.data, workStatus }} />));
     expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('等你回答');
-    act(() => tree!.update(<MacroTaskNode {...request} data={{ ...request.data, workStatus: { ...workStatus, reason: 'not_running' } }} />));
+    act(() => tree!.update(<MacroTaskNode {...request} data={{ ...request.data, workStatus: { ...workStatus, reason: 'not_running', label: { 'zh-CN': '已停止', en: 'Stopped' } } }} />));
     expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('已停止');
   });
 
@@ -120,6 +120,15 @@ describe('the task holder, the latest thing said and results on the map card', (
     expect(clock.findByType('span').children.join('')).toBe('正在回复你的消息 · 本次已进行 15 秒');
     expect(tree!.root.findByProps({ 'data-testid': 'map-card-action' }).props.title).toBe(task.latest_action!.text);
     vi.restoreAllMocks();
+  });
+
+  it.each([true, false])('uses the same server interruption label on an unanswered request and the top bar (zh=%s)', zh => {
+    const request = card({ ...task, id: 'q0', role: 'manager', turn_kind: 'qa' });
+    const label = { 'zh-CN': '执行中断', en: 'Interrupted' };
+    act(() => { tree = create(<MacroTaskNode {...request} data={{ ...request.data, zh,
+      workStatus: { state: 'paused', reason: 'not_running', label } }} />); });
+    expect(tree!.root.findByProps({ className: 'map-status' }).children.filter(child => typeof child === 'string').join('')).toBe(label[zh ? 'zh-CN' : 'en']);
+    expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-live' })).toHaveLength(0);
   });
 });
 

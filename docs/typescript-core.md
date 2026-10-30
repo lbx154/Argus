@@ -184,6 +184,13 @@ on it a step per letter written about it, by whom to whom. A task opened in the 
 calls in order, each with the letter it ended with and the path of its raw output
 (`calls/<call>.jsonl`). Arrows show the tasks' recorded `after` dependencies, and tasks at the same dependency depth
 share a column. Time order adds no arrows, and the map generates no written explanations.
+The map envelope contains only `id`, `tasks`, `events` and `cursor`; its events belong only to
+cards currently drawn. It sends short headings for progress and historical letters, with the recorded event
+identity, order and participants kept for drawing. The shared reading prepares those headings
+once as new events arrive. Opening a task reads its full objective and latest words from the
+backlog detail endpoint; selecting a historical letter uses the same endpoint with `letter=<id>`,
+whose `notes` contains that original letter. Request cards read their complete answer from the
+detail endpoint, too.
 
 ## The agent call
 

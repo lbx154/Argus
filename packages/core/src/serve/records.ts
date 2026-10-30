@@ -14,23 +14,26 @@ const named = (to: string): string => NAMES[to as Note['from']] ?? to;
 
 export function records(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
   return [
-    ['GET', /^\/api\/projects\/([^/]+)\/backlog\/([^/]+)$/, ({ params: [id, task] }) => ({ item: detail(store, project(id!), task!, runs.live(id!).calls) })],
+    ['GET', /^\/api\/projects\/([^/]+)\/backlog\/([^/]+)$/, ({ params: [id, task], url }) => ({ item: detail(store, project(id!), task!, runs.live(id!).calls, url.searchParams.get('letter')) })],
     ['GET', /^\/api\/search$/, ({ url }) => search(store, url.searchParams.get('q') ?? '')],
   ];
 }
 
 /** A task in full: its card on the map, every letter written about it in order, by whom to whom,
- * and the error its last call ended with, if that call failed. */
-function detail(store: Store, project: Project, id: string, calls: Live['calls']) {
+ * and the error its last call ended with, if that call failed. With `letter`, notes is only that
+ * recorded letter, selected within this task; the map uses this to open a drawing summary. */
+function detail(store: Store, project: Project, id: string, calls: Live['calls'], letterId: string | null) {
   const reading = readRecord(store, project.id);
   const card = mapProjection(reading, project, Infinity, calls).tasks.find(task => task.id === id);
   if (!card) throw new HttpError(404, `unknown backlog item: ${id}`);
   const objective = 'turn_kind' in card && card.turn_kind === 'qa'
     ? reading.rows.get(`m${id.slice(1)}-operator`)?.text
     : project.tasks.find(task => task.id === id)?.objective;
-  const letters = reading.map.letters.filter(({ letter }) => letter.item_id === id && letter.type === 'handoff' && letter.role !== 'operator')
-    .map(({ letter }) => `${named(String(letter.role))} to the ${named(String(letter.to))}:\n${letter.text}`);
-  return { ...card, latest_action: taskPresentation(reading.map, project, id).latest_action, objective, notes: letters.join('\n\n'), last_error: reading.errors.get(id) ?? '' };
+  const selected = letterId === null ? undefined : reading.map.letters.find(({ letter }) => letter.id === letterId && letter.item_id === id)?.letter;
+  if (letterId !== null && !selected) throw new HttpError(404, `unknown task letter: ${letterId}`);
+  const notes = selected ? String(selected.text) : reading.map.letters.filter(({ letter }) => letter.item_id === id && letter.type === 'handoff' && letter.role !== 'operator')
+    .map(({ letter }) => `${named(String(letter.role))} to the ${named(String(letter.to))}:\n${letter.text}`).join('\n\n');
+  return { ...card, latest_action: taskPresentation(reading.map, project, id).latest_action, objective, notes, last_error: reading.errors.get(id) ?? '' };
 }
 
 /** Where a text is quoted for the line found at `hit`: the paragraph, list or table it is in,

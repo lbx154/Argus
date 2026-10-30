@@ -65,7 +65,7 @@ it('distinguishes a missing credential from an invalid token link even after the
   vi.stubGlobal('window', { location, history: { replaceState: vi.fn(() => { location.search = ''; }) } });
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: vi.fn() });
   vi.spyOn(i18n, 'useI18n').mockReturnValue({ locale: 'zh-CN', setLocale: vi.fn(), t: key => i18n.translate(key, {}, 'zh-CN') });
-  expect(renderToStaticMarkup(<ConnectionProblemBanner error={new PairingRequiredError()} onRetry={() => {}} />)).toContain('这个浏览器还没有访问凭证');
+  expect(renderToStaticMarkup(<ConnectionProblemBanner error={new PairingRequiredError()} onRetry={() => {}} />)).toContain('请从终端链接打开 Argus');
   location.search = '?token=wrong';
   adoptTokenFromUrl();
   expect(location.search).toBe('');

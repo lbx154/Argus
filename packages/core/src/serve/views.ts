@@ -459,9 +459,9 @@ type MapCard = Omit<BacklogItem, 'objective' | 'notes' | 'last_error'> & { role:
 interface MapReading {
   added: Map<string, number>;
   closed: Map<string, number>;
-  actions: Map<string, NonNullable<BacklogItem['latest_action']> & { line: number }>;
+  actions: Map<string, NonNullable<BacklogItem['latest_action']> & { line: number; preview: string }>;
   opened: Map<string, string[]>;
-  letters: { line: number; letter: Record<string, unknown> }[];
+  letters: { line: number; letter: Record<string, unknown>; preview: string }[];
   /** Requests to the Manager; initial clarifications share the original request card. */
   qa: Map<string, MapCard>;
   /** The message the Manager's turn under way has answered, whose tasks follow it; and the one
@@ -476,14 +476,27 @@ interface MapReading {
 /** The progress map: a card per task, and a card for each operator request that starts work or
  * hands over files. Clarifications before the original request starts work share its card,
  * which always stays. Request ids and the Manager's `answers` join the letters to their card,
- * and task handoffs join work to the request that set it going. The line cursor pages letters. */
+ * and task handoffs join work to the request that set it going. The line cursor pages drawing
+ * summaries; the task detail reader retains each original letter. */
 export function progressMap(store: Store, project: Project, after: number, calls: Live['calls']) {
   return mapProjection(readRecord(store, project.id), project, after, calls);
+}
+
+/** Only the first nonempty heading is needed on the canvas. Stop before the body, even
+ * for a multiline letter; compute it once when the shared reading folds that letter. */
+function mapExcerpt(text: string): string {
+  for (const line of text.matchAll(/[^\n]+/g)) {
+    const heading = firstLine(line[0]);
+    if (heading) return heading.length > 160 ? `${heading.slice(0, 159).trimEnd()}…` : heading;
+  }
+  return '';
 }
 
 function foldMap(reading: MapReading, event: Recorded, line: number): void {
   const { added, closed, actions, opened, letters, qa, worked, follows } = reading;
   const ts = seconds(event.ts);
+  const letter = (value: Record<string, unknown>) => letters.push({ line, letter: value, preview: mapExcerpt(String(value.text)) });
+  const action = (id: string, role: string, text: string) => actions.set(id, { role, text, ts, line, preview: mapExcerpt(text) });
   if (event.type === 'message' && !event.to && event.request_id) {
     const previous = [...qa.values()].at(-1);
     // Before the original request starts work or delivers files, clarification extends that
@@ -492,14 +505,14 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       qa.set(event.request_id, previous);
       Object.assign(previous, { status: '', finished_ts: null });
       actions.delete(previous.id);
-      letters.push({ line, letter: { id: `e${line}`, item_id: previous.id, type: 'turn.asked', ts, role: 'operator', to: 'manager', text: event.text } });
+      letter({ id: `e${line}`, item_id: previous.id, type: 'turn.asked', ts, role: 'operator', to: 'manager', text: event.text });
     } else qa.set(event.request_id, {
       id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text), priority: 0, deps: [], status: '',
       role: 'manager', ts, started_ts: ts, finished_ts: null, result_paths: [],
     });
   }
   else if (event.type === 'message' && event.to && event.task) {
-    letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: 'operator', to: event.to, text: event.text } });
+    letter({ id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: 'operator', to: event.to, text: event.text });
   }
   else if (event.type === 'call.start' && event.role === 'manager') reading.answered = null;
   else if (event.type === 'task.added') {
@@ -508,14 +521,14 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
     if (follow) follows.set(event.task.id, follow);
   }
   else if (event.type === 'task.closed') closed.set(event.task, ts);
-  else if (event.type === 'step' && event.task && event.kind === 'message') actions.set(event.task, { role: event.role, text: event.text, ts, line });
+  else if (event.type === 'step' && event.task && event.kind === 'message') action(event.task, event.role, event.text);
   else if (event.type === 'handoff') {
     if (event.task) {
       if (event.role === 'engineer' || event.role === 'reviewer') {
         if (event.to === 'manager' || event.to === 'planner') opened.set(event.task, event.open ?? []);
-        if (event.to !== 'operator') actions.set(event.task, { role: event.role, text: event.letter, ts, line });
+        if (event.to !== 'operator') action(event.task, event.role, event.letter);
       }
-      letters.push({ line, letter: { id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter } });
+      letter({ id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter });
     }
     if (event.role === 'manager' && event.answers && qa.has(event.answers)) {
       const card = qa.get(event.answers)!;
@@ -528,18 +541,18 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       if (event.to === 'planner') reading.briefed = card.id;
       if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
       // The reply is the message's progress; a brief to the team is not: its tasks show theirs.
-      if (replied) actions.set(card.id, { role: event.role, text: event.letter, ts, line });
-      if (replied) letters.push({ line, letter: { id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
+      if (replied) action(card.id, event.role, event.letter);
+      if (replied) letter({ id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter });
     }
   }
 }
 
 /** Dialogue and map share the task's visible progress and closing files. */
-export function taskPresentation(reading: MapReading, project: Project, id: string) {
+export function taskPresentation(reading: MapReading, project: Project, id: string, preview = false) {
   const question = asked(project, id);
   const action = question ? undefined : reading.actions.get(id);
   return {
-    latest_action: action ? { role: action.role, text: action.text, ts: action.ts } : undefined,
+    latest_action: action ? { role: action.role, text: preview ? action.preview : action.text, ts: action.ts } : undefined,
     result_paths: reading.closed.has(id) ? reading.opened.get(id) ?? [] : [],
   };
 }
@@ -566,22 +579,19 @@ export function mapProjection(record: Reading, project: Project, after: number, 
   const tasks = [...cards.filter(card => active.has(card.id) || (card.status ? card === first || card === last || worked.has(card.id)
     : waiting.has(card) && (answering || card === first))).map(card => {
     const finished = card.status === 'in_progress' ? done(card) : card.finished_ts;
-    return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: taskPresentation(record.map, project, card.id).latest_action };
+    return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: taskPresentation(record.map, project, card.id, true).latest_action };
   }), ...backlog(project).map((item, index) => {
     const follow = follows.get(item.id);
     return {
       ...item, deps: item.deps?.length || !follow ? item.deps : [follow], ts: added.get(item.id), started_ts: added.get(item.id),
       finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
-      ...taskPresentation(record.map, project, item.id),
+      ...taskPresentation(record.map, project, item.id, true),
     };
   })].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
-  // Only the card's one-line excerpt travels on refresh; dialogue and details keep the original.
-  for (const task of tasks) if (task.latest_action) {
-    const text = firstLine(task.latest_action.text);
-    task.latest_action = { ...task.latest_action, text: text.length > 160 ? `${text.slice(0, 159).trimEnd()}…` : text };
-  }
-  return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks,
-    events: letters.flatMap(({ line, letter }) => line >= after ? [letter] : []), cursor: String(record.fold.line) };
+  const shown = new Set(tasks.map(task => task.id));
+  return { id: `live:${project.id}`, tasks,
+    events: letters.flatMap(({ line, letter, preview }) => line >= after && shown.has(String(letter.item_id))
+      ? [{ ...letter, text: preview } as Record<string, unknown>] : []), cursor: String(record.fold.line) };
 }
 
 interface TraceGroup {

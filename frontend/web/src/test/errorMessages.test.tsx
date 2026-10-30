@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, responseError } from '../../../core/src/http';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { I18nProvider, translate, type Locale } from '../i18n';
-import { errorText, managerStreamFailureMessage } from '../lib/format';
+import { errorText } from '../lib/format';
 import { plainRowText } from '../lib/plainProgress';
 
 // Captured from the served cockpit before the fix, for the two reported failures.
@@ -58,11 +58,9 @@ describe.each(['zh-CN', 'en'] as const)('error messages in %s', locale => {
   });
 });
 
-it('localizes unknown thrown values and both interrupted message states', () => {
+it('localizes unknown thrown values', () => {
   vi.stubGlobal('localStorage', { getItem: () => 'zh-CN' });
   for (const error of [new Error('socket hang up'), 'plain CLI error', undefined, { error: 'unknown shape' }]) {
     expect(errorText(error)).toBe(translate('error.unknown'));
-    expect(managerStreamFailureMessage(error, false)).toBe(translate('error.message_failed'));
-    expect(managerStreamFailureMessage(error, true)).toBe(translate('error.reply_interrupted'));
   }
 });

@@ -147,10 +147,10 @@ export const useArtifact = (
       && !isAuthenticationError(query.state.error) ? 2_000 : false,
   });
 
-export const useBacklogItem = (sid: string | null, itemId: string | null) =>
+export const useBacklogItem = (sid: string | null, itemId: string | null, letter?: string) =>
   useQuery({
-    queryKey: ['backlog-item', sid, itemId],
-    queryFn: ({ signal }) => api.backlogItem(sid!, itemId!, signal),
+    queryKey: letter ? ['backlog-item', sid, itemId, letter] : ['backlog-item', sid, itemId],
+    queryFn: ({ signal }) => letter ? api.backlogItem(sid!, itemId!, signal, letter) : api.backlogItem(sid!, itemId!, signal),
     enabled: !!sid && !!itemId,
   });
 

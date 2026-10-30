@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import type { Dataset } from '../map/model';
 import { mergeMapProgress } from '../map/incremental';
 const first: Dataset = {
-  id: 'live:s-map', kind: 'live', title: 'Study', description: '', read_only: false,
+  id: 'live:s-map',
   tasks: [{ id: 'a', title: 'Method', status: 'running', deps: [], ts: 1 }],
   events: [{ id: 'e1', item_id: 'a', type: 'handoff', role: 'engineer', to: 'reviewer', ts: 2, text: 'Check' }], cursor: '2',
 };

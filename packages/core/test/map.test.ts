@@ -153,7 +153,7 @@ test('recorded Manager supplement stays a task letter, and its request completes
     .map(event => JSON.stringify(event === supplement ? { ...event, task: 't1' } : event)).join('\n') + '\n');
   const before = progressMap(store, project, 0, []);
   const question = before.tasks.find(card => card.title === firstLine(message.text))!;
-  const incoming = before.events.filter(letter => letter.text === supplement.letter);
+  const incoming = before.events.filter(letter => letter.text === firstLine(supplement.letter));
 
   // Controlled completion after the excerpt: the same task closes and the project rests.
   const finished = '2026-10-29T21:51:00.000Z';
@@ -180,7 +180,7 @@ test('recorded Manager supplement stays a task letter, and its request completes
   assert.equal(new Set(before.events.map(letter => letter.id)).size, before.events.length);
   assert.equal(done.tasks.find(card => card.id === 't1')!.status, 'done');
   assert.deepEqual(done.events.map(letter => letter.text), ['Accepted.']);
-  assert.deepEqual(progressMap(store, project, 0, []).events.filter(letter => letter.text === supplement.letter), incoming);
+  assert.deepEqual(progressMap(store, project, 0, []).events.filter(letter => letter.text === firstLine(supplement.letter)), incoming);
   assert.deepEqual(progressMap(store, project, Number(done.cursor), []), { ...done, events: [] });
 });
 
@@ -227,6 +227,11 @@ test('a message is on the map while it is answered, and after only if its answer
   // One a later message took the place of is answered by none, off the map.
   project.forManager = [];
   assert.ok(!cards('working').some(([id]) => id === 'q23'));
+  const visible = progressMap(store, project, 0, []);
+  const ids = new Set(visible.tasks.map(task => task.id));
+  assert.ok(visible.events.every(event => ids.has(String(event.item_id))));
+  assert.equal(visible.events.some(event => event.item_id === 'q6'), false);
+  assert.deepEqual(Object.keys(visible).sort(), ['cursor', 'events', 'id', 'tasks']);
 });
 
 test('the original request survives Manager clarification, with the answer and resulting task in the same exchange', t => {

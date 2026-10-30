@@ -20,13 +20,13 @@ describe("atlas overview card text is line-clamped", () => {
     return [...declarations].map(([key, value]) => `${key}: ${value};`).join("\n");
   };
   it("clamps the title to two lines and wraps long tokens", () => {
-    const title = rule(".macro-summary .map-card h3");
+    const title = rule(".macro-summary .map-card h2");
     expect(title).toMatch(/-webkit-line-clamp:\s*2/);
     expect(title).toMatch(/overflow:\s*hidden/);
     expect(title).toMatch(/overflow-wrap:\s*anywhere/);
   });
   it("uses three wrapping lines in the final title rule, including the phone far view", () => {
-    const title = rule(".argus-map .macro-summary .map-card h3", design);
+    const title = rule(".argus-map .macro-summary .map-card h2", design);
     expect(title).toMatch(/display:\s*-webkit-box/);
     expect(title).toMatch(/-webkit-box-orient:\s*vertical/);
     expect(title).toMatch(/-webkit-line-clamp:\s*3/);
@@ -58,7 +58,7 @@ describe("atlas overview card text is line-clamped", () => {
     // where it would have to outgrow the card, not shrunk to specks (2026-10-29).
     expect(scope).toMatch(/--text-size:\s*max\(14px, calc\(10\.5px \/ var\(--on-screen\)\)\)/);
     expect(scope).toMatch(/--near:\s*round\(down, min\(1, var\(--on-screen\) \/ 0\.6\), 1\)/);
-    expect(design).toMatch(/\.map-card > :not\(h3\):not\(\.map-card-top\) \{ scale: var\(--near\); \}/);
+    expect(design).toMatch(/\.map-card > :not\(h2\):not\(\.map-card-top\) \{ scale: var\(--near\); \}/);
     expect(design).toMatch(/\.map-card-kind \{ font-size: calc\(var\(--text-size\) \* var\(--near\)\); \}/);
     expect(rule(".argus-map .macro-summary > .map-card-results", design)).toMatch(/max-height: calc\(var\(--near\) \* 3em\)/);
     expect(scope).toMatch(/--status-size:\s*clamp\(11\.5px, calc\(11px \/ var\(--on-screen\)\)/);

@@ -42,7 +42,7 @@ export type MacroData = MapCard & {
   detailed: boolean;
   readCopy?: (nodeId: string, key: string | null) => void;
   liveCall?: NonNullable<Snapshot['daemon']['calls']>[number];
-  workStatus?: Pick<NonNullable<Snapshot['work_status']>, 'state' | 'reason'>;
+  workStatus?: Pick<NonNullable<Snapshot['work_status']>, 'state' | 'reason' | 'label'>;
   growthDelay?: number;
   growingSteps?: Record<string, number>;
   growingLinks?: Record<string, number>;
@@ -70,6 +70,7 @@ export type MacroNode = Node<MacroData, "task">;
 /** Artifact previews change often and are only read inside the open reader;
  * context keeps them out of every node's data so updates skip idle nodes. */
 export const MapArtifactContext = createContext<{
+  sessionId?: string;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   workspace?: string;
@@ -161,7 +162,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
 }: NodeProps<MacroNode>) {
   const { task, ordinal, zh, layout: currentLayout, focused, detailed } = data;
   const paused = data.workStatus?.state === 'paused';
-  const { artifacts, onOpenArtifact, workspace } = useContext(MapArtifactContext);
+  const { artifacts, onOpenArtifact, workspace, sessionId } = useContext(MapArtifactContext);
   const [arrive] = useState(() => !!data.revealing || (!data.restoring && !data.seenCards?.has(id)));
   useEffect(() => { data.seenCards?.add(id); }, [data.seenCards, id]);
   const [readingLayout, setReadingLayout] = useState<SubmapLayout | null>(null);
@@ -265,7 +266,8 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     ] ?? STATES.unknown)[zh ? 0 : 1];
   const answered = task.turn_kind === 'qa' && layout.steps.some(step => step.kind === 'result' && step.source === 'event');
   const requestAction = answered ? (zh ? '查看回答' : 'Read answer') : (zh ? '阅读请求' : 'Read request');
-  const taskStateLabel = task.turn_kind === 'qa' && state === 'running' && !data.liveCall ? stateLabel(state)
+  const taskStateLabel = task.turn_kind === 'qa' && state === 'paused' && data.workStatus ? data.workStatus.label[zh ? 'zh-CN' : 'en']
+    : task.turn_kind === 'qa' && state === 'running' && !data.liveCall ? stateLabel(state)
     : task.turn_kind === 'qa' && (state !== 'done' || answered) && ['done', 'running', 'cancelled', 'failed'].includes(state)
     ? ({ done: ['已回答', 'Answered'], running: ['正在回答', 'Answering'], cancelled: ['已中断', 'Interrupted'], failed: ['回答失败', 'Answer failed'] } as Record<string, string[]>)[state][zh ? 0 : 1]
     : stateLabel(state);
@@ -325,7 +327,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           data-part={data.part}
           tabIndex={detailed ? -1 : 0}
           onClick={() => task.turn_kind === 'qa' && data.readCopy ? data.readCopy(id, task.id) : data.open(id)}
-          aria-label={`${title} · ${task.turn_kind === 'qa' ? requestAction : zh ? "放大任务" : "Explore task"}`}
         >
           <div className="map-card-top">
             <span className="map-card-kind">
@@ -348,9 +349,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
               </span>
             )}
           </div>
-          <h3 title={title}>
+          <h2 title={title}>
             <MarkdownExcerpt>{title}</MarkdownExcerpt>
-          </h3>
+          </h2>
           {/* The overview shows the current holder and latest word; past steps
               stay in the detail pages. */}
           <div className="map-card-state" data-question={task.status === 'blocked'}>
@@ -506,7 +507,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
                   {stateLabel(stepStatus(step))}
                 </small>
               </div>
-              <h4><MarkdownExcerpt>{step.title}</MarkdownExcerpt></h4>
+              <h3><MarkdownExcerpt>{step.title}</MarkdownExcerpt></h3>
               <div className="submap-step-copy"><MarkdownExcerpt>
                 {step.summary ||
                   step.detail ||
@@ -578,9 +579,9 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             </header>
             <h3><MarkdownExcerpt>{detail.title}</MarkdownExcerpt></h3>
             <div className="macro-reader-body">
-              <MapReaderContent cardKey={detail.id} taskId={task.id} task={task}
+              <MapReaderContent sessionId={sessionId} eventId={detail.source === 'event' ? detail.id : undefined} cardKey={detail.id} taskId={task.id} task={task}
                 workspace={workspace}
-                originalDetail={detail.detail || noDetails(zh)}
+                originalDetail={detail.detail || noDetails(zh)} zh={zh}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} />
             </div>
             <footer>

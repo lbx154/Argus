@@ -1,9 +1,25 @@
-import { describe, expect, test } from 'vitest';
-import { translate } from '../i18n';
+import { afterEach, describe, expect, test, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { I18nProvider, translate } from '../i18n';
+import { ConnectionProblemBanner } from '../components/ConnectionProblemBanner';
+import { PairingRequiredError } from '../api';
 import { renderLine, type RenderContext } from '../../../core/src/eventRender';
 import { roleLabel } from '../research-workbench/enumLabels';
 
 const ZH: RenderContext = { locale: 'zh-CN', showReasoning: true, unknownEventPolicy: 'hide', density: 'compact' };
+afterEach(() => vi.unstubAllGlobals());
+
+test.each(['zh-CN', 'en'] as const)('guides a local installation to its terminal link in %s, even with an invalid token', locale => {
+  vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.locale' ? locale : null });
+  for (const search of ['', '?token=invalid']) {
+    vi.stubGlobal('window', { location: { search } });
+    const markup = renderToStaticMarkup(createElement(I18nProvider, null,
+      createElement(ConnectionProblemBanner, { error: new PairingRequiredError(), onRetry: () => {} })));
+    expect(markup).toContain(locale === 'zh-CN' ? '终端中 argus 打印的链接' : 'link printed by argus in your terminal');
+    expect(markup).not.toMatch(/试用|邀请|trial|invited|sent you/i);
+  }
+});
 
 describe('web localization', () => {
   test.each([

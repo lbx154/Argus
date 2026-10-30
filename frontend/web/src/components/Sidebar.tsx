@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, type ProjectRow } from '../api';
 import { LearningLibraryEntry, type LearningScope } from './LearningLibrary';
 import { WorkspaceSidePanel } from './WorkspaceShell';
@@ -78,12 +78,14 @@ export function Sidebar({
   onRetry,
   mobileOpen = false,
   onCloseMobile,
+  separator,
   collapsed = false,
   onToggleCollapse,
   themeMode,
   onCycleTheme,
 }: {
   projects: ProjectRow[];
+  separator?: ReactNode;
   activeId: string | null;
   localCwd: string;
   onSelect: (id: string) => void;
@@ -231,8 +233,9 @@ export function Sidebar({
   const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
   return (
+    <div className="contents" role="complementary" aria-label={t('mobile.sessions')}>
     <WorkspaceSidePanel ref={sidebarRef} mobileOpen={mobileOpen} collapsed={collapsed}
-      role={mobileOpen ? "dialog" : "complementary"} aria-modal={mobileOpen ? true : undefined}
+      role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen ? true : undefined}
       aria-label={mobileOpen ? t('mobile.sessions') : undefined} tabIndex={mobileOpen ? -1 : undefined}>
       <div className={`chrome-seam-surface flex h-12 shrink-0 items-center border-b border-line/50 ${slim ? 'justify-center' : 'justify-between px-4'}`}>
         {slim ? (
@@ -406,7 +409,7 @@ export function Sidebar({
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                           {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
                         </div>
-                        <div className="mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] text-ink-faint">
+                        <div className={`mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] ${active ? 'text-ink-dim' : 'text-ink-faint'}`}>
                           <span className="min-w-0 truncate" title={workLabel}
                             data-session-work-state={work?.state}>
                             {workLabel}
@@ -460,5 +463,7 @@ export function Sidebar({
         </>
       ) : null}
     </WorkspaceSidePanel>
+    {separator}
+    </div>
   );
 }

@@ -118,7 +118,7 @@ export function TaskTrace({ sessionId, taskId, zh, conclusion, running = false, 
       : trace.isError ? <p className="text-xs text-ink-dim">{zh ? '过程记录暂时读不到。' : 'The record could not be read.'}</p>
       : !trace.data?.groups.length ? <p className="text-xs text-ink-dim">{zh ? '还没有过程记录。' : 'No recorded process yet.'}</p>
       : trace.data.groups.map((group) => <section key={group.call_id} className="task-trace-group mb-3">
-        <h4 className="mb-1 text-xs font-semibold text-ink-dim">{groupTitle(group, zh)}</h4>
+        <h3 className="mb-1 text-xs font-semibold text-ink-dim">{groupTitle(group, zh)}</h3>
         <div className="flex flex-col gap-1.5">
           {runs(group.entries).map((run, index) => 'commands' in run
             ? <CommandsView key={index} commands={run.commands} zh={zh} workspace={workspace} />

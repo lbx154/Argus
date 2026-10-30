@@ -1446,3 +1446,31 @@ test('map excerpts leave the conversation and on-demand task detail in full', as
   const again = await get<{ item: { latest_action: { text: string } } }>(`${P}/backlog/${added.task.id}`);
   assert.equal(again.item.latest_action.text, text);
 });
+
+
+test('map summaries retain the recorded drawing while explicit task and letter reads return the body', async t => {
+  const { store, get, call } = await setup(t, []);
+  const source = new URL('./fixtures/manager-task-update/events.jsonl', import.meta.url);
+  const record = (await import('node:fs')).readFileSync(source, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const task = record.find(event => event.type === 'task.added').task;
+  // Replay the real supplement on the already opened task, as in map.test.ts.
+  record.filter(event => event.type === 'handoff').at(-1).task = task.id;
+  const project = store.create({ workdir: '', request: 'Replay the recorded task update', backend: 'codex', model: null });
+  store.save({ ...project, status: 'stopped', tasks: [{ ...task, status: 'closed' }] });
+  const { writeFileSync } = await import('node:fs');
+  writeFileSync(`${store.dir(project.id)}/events.jsonl`, record.map(event => JSON.stringify(event)).join('\n') + '\n');
+  const P = `/api/projects/${project.id}`;
+  const map = await get<ProgressMap>(`${P}/map`);
+  assert.ok(map.events.length > 0);
+  assert.ok(map.events.every(event => event.text.length <= 160 && !event.text.includes('\n')));
+  const index = record.findIndex(event => event.type === 'handoff' && event.task === task.id && event.letter.includes('\n'));
+  const original = record[index];
+  const event = map.events.find(event => event.id === `e${index}`)!;
+  assert.deepEqual([event.item_id, event.role, event.to], [task.id, original.role, original.to]);
+  assert.notEqual(event.text, original.letter);
+  const detail = await get<{ item: { notes: string; objective: string } }>(`${P}/backlog/${task.id}?letter=${event.id}`);
+  assert.equal(detail.item.notes, original.letter);
+  assert.equal(detail.item.objective, task.objective);
+  assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${map.cursor}`)).events, []);
+  assert.equal((await call(`${P}/backlog/${task.id}?letter=missing`)).status, 404);
+});

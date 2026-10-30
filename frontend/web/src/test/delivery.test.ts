@@ -179,23 +179,29 @@ it('browser record: a Manager answer with a file is a neutral result in chat and
   expect(chat + files).not.toContain('Task completed');
 });
 
-it('replays per-file delivery occurrences, including unchanged text, in conversation cards and selectors', async () => {
+it('replays per-file counts, including unchanged text, while conversation cards show only timestamps', async () => {
   const { default: fixture } = await import('../../../../packages/core/test/fixtures/delivery-versions/record.json');
-  const { deliveryOptionLabel, deliveryFileUpdated } = await import('../components/deliveryPresentation');
+  const { deliveryTimeLabel, deliveryFileUpdated } = await import('../components/deliveryPresentation');
   const events = webEvents(fixture.text.events as Recorded[]);
   const receipts = events.flatMap(row => row.delivery ? [row.delivery as DeliveryReceipt] : []);
   const markup = renderToStaticMarkup(createElement(EventStream, { events, connected: true, showReasoning: false }));
-  expect(markup).toContain('Delivery 1');
-  expect(markup).toContain('Delivery 2');
-  expect(markup).toContain('Delivery 3');
+  expect(markup).not.toMatch(/Delivery [123]/);
+  for (const receipt of receipts) expect(markup).toContain(new Date(receipt.delivered_at * 1000).toLocaleString('en'));
   expect(receipts[2].targets.map(file => file.delivery_number)).toEqual([3, 2]);
   expect(receipts[1].snapshots?.[0].version).toBe(receipts[2].snapshots?.[0].version);
-  expect(receipts.map(receipt => deliveryOptionLabel(receipt, true))).toEqual([
-    ...receipts.map((receipt, index) => `第 ${index + 1} 次交付 · ${new Date(receipt.delivered_at * 1000).toLocaleString('zh-CN')}`),
-  ]);
-  expect(markup.match(/Delivery 2/g)).toHaveLength(1);
-  expect(markup.match(/Delivery 3/g)).toHaveLength(1);
+  expect(receipts.map(receipt => deliveryTimeLabel(receipt, true))).toEqual(
+    receipts.map(receipt => new Date(receipt.delivered_at * 1000).toLocaleString('zh-CN')),
+  );
   expect(deliveryFileUpdated(receipts[0], receipts, 'report.md')).toBe(false);
+});
+
+it('shows timestamps for two recorded deliveries of different files whose file counts both start at one', async () => {
+  const { default: fixture } = await import('../../../../packages/core/test/fixtures/delivery-versions/record.json');
+  const events = webEvents([...fixture.text.events.slice(0, 2), ...fixture.binary.events.slice(0, 2)] as Recorded[]);
+  expect(events.flatMap(event => event.delivery ? [(event.delivery as DeliveryReceipt).primary_target?.delivery_number] : [])).toEqual([1, 1]);
+  const markup = renderToStaticMarkup(createElement(EventStream, { events, connected: true, showReasoning: false }));
+  expect(markup).not.toContain('Delivery 1');
+  expect(markup.match(/class="result-card-body"/g)).toHaveLength(2);
 });
 
 it('marks a superseded binary on its old card', async () => {

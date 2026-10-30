@@ -196,3 +196,33 @@ it.each(['in_progress', 'done', 'failed'])('opens on-demand full task progress f
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, task.id);
   expect(renderer!.root.findAllByProps({ 'data-testid': 'map-reader' })).toHaveLength(0);
 });
+
+
+it('requests the selected historical letter only when its reader is opened, keeping the complete body', async () => {
+  const source = recorded.tasks[2];
+  const letter = source.note.text;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
+  const request = vi.spyOn(api, 'backlogItem').mockResolvedValue({ id: source.id, title: source.title, status: 'done', priority: 1, objective: source.objective, notes: letter });
+  client.setQueryData(['task-trace', recorded.id, source.id], { task_id: source.id, groups: [] });
+  const current = { ...task, id: source.id };
+  const value = props({ task: current, layout: layoutSubmap(current, [{ id: 'e42', item_id: current.id, type: 'handoff', text: 'Short heading…', ts: 1 }], false) });
+  act(() => { renderer = create(<QueryClientProvider client={client}><MapArtifactContext.Provider value={{ sessionId: recorded.id }}><MacroTaskNode {...value} /></MapArtifactContext.Provider></QueryClientProvider>); });
+  expect(request).not.toHaveBeenCalled();
+  await act(async () => {
+    renderer!.root.findByProps({ 'data-step-id': 'e42' }).props.onClick();
+    await new Promise(done => setTimeout(done, 10));
+  });
+  expect(request).toHaveBeenCalledWith(recorded.id, source.id, expect.any(AbortSignal), 'e42');
+  expect(renderer!.root.findByProps({ 'data-testid': 'map-reader' }).findAllByType(MarkdownContent).some(node => node.props.children === letter)).toBe(true);
+  client.clear();
+});
+
+it('reads the complete request answer from the detail entry instead of the map summary', async () => {
+  const answer = 'Answer heading.\n\n' + 'Full answer body. '.repeat(60);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
+  const summary = { id: 'q0', turn_kind: 'qa' as const, title: 'The request', status: 'done', latest_action: { role: 'manager', text: 'Answer heading.', ts: 1 } };
+  vi.spyOn(api, 'backlogItem').mockResolvedValue({ ...summary, priority: 1, objective: 'The full request.', latest_action: { ...summary.latest_action, text: answer } });
+  await act(async () => { renderer = create(<QueryClientProvider client={client}><MapTaskReader task={summary} sessionId="request-reading" /></QueryClientProvider>); await new Promise(done => setTimeout(done, 10)); });
+  expect(renderer!.root.findAllByType(MarkdownContent).some(node => node.props.children === answer)).toBe(true);
+  client.clear();
+});

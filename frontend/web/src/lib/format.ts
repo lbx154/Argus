@@ -117,9 +117,5 @@ export function rawErrorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error ?? '');
 }
 
-export function managerStreamFailureMessage(error: unknown, gotDelta: boolean): string {
-  return errorText(error, undefined, gotDelta ? 'reply_interrupted' : 'message_failed');
-}
-
 /** A Ctrl/⌘ shortcut as this platform writes it: "⌘K" on Apple devices, "Ctrl+K" elsewhere. */
 export const shortcut = (key: string): string => /Mac|iPhone|iPad/.test(navigator.platform) ? `⌘${key}` : `Ctrl+${key}`;

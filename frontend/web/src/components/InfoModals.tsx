@@ -94,7 +94,7 @@ export function ConfigModal({
             <section className="settings-section">
               <h3 className="mb-3 text-sm font-semibold text-ink">{t('settings.quickConfig')}</h3>
               <details className="mb-4">
-                <summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '服务连接设置 · 由维护者配置' : 'Service connection · Maintainer settings'}</summary>
+                <summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '服务连接设置' : 'Service connection'}</summary>
                 <p className="my-2 text-xs leading-5 text-ink-faint">{locale === 'zh-CN' ? '普通使用无需修改。更换连接前，请确认服务已配置好相应账号与环境。' : 'Not required for ordinary use. Confirm the account and environment before changing this connection.'}</p>
               <label className="flex flex-wrap items-center gap-2">
                 <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.backend')}</span>

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentProps } from 'react';
-import type { DeliveryReceipt, Snapshot } from '../../../core/src/types';
+import type { DeliveryReceipt, EventMsg, Snapshot } from '../../../core/src/types';
 import App from '../App';
 import { api } from '../api';
 import { ApiError } from '../../../core/src/http';
@@ -19,6 +19,8 @@ import { ActionNotice } from '../components/ActionNotice';
 import { EventStream } from '../components/EventStream';
 import { Capabilities } from '../lib/capabilities';
 import pendingAnswer from '../../../../packages/core/test/fixtures/pending-answer/record.json';
+import { mergeConversationEvents } from '../lib/conversationEvents';
+import failureRecord from '../../../../packages/core/test/fixtures/message-failure/record.json';
 
 const fixture = vi.hoisted(() => {
   const idle = { data: undefined as unknown, isPending: false, isLoading: false, isError: false, isSuccess: true, isFetching: false, isFetchedAfterMount: true, refetch: vi.fn(async () => ({})) };
@@ -40,7 +42,10 @@ vi.mock('../hooks', async importOriginal => ({
   useArtifacts: () => ({ ...fixture.idle, data: fixture.artifacts }),
   useProjectActions: () => fixture.actions,
 }));
-vi.mock('../useConversationHistory', () => ({ useConversationHistory: () => ({ query: { ...fixture.idle, data: fixture.turns, hasNextPage: false, isFetchedAfterMount: true }, events: fixture.turns, connected: true, status: 'ready' }) }));
+vi.mock('../useConversationHistory', () => ({ useConversationHistory: (sid: string, _enabled: boolean, optimistic: EventMsg[], optimisticSid: string) => ({
+  query: { ...fixture.idle, data: fixture.turns, hasNextPage: false, isFetchedAfterMount: true },
+  events: mergeConversationEvents(fixture.turns as EventMsg[], optimisticSid === sid ? optimistic : []), connected: true, status: 'ready',
+}) }));
 // Keep App's actual selection, composer controller, command dispatch and delivery
 // controller. Heavy presentation children are irrelevant to these lifetime races;
 // the browser fixture separately exercises their real DOM and artifact HTTP path.
@@ -579,6 +584,78 @@ describe('App session composer ownership', () => {
     await act(async () => stream.reject(new Error('SSE disconnected after server acceptance')));
     expect(props().value).toBe('');
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['error frame', 'disconnected stream'])('keeps an accepted message sent after %s, without a second failure notice', async ending => {
+    const stream = deferred<void>();
+    const send = vi.spyOn(api, 'messageStream').mockImplementation((_sid, _text, handlers) => {
+      handlers.onAccepted?.();
+      return stream.promise;
+    });
+    type('帮我写一句问候语');
+    await act(async () => { expect(await props().onSend('帮我写一句问候语')).toBe(true); });
+    expect(props().value).toBe('');
+    const handlers = send.mock.calls[0][2];
+    await act(async () => {
+      const error = failureRecord.project.failures[0].error;
+      if (ending === 'error frame') handlers.onError?.(new Error(error));
+      if (ending === 'disconnected stream') stream.reject(new Error('connection lost'));
+      else stream.resolve();
+    });
+    expect(props().value).toBe('');
+    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
+    expect(fixture.idle.refetch).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([new Error('connection lost'), new ApiError('Unauthorized', 401, 'POST', '/message/stream')])('restores a message refused before acceptance (%s) and removes its unsent conversation row', async error => {
+    const stream = deferred<void>();
+    const send = vi.spyOn(api, 'messageStream').mockReturnValue(stream.promise);
+    type('原文保留');
+    await act(async () => { expect(await props().onSend('原文保留')).toBe(true); });
+    expect(props().value).toBe('');
+    expect(renderer.root.findByType(EventStream).props.events).toContainEqual(expect.objectContaining({ type: 'ui.operator', text: '原文保留' }));
+    await act(async () => stream.reject(error));
+    expect(props().value).toBe('原文保留');
+    expect(renderer.root.findByType(EventStream).props.events).not.toContainEqual(expect.objectContaining({ type: 'ui.operator', text: '原文保留' }));
+    expect(renderer.root.findByType(ActionNotice).props.notice.tone).toBe('error');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a partial reply after an accepted stream breaks, without restoring or resending its request', async () => {
+    const stream = deferred<void>();
+    const send = vi.spyOn(api, 'messageStream').mockImplementation((_sid, _text, handlers) => {
+      handlers.onAccepted?.();
+      handlers.onDelta?.({ type: 'ui.argus', message_id: 'm0-argus', text: '已经写出的部分回复', ts: 1 });
+      return stream.promise;
+    });
+    type('只发一次');
+    await act(async () => { await props().onSend('只发一次'); });
+    await act(async () => stream.reject(new Error('connection lost')));
+    expect(props().value).toBe('');
+    expect(renderer.root.findByType(EventStream).props.events).toContainEqual(expect.objectContaining({ type: 'ui.argus', text: '已经写出的部分回复' }));
+    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the route override and reads the task state after an accepted Manager handoff', async () => {
+    const stream = deferred<void>();
+    const send = vi.spyOn(api, 'messageStream').mockImplementation((_sid, _text, handlers) => {
+      handlers.onAccepted?.();
+      return stream.promise;
+    });
+    act(() => props().onRouteOverrideChange!('task'));
+    type('日报工具与测试');
+    await act(async () => { await props().onSend('日报工具与测试'); });
+    await act(async () => {
+      send.mock.calls[0][2].onDone?.({ kind: 'task', reply: '已交给规划者。' });
+      stream.resolve();
+    });
+    expect(props().value).toBe('');
+    expect(props().routeOverride).toBe('auto');
+    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
+    expect(fixture.idle.refetch).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it('stops the reply it waits on with the one stop, and never automatically replays a broken stream', async () => {

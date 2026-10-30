@@ -769,9 +769,9 @@ export const api = {
     postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model }),
   conversation: (sid: string, before?: number, signal?: AbortSignal) =>
     getJson<ConversationPage>(P(sid, `/conversation?limit=30${before === undefined ? '' : `&before=${before}`}`), signal),
-  backlogItem: (sid: string, id: string, signal?: AbortSignal) =>
+  backlogItem: (sid: string, id: string, signal?: AbortSignal, letter?: string) =>
     getJson<{ item: BacklogItem }>(
-      P(sid, `/backlog/${encodeURIComponent(id)}`),
+      P(sid, `/backlog/${encodeURIComponent(id)}${letter ? `?letter=${encodeURIComponent(letter)}` : ''}`),
       signal,
     ).then((r) => r.item),
   artifacts: (sid: string, signal?: AbortSignal) =>
