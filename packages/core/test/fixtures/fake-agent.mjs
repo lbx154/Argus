@@ -152,9 +152,9 @@ if (cli === 'codex') {
       output_tokens_details: { thinking_tokens: 5 } };
     const result = { type: 'result', subtype: 'success', session_id: session, usage, total_cost_usd: spent = Math.round((spent + 0.0123) * 1e4) / 1e4 };
     const said = (content, more = {}) => emit({ type: 'assistant', session_id: session, message: { role: 'assistant', content }, ...more });
-    said([{ type: 'text', text: 'Working on it.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
+    said([{ type: 'thinking', thinking: '**Reading the parser**', signature: 's' }, { type: 'text', text: 'Working on it.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
       { type: 'tool_use', name: 'Read', input: { file_path: 'README.md' } }, { type: 'tool_use', name: 'Edit', input: { file_path: 'parser.js' } }]);
-    said([{ type: 'text', text: 'Subagent at work.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm run lint' } }], { parent_tool_use_id: 'toolu_1' });
+    said([{ type: 'thinking', thinking: '**Linting**', signature: 's' }, { type: 'text', text: 'Subagent at work.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm run lint' } }], { parent_tool_use_id: 'toolu_1' });
     const output = scenario.output;
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answerOf(output), ...typeof output === 'object' ? { structured_output: output } : {} });

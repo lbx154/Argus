@@ -13,6 +13,8 @@ import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
 import { isReasoning } from '../../../core/src/events';
+import { useElapsed } from '../map/LiveLine';
+import { elapsedLabel } from '../map/alive';
 import {
   foldFeedRows,
   groupSummary,
@@ -291,6 +293,12 @@ function FeedRows({ rows }: { rows: FeedRow[] }) {
   );
 }
 
+/** How long a reply has been under way since it was asked for, as codex's status line counts it:
+ * the clock ticks on its own, so the reply's words stay still. */
+function Underway({ since, zh }: { since: number; zh: boolean }) {
+  return <span className="shrink-0 tabular-nums text-ink-faint" data-underway>· {elapsedLabel(useElapsed(since) ?? 0, zh)}</span>;
+}
+
 function conversationTime(ev: EventMsg) {
   const date = dateOf(ev);
   const today = new Date();
@@ -367,6 +375,7 @@ const ConversationRow = memo(function ConversationRow({
               <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim">
                 <span className="status-dot" data-tone="running" aria-hidden="true" />
                 <span className="min-w-0 truncate" data-manager-doing>{manager?.doing || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
+                {Number(ev.ts) ? <Underway since={Number(ev.ts)} zh={locale === 'zh-CN'} /> : null}
               </div>
               {/* Its words as they are written, else the last thing it said. */}
               {reportText || manager?.said ? <div className="mt-1"><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(reportText || manager!.said)}</MarkdownContent></div> : null}

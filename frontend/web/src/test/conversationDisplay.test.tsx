@@ -60,8 +60,10 @@ it.each(['running', 'waiting'] as const)('keeps %s replies and team briefs outsi
   expect(html).not.toContain('aria-live');
 });
 
-it('shows a running reply\'s words as they come, under what the Manager is at', () => {
+it('shows a running reply\'s words as they come, under what the Manager is at and for how long', () => {
   const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.argus', status: 'running', live: true, text: '正在写的**回复**', ts: 1 }]} connected showReasoning={false} />);
   expect(html).toContain('data-manager-doing');
+  // How long it has been under way, as codex's status line counts it.
+  expect(html).toMatch(/data-underway="true">· \d+ h \d+ min/);
   expect(html).toMatch(/正在写的<strong[^>]*>回复<\/strong>/);
 });
