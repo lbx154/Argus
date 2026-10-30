@@ -12,9 +12,9 @@ def consume(event, *, messages=None):
     )
 
 
-def test_copilot_query_retains_http_status_and_unsupported_requests_are_permanent():
+def test_copilot_query_retains_http_status_and_authentication_failures_are_permanent():
     state = consume({"type": "session.error", "data": {
-        "errorType": "query", "statusCode": 400, "message": "unsupported trial request",
+        "errorType": "query", "statusCode": 400, "message": "invalid api key",
     }})
     assert state[2] and "HTTP 400" in state[3]
     assert _raw_backend_stop_kind(fatal_error=state[3], exit_code=1) == "permanent_error"

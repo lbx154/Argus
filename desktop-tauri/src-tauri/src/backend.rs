@@ -235,7 +235,7 @@ impl BackendSupervisor {
             runtime.stopping = false;
             runtime.lifecycle_generation
         };
-        let mut settings = self.inner.settings.snapshot();
+        let settings = self.inner.settings.snapshot();
         let configured = match resolve_runner_configuration(&settings) {
             Ok(configured) => configured,
             Err(error) => {
@@ -247,7 +247,7 @@ impl BackendSupervisor {
             self.set_status(BackendState::Idle, "请选择并确认 Agent CLI 后开始使用", None);
             return;
         }
-        let mut command = match self.resolve_command(&settings) {
+        let command = match self.resolve_command(&settings) {
             Ok(command) => command,
             Err(error) => {
                 self.set_status(
@@ -281,26 +281,24 @@ impl BackendSupervisor {
                 self.mark_backend_ready(generation, "本地服务已就绪");
                 return;
             }
-            if !settings.trial_mode {
-                self.set_status(
-                    BackendState::Error,
-                    format!(
-                        "端口 {} 已由未受当前桌面进程管理的应用占用",
-                        settings.port
-                    ),
-                    Some(
-                        "请先正常退出另一份应用；桌面端不会接管或终止无法证明所有权的进程。"
-                            .to_owned(),
-                    ),
-                );
-                return;
-            }
+            self.set_status(
+                BackendState::Error,
+                format!(
+                    "端口 {} 已由未受当前桌面进程管理的应用占用",
+                    settings.port
+                ),
+                Some(
+                    "请先正常退出另一份应用；桌面端不会接管或终止无法证明所有权的进程。"
+                        .to_owned(),
+                ),
+            );
+            return;
         }
 
         if probe.occupied {
             let may_replace = self.prior_ownership_matches(&probe, &settings)
                 || self.legacy_bundled_backend_matches(&probe, &command);
-            if !may_replace && !settings.trial_mode {
+            if !may_replace {
                 self.set_status(
                     BackendState::Error,
                     format!("端口 {} 已被其他程序占用", settings.port),
@@ -328,31 +326,6 @@ impl BackendSupervisor {
             }
             if !self.is_current_generation(generation) {
                 return;
-            }
-        }
-
-        if settings.trial_mode {
-            let prepared = self
-                .inner
-                .settings
-                .prepare_backend_port()
-                .and_then(|settings| {
-                    self.resolve_command(&settings)
-                        .map(|command| (settings, command))
-                });
-            match prepared {
-                Ok((selected_settings, selected_command)) => {
-                    settings = selected_settings;
-                    command = selected_command;
-                }
-                Err(error) => {
-                    self.set_status(
-                        BackendState::Error,
-                        "无法准备本地服务端口",
-                        Some(format!("{error:#}")),
-                    );
-                    return;
-                }
             }
         }
 
@@ -987,20 +960,8 @@ impl BackendSupervisor {
                 "PYTHONIOENCODING",
                 env::var("PYTHONIOENCODING").unwrap_or_else(|_| "utf-8".to_owned()),
             );
-        if settings.trial_mode {
-            // Desktop trial is an environment-scoped profile; the user's
-            // persistent model/role knobs are not rewritten when switching.
-            process.env("ARGUS_SKILL_MODEL", "argus-trial")
-                .env("ARGUS_SKILL_LIFE_BACKEND", "copilot")
-                .env("ARGUS_SKILL_BACKEND_AUTH_MODE", "subscription_cli");
-        }
-        process.env_remove("ARGUS_DESKTOP_TRIAL_PROFILE");
         if settings.runner_configured {
             process
-                .env(
-                    "ARGUS_SKILL_COPILOT_TRIAL",
-                    if settings.trial_mode { "1" } else { "0" },
-                )
                 .env("ARGUS_SKILL_RUNNER_BACKEND", settings.runner_kind.as_str())
                 .env_remove("ARGUS_SKILL_RUNNER_BIN");
         }

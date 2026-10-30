@@ -101,19 +101,6 @@ impl SettingsStore {
         Ok(())
     }
 
-    pub fn prepare_backend_port(&self) -> anyhow::Result<DesktopSettings> {
-        let mut current = self.settings.lock().expect("settings mutex poisoned");
-        let port = available_backend_port(&current)
-            .with_context(|| format!("无法准备本地服务端口 {}", current.port))?;
-        if port != current.port {
-            let mut next = current.clone();
-            next.port = port;
-            self.write_settings(&next)?;
-            *current = next;
-        }
-        Ok(current.clone())
-    }
-
     pub fn set_appearance(&self, theme: AppearanceTheme) -> anyhow::Result<DesktopAppearance> {
         {
             let mut current = self.settings.lock().expect("settings mutex poisoned");
@@ -178,13 +165,7 @@ impl SettingsStore {
 }
 
 pub fn available_backend_port(settings: &DesktopSettings) -> io::Result<u16> {
-    let listener = match TcpListener::bind((settings.host.as_str(), settings.port)) {
-        Ok(listener) => listener,
-        Err(error) if settings.trial_mode && error.kind() == io::ErrorKind::AddrInUse => {
-            TcpListener::bind((settings.host.as_str(), 0))?
-        }
-        Err(error) => return Err(error),
-    };
+    let listener = TcpListener::bind((settings.host.as_str(), settings.port))?;
     listener.local_addr().map(|address| address.port())
 }
 
@@ -335,19 +316,17 @@ mod tests {
     use std::{
         collections::BTreeMap,
         io,
-        net::{TcpListener, TcpStream},
+        net::TcpListener,
         sync::Mutex,
-        time::{Duration, Instant},
     };
 
-    fn port_store(port: u16, trial_mode: bool) -> (tempfile::TempDir, SettingsStore) {
+    fn port_store(port: u16) -> (tempfile::TempDir, SettingsStore) {
         let directory = tempfile::tempdir_in(env!("CARGO_MANIFEST_DIR")).unwrap();
         let store = SettingsStore {
             data_dir: directory.path().to_path_buf(),
             settings_path: directory.path().join("settings.json"),
             settings: Mutex::new(DesktopSettings {
                 port,
-                trial_mode,
                 token: "test-web-token".into(),
                 runner_configured: true,
                 setup_complete: true,
@@ -379,100 +358,20 @@ mod tests {
     }
 
     #[test]
-    fn trial_port_collision_and_restart_preserve_foreign_listeners_and_saved_urls() {
-        let foreign = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let (_directory, store) = port_store(foreign.local_addr().unwrap().port(), true);
-        let mut listeners = vec![foreign];
-        // Startup avoids the preferred port; restart avoids the now-occupied saved port.
-        for _ in 0..2 {
-            let preferred = store.snapshot().port;
-            let selected = store.prepare_backend_port().unwrap();
-            assert_ne!(selected.port, preferred);
-            assert_ne!(selected.port, 0);
-            assert_eq!(store.snapshot().port, selected.port);
-            let (saved, _) = super::load_settings_file(&store.settings_path).unwrap();
-            assert_eq!(saved.port, selected.port);
-            assert!(saved.trial_mode && saved.setup_complete && saved.runner_configured);
-            assert_eq!(saved.token, "test-web-token");
-            let cockpit = url::Url::parse(&SettingsStore::cockpit_url(&saved)).unwrap();
-            assert_eq!(cockpit.host_str(), Some("127.0.0.1"));
-            assert_eq!(cockpit.port(), Some(selected.port));
-            assert!(cockpit
-                .query_pairs()
-                .any(|(key, value)| key == "token" && value == saved.token));
-            assert_eq!(
-                SettingsStore::api_base_url(&saved),
-                format!("http://127.0.0.1:{}", selected.port)
-            );
-            // The selected port can be bound, while every foreign listener remains reachable.
-            listeners.push(TcpListener::bind((selected.host.as_str(), selected.port)).unwrap());
-            for listener in &listeners {
-                listener.set_nonblocking(true).unwrap();
-                let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-                // A successful connect can precede accept readiness on macOS.
-                // Wait for the nonblocking listener without hiding real errors.
-                let deadline = Instant::now() + Duration::from_secs(5);
-                let (connection, _) = loop {
-                    match listener.accept() {
-                        Ok(connection) => break connection,
-                        Err(error)
-                            if error.kind() == io::ErrorKind::WouldBlock
-                                && Instant::now() < deadline =>
-                        {
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(error) => panic!("foreign listener accept failed: {error}"),
-                    }
-                };
-                assert_eq!(connection.local_addr().unwrap(), client.peer_addr().unwrap());
-            }
-        }
-    }
-
-    #[test]
-    fn trial_port_keeps_an_available_preference() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let (_directory, store) = port_store(port, true);
-        assert_eq!(store.prepare_backend_port().unwrap().port, port);
-        assert_eq!(
-            super::load_settings_file(&store.settings_path).unwrap().0.port,
-            port
-        );
-    }
-
-    #[test]
     fn manual_port_choices_are_never_reassigned() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
-        let (_directory, store) = port_store(port, false);
+        let (_directory, store) = port_store(port);
         let original = std::fs::read(&store.settings_path).unwrap();
-        let error = store.prepare_backend_port().unwrap_err();
+        let error = super::available_backend_port(&store.snapshot()).unwrap_err();
         assert_eq!(
-            error.downcast_ref::<io::Error>().unwrap().kind(),
+            error.kind(),
             io::ErrorKind::AddrInUse
         );
         assert_eq!(store.snapshot().port, port);
         assert_eq!(std::fs::read(&store.settings_path).unwrap(), original);
         drop(listener);
-        assert_eq!(store.prepare_backend_port().unwrap().port, port);
-    }
-
-    #[test]
-    fn trial_port_save_failure_does_not_publish_an_unsaved_port() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let (_directory, mut store) = port_store(port, true);
-        let original = std::fs::read(&store.settings_path).unwrap();
-        store.settings_path = store.data_dir.join("blocked");
-        std::fs::create_dir(&store.settings_path).unwrap();
-        assert!(store.prepare_backend_port().is_err());
-        assert_eq!(store.snapshot().port, port);
-        assert_eq!(
-            std::fs::read(store.data_dir.join("settings.json")).unwrap(),
-            original
-        );
+        assert_eq!(super::available_backend_port(&store.snapshot()).unwrap(), port);
     }
 
     #[test]

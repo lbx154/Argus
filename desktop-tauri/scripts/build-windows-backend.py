@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         for arguments in (
             ["--verify-frozen-runtime"],
             ["-I", "-m", "argus.tools.manager_live_view", "--help"],
-            ["-c", "import argus.trial.desktop, certifi; print('desktop-trial-ready')"],
+            ["-c", "import certifi; print('desktop-runtime-ready')"],
             ["-c", "from zoneinfo import ZoneInfo; assert ZoneInfo('Asia/Shanghai').key == 'Asia/Shanghai'"],
         ):
             run(str(executable), *arguments)

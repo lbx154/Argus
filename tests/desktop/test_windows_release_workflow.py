@@ -56,7 +56,7 @@ def test_windows_toolchain_pins_leave_other_platform_inputs_unchanged():
     assert uv["with"]["version"] == "0.12.16"
     other = _step("Install non-Windows Python build dependencies")
     assert other["if"] == "runner.os != 'Windows'"
-    assert 'python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata' == other["run"]
+    assert 'python -m pip install -e . "pyinstaller>=6.11,<7" tzdata' == other["run"]
 
 
 def test_windows_build_isolation_cannot_resolve_new_tools():
@@ -64,7 +64,7 @@ def test_windows_build_isolation_cannot_resolve_new_tools():
     assert step["if"] == "runner.os == 'Windows'"
     assert step["env"]["UV_PYTHON_DOWNLOADS"] == "never"
     script = step["run"]
-    assert "uv sync --extra dev --extra trial --no-install-project --python 3.11.9" in script
+    assert "uv sync --extra dev --no-install-project --python 3.11.9" in script
     assert "--no-deps -r desktop-tauri/scripts/windows-build-requirements.txt" in script
     assert "--no-deps --no-build-isolation --editable ." in script
     assert "uv pip check --python .venv/Scripts/python.exe" in script

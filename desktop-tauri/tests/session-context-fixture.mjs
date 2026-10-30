@@ -126,7 +126,7 @@ export async function startSessionFixture(options = {}) {
         }
         if (endpoint === '/transcript') return json(response, { turns: [] });
         if (endpoint === '/events') return json(response, { events: [] });
-        if (endpoint === '/config') return json(response, { schema_version: 1, trial_mode: false, generated_at_utc: '2026-09-17T00:00:00Z', roles: [], operator_knobs: [], how_to_change: [] });
+        if (endpoint === '/config') return json(response, { schema_version: 1, generated_at_utc: '2026-09-17T00:00:00Z', roles: [], operator_knobs: [], how_to_change: [] });
         if (endpoint === '/wiki') return json(response, { exists: false });
         if (endpoint === '/map-notes') return json(response, { notes: [] });
         if (endpoint === '/map-info') return json(response, { task_count: 0, event_bytes: 0, requires_choice: false, current_task_id: null, current_task_ts: 0, current_event_ts: 0 });

@@ -100,7 +100,7 @@ def test_release_notes_require_all_desktop_platforms(tmp_path, monkeypatch):
             "Metadata-Version: 2.1\nName: argus\nVersion: 0.1.5\n",
         )
         wheel.writestr("argus/release_manifest.json", json.dumps({"git_commit": "c0ffee"}))
-    notes = tmp_path.parent / "trial-release-notes.txt"
+    notes = tmp_path.parent / "release-notes.txt"
     monkeypatch.setattr(sys, "argv", [str(script), str(tmp_path), "--notes", str(notes)])
 
     staging.main()
