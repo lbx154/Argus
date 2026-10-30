@@ -30,6 +30,8 @@ const operatorText = ({ text, attachments }: OperatorMessage): string => text + 
 
 export interface FlowOptions {
   onEvent?: (event: FlowEvent) => void;
+  /** The words a role's call is writing, as far as they have come; none once they are said. */
+  onWords?: (role: Role, task: string | undefined, words: string) => void;
   /** Interrupts every call under way, and ends the work. */
   signal?: AbortSignal;
 }
@@ -333,7 +335,8 @@ export class Flow {
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
-        ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); }, callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+        ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
+        onWords: words => this.options.onWords?.(role, task?.id, words), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
       // The call never ran to an end of its own: it is recorded as ended, failed.

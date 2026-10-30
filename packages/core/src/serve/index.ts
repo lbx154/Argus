@@ -76,17 +76,21 @@ export async function serve(options: ServeOptions): Promise<Served> {
    * a question is added just after the letter that asks it is recorded. */
   const due = new Map<string, { moved: boolean; state: boolean }>();
   const runs = new Runs(store, options.callAgent, (id, event) => {
-    if (!listeners.get(id)?.size && (!watchers.size || event?.type === 'step')) return;
-    // A command or an edit moves no row, only its role's log; a message on a task is its progress.
-    const moved = event?.type !== 'step' || event.kind === 'message' && event.task !== undefined;
+    // A step, or words as they are written, change no project's state.
+    const quiet = event === 'words' || event?.type === 'step';
+    if (!listeners.get(id)?.size && (!watchers.size || quiet)) return;
+    // A command or an edit moves no row, only its role's log; a message on a task is its progress,
+    // and words as they come are the reply's or the task's.
+    const moved = event === 'words' || event?.type !== 'step' || event.kind === 'message' && event.task !== undefined;
     const pending = due.get(id);
     if (pending) {
       pending.moved ||= moved;
-      pending.state ||= event?.type !== 'step';
+      pending.state ||= !quiet;
       return;
     }
-    due.set(id, { moved, state: event?.type !== 'step' });
-    setImmediate(() => {
+    due.set(id, { moved, state: !quiet });
+    // Words come a few at a time: they go out at most ten times a second.
+    (event === 'words' ? (go: () => void) => setTimeout(go, 100) : setImmediate)(() => {
       const changed = due.get(id)!;
       due.delete(id);
       if (changed.state && watchers.size) {

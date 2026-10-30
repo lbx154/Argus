@@ -112,6 +112,9 @@ if (cli === 'codex') {
         input_tokens: 1000, cached_input_tokens: 400, cache_write_input_tokens: 100, output_tokens: 50, reasoning_output_tokens: 20 } } },
     ].map(record => `${JSON.stringify(record)}\n`).join(''));
     if (scenario.fail) return notify('turn/completed', { turn: { id: 'turn-1', status: 'failed', error: { message: scenario.fail } } });
+    // What it thinks, summed up; its words a few at a time, then whole.
+    notify('item/completed', { item: { id: 'item_r', type: 'reasoning', summary: ['**Reading the parser**'], content: [] } });
+    for (const delta of ['Work', 'ing on it.']) notify('item/agentMessage/delta', { itemId: 'item_0', delta });
     notify('item/completed', { item: { id: 'item_0', type: 'agentMessage', text: 'Working on it.' } });
     notify('item/started', { item: { id: 'item_1', type: 'commandExecution', command: 'npm test', status: 'inProgress' } });
     notify('item/completed', { item: { id: 'item_1', type: 'commandExecution', command: 'npm test', exitCode: 0, status: 'completed' } });
@@ -119,9 +122,13 @@ if (cli === 'codex') {
     // A subagent, on a thread of its own, and a thread of Codex's own that is none of the turn's.
     notify('thread/started', { thread: { id: 'subagent', parentThreadId: thread } });
     notify('item/started', { threadId: 'memories', item: { id: 'item_0', type: 'commandExecution', command: 'consolidate memories', status: 'inProgress' } });
+    notify('item/completed', { threadId: 'subagent', item: { id: 'item_r', type: 'reasoning', summary: ['**Linting**'], content: [] } });
+    notify('item/agentMessage/delta', { threadId: 'subagent', itemId: 'item_0', delta: 'Subagent at work.' });
     notify('item/completed', { threadId: 'subagent', item: { id: 'item_0', type: 'agentMessage', text: 'Subagent at work.' } });
     notify('item/started', { threadId: 'subagent', item: { id: 'item_1', type: 'commandExecution', command: 'npm run lint', status: 'inProgress' } });
-    notify('item/completed', { item: { id: 'item_3', type: 'agentMessage', text: answerOf(scenario.output) } });
+    const answer = answerOf(scenario.output);
+    for (let at = 0; at < answer.length; at += 7) notify('item/agentMessage/delta', { itemId: 'item_3', delta: answer.slice(at, at + 7) });
+    notify('item/completed', { item: { id: 'item_3', type: 'agentMessage', text: answer } });
     notify('turn/completed', { turn: { id: 'turn-1', status: 'completed', error: null } });
   };
 } else if (cli === 'claude') {

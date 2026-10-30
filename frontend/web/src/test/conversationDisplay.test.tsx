@@ -59,3 +59,9 @@ it.each(['running', 'waiting'] as const)('keeps %s replies and team briefs outsi
   expect(html).not.toContain('role="status"');
   expect(html).not.toContain('aria-live');
 });
+
+it('shows a running reply\'s words as they come, under what the Manager is at', () => {
+  const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.argus', status: 'running', live: true, text: '正在写的**回复**', ts: 1 }]} connected showReasoning={false} />);
+  expect(html).toContain('data-manager-doing');
+  expect(html).toMatch(/正在写的<strong[^>]*>回复<\/strong>/);
+});

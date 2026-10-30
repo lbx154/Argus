@@ -1390,6 +1390,44 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   assert.match(file.preview, /已核对/);
 });
 
+test('the words a role is writing reach the page as they come, the reply\'s in its row and a task\'s as its progress, and change no state', async t => {
+  let finishEngineer!: () => void, finishManager!: () => void;
+  const engineer = new Promise<void>(resolve => { finishEngineer = resolve; });
+  const manager = new Promise<void>(resolve => { finishManager = resolve; });
+  const { get, post, call, requests } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: 'Train it\nTrain the model.' },
+    { role: 'engineer', to: 'manager', until: engineer, letter: 'Trained.' },
+    { role: 'manager', to: 'operator', until: manager, letter: 'Training is under way.' },
+    { role: 'manager', to: 'operator', letter: 'Noted.' },
+  ]);
+  t.after(() => { finishEngineer(); finishManager(); });
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  await frames(await post(`${P}/message/stream`, { text: 'Train it', request_id: 'r-task' }));
+  await eventually(async () => requests, rows => rows.length === 2);
+  const reply = frames(await post(`${P}/message/stream`, { text: 'How far?', request_id: 'r-live' }));
+  await eventually(async () => requests, rows => rows.length === 3);
+  const response = await call(`${P}/stream?view=rows`);
+  const streamed = frames(response, frame => (frame.rows as EventMsg[])?.some(row => row.text === 'Training is under'));
+  requests[1]!.onWords?.('Loading the data');
+  requests[2]!.onWords?.('Training is');
+  requests[2]!.onWords?.('Training is under');
+  const received = await streamed;
+  const rows = received.flatMap(frame => frame.rows as EventMsg[] ?? []);
+  assert.ok(rows.some(row => row.type === 'ui.task' && row.progress === 'Loading the data'));
+  // Past the frames a stream begins with, only rows: words change no project's state.
+  assert.deepEqual([...new Set(received.slice(4).map(frame => frame.type))], ['ui.projection']);
+  const live = await get<ConversationPage>(`${P}/conversation`);
+  assert.equal(live.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, 'Training is under');
+  // Once said, the words are what was said: the call's words end with it.
+  finishManager();
+  await reply;
+  const said = await get<ConversationPage>(`${P}/conversation`);
+  assert.equal(said.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, 'Training is under way.');
+  finishEngineer();
+  await eventually(() => get<Snapshot>(`${P}/snapshot`), snap => !snap.daemon.alive);
+});
+
 test('the row stream shows a task asking once it has asked, while another task runs only commands', { timeout: 10_000 }, async t => {
   const home = await mkdtemp(join(tmpdir(), 'argus-asking-'));
   t.after(() => rm(home, { recursive: true, force: true }));

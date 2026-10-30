@@ -39,6 +39,9 @@ export interface AgentRequest {
   giver?: 'manager' | 'planner';
   /** Told of each step the role takes as its turn goes on. */
   onStep?: (step: Step) => void;
+  /** Told of the words the role is writing, as far as they have come (of its form, its letter's),
+   * and of none once they are said. */
+  onWords?: (words: string) => void;
   /** Where the call's raw output and usage go. */
   callsDir: string;
   usageFile: string;
@@ -46,8 +49,8 @@ export interface AgentRequest {
 }
 
 /** What a role does as its turn goes on, as the operator follows it: what it says, a command it
- * runs, a file it changes. */
-export interface Step { kind: 'message' | 'command' | 'edit'; text: string }
+ * runs, a file it changes, and what it is thinking, as its backend sums it up. */
+export interface Step { kind: 'message' | 'command' | 'edit' | 'thought'; text: string }
 
 export interface HandOff {
   form: Form;

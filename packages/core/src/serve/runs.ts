@@ -22,7 +22,7 @@ export class Runs {
   /** Message requests whose Manager turn has not ended, by project. */
   private readonly requests = new Map<string, Set<string>>();
 
-  constructor(private readonly store: Store, readonly callAgent: CallAgent, readonly changed: (id: string, event?: FlowEvent) => void) {}
+  constructor(private readonly store: Store, readonly callAgent: CallAgent, readonly changed: (id: string, event?: FlowEvent | 'words') => void) {}
 
   live(id: string): Live {
     const active = this.active.get(id);
@@ -134,6 +134,10 @@ export class Runs {
         if (event.type === 'call.start') calls.push({ role: event.role, task: event.task, started_ts: Date.now() / 1000, ...event.answers ? { answers: event.answers } : {} });
         else if (event.type === 'call.end') calls.splice(calls.findIndex(call => call.role === event.role && call.task === event.task), 1);
         this.changed(id, event);
+      },
+      onWords: (role, task, words) => {
+        const call = calls.find(call => call.role === role && call.task === task);
+        if (call) { call.words = words; this.changed(id, 'words'); }
       },
     });
     const entry: Active = { flow, controller, since: Date.now() / 1000, calls, settled: Promise.resolve() };

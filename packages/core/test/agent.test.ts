@@ -10,6 +10,7 @@ import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema, judge } from '../src/agent/handoff.js';
 import { confine } from '../src/agent/sandbox.js';
+import { writing } from '../src/agent/steps.js';
 import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend, type Step } from '../src/index.js';
 
 // The fake CLIs stand in for every backend on PATH, installed as npm installs a node CLI: a
@@ -159,6 +160,8 @@ for (const backend of BACKENDS) {
     await call(backend, { output: handoff }, { onStep: step => steps.push(step) });
     // Not what only reads, or the form the turn ends with; what a subagent runs is the role's, its words its own.
     assert.deepEqual(steps, [
+      // What it thinks, where its backend sums it up.
+      ...backend === 'codex' ? [{ kind: 'thought', text: '**Reading the parser**' }] : [],
       { kind: 'message', text: 'Working on it.' }, { kind: 'command', text: 'npm test' }, { kind: 'edit', text: 'parser.js' },
       ...backend === 'codex' || backend === 'claude' ? [{ kind: 'command', text: 'npm run lint' }] : [],
     ]);
@@ -259,6 +262,21 @@ for (const backend of ['codex', 'claude'] as const) {
     assert.deepEqual(jobs(), ['started\n', 'started\n']);
   });
 }
+
+test('codex: the words a role writes are told as they come, none once said, and of its form its letter so far', async () => {
+  const words: string[] = [];
+  await call('codex', { output: handoff }, { onWords: text => words.push(text) });
+  // Not a subagent's: its words are its own.
+  assert.deepEqual(words.slice(0, 3), ['Work', 'Working on it.', '']);
+  const letter = words.slice(3);
+  assert.equal(letter.at(-1), handoff.letter);
+  assert.ok(letter.every((text, at) => handoff.letter.startsWith(text) && text.length >= (letter[at - 1]?.length ?? 0)));
+});
+
+test('the words of a form being written are its letter so far, an escape cut short left for the next', () => {
+  assert.deepEqual(['{"to":"operator","letter":"Hel', '{"to":"operator","letter":"a\\nb\\u4f', '{"to":"oper', 'Working'].map(writing),
+    ['Hel', 'a\nb', '', 'Working']);
+});
 
 test('codex: a turn Codex refuses fails alone, in a session that goes on; a thread it cannot resume is none', async t => {
   const session = 'p-test/t3.engineer';

@@ -1,4 +1,4 @@
-import { questionSentence, latestManagerMessage } from '../lib/taskLanguage';
+import { questionSentence, latestManagerMessage, managerDoing, thoughtHeading } from '../lib/taskLanguage';
 import { useRoleLog } from '../useRoleLog';
 import { TaskDetailModal } from './TaskDetailModal';
 import { splitMessageAttachments } from '../lib/attachments';
@@ -10,6 +10,7 @@ import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt } from '../../../core/src/types';
 import { type RenderedLine } from '../../../core/src/eventRender';
+import { isReasoning } from '../../../core/src/events';
 import {
   foldFeedRows,
   groupSummary,
@@ -303,19 +304,19 @@ const ConversationRow = memo(function ConversationRow({
   artifacts,
   onOpenArtifact,
   rewritePrompt,
-  managerMessage,
+  manager,
 }: {
   ev: EventMsg;
   fallbackText: string;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   rewritePrompt?: string;
-  managerMessage: string;
+  /** The Manager's call under way: what it is at, and the last thing it said. */
+  manager?: { doing: string; said: string };
 }) {
   const { t, locale } = useI18n();
   const sessionId = useContext(SessionIdContext);
   const roots = useContext(WorkspaceRootsContext);
-  const liveMessage = ev.status === 'running' ? managerMessage : '';
   const shownPaths = (value: string) => relativizeWorkspacePaths(value, ...roots);
   const onAction = useContext(ConversationActionContext);
   const operator = String(ev.type) === 'ui.operator';
@@ -360,9 +361,13 @@ const ConversationRow = memo(function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
-            {ev.status === 'running' ? <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim" data-manager-reply="running">
-              <span className="status-dot" data-tone="running" aria-hidden="true" />
-              <span className="min-w-0 truncate" title={liveMessage || undefined}>{liveMessage || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
+            {ev.status === 'running' ? <div data-manager-reply="running">
+              <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim">
+                <span className="status-dot" data-tone="running" aria-hidden="true" />
+                <span className="min-w-0 truncate" data-manager-doing>{manager?.doing || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
+              </div>
+              {/* Its words as they are written, else the last thing it said. */}
+              {reportText || manager?.said ? <div className="mt-1"><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(reportText || manager!.said)}</MarkdownContent></div> : null}
             </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
               : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
               : ev.status === 'failed' ? <p className="whitespace-pre-wrap break-words text-sm text-err">{locale === 'zh-CN' ? '回复中断：' : 'Reply interrupted: '}{reportText}</p>
@@ -404,6 +409,9 @@ function RoleLogGroup({
   const shown = useMemo(() => showCommands ? rows : rows.filter(row => !isCallRow(row.ev)), [rows, showCommands]);
   const folded = useMemo(() => foldFeedRows(shown, locale), [shown, locale]);
   const visible = folded.slice(-visibleCount);
+  // Folded, a role still says what it is thinking, as its backend sums it up, and since when: what
+  // it said is its task's progress, and what it ran stays folded.
+  const thought = useMemo(() => [...rows].reverse().find(row => isReasoning(row.ev)), [rows]);
   return (
     <section
       className="role-log-group border-b border-line/50"
@@ -422,6 +430,10 @@ function RoleLogGroup({
         <svg viewBox="0 0 16 16" aria-hidden="true" className={`h-4 w-4 shrink-0 text-ink-faint transition-transform duration-panel ease-panel ${open ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
+        {!open && thought ? <>
+          <span data-role-thought className="min-w-0 flex-1 truncate text-xs italic text-ink-dim">{thoughtHeading(String(thought.ev.text ?? ''))}</span>
+          <time className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">{conversationTime(thought.ev)}</time>
+        </> : null}
       </button>
       {open ? (
         <div className="grid grid-rows-[1fr]">
@@ -521,8 +533,8 @@ function RoleLogCollection({ rows, active }: {
 }
 
 /** Both surfaces read the rows stream's project cache and the server's work status. */
-export function ProjectRoleLogs({ snapshot, connected, showReasoning = false, details = false, taskId }: {
-  snapshot: Snapshot; connected: boolean; showReasoning?: boolean; details?: boolean; taskId?: string;
+export function ProjectRoleLogs({ snapshot, connected, details = false, taskId }: {
+  snapshot: Snapshot; connected: boolean; details?: boolean; taskId?: string;
 }) {
   const { locale } = useI18n();
   const log = useRoleLog(snapshot.session.id);
@@ -533,7 +545,7 @@ export function ProjectRoleLogs({ snapshot, connected, showReasoning = false, de
     .filter(role => !taskId || snapshot.roles.find(row => row.role === role)?.tasks?.includes(taskId));
   const visible = details || working.length > 0;
   const rows = useMemo(() => visible ? renderFeedRows(taskId ? log.events.filter(event => eventTaskId(event) === taskId) : log.events,
-    { locale, showReasoning, workspace }).list : [], [visible, log.events, taskId, locale, showReasoning, workspace]);
+    { locale, showReasoning: true, workspace }).list : [], [visible, log.events, taskId, locale, workspace]);
   if (!visible) return null;
   return <WorkspaceContext.Provider value={workspace}><TaskTitleContext.Provider value={title}>
     <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
@@ -685,8 +697,8 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
 }
 
 /** Render one row in the order supplied by the server. */
-function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDelivery, managerMessage }: {
-  managerMessage: string;
+function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDelivery, manager }: {
+  manager: { doing: string; said: string };
   row: ActivityRow;
   deliveries: DeliveryReceipt[];
   artifacts?: ArtifactInfo[];
@@ -696,7 +708,7 @@ function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDe
   const { locale, t } = useI18n();
   const delivery = deliveryFromEvent(row.ev);
   const openArtifact = delivery && onOpenDelivery ? (path: string) => onOpenDelivery(delivery, path) : onOpenArtifact;
-  const reply = <ConversationRow managerMessage={row.ev.status === 'running' ? managerMessage : ''} ev={row.ev} fallbackText={row.r.text} artifacts={artifacts} onOpenArtifact={openArtifact}
+  const reply = <ConversationRow manager={row.ev.status === 'running' ? manager : undefined} ev={row.ev} fallbackText={row.r.text} artifacts={artifacts} onOpenArtifact={openArtifact}
     rewritePrompt={row.ev.type === 'ui.operator' && !row.ev.answer_to ? row.r.text : undefined} />;
   const to = String(row.ev.to ?? '');
   return <section className="conversation-thread">
@@ -763,7 +775,7 @@ export function EventStream({
   const { locale, t } = useI18n();
   const sessionId = useContext(SessionIdContext);
   const log = useRoleLog(snapshot?.session.id ?? sessionId);
-  const managerMessage = latestManagerMessage(log.events);
+  const manager = useMemo(() => ({ doing: managerDoing(log.events), said: latestManagerMessage(log.events) }), [log.events]);
   const [following, setFollowing] = useState(true);
   const [inspectingTask, setInspectingTask] = useState<string | null>(null);
   const followingRef = useRef(true);
@@ -981,14 +993,14 @@ export function EventStream({
                 <MarkdownContent>{questionSentence(roleLabel(String(event.agent_layer), t), taskTitle(eventTaskId(event)) || undefined, String(event.text), locale === 'zh-CN')}</MarkdownContent>
               </section>;
               const row = rowById.get(event);
-              return row ? <ConversationItem key={key} managerMessage={managerMessage} row={row} deliveries={deliveries}
+              return row ? <ConversationItem key={key} manager={manager} row={row} deliveries={deliveries}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} onOpenDelivery={onOpenDelivery} /> : null;
             })}
 
           </>
         )}
             {/* Each role's process stays folded until opened. */}
-            {snapshot ? <ProjectRoleLogs snapshot={snapshot} connected={connected} showReasoning={showReasoning} /> : null}
+            {snapshot ? <ProjectRoleLogs snapshot={snapshot} connected={connected} /> : null}
         </div>
       </div>
       {!following && (

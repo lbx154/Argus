@@ -11,6 +11,20 @@ export function said(text: unknown): Step | null {
   return words ? { kind: 'message', text: words } : null;
 }
 
+/** The backend's summary of what the role is thinking, its parts in order. */
+export function thought(summary: unknown): Step | null {
+  const text = Array.isArray(summary) ? summary.filter(part => typeof part === 'string').join('\n\n').trim() : '';
+  return text ? { kind: 'thought', text } : null;
+}
+
+/** The words of a message being written, as far as they have come: of the form, its letter's. */
+export function writing(text: string): string {
+  if (!text.trimStart().startsWith('{')) return text;
+  const letter = /"letter"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(text)?.[1];
+  // A \u escape cut short is left for the next words.
+  try { return letter === undefined ? '' : JSON.parse(`"${letter.replace(/\\u[0-9a-fA-F]{0,3}$/, '')}"`) as string; } catch { return ''; }
+}
+
 /** A tool call: the command it runs, or the file a tool for writing changes. */
 export function used(name: unknown, args: unknown): Step | null {
   if (!isJsonObject(args)) return null;

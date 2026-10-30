@@ -2,7 +2,7 @@ import { act, create } from "react-test-renderer";
 import { describe, expect, it } from "vitest";
 import { CardNow, LiveLine } from "../map/LiveLine";
 import { renderToStaticMarkup } from 'react-dom/server';
-import { latestManagerMessage, roleActionLabel } from '../lib/taskLanguage';
+import { latestManagerMessage, managerDoing, roleActionLabel } from '../lib/taskLanguage';
 
 const text = (root: ReturnType<typeof create>) =>
   root.root.findAllByType("span").map((s) => s.children.join("")).join(" ");
@@ -46,4 +46,16 @@ describe("the living status line", () => {
     expect(roleActionLabel('manager', false)).toBe('Replying to your message');
     act(() => root.unmount());
   });
+});
+
+it('says what the Manager is at since it last spoke: its latest thought\'s heading, or the command it runs', () => {
+  const step = (kind: string, text: string) => ({ type: 'engineer.progress', agent_layer: 'manager', kind, text });
+  const started = { type: 'provider.request.started', agent_layer: 'manager' };
+  const said = step('agent_message', '我先看看。');
+  const thought = step('reasoning', '**Inspecting the logs**\n\nThe loss is flat.');
+  const ran = step('command_execution', "/usr/bin/bash -lc 'tail -n 5 train.log'");
+  expect(managerDoing([started, said, thought])).toBe('Inspecting the logs');
+  expect(managerDoing([started, thought, ran])).toBe('tail -n 5 train.log');
+  expect(managerDoing([started, thought, said])).toBe('');
+  expect(managerDoing([thought, started])).toBe('');
 });

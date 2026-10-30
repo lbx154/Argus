@@ -11,7 +11,7 @@ import { quoteTokenUsage } from '@argus/runtime';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { privatePath } from './sandbox.js';
-import { said, used } from './steps.js';
+import { said, thought, used, writing } from './steps.js';
 
 export const codex: StartBackend = (request, { confined, schema }) => {
   const args = [
@@ -21,6 +21,8 @@ export const codex: StartBackend = (request, { confined, schema }) => {
     // The roles' skills are in Argus's instructions; codex's own catalog would have each role announce
     // the skill it uses, to the operator who reads its progress.
     '-c', 'skills.include_instructions=false',
+    // What the role is thinking, summed up as codex's own screen shows it: with none asked for, a relay gives none.
+    '-c', 'model_reasoning_summary="concise"',
     // Inside bubblewrap the sandbox is bubblewrap's, which mounts a reader's workdir read-only and
     // leaves it /tmp to run a check in; outside it, codex's own. On Windows that is off, and every
     // command refused, until one is chosen: this one needs no administrator.
@@ -60,6 +62,8 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         ready = true;
       }
       let text = '';
+      /** The message being written, as far as it has come. */
+      let words = '';
       let error: string | null = null;
       let status = '';
       // This turn's events only: once it is named, none of another turn of the thread's. What a
@@ -78,7 +82,13 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         else if (method === 'item/completed' && item.type === 'fileChange' && Array.isArray(item.changes)) {
           for (const { path } of item.changes.filter(isJsonObject)) onStep(typeof path === 'string' ? { kind: 'edit', text: path } : null);
         } else if (!own) return false;
-        else if (method === 'item/completed' && item.type === 'agentMessage') onStep(said(text = String(item.text ?? '')));
+        else if (method === 'item/agentMessage/delta') now.onWords?.(writing(words += String(params.delta ?? '')));
+        else if (method === 'item/completed' && item.type === 'agentMessage') {
+          words = '';
+          // A message is said once it is a step; the form's letter shows as written till the turn ends.
+          const step = said(text = String(item.text ?? ''));
+          if (step) { onStep(step); now.onWords?.(''); }
+        } else if (method === 'item/completed' && item.type === 'reasoning') onStep(thought(item.summary));
         else if (method === 'error' && isJsonObject(params.error) && params.willRetry !== true) error = String(params.error.message ?? error);
         else if (method === 'turn/completed' && isJsonObject(params.turn)) {
           status = String(params.turn.status);

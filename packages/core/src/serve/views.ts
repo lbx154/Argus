@@ -19,7 +19,7 @@ export interface Live {
   since: number | null;
   /** Each call under way, by its role and the task it is on: tasks run side by side; a Manager's
    * turn on an operator message names it. */
-  calls: Array<{ role: Role; task: string | undefined; started_ts: number; answers?: string }>;
+  calls: Array<{ role: Role; task: string | undefined; started_ts: number; answers?: string; words?: string }>;
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
@@ -29,7 +29,7 @@ export type Recorded = FlowEvent & { ts: string };
 /** Every backend there is, by the name the page shows it by. */
 export const BACKEND_LABELS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
 /** A step of a turn, as the page's feed knows it. */
-const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change' };
+const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change', thought: 'reasoning' };
 
 const seconds = (iso: string): number => Date.parse(iso) / 1000;
 let lastRead = 0;
@@ -183,7 +183,7 @@ const resumable = (project: Project): boolean => Boolean(project.forManager?.len
 
 /** Live calls joined to the request cards their answers belong to. */
 function requestCalls(calls: Live['calls'], qa?: MapReading['qa']) {
-  return calls.map(({ task, ...call }) => {
+  return calls.map(({ task, words: _, ...call }) => {
     const card = call.answers ? qa?.get(call.answers) : undefined;
     return { ...call, ...(task ? { task } : {}), ...(card ? { request_card_id: card.id } : {}) };
   });
@@ -343,25 +343,25 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
   const failure = project.failures?.filter(f => f.role === 'manager').at(-1);
   for (const [request, line] of reading.fold.asked) {
     const operator = reading.rows.get(`m${line}-operator`)!;
-    const liveReply = live.calls.some(call => call.answers === request);
+    const liveReply = live.calls.find(call => call.answers === request);
     const status = liveReply ? 'running' : !pending.has(request) ? 'replaced' : live.requests.includes(request) ? 'waiting'
       : project.status === 'stopped' ? 'stopped' : failure ? 'failed' : 'waiting';
     projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
       request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.stateLine, order: line + 0.1,
-      text: status === 'failed' ? failure!.error : '', live: status === 'running' || status === 'waiting', status });
+      text: status === 'failed' ? failure!.error : liveReply?.words ?? '', live: status === 'running' || status === 'waiting', status });
   }
   const rows = [...projected.values()];
   const items = backlog(project);
   for (const [id, task] of reading.tasks) {
     const item = items.find(item => item.id === id);
-    const role = live.calls.find(call => call.task === id)?.role;
+    const { role, words } = live.calls.find(call => call.task === id) ?? {};
     // What was last said on it, unless it waits for an answer, and once it has closed, its result.
     const { latest_action: action, result_paths } = taskPresentation(reading.map, project, id);
     const state = item?.status === 'done' ? 'done' : item?.status === 'blocked' ? 'asking'
       : item?.status === 'failed' ? 'failed' : project.status === 'stopped' ? 'paused'
       : item?.status === 'pending' ? 'queued' : live.since !== null ? 'running' : 'paused';
     rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: task.title, state, role,
-      progress: action ? firstLine(action.text) : '', result_paths,
+      progress: firstLine(words || action?.text || ''), result_paths,
       ts: reading.map.added.get(id)!, event_id: Math.max(reading.stateLine, reading.map.actions.get(id)?.line ?? 0), order: task.line + 0.2 });
   }
   return rows.sort((a, b) => Number(a.order) - Number(b.order));
