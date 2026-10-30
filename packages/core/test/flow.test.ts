@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { named, progressMap, taskTrace } from '../src/serve/views.js';
+import { conversationRows, named, progressMap, readRecord, taskTrace } from '../src/serve/views.js';
 import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 
@@ -325,6 +325,26 @@ test('a call the agent layer cannot make is a failed call too', async t => {
   const { flow, id, requests } = await setup(t, [{ role: 'manager', throws: 'spawn codex ENOENT' }]);
   const project = await say(flow, id, 'hello');
   assert.deepEqual([project.status, project.error, requests.length], ['failed', 'spawn codex ENOENT', 1]);
+});
+
+test('a new session whose turn failed before the model answered is not gone on in, and the reply says why', async t => {
+  const { store, id } = await setup(t, []);
+  const requests: AgentRequest[] = [];
+  // As a Codex not yet signed in: the thread is made, the turn fails, nothing is spent.
+  const callAgent: CallAgent = async request => {
+    requests.push(request);
+    return requests.length === 1
+      ? { callId: 'c1', threadId: 'unsigned', completed: false, error: 'unexpected status 401 Unauthorized', handoff: null, model: null, usage: null, ms: 1 }
+      : { callId: 'c2', threadId: 'signed', completed: true, error: null, handoff: { form: request.form, to: 'operator', letters: ['Hello.'] }, model: 'fake', usage: null, ms: 1 };
+  };
+  const flow = new Flow(store, callAgent);
+  await flow.say(id, 'hello', { request_id: 'A' });
+  assert.equal((await flow.settled(id)).status, 'failed');
+  assert.deepEqual(store.load(id).sessions, {});
+  const reply = conversationRows(readRecord(store, id), store.load(id), { since: null, calls: [], requests: [] }).find(row => row.request_id === 'A' && row.type === 'ui.argus');
+  assert.deepEqual([reply?.status, reply?.text], ['failed', 'unexpected status 401 Unauthorized']);
+  assert.equal((await say(flow, id, 'hello again')).status, 'idle');
+  assert.deepEqual([requests[1]?.resume, store.load(id).sessions.manager], [undefined, 'signed']);
 });
 
 test('the Planner hands out tasks as earlier ones end, and writes to the Manager when the goal is met', async t => {

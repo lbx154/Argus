@@ -18,6 +18,9 @@ export const codex: StartBackend = (request, { confined, schema }) => {
     'app-server',
     // An inherited desktop notify hook would hold every turn; a background terminal lives as long as the session.
     '-c', 'notify=[]', '-c', 'background_terminal_max_timeout=9223372036854775807', '-c', 'approval_policy="never"',
+    // The roles' skills are in Argus's instructions; codex's own catalog would have each role announce
+    // the skill it uses, to the operator who reads its progress.
+    '-c', 'skills.include_instructions=false',
     // Inside bubblewrap the sandbox is bubblewrap's, which mounts a reader's workdir read-only and
     // leaves it /tmp to run a check in; outside it, codex's own. On Windows that is off, and every
     // command refused, until one is chosen: this one needs no administrator.

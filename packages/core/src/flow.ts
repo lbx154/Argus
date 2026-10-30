@@ -343,10 +343,11 @@ export class Flow {
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
     // A turn goes on next time in the session its backend reported, whether it ended, was cut off
-    // or failed: its work is not done again. With none reported, the role starts afresh; and a
-    // session reset while the turn went on stays reset.
+    // or failed: its work is not done again. With none reported, or a new one whose turn failed with
+    // nothing spent, which holds no work and may hold the settings it failed on, the role starts
+    // afresh; and a session reset while the turn went on stays reset.
     if (project.sessions[key] === resume) {
-      if (threadId) project.sessions[key] = threadId;
+      if (threadId && (resume || completed || usage || signal?.aborted)) project.sessions[key] = threadId;
       else delete project.sessions[key];
     }
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });

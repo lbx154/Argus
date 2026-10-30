@@ -382,7 +382,7 @@ const ConversationRow = memo(function ConversationRow({
               <span className="min-w-0 truncate" title={liveMessage || undefined}>{liveMessage || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
             </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" role="status" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
               : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
-              : ev.status === 'failed' ? <p className="text-sm text-err">{locale === 'zh-CN' ? '回复中断，请查看错误提示后继续运行。' : 'Reply interrupted. Check the error before resuming.'}</p>
+              : ev.status === 'failed' ? <p className="whitespace-pre-wrap break-words text-sm text-err">{locale === 'zh-CN' ? '回复中断：' : 'Reply interrupted: '}{reportText}</p>
               : reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
           </div>
         </div>

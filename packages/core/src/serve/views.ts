@@ -333,14 +333,16 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
   const pending = unanswered(project);
   // Pending replies come from the complete dialogue, including messages interrupted before any words;
   // one sent after a stop waits on the turn before it.
+  // A reply the Manager's failure held up says why, there alone.
+  const failure = project.failures?.filter(f => f.role === 'manager').at(-1);
   for (const [request, line] of reading.fold.asked) {
     const operator = reading.rows.get(`m${line}-operator`)!;
     const liveReply = live.calls.some(call => call.answers === request);
     const status = liveReply ? 'running' : !pending.has(request) ? 'replaced' : live.requests.includes(request) ? 'waiting'
-      : project.status === 'stopped' ? 'stopped' : project.failures?.some(f => f.role === 'manager') ? 'failed' : 'waiting';
+      : project.status === 'stopped' ? 'stopped' : failure ? 'failed' : 'waiting';
     projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
       request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.stateLine, order: line + 0.1,
-      text: '', live: status === 'running' || status === 'waiting', status });
+      text: status === 'failed' ? failure!.error : '', live: status === 'running' || status === 'waiting', status });
   }
   const rows = [...projected.values()];
   const items = backlog(project);

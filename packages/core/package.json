@@ -1,6 +1,7 @@
 {
   "name": "@lbx154/argus",
   "version": "0.1.8",
+  "description": "A research and engineering team of AI agents, run from a web cockpit on your machine.",
   "license": "MIT",
   "type": "module",
   "bin": { "argus": "dist/argus.mjs" },

@@ -123,8 +123,8 @@ export class Runs {
       entry.settled = flow.settled(id).then(project => project.status, (error: unknown) => log(id, error)).then(status => {
         this.active.delete(id);
         this.changed(id);
-        // A project at rest keeps no CLI running, unless a question or a failure waits in a session.
-        if (status !== 'asking' && status !== 'failed') return this.callAgent.close?.(`${id}/`);
+        // A project at rest keeps no CLI running, unless a question waits in a session.
+        if (status !== 'asking') return this.callAgent.close?.(`${id}/`);
       });
     }
   }

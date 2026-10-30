@@ -73,7 +73,7 @@ function where(project: Project, store: Store, writes: boolean): string {
       ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
       : 'Your session ends with each turn, and everything you started with it.',
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
-    'Keep in the workspace what the work makes, for the other roles and the operator to see; install a tool you only check with (a browser, say) under ~/.cache, which every role and project shares. Your /tmp may be yours alone, and a path elsewhere may be hidden from you: when the operator names a file you cannot read, ask them to attach it.',
+    'Keep in the workspace what the work makes, for the other roles and the operator to see; install a tool you only check with (a browser, say) under ~/.cache, which every role and project shares. Your /tmp may be yours alone, and a path elsewhere may be hidden from you: when the operator names a file you cannot read, ask them to attach it, or for a folder that keeps changing, to start the project in a folder that holds it. What only the operator can do on their own machine, such as installing a scheduled job, give them as the commands to type.',
     machine(),
   ].filter(Boolean).join('\n'));
 }

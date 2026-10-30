@@ -7,13 +7,15 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { callAgent } from './agent/call.js';
+import { notInstalled } from './agent/sandbox.js';
 import { renameSkills } from './prompts.js';
 import { serve } from './serve/index.js';
 import { Store } from './store.js';
 import { BACKENDS, type Backend } from './types.js';
 
-const USAGE = `Usage: argus [--host H] [--port N] [--backend codex|claude|copilot|pi] [--model M] [--web DIR]
+const USAGE = `Usage: argus [--host H] [--port N] [--backend codex|claude|copilot|pi] [--model M] [--web DIR] [--version]
 Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), at the address it prints.
+The team works through the --backend CLI (codex unless chosen), which must be installed and signed in.
 ARGUS_WEB_TOKEN: the token the cockpit asks for; unset, the one kept in the state root. ARGUS_HOME: the state root (~/.argus).
 `;
 
@@ -21,9 +23,10 @@ async function main(): Promise<void> {
   const { values } = parseArgs({ options: {
     host: { type: 'string', default: '127.0.0.1' }, port: { type: 'string', default: '8799' },
     backend: { type: 'string', default: 'codex' }, model: { type: 'string' }, web: { type: 'string' }, help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean', short: 'v' },
   } });
-  if (values.help) {
-    process.stdout.write(USAGE);
+  if (values.help || values.version) {
+    process.stdout.write(values.help ? USAGE : `${(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version}\n`);
     return;
   }
   const backend = values.backend as Backend;
@@ -39,6 +42,8 @@ async function main(): Promise<void> {
     web: resolve(values.web ?? fileURLToPath(new URL('../web', import.meta.url))),
   }).catch((error: unknown) => { release(); throw error; });
   process.stdout.write(`Argus is at ${served.url}/?token=${encodeURIComponent(token)}\n`);
+  const missing = notInstalled(backend);
+  if (missing) process.stdout.write(`${missing}, then sign in to it.\n`);
   const stop = (): void => { void served.close().finally(release); };
   process.once('SIGINT', stop).once('SIGTERM', stop);
 }
