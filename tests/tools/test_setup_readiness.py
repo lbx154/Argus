@@ -8,14 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from argus.apps.cli import _core as cli_core
 from argus.apps.cli import main as cli_main
 from argus.core.backend_readiness import (
     SETUP_EXIT_NOT_READY,
     SETUP_EXIT_USAGE,
     BackendProfile,
     BackendReadiness,
-    ReadinessProblem,
 )
 from argus.tools import setup
 
@@ -388,49 +386,6 @@ def test_cli_forwards_account_setup_options(monkeypatch) -> None:
 def test_account_options_require_setup(option, capsys) -> None:
     assert cli_main([option]) == SETUP_EXIT_USAGE
     assert "require --setup" in capsys.readouterr().err
-
-
-def test_daemon_readiness_failure_prevents_spawn(monkeypatch, capsys) -> None:
-    report = BackendReadiness(
-        profile=BackendProfile(
-            backend="copilot",
-            auth_mode="subscription_cli",
-            backend_source="argument",
-            auth_mode_source="default",
-        ),
-        problems=[
-            ReadinessProblem(
-                "authentication",
-                "not logged in",
-                "copilot login",
-            )
-        ],
-    )
-    monkeypatch.setattr(
-        "argus.core.backend_readiness.check_backend_readiness",
-        lambda *_args, **_kwargs: report,
-    )
-    monkeypatch.setattr(
-        "argus.daemon.life_worker.run_foreground",
-        lambda _cfg: (_ for _ in ()).throw(
-            AssertionError("worker must not spawn before readiness")
-        ),
-    )
-    args = SimpleNamespace(
-        continuous=False,
-        objective="",
-        backend="copilot",
-        auth_mode="subscription_cli",
-        allow_prerelease=False,
-    )
-
-    rc = cli_core._cmd_daemon_start(args, foreground=True)
-
-    assert rc == 3
-    err = capsys.readouterr().err
-    assert "failed capability: authentication" in err
-    assert "configuration source" in err
-    assert "copilot login" in err
 
 
 def test_setup_cannot_mutate_global_git_or_backend_auth() -> None:

@@ -357,9 +357,9 @@ def spawn_detached_process(
         raise
     if pid > 0:
         try:
-            # A daemon publishes pid/status before backend readiness. Require
-            # continuous liveness so a readiness failure cannot be reported as
-            # a successful executor start.
+            # A daemon publishes pid/status before its preflight. Require
+            # continuous liveness so a refused boot cannot be reported as a
+            # successful executor start.
             status = _wait_for_stable_daemon_status(config.life_dir)
             if status is not None:
                 if not quiet:

@@ -217,7 +217,7 @@ def _check_model_api(probe: Callable[..., Any] | None) -> Check:
             "model API capability",
             False,
             f"reachability probe could not run ({type(exc).__name__}: {exc})",
-            "retry, or set ARGUS_SKILL_SKIP_VAULT_PREFLIGHT=1 to bypass the probe",
+            "retry",
         )
 
     if report.ok:
