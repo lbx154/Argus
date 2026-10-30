@@ -335,3 +335,36 @@ test("a first request a later one took the place of gives the project that one's
   const project = await next.settled(id);
   assert.deepEqual([project.request, project.requestId, project.name], ['Write 300 words on time blocking instead', 'B', 'Time blocking essay']);
 });
+
+test('a clarification that sets the original request working leaves no earlier question on its card', async t => {
+  const controller = new AbortController();
+  const { flow, id, store } = await setup(t, [
+    reply('Which dataset should I use?'),
+    async () => ({ to: 'engineer', letters: ['Train on iris\nUse sklearn iris.'] }),
+    aborted,
+  ], controller);
+  await flow.say(id, 'Train a classifier', { request_id: 'A' });
+  await flow.settled(id);
+  await flow.say(id, 'Use iris', { request_id: 'B' });
+  await until(() => store.load(id).tasks.length === 1);
+  const requests = progressMap(store, store.load(id), 0, []).tasks.filter(card => 'turn_kind' in card);
+  assert.deepEqual(requests.map(card => [card.status, card.latest_action?.text]), [['in_progress', undefined]]);
+  flow.stop(id);
+  controller.abort();
+  await flow.settled(id);
+});
+
+test("the request that took the first one's place is the map's original request", async t => {
+  const controller = new AbortController();
+  const { flow: first, id, store, requests } = await setup(t, [aborted], controller);
+  void first.say(id, 'A: summarize everything', { request_id: 'A' });
+  await until(() => requests.length === 1);
+  first.stop(id);
+  controller.abort();
+  await first.settled(id);
+  const flow = new Flow(store, agent([reply('Which year?'), reply('About C.')]).callAgent);
+  await flow.say(id, 'B: summarize the sales', { request_id: 'B' });
+  await flow.say(id, 'C: and the costs?', { request_id: 'C' });
+  await flow.settled(id);
+  assert.ok(progressMap(store, store.load(id), 0, []).tasks.some(card => card.title === 'B: summarize the sales'));
+});

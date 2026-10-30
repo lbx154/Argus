@@ -481,6 +481,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
     if (previous === qa.values().next().value && previous?.status === 'done' && !worked.has(previous.id)) {
       qa.set(event.request_id, previous);
       Object.assign(previous, { status: '', finished_ts: null });
+      actions.delete(previous.id);
       letters.push({ line, letter: { id: `e${line}`, item_id: previous.id, type: 'turn.asked', ts, role: 'operator', to: 'manager', text: event.text } });
     } else qa.set(event.request_id, {
       id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text), priority: 0, deps: [], status: '',
@@ -540,7 +541,7 @@ function mapProjection(record: Reading, project: Project, after: number, calls: 
   // still to be answered while the team answers, and the original request even while it is stopped.
   const answering = project.status !== 'stopped' && project.status !== 'failed';
   const cards = [...new Set(qa.values())];
-  const first = cards[0];
+  const first = (project.requestId && qa.get(project.requestId)) || cards[0];
   const last = cards.at(-1);
   const waiting = new Set([...unanswered(project)].flatMap(request => qa.get(request) ?? []));
   // The Manager may answer a new message while the team stays stopped. Keep that call's

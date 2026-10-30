@@ -370,7 +370,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
     server.once('error', reject).listen(options.port, host, resolveListen);
   });
   // Work a shutdown cut off goes on, the Manager's answer to a message too; what the operator stopped
-  // stays stopped, and a failure waits for the operator.
+  // stays stopped, a message being answered in it included, as if stopped again; a failure waits for
+  // the operator.
   for (const { id, status, forManager } of store.list()) {
     if (status === 'working' || forManager?.length && status !== 'stopped' && status !== 'failed') runs.resume(id);
   }
