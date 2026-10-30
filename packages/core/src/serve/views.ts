@@ -255,7 +255,7 @@ export function projectRecord(events: Recorded[], reading: Reading = {
   roleEvents: [], round: 0, activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
   trace: { ended: new Map(), tasks: new Map() },
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
-    answered: null, briefed: null, worked: new Set(), follows: new Map() },
+    answered: null, briefed: null, reported: null, worked: new Set(), follows: new Map() },
 }): Reading {
   for (const event of events) {
     const line = reading.fold.line;
@@ -463,6 +463,9 @@ interface MapReading {
    * whose answer last briefed the Planner, whose tasks follow it. */
   answered: string | null;
   briefed: string | null;
+  /** The message whose work the team last reported on to the Manager: the Manager's report on it,
+   * which names no message, answers it. */
+  reported: string | null;
   /** The messages whose answer handed work to the team or handed over files. */
   worked: Set<string>;
   follows: Map<string, string>;
@@ -518,6 +521,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
   else if (event.type === 'task.closed') closed.set(event.task, ts);
   else if (event.type === 'step' && event.task && event.kind === 'message') action(event.task, event.role, event.text);
   else if (event.type === 'handoff') {
+    if (event.to === 'manager') reading.reported = event.task ? follows.get(event.task) ?? null : event.role === 'planner' ? reading.briefed : null;
     if (event.task) {
       if (event.role === 'engineer' || event.role === 'reviewer') {
         if (event.to === 'manager' || event.to === 'planner') opened.set(event.task, event.open ?? []);
@@ -538,6 +542,9 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       // The reply is the message's progress; a brief to the team is not: its tasks show theirs.
       if (replied) action(card.id, event.role, event.letter);
       if (replied) letter({ id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter });
+    } else if (event.role === 'manager' && event.to === 'operator' && reading.reported) {
+      action(reading.reported, event.role, event.letter);
+      letter({ id: `e${line}`, item_id: reading.reported, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter });
     }
   }
 }

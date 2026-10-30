@@ -66,7 +66,7 @@ function where(project: Project, store: Store, writes: boolean): string {
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
     `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
-    `Skills, a folder each whose SKILL.md says in its front matter what it is for: when one fits your work, read its SKILL.md whole, once, and the files it links as you need them. Argus's own, then the team's in ${library}:`,
+    `Skills, a folder each whose SKILL.md says in its front matter what it is for: when one fits your work, read its SKILL.md whole, once, and the files it links as you need them. A skill is how you work, which what you say does not name. Argus's own, then the team's in ${library}:`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
     writes && `The skills in ${library} are the team's: when your work teaches how later projects can do theirs better, write it there, in a new skill or one of the team's. A fault in Argus itself is no skill: tell the operator.`,
     KEPT.includes(project.backend)

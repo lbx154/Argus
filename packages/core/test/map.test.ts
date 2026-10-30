@@ -124,12 +124,14 @@ test('each message the Manager takes up is a question and its answer on the map,
   assert.ok(String(map.events[2]!.text).startsWith(map.tasks[2]!.latest_action!.text.replace(/…$/, '')));
 });
 
-test("the tasks a message's answer opens follow it; a result handed over from the team's work is no card of its own", () => {
+test("the tasks a message's answer opens follow it; the Manager's report on their work answers it, and is no card of its own", () => {
   const map = progressMap(records, records.load('p-c855623c'), 0, []);
   assert.deepEqual(map.tasks.map(card => [card.id, 'turn_kind' in card ? card.turn_kind : 'task', card.status, card.deps]),
     [['q0', 'qa', 'done', []], ['t1', 'task', 'done', ['q0']], ['t2', 'task', 'done', ['q0']], ['t3', 'task', 'done', ['t1', 't2']]]);
   assert.deepEqual(map.tasks.at(-1)!.result_paths, ['result.md']);
-  assert.ok(!map.events.some(letter => letter.item_id === 'q0' && letter.id === 'e102'));
+  // The report names no message: it answers the one whose work the Planner reported on.
+  assert.deepEqual(map.events.filter(letter => letter.item_id === 'q0').map(letter => [letter.id, letter.type]), [['e102', 'turn.replied']]);
+  assert.match(map.tasks[0]!.latest_action!.text, /^计算结果/);
 });
 
 test('recorded Manager supplement stays a task letter, and its request completes when the work rests', t => {

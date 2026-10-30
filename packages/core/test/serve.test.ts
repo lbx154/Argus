@@ -395,7 +395,9 @@ test('the map shows each task and the letters written about it, and a task its c
   // A page that holds a cursor is sent the letters after it, and every task as it stands.
   const later = await get<ProgressMap>(`${P}/map?after=${first.cursor}`);
   assert.deepEqual(later.events.map(letter => [letter.role, letter.to, letter.text]),
-    [['operator', 'reviewer', 'Add the units first.'], ['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
+    [['operator', 'reviewer', 'Add the units first.'], ['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.'],
+      // The Manager's report on the work answers the request that set it going.
+      ['manager', 'operator', 'report.md gives the totals.']]);
   const task = later.tasks.find(card => card.id === 't1');
   assert.deepEqual([task!.status, 'pending_question' in task!], ['done', false]);
   assert.equal(later.tasks.find(card => card.id === 'q0')!.status, 'done');
