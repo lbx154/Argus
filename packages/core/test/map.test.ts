@@ -169,8 +169,9 @@ test('recorded Manager supplement is both a task letter and a reply, and its map
     idle: [answered.status, answered.finished_ts !== null, answered.latest_action?.text],
     incoming: incoming.map(letter => [letter.item_id, letter.type, letter.role, letter.to]),
   }, {
-    working: ['in_progress', null, supplement.letter],
-    idle: ['done', true, supplement.letter],
+    // A brief to the team is the task's to show, not the message's.
+    working: ['in_progress', null, undefined],
+    idle: ['done', true, undefined],
     incoming: [['t1', 'handoff', 'manager', 'engineer'], [question.id, 'turn.replied', 'manager', 'engineer']],
   });
   // The page merges history by event id: neither projection may overwrite the other.

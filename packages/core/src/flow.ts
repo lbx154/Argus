@@ -183,7 +183,6 @@ export class Flow {
   }
 
   private async managerTurn(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
-    const operator = typeof letter !== 'string';
     const input = typeof letter === 'string' ? letter : operatorText(letter);
     const answers = typeof letter === 'string' ? undefined : letter.request_id;
     const handoff = (await this.call(project, 'manager', null,
@@ -201,11 +200,8 @@ export class Flow {
         else this.open(project, 'manager', letter);
       }
       else project.inbox.push(handedTo('manager', null, letter));
-      // New work wakes a resting team; a stopped one only when the operator asked for it, which resumes
-      // what the stop interrupted too, unless the operator stopped it again meanwhile.
-      const woken = operator && !this.options.signal?.aborted;
-      if (woken && project.status === 'stopped') this.retry(project);
-      if (project.status !== 'failed' && (woken || project.status !== 'stopped')) this.status(project, 'working');
+      // New work wakes a resting team; a stopped one takes it up, with what the stop interrupted, on Resume.
+      if (project.status !== 'failed' && project.status !== 'stopped') this.status(project, 'working');
     }
     this.run(project);
     return handoff;

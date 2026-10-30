@@ -196,7 +196,9 @@ test('real task fragments: progress and files share the map projection; incoming
   work.tasks[2]!.status = 'closed';
   const map = progressMap(store, work, 0).tasks.find(task => task.id === 't3')!;
   const done = rowsOf(events, work).find(row => row.type === 'ui.task')!;
-  assert.equal(done.order, openingOrder);
+  // The Planner's later letter to it brings the row below it.
+  const lastLetter = events.map(event => event.type === 'handoff' && event.role === 'planner' && event.task === 't3').lastIndexOf(true);
+  assert.equal(done.order, lastLetter + 0.2);
   assert.deepEqual(done.result_paths, ['result.md']);
   assert.deepEqual(done.result_paths, map.result_paths);
   assert.equal(done.progress, firstLine(map.latest_action!.text));

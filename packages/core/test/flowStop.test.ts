@@ -156,7 +156,7 @@ test('a message to a stopped project is answered on its own, in place of the one
 
 // Product review reproduction: told "do X instead" after a stop, Resume still carried out the stopped
 // message; a backend review saw it "replying" for ever.
-test('a message that sets a stopped team working again takes the place of the one the stop interrupted', async t => {
+test('a message to a stopped project takes the place of the one the stop interrupted, and the work it hands on waits for Resume', async t => {
   const controller = new AbortController();
   const { flow, id, store, requests } = await setup(t, [aborted], controller);
   void flow.say(id, 'A: analyse it');
@@ -169,8 +169,11 @@ test('a message that sets a stopped team working again takes the place of the on
   const { callAgent, requests: asked } = agent(Array.from({ length: 6 }, () => respond));
   const later = new Flow(store, callAgent);
   await later.say(id, 'B: do X instead');
-  const project = await later.settled(id);
-  assert.deepEqual([project.status, texts(project.forManager)], ['idle', []]);
+  let project = await later.settled(id);
+  assert.deepEqual([project.status, texts(project.forManager), asked.map(request => request.role)], ['stopped', [], ['manager']]);
+  later.resume(id);
+  project = await later.settled(id);
+  assert.deepEqual([project.status, asked.map(request => request.role)], ['idle', ['manager', 'engineer', 'manager']]);
   assert.ok(!asked.some(request => request.role === 'manager' && request.prompt.includes('A: analyse it')));
   // The conversation says so: the stopped message was replaced, and nothing is still replying to it.
   const rows = conversationRows(readRecord(store, id), project, { since: null, calls: [], requests: [] });

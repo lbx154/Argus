@@ -284,9 +284,9 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       if (operator) reading.rows.set(operatorId, { ...operator, answer: event.letter, event_id: line });
     }
     if (event.type === 'task.added') reading.tasks.set(event.task.id, { title: event.task.title, line });
-    // A task's row is below the last word the conversation shows on it: the operator's answer to it,
-    // or the Manager's letter to it.
-    else if ((event.type === 'message' || event.type === 'handoff' && event.role === 'manager') && event.task) {
+    // A task's row comes after the last word sent it from above: the operator's answer to it, or the
+    // Manager's or the Planner's letter to it.
+    else if ((event.type === 'message' || event.type === 'handoff' && (event.role === 'manager' || event.role === 'planner')) && event.task) {
       const task = reading.tasks.get(event.task);
       if (task) task.line = line;
     }
@@ -505,7 +505,8 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       reading.answered = card.id;
       if (event.to === 'planner') reading.briefed = card.id;
       if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
-      actions.set(card.id, { role: event.role, text: event.letter, ts, line });
+      // The reply is the message's progress; a brief to the team is not: its tasks show theirs.
+      if (replied) actions.set(card.id, { role: event.role, text: event.letter, ts, line });
       letters.push({ line, letter: { id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
     }
   }

@@ -67,8 +67,8 @@ export function RunControl({ snapshot, pending = false, busy = false, onStop, on
           {(affected.length ? affected : [zh ? '团队接下来要做的工作' : 'The work the team would do next']).map(line => <li key={line}>{line}</li>)}
         </ul>
         <p className="mt-3">{zh
-          ? `已经写好的文件和记录都会保留，点「${t('topbar.continueRun')}」或在停着时向 ${applicationBrand().name} 发送新要求，都会恢复停下的工作。`
-          : `Files and records already written are kept, and clicking ${t('topbar.continueRun')} or sending ${applicationBrand().name} a new request while stopped resumes the work.`}</p>
+          ? `已经写好的文件和记录都会保留。停着时发的消息和回答照样送到，团队在你点「${t('topbar.continueRun')}」后接着做。`
+          : `Files and records already written are kept. Messages and answers sent while stopped still arrive; the team takes them up when you click ${t('topbar.continueRun')}.`}</p>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" className="brand-button brand-button-ghost" onClick={() => setAsking(false)}>{t('common.cancel')}</button>
           <button type="button" className="brand-button brand-button-danger" data-stop-confirm onClick={() => { setAsking(false); onStop(); }}>
