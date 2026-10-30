@@ -106,9 +106,12 @@ maintainers for the latest code.
 
 ## Tutorials
 
-- **[Getting started](docs/getting-started.md)** — try the hosted browser trial with an invitation, or install and run a first task three ways: command line, web UI, desktop app.
+- **[Getting started](docs/getting-started.md)** — install and run a first task three ways: command line, web UI, desktop app.
 - **[Best practices](docs/best-practices.md)** — writing an objective, changing direction mid-run, choosing the model and backend, controlling spend, what suits Argus.
 - **[Building a vertical](docs/building-a-vertical.md)** — a small real vertical from stages and skills to the Vertical Store.
+
+
+Optional hosted clients, services, administration and desktop builds live in [argus-hosting](https://github.com/lbx154/argus-hosting/blob/feat/trial/README.md). Argus runs independently; installed providers connect through generic entry points.
 
 ## Quick Install
 
@@ -713,7 +716,7 @@ folded into `argus`. `argus` was already the cockpit launcher; its admin flags
 and subcommands (`argus --status`, `argus doctor`, `argus --daemon`,
 `argus --web --web-host H --web-port P`, ...) now reach the Python CLI, while
 mission-start and daemon-client flags (`--objective`, `--resume`, `--continue`,
-`--new`, `--drain`, `--trial`, `--json`, `--host/--port`) still belong to the
+`--new`, `--drain`, `--json`, `--host/--port`) still belong to the
 cockpit. Headless automation should call `python -m argus ...`: the plain
 command-line interface, which never starts the Node cockpit.
 
@@ -727,8 +730,7 @@ service id, and the other on-disk markers (`/tmp/argus-skill-role-slots`,
 **Kept for one release.** `import argus_skill` is the same package object as
 `import argus` (a two-file alias, not a copy), `python -m argus_skill ...` runs
 the same modules, the `argus-skill` command still exists and prints one
-deprecation line on stderr, trial containers started under the
-old name are still recognised, and community verticals registered under the
+deprecation line on stderr, and community verticals registered under the
 pre-rename entry-point group are still discovered (with a warning).
 
 **Migrating an install.** Uninstall the old distribution before installing the
@@ -783,8 +785,7 @@ logs.
   they never block new calls or interrupt running ones. Argus rechecks late or
   partial Copilot billing and prices pending records once their model and token
   counts can be priced. Argus itself has no spending cap: on your own
-  subscription the provider's limits apply; on a hosted trial the invitation's
-  token limit at the gateway applies. Do not delete the ledger. Run diagnostic
+  subscription the provider's limits apply. Do not delete the ledger. Run diagnostic
   commands in a terminal, not in the Web chat box.
 - Confirm which executable the shell is using: `Get-Command argus -All` on
   PowerShell, or `type -a argus` on macOS/Linux. Its `argus --version` release
@@ -814,7 +815,7 @@ logs.
 - `argus/roles/`, `planner/`, `engineer/`, `reviewer/` — the persistent roles: the prompt catalog (`roles/`) plus the Planner, Engineer and Reviewer code (the Manager's code is in `manager/`).
 - `argus/life/`, `manager/`, `messaging/` — runtime: project memory, backlog, supervisor, the Manager control plane, cross-project messages.
 - `argus/daemon/` — the detached 7x24 worker.
-- `argus/apps/`, `webapi/`, `plugin/`, `maintenance/`, `trial/` — delivery: CLI, web API, host plugin, Doctor, hosted trial.
+- `argus/apps/`, `webapi/`, `plugin/`, `maintenance/` — delivery: CLI, web API, host plugin, Doctor.
 - `frontend/` — Ink terminal cockpit (`tui`), React web cockpit (`web`), shared TypeScript (`core`).
 - `desktop-tauri/` — Tauri desktop shell (Windows release; four CI targets); `plugins/` — installable host plugin; `tests/` — pytest suite.
 

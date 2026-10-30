@@ -192,9 +192,8 @@ HTTP 路径、返回结构与直接 Python 调用保留兼容。`daemon_lifecycl
 请求最多等待 10 秒。容量满时返回可重试 503，不启动无额度的扫描；请求取消不撤销其他等待者的扫描。
 关闭 app 会取消尚未开始的任务并有界等待，已经进入同步 I/O 的线程仍需等该 I/O 返回。
 
-网页试用门户的鉴权数据库读取在线程中进行，结果只缓存于当前请求；后续请求重新检查撤权。
-每租户连接池分为普通数据、目标修改、紧急停止三组，默认上限分别为 100、2、4。
-关闭持续运行走停止池。门户保留经过校验的 `Retry-After`，仍对后端错误正文脱敏。
+网页门户的鉴权和转发连接池归 [argus-hosting](https://github.com/lbx154/argus-hosting/blob/feat/trial/argus_trial_server/web_portal.py) 维护。
+Argus 的通用暂停接口仅返回 `work_pause` 的 `reason` 和 `since`；限额判断和持久化由已安装的服务提供者负责。
 
 ### 控制面等待与取消
 

@@ -27,12 +27,6 @@ pip 安装方式，不要把贡献者构建目录当作发布物。
 本地后端。共享配置仅提供候选，不会跳过首次确认，也不会默默选择 Codex。桌面保存过
 选择且仍能找到对应 CLI 时，后续启动直接打开 cockpit；CLI 已被卸载或路径失效时，
 重新显示向导。检测到可执行文件不代表已经完成鉴权；桌面中明确保存的选择优先于共享配置。
-试用版另提供 **使用内部测试 Key** 入口：持有邀请 Key 的用户可直接粘贴并点击
-**开始试用**。客户端会验证 Key、下载官方独立版 Copilot、校验安装包，并完成一次真实
-连接验证后进入工作台。此路径不需要终端、Python、Node.js 或用户自己的 Coding 账号。
-试用配置会保留，重启后直接进入工作台；每个 Key 累计额度为 100 万 token。
-这个入口从 0.1.3 桌面安装包提供；0.1.2 及更早的 EXE 需要升级。
-Mac 构建与当前验证范围见 [桌面内部试用版](desktop-trial.md)。
 需要修改 Agent CLI、可执行文件或端口时，使用 **文件 → 设置**。浅／深色使用工作台的全局切换，启动页和原生标题栏同步该选择。普通关闭和
 菜单中的 **隐藏窗口并在后台继续** 是同一个行为：隐藏到系统托盘并保留正在进行的工作；
 只有 **停止本地后端并退出** 会终止已验证的后端。
@@ -479,3 +473,5 @@ update-check.json
 `Export diagnostics` 只包含脱敏后的 settings、ownership、最后 500 KB desktop log
 和平台元数据；它会遮蔽 JSON token、URL token 和 bearer authorization。仍应在分享前
 由操作员审阅 ZIP 内容。
+
+托管桌面包由独立的 [argus-hosting 桌面构建](https://github.com/lbx154/argus-hosting/blob/feat/trial/desktop/README.md) 装配和验证。

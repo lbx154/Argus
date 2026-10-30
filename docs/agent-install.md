@@ -101,9 +101,7 @@ worktree's private runtime, not the shared account directory.
 If it is unavailable or unauthenticated, do not fall back to another account:
 fix the directory/login and rerun setup.
 
-Hosted trial mode deliberately uses its own provider instead; trial and dedicated
-account setup options cannot be combined. Remove any environment override before
-restoring the legacy shared-account behavior:
+Remove any environment override before restoring the shared-account behavior:
 
 ```sh
 argus --setup --backend copilot --copilot-home= --non-interactive

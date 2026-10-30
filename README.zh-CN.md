@@ -95,9 +95,12 @@ Manager/Planner/Engineer/Reviewer 运行时作为自定义 Agent 直接调用。
 
 ## 教程（英文）
 
-- **[入门指南](docs/getting-started.md)**：凭邀请码在浏览器中试用托管版，或本地安装后用命令行、网页或桌面应用完成第一个任务。
+- **[入门指南](docs/getting-started.md)**：本地安装后用命令行、网页或桌面应用完成第一个任务。
 - **[最佳实践](docs/best-practices.md)**：怎样写目标、中途改方向、选择模型与后端、控制花费。
 - **[构建垂域](docs/building-a-vertical.md)**：从阶段和技能做一个小型真实垂域并发布到垂域商店。
+
+
+托管客户端、服务、管理页及桌面构建由 [argus-hosting](https://github.com/lbx154/argus-hosting/blob/feat/trial/README.md) 提供。Argus 可独立使用；安装后的提供者通过通用入口点接入。
 
 ## 快速安装
 
@@ -636,7 +639,7 @@ git -C "$HOME/Argus" pull --ff-only
 命令 `argus-skill` 并入 `argus`。`argus` 原本就是驾驭舱启动器,它的管理参数与子命令
 (`argus --status`、`argus doctor`、`argus --daemon`、`argus --web --web-host H --web-port P` 等)
 现在走 Python 命令行;任务启动与守护进程客户端参数(`--objective`、`--resume`、`--continue`、`--new`、
-`--drain`、`--trial`、`--json`、`--host/--port`)仍属于驾驭舱。无人值守的自动化请用 `python -m argus ...`:
+`--drain`、`--json`、`--host/--port`)仍属于驾驭舱。无人值守的自动化请用 `python -m argus ...`:
 纯命令行,不会启动 Node 驾驭舱。
 
 **没有变的东西。** 所有 `ARGUS_SKILL_*` 环境变量与 knob(`~/.argus-skill/config.json` 里的键)、
@@ -646,7 +649,7 @@ git -C "$HOME/Argus" pull --ff-only
 
 **保留一个发布周期。** `import argus_skill` 与 `import argus` 是同一个包对象(两文件别名,不是副本),
 `python -m argus_skill ...` 运行同样的模块,`argus-skill` 命令仍然存在(stderr 打一行弃用提示),
-旧名字启动的 trial 容器仍被识别,注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
+注册在旧 entry-point 组下的社区垂直仍会被发现(带 warning)。
 
 **迁移已有安装。** 先卸载旧发行再装新发行,然后重启正在运行的守护进程或 `--web` 服务:
 
@@ -690,8 +693,7 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 
 - 未知价格或缺失用量会保留在项目的 `usage.jsonl` 中继续展示，不会阻止新调用或中断运行中的调用。
   Argus 会重新核对 Copilot 迟到或部分上报的费用；记录中的模型已有定价且 token 数量完整时，
-  会补齐待定费用。Argus 自身没有花费上限：使用自己的订阅时，限额由服务商决定；
-  使用托管试用时，限额是邀请对应的网关 token 额度。不要删除账本。
+  会补齐待定费用。Argus 自身没有花费上限：使用自己的订阅时，限额由服务商决定。不要删除账本。
   诊断命令应在终端运行，不要直接发到 Web 聊天框。
 
 - PowerShell 用 `Get-Command argus -All`，macOS/Linux 用 `type -a argus`
@@ -720,7 +722,7 @@ Linux 请先停止 Argus、保留所需工作，再删除 `$HOME/Argus` checkout
 - `argus/roles/`、`planner/`、`engineer/`、`reviewer/` —— 持久角色：提示词目录（`roles/`）加 Planner、Engineer、Reviewer 的代码（Manager 的代码在 `manager/`）。
 - `argus/life/`、`manager/`、`messaging/` —— 运行时：项目记忆、backlog、supervisor、Manager 控制面与跨项目消息。
 - `argus/daemon/` —— 脱离终端的 7x24 worker。
-- `argus/apps/`、`webapi/`、`plugin/`、`maintenance/`、`trial/` —— 交付面：CLI、Web API、宿主插件、Doctor、托管试用。
+- `argus/apps/`、`webapi/`、`plugin/`、`maintenance/` —— 交付面：CLI、Web API、宿主插件、Doctor。
 - `frontend/` —— Ink 终端 cockpit（`tui`）、React Web cockpit（`web`）、共享 TypeScript（`core`）。
 - `desktop-tauri/` —— Tauri 桌面壳（发布 Windows 版；CI 四个目标）；`plugins/` —— 可安装的宿主插件；`tests/` —— pytest 测试。
 

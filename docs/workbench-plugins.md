@@ -25,20 +25,9 @@ Installations live under `ARGUS_SKILL_HOME/extensions/<id>/releases`. Research s
 
 The plugin center uses Argus's authenticated local administration interface. It is not a multi-tenant marketplace. Browsers submit a catalog id and action, not arbitrary installer URLs or commands. Dynamic ASGI routing activates installed plugins without restarting unrelated Argus sessions.
 
-## Hosted deployments
+## Prepared deployments
 
-On a hosted service the visitor should never have to click Install: the server prepares the workbench itself. Set `ARGUS_PLUGINS_PREINSTALL` to the comma-separated catalog ids that must be present (for example `ARGUS_PLUGINS_PREINSTALL=crystalpilot`). At startup the web server checks each one; a plugin that is installed, enabled and matches the catalog is left untouched, anything else starts the normal verified install (with its automatic setup) in the background, once, without delaying the interface. The server log records what was found and what was started. While the install runs, the sidebar entry shows a single preparing sentence with the current step; once it finishes, the entry opens the workbench directly. Plugins named this way are reported with `managed_by_host: true`, the interface hides disable and uninstall for them, and the API refuses those two actions.
-
-The invitation runtimes declare CrystalPilot automatically and prepare its
-workspace under each account's `ARGUS_SKILL_HOME/crystalpilot-runtime`.
-The public portal permits the curated workbench's launch, conversations,
-uploads and scientific operations, retaining invitation authentication,
-same-origin checks and read-only restrictions. Installation, updates, removal
-and arbitrary executable-path configuration remain service-owned; users can
-check/repair the environment and submit their own SHELX download credentials.
-Folder browsing and opening/importing a project cannot escape that account's
-CrystalPilot workspace, including through symlinks. No backend credential or
-plugin access cookie is forwarded to the browser.
+An operator can prepare the workbench before use. Set `ARGUS_PLUGINS_PREINSTALL` to the comma-separated catalog ids that must be present (for example `ARGUS_PLUGINS_PREINSTALL=crystalpilot`). At startup the web server checks each one; a plugin that is installed, enabled and matches the catalog is left untouched, anything else starts the normal verified install (with its automatic setup) in the background, once, without delaying the interface. The server log records what was found and what was started. While the install runs, the sidebar entry shows a single preparing sentence with the current step; once it finishes, the entry opens the workbench directly. Plugins named this way are reported with `managed_by_host: true`, the API refuses disable and uninstall for them.
 
 To prepare a tenant before its first visit, use the same verified install:
 
@@ -137,3 +126,5 @@ Optional in-tree plugins can still use `python -m argus.release_tools.build_plug
 CrystalPilot includes Chinese and English workbench modes. The sidebar language button and Settings → Appearance share a plugin-owned preference. Changing language preserves drafts and running tasks; new user-facing replies and titles follow that default. Raw scientific records and user-authored names remain intact.
 
 The submitting OAuth session does not have GitHub's `workflow` scope. The four-platform installer matrix is intentionally supplied as an inactive example, not a newly active workflow. Maintainers can review and enable it separately without blocking the plugin-center implementation.
+
+Invitation portal and managed UI policy are maintained in [argus-hosting](https://github.com/lbx154/argus-hosting/blob/feat/trial/docs/hosted-plugins.md).

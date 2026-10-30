@@ -1,10 +1,7 @@
 # Getting started with Argus
 
 This guide takes you from an empty machine to a finished first task. It covers
-three ways to work: the command line, the web UI, and the desktop app. If you
-have a hosted-trial invitation, you can
-[start in the browser](#try-it-in-the-browser-first-hosted-trial) with no
-install. Every
+three ways to work: the command line, the web UI, and the desktop app. Every
 command below was checked against the `argus` CLI in this checkout
 (`argus 0.1.8`); the example runs are real projects, with their times and costs
 taken from their own logs.
@@ -12,54 +9,6 @@ taken from their own logs.
 Companion guides: [best practices](best-practices.md) (objectives, changing
 direction mid-run, models and spend) and
 [building a vertical](building-a-vertical.md).
-
-## Try it in the browser first (hosted trial)
-
-If you have been given an invitation code for the hosted trial, you can use
-Argus without installing anything. The operator runs it on our own machines
-(deployment files in [`trial_server/deploy/`](../trial_server/deploy/), service code in
-`trial_server/`); the address comes with your invitation. Use the address the
-operator gives you, not one copied from an old message: temporary tunnel
-addresses change when the service is restarted.
-
-What the invitation gives you:
-
-- **The same web UI as Path 2 below**, opened at `/invite` after you enter the
-  code. Each invitation is its own workspace; the same code continues the same
-  workspace from another device. A read-only option lets you browse without
-  submitting or changing tasks.
-- **A model already configured.** The server chooses the model and pays for it;
-  you need no coding-agent CLI or account login.
-- **A lifetime token allowance** shown on the entry page and at
-  `/invite/status`. The code default is 10,000,000 input-plus-output tokens per
-  invitation and it does not reset monthly; an operator may configure a
-  different allowance (`token_limit` in `trial_server/argus_trial_server/web_portal.py`).
-- **A shared GPU queue** at `/invite/compute`, with 200 lifetime GPU-hours per
-  invitation; time spent queued does not count
-  ([hosted research trial](hosted-research-trial.md)).
-
-How it differs from a local install:
-
-- **Your work runs in an isolated container on the operator's host, not on your
-  machine.** It cannot see your local files or private network; outbound access
-  is HTTPS to public addresses only. Results are viewed and downloaded through
-  the browser.
-- **No terminal cockpit, desktop app, or choice of backend or model.** Paths 1
-  and 3 and the backend and model advice in
-  [best practices](best-practices.md) apply to local installs only.
-- **Data collection.** The entry page asks you to agree to a team-internal data
-  notice before you start: task inputs, the four roles' process records, tool
-  calls and results are recorded for internal training and product review.
-  Research records are kept for up to 30 days, and the *研究记录与反馈* page lets
-  you delete a project's research copy. Submit only material you may share on
-  those terms.
-- **Sessions and availability.** A browser sign-in lasts up to seven days.
-  Invitations are issued privately by the operator; there is no public sign-up.
-  An operator redeploy can interrupt work that is running in the foreground.
-
-When you outgrow the trial (your own data, your own agent CLI, longer
-campaigns), install locally as described below. The entry page is in
-Simplified Chinese; the workspace follows your browser language.
 
 ## What you are installing
 
@@ -387,7 +336,7 @@ Chinese); the sidebar has a language button.
 ### A real first task from the browser
 
 Project `s-67fb6d62` ran on a fresh local install on a four-GPU server (a
-local install, not the hosted trial above). It was created from the web UI
+local installation). It was created from the web UI
 (`session.json` records `origin: web`). Its first message, at 06:57:51Z:
 
 > 帮我在这台机器的 GPU 上测一下 PyTorch 矩阵乘在 fp16 和 fp32 下的 TFLOPS，写个脚本跑出真实数字，整理成表格。
@@ -438,23 +387,18 @@ separate from source updates.
   or updates between the two.
 - **What it needs:** nothing else on the machine. The installer bundles the
   backend (`argus-backend`), so no Python, Node.js or venv is required.
-- **First launch:** a setup wizard asks you to pick an installed, logged-in
-  agent CLI and confirm it; the local backend does not start until you do. If
-  you have an internal trial key instead, paste it and click **开始试用** ("start
-  trial"): the app downloads the official standalone Copilot program, checks
-  its size, runs one real model reply, and opens the workbench. That path
-  needs no CLI, Python, Node or coding-agent account of your own. Either
-  choice is remembered; **File → Settings** changes the CLI, executable or
-  port later.
+- **First launch:** install and log in to an agent CLI, then select it in the
+  setup wizard and confirm the local port. The backend starts after confirmation.
+  **File → Settings** changes the CLI, executable or port later.
 - **After that** the app is the web UI from Path 2: create a project, type the
   objective, watch the feed.
 
 To build it from source instead (Python 3.11+, Node 22.12+, Rust stable, plus
 MSVC Build Tools on Windows or Xcode command-line tools on macOS), the
-documented sequence in [docs/desktop-trial.md](desktop-trial.md) is:
+sequence in [desktop builds](windows-desktop.md) is:
 
 ```bash
-python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
+python -m pip install -e . "pyinstaller>=6.11,<7" tzdata
 npm --prefix frontend/web ci
 npm --prefix frontend/tui ci
 npm --prefix desktop-tauri ci

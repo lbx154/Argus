@@ -172,14 +172,12 @@ python -m argus.release_tools.preinstall_verticals materials chip_design --root 
 ```
 
 Point every tenant at that root with `ARGUS_VERTICALS_HOST_ROOT=/opt/argus-verticals`.
-With that variable (or `ARGUS_TRIAL_HARNESS`) set the store is **host-managed**:
-`install`, `update` and `uninstall` are refused (CLI exit 1, API 409; the hosted trial
-answers 403 before reaching the store), the rows carry `managed_by_host: true`, and
+With that variable set the store is **host-managed**:
+`install`, `update` and `uninstall` are refused (CLI exit 1, API 409), the rows carry `managed_by_host: true`, and
 only `enable`/`disable` remain. Those two write the tenant's own
 `<ARGUS_SKILL_HOME>/verticals/state.json`, never the host root, so they work on a
 read-only root and are private to that tenant by construction; refreshing the catalog is
-read-only for the host and stays available. The invitation portal whitelists exactly
-`POST /api/verticals/catalog/refresh` and `POST /api/verticals/<name>/manage/(enable|disable)`.
+read-only for the host and stays available. Deployment-specific access policy is documented by [argus-hosting](https://github.com/lbx154/argus-hosting/blob/feat/trial/docs/hosted-research-trial.md).
 
 ## Security
 
@@ -267,8 +265,7 @@ accepts in its current state.
   cascades a removal.
 - *`X is the vertical of session(s) s-…`* — a local project still names it; disable
   instead, or `remove --force` once the project is finished.
-- *`verticals are provided by the host`* — `ARGUS_VERTICALS_HOST_ROOT` or
-  `ARGUS_TRIAL_HARNESS` is set; installation belongs to the image build.
+- *`verticals are provided by the host`* — `ARGUS_VERTICALS_HOST_ROOT` is set, or an installed service provider manages the Store; installation belongs to the image build.
 - *A vertical is installed but not in `available_verticals()`* — check
   `argus verticals info NAME` (`enabled`; a project naming a disabled vertical is told
   to run `argus verticals enable NAME`), then the server log: a store module that

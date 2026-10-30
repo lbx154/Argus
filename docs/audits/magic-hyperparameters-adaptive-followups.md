@@ -404,3 +404,5 @@
 - `argus_skill/webapi/manager_session_intent.py:28` · contextualize_operator_turn bounds = last_team_task[:600], last 4 prior turns, each [:300] (lines 28-35)  
   后果:The Manager resolves pronouns/corrections against amputated context — a long prior answer's tail (often where the actual decision lives) is silently absent, and turns older than 4 vanish entirely.  
   建议:These clip data fed to a model whose context window is five orders of magnitude larger. The budget should be token-based and derived from the Manager model's context length, keeping whole turns and trimming oldest-first, rather than fixed char slices that cut mid-sentence.
+
+> 迁移去向（2026-10-30）：本文保留当时的数字、代码样例与路径；托管客户端、服务、管理页和桌面构建现由 [argus-hosting](https://github.com/lbx154/argus-hosting/blob/feat/trial/README.md) 维护。
