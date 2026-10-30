@@ -708,7 +708,6 @@
         "error_code": {
           "type": "string",
           "enum": [
-            "trial_quota_exceeded",
             "timeout",
             "cancelled",
             "superseded",

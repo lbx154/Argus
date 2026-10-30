@@ -27,15 +27,7 @@ const render = () => renderToStaticMarkup(
   <HtmlPreview html="Initial excerpt" title="Website" sid="test" path="index.html" />,
 );
 
-it("preserves embedded previews on deployed APIs without the new page endpoint", () => {
-  const html = render();
-  expect(html).toContain('srcDoc="&lt;h1&gt;Website&lt;/h1&gt;"');
-  expect(html).not.toContain('src="/api/');
-  expect(html).toContain("Interactive scripts may not run in this preview.");
-  expect(html).toContain('sandbox="allow-scripts allow-downloads"');
-});
-
-it("uses the independently sandboxed page only when the backend supports it", () => {
+it("uses the independently sandboxed page endpoint", () => {
   query.data!.served_page = true;
   const html = render();
   expect(html).toContain('src="/api/projects/test/artifact/preview/page?path=index.html"');

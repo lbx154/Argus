@@ -12,9 +12,6 @@ export const KIND_FILTERS: readonly KindFilter[] = ['all', 'installed', 'availab
 
 export const VERTICAL_ACTIONS: readonly VerticalAction[] = ['install', 'update', 'enable', 'disable', 'uninstall'];
 
-/** Actions that change what is on disk; a hosted workspace never offers them. */
-const HOST_OWNED_ACTIONS: ReadonlySet<VerticalAction> = new Set(['install', 'update', 'uninstall']);
-
 export interface StoreFilter {
   query: string;
   kind: KindFilter;
@@ -44,11 +41,6 @@ const VERTICAL_TITLES: Record<string, string> = {
 export function verticalTitle(row: Pick<VerticalRow, 'name' | 'kind'>, locale: string): string {
   if (locale !== 'zh-CN') return row.name.replaceAll('_', ' ');
   return (row.kind === 'builtin' ? BUNDLED_GUIDES[row.name]?.title : undefined) ?? VERTICAL_TITLES[row.name] ?? row.name.replaceAll('_', ' ');
-}
-
-/** The hosted trial build sets this flag; the host also reports it per payload. */
-export function hostedTrialBuild(env: Record<string, string | boolean | undefined> = import.meta.env): boolean {
-  return env.VITE_ARGUS_HOSTED_TRIAL === '1';
 }
 
 /** "Installed" means present on disk and usable, so bundled verticals count; "Built-in" stays its own group. */
@@ -96,10 +88,9 @@ export function deriveTags(rows: VerticalRow[]): string[] {
   return [...tags].sort((a, b) => a.localeCompare(b));
 }
 
-/** The buttons a card shows: exactly the server's list, minus what a host keeps for itself. */
-export function visibleActions(row: VerticalRow, hosted: boolean): VerticalAction[] {
-  const owned = hosted || row.managed_by_host;
-  return row.actions.filter((action) => VERTICAL_ACTIONS.includes(action) && !(owned && HOST_OWNED_ACTIONS.has(action)));
+/** The buttons a card shows: exactly the server's allowed actions. */
+export function visibleActions(row: VerticalRow): VerticalAction[] {
+  return row.actions.filter((action) => VERTICAL_ACTIONS.includes(action));
 }
 
 export const actionLabelKey = (action: VerticalAction | string) => `verticals.action.${action}`;

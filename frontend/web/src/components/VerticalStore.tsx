@@ -8,7 +8,7 @@ import type { VerticalAction, VerticalRow, VerticalsPayload } from '../../../cor
 import { useI18n } from '../i18n';
 import {
   EMPTY_FILTER, KIND_FILTERS, VERTICAL_ACTIONS, actionLabelKey, anyRunning, deriveRoutingPaths, deriveTags, failureDetail, filterLabelKey,
-  filterRows, formatSize, hasStoreCapability, hostedTrialBuild, isRunning, isStoreConflict, isStoreMissing, kindLabelKey,
+  filterRows, formatSize, hasStoreCapability, isRunning, isStoreConflict, isStoreMissing, kindLabelKey,
   knownNames, operationLabelKey, pollInterval, progressPercent, purposeText, visibleActions, type StoreFilter,
   BUNDLED_GUIDES, verticalTitle,
 } from '../lib/verticalStore';
@@ -51,10 +51,9 @@ export function VerticalStoreEntry({ compact = false, onOpen }: { compact?: bool
   </button>;
 }
 
-// One vertical. The buttons come from row.actions and nowhere else; a hosted
-// workspace additionally loses install, update and uninstall.
-export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct, onJump, onTag }: {
-  row: VerticalRow; locale: string; hosted: boolean; busy: boolean; failure?: CardFailure; known: ReadonlySet<string>;
+// One vertical. The buttons come from the server's actions.
+export function VerticalCard({ row, locale, busy, failure, known, onAct, onJump, onTag }: {
+  row: VerticalRow; locale: string; busy: boolean; failure?: CardFailure; known: ReadonlySet<string>;
   onAct: Act; onJump?: (name: string) => void; onTag?: (tag: string) => void;
 }) {
   const { t } = useI18n();
@@ -65,7 +64,7 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
   const needsEnvironment = row.missing_python.length > 0 || !!row.runtime_issues?.length;
   const running = isRunning(row);
   const disabled = busy || running;
-  const actions = visibleActions(row, hosted);
+  const actions = visibleActions(row);
   const operation = row.operation;
   const percent = progressPercent(operation);
   const operationName = (action: string) => VERTICAL_ACTIONS.includes(action as VerticalAction) ? t(actionLabelKey(action)) : action;
@@ -196,8 +195,8 @@ export function VerticalCard({ row, locale, hosted, busy, failure, known, onAct,
 
 // The page inside the modal: catalog line, filters and the card grid. Pure
 // with respect to data so the tests can render it without a network.
-export function VerticalStoreView({ payload, filter, onFilter, hosted, supported, loading, refreshing, error, pending, failures, onAct, onRefresh, onJump }: {
-  payload: VerticalsPayload | null; filter: StoreFilter; onFilter: (next: StoreFilter) => void; hosted: boolean;
+export function VerticalStoreView({ payload, filter, onFilter, supported, loading, refreshing, error, pending, failures, onAct, onRefresh, onJump }: {
+  payload: VerticalsPayload | null; filter: StoreFilter; onFilter: (next: StoreFilter) => void;
   supported: boolean | null; loading: boolean; refreshing: boolean; error: string; pending: string | null;
   failures: Record<string, CardFailure>; onAct: Act; onRefresh: () => void; onJump: (name: string) => void;
 }) {
@@ -210,7 +209,7 @@ export function VerticalStoreView({ payload, filter, onFilter, hosted, supported
   const filtered = filter.query.trim() !== '' || filter.kind !== 'all' || filter.tag !== null || Boolean(filter.routingPath);
   const catalog = payload?.catalog;
   return <>
-    <p className="mt-2 text-sm text-ink-faint">{hosted ? t('verticals.hostedNote') : t('verticals.intro')}</p>
+    <p className="mt-2 text-sm text-ink-faint">{t('verticals.intro')}</p>
     {supported === false && <p role="alert" className="mt-4 rounded-lg border border-line bg-bg/70 p-3 text-sm text-ink-dim" data-testid="vertical-store-too-old">{t('verticals.tooOld')}</p>}
     {supported !== false && <>
       {catalog && <details className="mt-3 rounded-lg border border-line/50 p-3"><summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '目录来源与更新' : 'Catalog source and updates'}</summary><div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-faint" data-testid="vertical-catalog">
@@ -253,7 +252,7 @@ export function VerticalStoreView({ payload, filter, onFilter, hosted, supported
       {payload && rows.length === 0 && <p className="mt-4 text-sm text-ink-faint">{t('verticals.none')}</p>}
       {rows.length > 0 && shown.length === 0 && <p className="mt-4 text-sm text-ink-faint">{t('verticals.noMatches')}</p>}
       {shown.length > 0 && <div className="mt-3 grid gap-3 md:grid-cols-2" data-testid="vertical-grid">
-        {shown.map((row) => <VerticalCard key={row.name} row={row} locale={locale} hosted={hosted} busy={pending === row.name} failure={failures[row.name]}
+        {shown.map((row) => <VerticalCard key={row.name} row={row} locale={locale} busy={pending === row.name} failure={failures[row.name]}
           known={known} onAct={onAct} onJump={onJump} onTag={(tag) => onFilter({ ...filter, tag })} />)}
       </div>}
     </>}
@@ -277,7 +276,6 @@ export function VerticalStore({ open, onClose }: { open: boolean; onClose: () =>
   const tRef = useRef(t);
   tRef.current = t;
   const running = anyRunning(payload?.verticals ?? []);
-  const hosted = Boolean(payload?.host.managed_by_host) || hostedTrialBuild();
 
   // An older backend has no store: say so instead of showing a failed request.
   useEffect(() => {
@@ -378,7 +376,7 @@ export function VerticalStore({ open, onClose }: { open: boolean; onClose: () =>
         <h2 id="vertical-store-title" className="flex items-center gap-2 text-lg font-semibold"><Store size={20} strokeWidth={1.5} className="text-blue" />{t('verticals.title')}</h2>
         <button ref={close} type="button" aria-label={t('verticals.close')} className="icon-control p-1.5" onClick={onClose}><X size={18} /></button>
       </div>
-      <VerticalStoreView payload={payload} filter={filter} onFilter={setFilter} hosted={hosted} supported={supported} loading={loading} refreshing={refreshing}
+      <VerticalStoreView payload={payload} filter={filter} onFilter={setFilter} supported={supported} loading={loading} refreshing={refreshing}
         error={error?.text ?? ''} pending={pending} failures={failures} onAct={act} onRefresh={() => void refreshCatalog()} onJump={jump} />
     </section>
   </div>, document.body);

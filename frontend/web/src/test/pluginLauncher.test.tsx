@@ -13,8 +13,8 @@ const catalog: Plugin = {
   setup: { actions: ['health', 'repair', 'shelx', 'configure'] },
 };
 const ready: Plugin = { ...catalog, installed: true, enabled: true, installed_version: '0.4.0' };
-const preparing: Plugin = { ...catalog, managed_by_host: true, operation: { status: 'running', progress: '安装独立运行环境（首次可能需要几分钟）' } };
-const failed: Plugin = { ...catalog, managed_by_host: true, operation: { status: 'failed', error: '插件包校验失败，未安装。' } };
+const preparing: Plugin = { ...catalog, operation: { status: 'running', progress: '安装独立运行环境（首次可能需要几分钟）' } };
+const failed: Plugin = { ...catalog, operation: { status: 'failed', error: '插件包校验失败，未安装。' } };
 
 const entries = (plugins: Plugin[]) => renderToStaticMarkup(
   <PluginEntries plugins={plugins} pending={null} onLaunch={() => undefined} onManage={() => undefined} />,
@@ -49,7 +49,7 @@ describe('workbench entries outside the plugin center', () => {
     expect(html).not.toMatch(/>Install</);
   });
 
-  it('keeps the plugin center as the manual path for a self-hosted copy', () => {
+  it('keeps the plugin center as the manual path for installation', () => {
     expect(entries([catalog])).toContain('aria-label="Plugins"');
     expect(entries([catalog])).not.toContain('role="status"');
     expect(entries([])).toContain('aria-label="Plugins"');
@@ -71,15 +71,7 @@ describe('workbench entries outside the plugin center', () => {
 });
 
 describe('plugin center cards', () => {
-  it('hides disable, uninstall and update for a plugin the service provides', () => {
-    const html = card({ ...ready, managed_by_host: true, update_available: true });
-    expect(html).toContain('Open workbench');
-    expect(html).toContain('Check environment');
-    expect(html).not.toMatch(/>Disable<|>Uninstall<|>Update to /);
-    expect(html).not.toContain('Uninstalling preserves');
-  });
-
-  it('keeps every manual control for a self-hosted copy', () => {
+  it('keeps every manual control', () => {
     const html = card({ ...ready, update_available: true });
     expect(html).toMatch(/>Disable</);
     expect(html).toMatch(/>Uninstall</);
@@ -87,25 +79,22 @@ describe('plugin center cards', () => {
     expect(card(catalog)).toMatch(/>Install</);
   });
 
-  it('replaces the install button with the preparing sentence for a provided plugin', () => {
+  it('shows preparation progress while keeping installation controls available', () => {
     const html = card(preparing);
     expect(html).toContain('Preparing the Argus CrystalPilot workbench');
     expect(html).toContain('Install standalone environment');
-    expect(html).not.toMatch(/>Install</);
-    expect(html).not.toContain('First installation automatically configures');
+    expect(html).toMatch(/>Install</);
+    expect(html).toContain('First installation automatically configures');
   });
 });
 
 describe('entry state', () => {
   it('derives one state per plugin', () => {
     expect(pluginEntryState(ready)).toBe('ready');
-    expect(pluginEntryState({ ...ready, managed_by_host: true })).toBe('ready');
     expect(pluginEntryState(catalog)).toBe('manual');
     expect(pluginEntryState({ ...ready, enabled: false })).toBe('manual');
-    expect(pluginEntryState({ ...catalog, managed_by_host: true })).toBe('preparing');
     expect(pluginEntryState(preparing)).toBe('preparing');
-    expect(pluginEntryState({ ...ready, enabled: false, managed_by_host: true })).toBe('preparing');
     expect(pluginEntryState(failed)).toBe('unavailable');
-    expect(pluginEntryState({ ...ready, managed_by_host: true, supported: false })).toBe('unavailable');
+    expect(pluginEntryState({ ...ready, supported: false })).toBe('manual');
   });
 });

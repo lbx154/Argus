@@ -16,7 +16,7 @@ vi.mock('../api', () => ({ api: {}, VERTICAL_STORE_CAPABILITY: 'verticals.store.
 const row = (over: Partial<VerticalRow> & { name: string }): VerticalRow => ({
   purpose: 'Purpose', purpose_zh: null, kind: 'available', version: '1.0.0', installed_version: null, enabled: false,
   update_available: false, requires: [], shared: [], python_requirements: [], missing_python: [], tags: [], size_bytes: null,
-  used_by: [], operation: null, managed_by_host: false, actions: ['install'], ...over,
+  used_by: [], operation: null, actions: ['install'], ...over,
 });
 
 const research = row({ name: 'research', kind: 'builtin', enabled: true, version: null, actions: ['disable'], tags: ['science'] });
@@ -39,15 +39,15 @@ const failedInstall = row({
 const payload: VerticalsPayload = {
   verticals: [research, software, kernel, materials],
   catalog: { source: 'https://verticals.example/catalog.json', fetched_at: '2026-09-14T08:00:00Z', release_tag: 'v0.3.0', error: null },
-  host: { managed_by_host: false, store_root: '/home/u/.argus/verticals' },
+  host: { store_root: '/home/u/.argus/verticals' },
 };
 
 const known = new Set(['research', 'software', 'kernel_engineering', 'materials']);
 const card = (item: VerticalRow, over: Partial<Parameters<typeof VerticalCard>[0]> = {}) => renderToStaticMarkup(
-  <VerticalCard row={item} locale={host.locale} hosted={false} busy={false} known={known} onAct={async () => true} onJump={() => undefined} {...over} />,
+  <VerticalCard row={item} locale={host.locale} busy={false} known={known} onAct={async () => true} onJump={() => undefined} {...over} />,
 );
 const view = (over: Partial<Parameters<typeof VerticalStoreView>[0]> = {}, filter: StoreFilter = EMPTY_FILTER) => renderToStaticMarkup(
-  <VerticalStoreView payload={payload} filter={filter} onFilter={() => undefined} hosted={false} supported loading={false} refreshing={false}
+  <VerticalStoreView payload={payload} filter={filter} onFilter={() => undefined} supported loading={false} refreshing={false}
     error="" pending={null} failures={{}} onAct={async () => true} onRefresh={() => undefined} onJump={() => undefined} {...over} />,
 );
 const cardOf = (html: string, name: string) => {
@@ -192,25 +192,6 @@ describe('vertical cards', () => {
     host.locale = 'zh-CN';
     expect(card(materials, { locale: 'zh-CN' })).toContain('材料发现与筛选');
     expect(card(research, { locale: 'zh-CN' })).toContain('Purpose');
-  });
-});
-
-describe('hosted workspace', () => {
-  it('hides install, update and uninstall but keeps enable and disable, and explains why', () => {
-    const html = view({ payload: { ...payload, host: { ...payload.host, managed_by_host: true } }, hosted: true });
-    expect(html).toContain('verticals.hostedNote');
-    expect(html).not.toContain('verticals.intro');
-    expect(actionsOf(html)).toEqual(['disable', 'disable', 'disable']);
-    expect(html).not.toContain('data-action="install"');
-    expect(html).not.toContain('data-action="uninstall"');
-    expect(html).not.toContain('data-action="update"');
-    expect(html).toContain('data-testid="vertical-refresh-catalog"'); // refreshing is read-only for the host
-    expect(view({ payload: { ...payload, verticals: [row({ name: 'off', kind: 'installed', actions: ['enable', 'uninstall'] })] }, hosted: true })).toContain('data-action="enable"');
-  });
-
-  it('hides host-owned actions per row when only that row is managed by the host', () => {
-    const html = card({ ...kernel, managed_by_host: true });
-    expect(actionsOf(html)).toEqual(['disable']);
   });
 });
 

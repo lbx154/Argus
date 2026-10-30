@@ -251,7 +251,7 @@
         "effects": {
           "value": "recorded"
         },
-        "error_code": "trial_quota_exceeded",
+        "error_code": "timeout",
         "error_type": "error type",
         "evidence_refs": [
           {

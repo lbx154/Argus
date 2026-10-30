@@ -9,7 +9,6 @@ import { effortColor } from '../lib/theme';
 import { ago } from '../lib/format';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
-import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck, faChevronDown, faFloppyDisk } from '@fortawesome/free-solid-svg-icons';
 import {
@@ -281,7 +280,7 @@ export function ConfigModal({
         {!isLoading && !isError && !hasData && <EmptyHint>{t('settings.empty')}</EmptyHint>}
         {!isLoading && !isError && hasData && data && (
           <div className="settings-sections">
-            {!data.trial_mode && <section className="settings-section">
+            <section className="settings-section">
               <h3 className="mb-3 text-sm font-semibold text-ink">{t('settings.quickConfig')}</h3>
               <details className="mb-4">
                 <summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '服务连接设置 · 由维护者配置' : 'Service connection · Maintainer settings'}</summary>
@@ -403,18 +402,7 @@ export function ConfigModal({
                   {quickConfigMsg}
                 </div>
               )}
-            </section>}
-
-            {data.trial_mode && <section className="settings-section" aria-label={t('settings.trialAccount')}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-ink">{t('settings.trialAccount')}</h3>
-                  <p className="mt-1 text-xs text-ink-dim">GPT-5.5 · high</p>
-                  <p className="mt-1 text-xs text-ink-faint">{t('settings.trialKeyHint')}</p>
-                </div>
-                {canOpenDesktopSettings() && <button type="button" className="compact-control px-3 py-2" onClick={() => { onClose(); openDesktopTrialSettings(); }}>{t('settings.changeTrialKey')}</button>}
-              </div>
-            </section>}
+            </section>
 
             {advancedOpen && <AdvisorSettings sid={sid} primaryModel={data.roles.find(role => role.role === 'engineer')?.model} />}
 
@@ -527,7 +515,7 @@ export function ConfigModal({
         )}
       </div>
     </Modal>
-    {!data?.trial_mode && <ModelPicker sid={sid} open={open && pickerOpen} onClose={() => setPickerOpen(false)} />}
+    <ModelPicker sid={sid} open={open && pickerOpen} onClose={() => setPickerOpen(false)} />
     </>
   );
 }

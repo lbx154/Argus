@@ -25,7 +25,7 @@ import { DEFAULT_LAUNCH_SETTINGS, isFreshProject, launchForMessage, readAskMode,
 import { PendingReplyDialog } from './components/PendingReplyDialog';
 import { GuardianBanner } from './components/GuardianBanner';
 import { NoOperatorBanner } from './components/NoOperatorBanner';
-import { StoragePauseBanner } from './components/StoragePauseBanner';
+import { WorkPauseBanner } from './components/WorkPauseBanner';
 import { hasHumanProjectLabel, rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import { ProgressQuestionsProvider } from './research-brief/ProgressQuestions';
@@ -71,7 +71,6 @@ import { usePendingReplySession } from './usePendingReplySession';
 import { useProjectSelection, type ProjectHistoryMode } from './useProjectSelection';
 import { useSessionComposer, type DraftSnapshot } from './useSessionComposer';
 import { useSyncedDraft } from './useSyncedDraft';
-import { hostedTrialBuild } from './lib/verticalStore';
 import { ArtifactEditor, ConversationEditor, DeviceAccess, DraftSyncStatus, HistorySearch, type ConversationRevision } from './components/ExperiencePanels';
 import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
@@ -1291,7 +1290,7 @@ export default function App() {
       ...(kiosk ? [] : [{ id: 'new', label: t('palette.newDaemon'), hint: '+', group: t('palette.view'), run: startNewSession }]),
       { id: 'transcript', label: t('palette.openTranscript'), hint: '/transcript', group: t('palette.view'), run: () => setOverlay('transcript') },
       { id: 'history-search', label: locale === 'zh-CN' ? '搜索历史与成果' : 'Search history and results', group: t('palette.view'), run: () => setSearchOpen(true) },
-      ...(hostedTrialBuild() ? [] : [{ id: 'device-access', label: locale === 'zh-CN' ? '设备与登录' : 'Devices and sign-in', group: t('palette.view'), run: () => setDevicesOpen(true) }]),
+      { id: 'device-access', label: locale === 'zh-CN' ? '设备与登录' : 'Devices and sign-in', group: t('palette.view'), run: () => setDevicesOpen(true) },
       { id: 'inspector', label: t('palette.openProject'), hint: t('palette.projectHint'), group: t('palette.view'), run: () => setOverlay('inspector') },
       { id: 'operations', label: t('palette.openOperations'), hint: t('palette.operationsHint'), group: t('palette.view'), run: openRuntimeControls },
       { id: 'verticals', label: t('verticals.openStore'), hint: t('verticals.paletteHint'), group: t('palette.view'), run: () => setOverlay('verticals') },
@@ -1415,8 +1414,7 @@ export default function App() {
           resultsCount={loadedSid ? deliveryHistory.length : 0}
           onNew={() => startNewSession()}
           onSearch={() => setSearchOpen(true)}
-          // The trial portal owns sign-in; device pairing is for self-hosted Argus.
-          onDevices={hostedTrialBuild() ? undefined : () => setDevicesOpen(true)}
+          onDevices={() => setDevicesOpen(true)}
           loading={projectsQ.isLoading}
           creating={creatingDaemon}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
@@ -1448,7 +1446,7 @@ export default function App() {
           <>
             <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col lg:flex`}>
               <NoOperatorBanner sid={loadedSid} />
-              <StoragePauseBanner pause={snap.storage_pause} />
+              <WorkPauseBanner pause={snap.work_pause} />
               {workspaceView !== 'map' && <TopBar
                 events={activityEvents}
                 snap={snap}

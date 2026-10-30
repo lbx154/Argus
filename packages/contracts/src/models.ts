@@ -445,8 +445,8 @@ export interface Snapshot {
   goal?: string;
   /** Free space on the disk holding the project's outputs. */
   storage?: { total_bytes: number; free_bytes: number; used_fraction: number | null } | null;
-  /** Set while the workspace is over its storage limit and work is paused (hosted runtimes). */
-  storage_pause?: { used_bytes: number; limit_bytes: number; since: number } | null;
+  /** Work is paused for the supplied reason, until the runtime clears it. */
+  work_pause?: { reason: string; since: number } | null;
   partial?: boolean;
   diagnostics?: Array<{
     section: string;
@@ -617,7 +617,6 @@ export interface VerticalRow {
   /** Project sids currently bound to this vertical. */
   used_by: string[];
   operation: VerticalOperation | null;
-  managed_by_host: boolean;
   /** The only actions the server accepts right now; the UI offers nothing else. */
   actions: VerticalAction[];
 }
@@ -634,7 +633,6 @@ export interface VerticalsPayload {
   verticals: VerticalRow[];
   catalog: VerticalCatalogStatus;
   host: {
-    managed_by_host: boolean;
     store_root: string;
   };
 }

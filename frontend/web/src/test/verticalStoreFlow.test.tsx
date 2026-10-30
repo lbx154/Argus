@@ -21,14 +21,14 @@ vi.mock('../api', () => ({
 const row = (over: Partial<VerticalRow> & { name: string }): VerticalRow => ({
   purpose: 'Purpose', purpose_zh: null, kind: 'available', version: '1.0.0', installed_version: null, enabled: false,
   update_available: false, requires: [], shared: [], python_requirements: [], missing_python: [], tags: [], size_bytes: null,
-  used_by: [], operation: null, managed_by_host: false, actions: ['install'], ...over,
+  used_by: [], operation: null, actions: ['install'], ...over,
 });
 const kernel = row({ name: 'kernel_engineering', kind: 'installed', enabled: true, installed_version: '1.2.0', actions: ['disable', 'uninstall'], used_by: ['s-1', 's-2'] });
 const materials = row({ name: 'materials', kind: 'available', actions: ['install'] });
 const payload: VerticalsPayload = {
   verticals: [kernel, materials],
   catalog: { source: 'bundled', fetched_at: null, release_tag: null, error: null },
-  host: { managed_by_host: false, store_root: '/store' },
+  host: { store_root: '/store' },
 };
 const runningPayload: VerticalsPayload = {
   ...payload,

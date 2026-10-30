@@ -4,7 +4,6 @@ import { useConfig } from '../hooks';
 import { useI18n } from '../i18n';
 import { backendLabel } from '../lib/backend';
 import { agentRoleName, isAgentRole } from '../lib/agentRoles';
-import { canOpenDesktopSettings, openDesktopTrialSettings } from '../lib/desktopBridge';
 import { ModelPicker } from './ModelPicker';
 
 type LastCall = NonNullable<Snapshot['last_call']>;
@@ -34,12 +33,11 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
   const zh = locale === 'zh-CN';
   const role = (running ? roles.find((item) => item.active) : undefined)
     ?? roles.find((item) => item.role === 'manager');
-  const trial = data?.trial_mode === true;
   const recent = !!lastCall && (running || Date.now() / 1000 - (lastCall.ts || 0) < LAST_CALL_CURRENT_S);
-  const actual = !trial && recent && lastCall?.backend ? lastCall : null;
+  const actual = recent && lastCall?.backend ? lastCall : null;
   const backend = actual ? actual.backend : role?.backend;
-  const model = trial ? 'GPT-5.5' : actual ? (actual.model || 'auto') : role?.model;
-  const effort = trial ? 'high' : actual ? actual.effort : role?.effort;
+  const model = actual ? (actual.model || 'auto') : role?.model;
+  const effort = actual ? actual.effort : role?.effort;
   // The configured role that made the last call, read from settings so an
   // Apply shows up here immediately rather than after the next call.
   // The backend names the role whose settings govern the call; without it
@@ -53,22 +51,19 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
     ? [backendLabel(nextBackend || configured!.backend, t), nextModel || configured!.model || 'auto'].join(' · ')
     : '';
   const label = <>
-    {trial ? (zh ? '试用' : 'Trial') : backend ? backendLabel(backend, t) : (zh ? '模型信息待确认' : 'Model information unavailable')}
+    {backend ? backendLabel(backend, t) : (zh ? '模型信息待确认' : 'Model information unavailable')}
     {model ? ` · ${model}` : ''}{effort ? ` · ${effort}` : ''}
-    {!trial && !actual && running && role?.active ? ` · ${isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role}` : ''}
+    {!actual && running && role?.active ? ` · ${isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role}` : ''}
   </>;
   const title = actual
     ? (zh ? '最近一次模型调用实际使用的后端、模型和推理强度；点击选择模型' : 'Backend, model and effort the latest model call actually used; click to choose a model')
     : (zh ? '当前配置的后端与模型；点击选择模型' : 'Configured backend and model; click to choose a model');
   return <div className="composer-runtime" aria-label={zh ? '当前后端与模型' : 'Current backend and model'}>
-    {onOpenSettings && !trial
+    {onOpenSettings
       ? <button type="button" className="composer-runtime-model" onClick={() => setPickerOpen(true)} title={title} data-runtime-open-models>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</button>
-      : <span className="composer-runtime-model" title={trial ? undefined : title}>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</span>}
+      : <span className="composer-runtime-model" title={title}>{zh ? '模型：' : 'Model: '}{model || (zh ? '自动选择' : 'Automatic')}</span>}
     <details className="composer-runtime-details"><summary>{zh ? '运行信息' : 'Runtime details'}</summary><div>{label}</div></details>
     {next ? <span className="composer-runtime-next" data-runtime-next>{zh ? `下次使用：${next}` : `next call: ${next}`}</span> : null}
-    {trial && canOpenDesktopSettings() ? <button type="button" onClick={openDesktopTrialSettings}>
-      {zh ? '更换 Key' : 'Change Key'}
-    </button> : null}
-    {onOpenSettings && !trial && <ModelPicker sid={sid} open={pickerOpen} onClose={() => setPickerOpen(false)} onOpenSettings={onOpenSettings} />}
+    {onOpenSettings && <ModelPicker sid={sid} open={pickerOpen} onClose={() => setPickerOpen(false)} onOpenSettings={onOpenSettings} />}
   </div>;
 }

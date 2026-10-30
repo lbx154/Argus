@@ -67,11 +67,11 @@ describe('the web feed line', () => {
   it('explains a refused Manager check without claiming a team decision failed', () => {
     const event = {
       type: 'life.manager.supervision.failed', status: 'failed', failure_stage: 'provider',
-      stop_kind: 'provider_fence', error_code: 'trial_quota_exceeded',
+      stop_kind: 'provider_fence', error_code: 'timeout',
       summary: '402: provider body with private account details',
     };
-    expect(zh(event)).toMatchObject({ text: '经理这次没能看完进展（试用额度不够了），没有做任何调整。', tone: 'warn' });
-    expect(line(event)?.text).toContain('trial quota');
+    expect(zh(event)).toMatchObject({ text: '经理这次没能看完进展（模型太久没有回应），没有做任何调整。', tone: 'warn' });
+    expect(line(event)?.text).toContain('too long');
     expect(zh(event)?.text).not.toContain('团队调整');
     expect(line(event)?.text).not.toContain('private account');
   });
