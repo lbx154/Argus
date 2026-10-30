@@ -174,6 +174,11 @@ function usage(rows: Record<string, unknown>[]): UsageSummary {
   }));
 }
 
+/** The operator's messages a Manager turn is still to answer: each waits for the Manager till its
+ * answer is handed on, and one a later message took the place of waits no more. */
+const unanswered = (project: Project): Set<string> =>
+  new Set((project.forManager ?? []).flatMap(letter => typeof letter === 'string' ? [] : letter.request_id ?? []));
+
 /** Whether Resume has work to take up: letters to the Manager no turn took, failed turns, or the
  * open work and the Planner's letters the operator stopped. */
 const resumable = (project: Project): boolean => Boolean(project.forManager?.length) || project.status === 'failed'
@@ -279,6 +284,12 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       if (operator) reading.rows.set(operatorId, { ...operator, answer: event.letter, event_id: line });
     }
     if (event.type === 'task.added') reading.tasks.set(event.task.id, { title: event.task.title, line, ts });
+    // A task's row is below the last word the conversation shows on it: the operator's answer to it,
+    // or the Manager's letter to it.
+    else if ((event.type === 'message' || event.type === 'handoff' && event.role === 'manager') && event.task) {
+      const task = reading.tasks.get(event.task);
+      if (task) task.line = line;
+    }
 
     if (event.type === 'call.end') reading.calls.add(event.callId);
     if (event.type === 'handoff' && event.role === 'manager' && event.open) reading.delivered.set(`d${line}`, event);
@@ -308,15 +319,14 @@ export function readRecord(store: Store, id: string): Reading {
 
 export function conversationRows(reading: Reading, project: Project, live: Live): EventMsg[] {
   const projected = new Map(reading.rows);
-  // A message is answered while its turn runs or it waits for one; one no turn will take any more
-  // was replaced by a later one.
-  const pending = new Set([...live.requests, ...(project.forManager ?? []).flatMap(letter => typeof letter === 'string' ? [] : letter.request_id ?? [])]);
-  // Pending replies come from the complete dialogue, including messages interrupted before any words.
+  const pending = unanswered(project);
+  // Pending replies come from the complete dialogue, including messages interrupted before any words;
+  // one sent after a stop waits on the turn before it.
   for (const [request, line] of reading.fold.asked) {
     const operator = reading.rows.get(`m${line}-operator`)!;
     const liveReply = live.calls.some(call => call.answers === request);
-    const status = liveReply ? 'running' : !pending.has(request) ? 'replaced' : project.status === 'stopped' ? 'stopped'
-      : project.failures?.some(f => f.role === 'manager') ? 'failed' : 'waiting';
+    const status = liveReply ? 'running' : !pending.has(request) ? 'replaced' : live.requests.includes(request) ? 'waiting'
+      : project.status === 'stopped' ? 'stopped' : project.failures?.some(f => f.role === 'manager') ? 'failed' : 'waiting';
     projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
       request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.stateLine, order: line + 0.1,
       text: '', live: status === 'running' || status === 'waiting', status });
@@ -464,7 +474,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       Object.assign(previous, { status: '', finished_ts: null });
       letters.push({ line, letter: { id: `e${line}`, item_id: previous.id, type: 'turn.asked', ts, role: 'operator', to: 'manager', text: event.text } });
     } else qa.set(event.request_id, {
-      id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text).slice(0, 100), objective: event.text, priority: 0, deps: [], status: '',
+      id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text), objective: event.text, priority: 0, deps: [], status: '',
       role: 'manager', ts, started_ts: ts, finished_ts: null, result_paths: [],
     });
   }
@@ -505,16 +515,17 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
 
 function mapProjection(record: Reading, project: Project, after: number) {
   const { added, closed, actions, opened, letters, qa, worked, follows } = record.map;
-  // The original request stays even when its first reply only asks for clarification.
-  // Other text-only exchanges stay while answered, or until the next exchange starts.
+  // An answered message stays if it is the original request, the latest one, or set work going; one
+  // still to be answered while the team answers, and the original request even while it is stopped.
   const answering = project.status !== 'stopped' && project.status !== 'failed';
   const cards = [...new Set(qa.values())];
   const first = cards[0];
   const last = cards.at(-1);
-  // Work handed to the team is done once the tasks that follow its message have closed, or with none
-  // of its own, once the team has no work going.
+  const waiting = new Set([...unanswered(project)].flatMap(request => qa.get(request) ?? []));
+  // Work handed to the team is done once the tasks it went to, or that follow its message, have
+  // closed, or with none of its own, once the team has no work going.
   const done = (card: MapCard): number | null => {
-    const own = [...follows].flatMap(([task, follow]) => follow === card.id ? [task] : []);
+    const own = [...card.deps ?? [], ...[...follows].flatMap(([task, follow]) => follow === card.id ? [task] : [])];
     if (own.length ? own.some(task => !closed.has(task)) : project.status !== 'idle') return null;
     return Math.max(card.ts ?? 0, ...own.map(task => closed.get(task)!));
   };
@@ -522,7 +533,8 @@ function mapProjection(record: Reading, project: Project, after: number) {
     const found = actions.get(id);
     return found ? { role: found.role, text: found.text, ts: found.ts } : undefined;
   };
-  const tasks = [...cards.filter(card => card === first || worked.has(card.id) || !card.status && answering || card === last && card.status === 'done').map(card => {
+  const tasks = [...cards.filter(card => card.status ? card === first || card === last || worked.has(card.id)
+    : waiting.has(card) && (answering || card === first)).map(card => {
     const finished = card.status === 'in_progress' ? done(card) : card.finished_ts;
     return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: action(card.id) };
   }), ...backlog(project).map((item, index) => {

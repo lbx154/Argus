@@ -160,8 +160,11 @@ export function artifactInfo(found: { file: string; path: string; stat: Stats },
  * none of the programs the repository's own config or attributes name (an fsmonitor, a filter, a
  * diff driver, a signature check), nor goes into a submodule, whose config is the roles' too. */
 export const SAFE_GIT = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'log.showSignature=false'];
-/** Git's environment: the repository is the one the directory is in, never one the server's own environment names. */
-export const GIT_ENV = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR)$/.test(name)));
+/** Git's environment: the repository is the one the directory is in, never one the server's own
+ * environment names; and no transport, so a partial clone fetching what it lacks runs no program
+ * its config names (an upload-pack, an `ext::` remote). */
+export const GIT_ENV = { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR)$/.test(name))),
+  GIT_ALLOW_PROTOCOL: '' };
 
 /** What a build or a cache writes, and what is hidden. */
 const unlisted = (name: string): boolean => name.startsWith('.') || name === 'node_modules' || name === '__pycache__';

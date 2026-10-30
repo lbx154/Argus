@@ -236,6 +236,7 @@ describe('the web feed line', () => {
     expect(line({ type: 'ui.argus', text: '已开始运行' })).toMatchObject({ role: 'manager', label: 'Argus', text: '已开始运行', rule: true });
     // A pending or stopped reply has a state before it has final words.
     expect(line({ type: 'ui.argus', text: '', status: 'stopped' })).toMatchObject({ role: 'manager', text: '' });
+    expect(line({ type: 'ui.argus', text: '', status: 'replaced' })).toMatchObject({ role: 'manager', text: '' });
     expect(line({ type: 'ui.argus', text: '' })).toBeNull();
     expect(line({ type: 'ui.operator', text: '   ' })).toBeNull();
   });

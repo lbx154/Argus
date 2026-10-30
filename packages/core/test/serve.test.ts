@@ -477,6 +477,20 @@ test('work a shutdown cut off goes on when Argus starts again; what the operator
   assert.deepEqual([requests.map(request => request.role), store.load(stopped!.id).status], [['engineer', 'manager'], 'stopped']);
 });
 
+test("a reply a shutdown cut off on a resting project is given when Argus starts again", async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-serve-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: '', request: 'What is in data.csv?', backend: 'codex', model: null });
+  store.append(project.id, { type: 'message', from: 'operator', text: 'What is in data.csv?', request_id: 'r1' });
+  store.save({ ...project, status: 'idle', forManager: [{ text: 'What is in data.csv?', request_id: 'r1' }] });
+  const { callAgent, requests } = agent([{ role: 'manager', to: 'operator', letter: 'Three columns.' }]);
+  const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web: home });
+  t.after(() => served.close());
+  await eventually(async () => store.load(project.id).forManager ?? [], letters => letters.length === 0);
+  assert.deepEqual([requests.map(request => request.role), store.load(project.id).status], [['manager'], 'idle']);
+});
+
 test('a robot model opens in 3D, with the meshes it names read from beside it', async t => {
   const { get, post, call } = await setup(t, []);
   const { sid, workdir } = await (await post('/api/daemons', {})).json() as { sid: string; workdir: string };
@@ -929,11 +943,11 @@ test('row stream, refreshed conversation and current-round role log share one pr
   const P = `/api/projects/${sid}`;
   const live = new AbortController();
   t.after(() => live.abort());
+  let closed = false;
   const stream = frames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame => {
+    closed ||= (frame.rows as EventMsg[]).some(row => row.type === 'ui.task' && row.state === 'done');
     // Use this frame's cursor: reading the current project can see a later state.
-    const event = readEvents(store, sid)[Number(frame.cursor)];
-    return event?.type === 'status' && event.status === 'idle'
-      && (frame.rows as EventMsg[]).some(row => row.type === 'ui.task' && row.state === 'done');
+    return closed && readEvents(store, sid).slice(0, Number(frame.cursor) + 1).filter(event => event.type === 'status').at(-1)?.status === 'idle';
   });
   await post(`${P}/message`, { text: 'Evaluate a seed.' });
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => Boolean(state.pending_questions?.length) && !state.daemon.alive);
@@ -948,13 +962,15 @@ test('row stream, refreshed conversation and current-round role log share one pr
     roles = [...roles.filter(row => Number(row.event_id) >= Number(frame.round)), ...frame.role_events as EventMsg[]];
   }
   const refreshed = await get<{ rows: EventMsg[] }>(`${P}/conversation?limit=120`);
-  assert.deepEqual([...rows.values()].sort((a, b) => Number(a.order) - Number(b.order)), refreshed.rows);
+  // A row is sent again when what it shows changes, not the line it was read at.
+  const shown = (list: EventMsg[]) => list.map(row => ({ ...row, event_id: 0 }));
+  assert.deepEqual(shown([...rows.values()].sort((a, b) => Number(a.order) - Number(b.order))), shown(refreshed.rows));
   const question = refreshed.rows.findIndex(row => row.type === 'ui.question');
   assert.deepEqual(refreshed.rows.slice(question, question + 2).map(row => row.type), ['ui.question', 'ui.operator']);
-  assert.equal(refreshed.rows[2]!.type, 'ui.task');
-  assert.ok(2 < question, 'the task stays below its opening brief, before the later question');
+  const task = refreshed.rows.findIndex(row => row.type === 'ui.task');
+  assert.ok(question + 1 < task, 'the task comes below the answer to it');
   assert.equal(refreshed.rows[question + 1]!.text, '42');
-  assert.equal(refreshed.rows[2]!.state, 'done');
+  assert.equal(refreshed.rows[task]!.state, 'done');
   const ended = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
   const replay = frames(await call(`${P}/stream?view=rows&after=${Number(sent.at(-1)!.cursor)}`), () => true);
   const initial = (await replay)[0]!;
@@ -1057,6 +1073,7 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   const response = await call(`${P}/stream?view=rows`);
   const streamed = frames(response, frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第二句实时文字。'));
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第一句实时文字。' });
+  await new Promise(resolve => setImmediate(resolve));
   requests[1]!.onStep?.({ kind: 'message', text: '已核对输入，正在检查输出。\n详细记录留在角色日志。' });
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第二句实时文字。' });
   const received = await streamed;
@@ -1076,6 +1093,36 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   assert.deepEqual(done.result_paths, ['report.md']);
   const file = await get<{ preview: string }>(`${P}/artifact?path=report.md`);
   assert.match(file.preview, /已核对/);
+});
+
+test('the row stream shows a task asking once it has asked, while another task runs only commands', { timeout: 10_000 }, async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-asking-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: join(home, 'work'), request: 'Two things', backend: 'codex', model: null });
+  Object.assign(project, { status: 'stopped', tasks: ['t1', 't2'].map(id => ({ id, title: `Task ${id}`, from: 'manager', objective: `Do ${id}`, status: 'open', holder: 'engineer', note: null })) });
+  store.save(project);
+  for (const task of project.tasks) store.append(project.id, { type: 'task.added', task });
+  const ended = new AbortController();
+  const callAgent: CallAgent = async request => {
+    if (request.session?.startsWith(`${project.id}/t1.`)) {
+      return { callId: 'a', threadId: 'a', completed: true, error: null, model: 'x', usage: null, ms: 1,
+        handoff: { form: request.form, to: 'operator', letters: ['Which column is the date?'] } };
+    }
+    // t2 runs commands, which move no row, till the test ends.
+    while (!ended.signal.aborted && !request.signal?.aborted) {
+      request.onStep?.({ kind: 'command', text: 'python train.py' });
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    return { callId: 'b', threadId: 'b', completed: false, error: 'Run cancelled.', model: 'x', usage: null, ms: 1, handoff: null };
+  };
+  const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web: home });
+  t.after(() => { ended.abort(); return served.close(); });
+  const P = `${served.url}/api/projects/${project.id}`;
+  const stream = frames(await fetch(`${P}/stream?view=rows&after=-1`, { signal: ended.signal }), frame =>
+    (frame.rows as EventMsg[]).some(row => row.row_id === 'task-t1' && row.state === 'asking'));
+  await fetch(`${P}/daemon/start`, { method: 'POST', body: '{}' });
+  await stream;
 });
 
 test('project list and artifact routes expose only the fields their readers use', async t => {

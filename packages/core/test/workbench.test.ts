@@ -128,6 +128,31 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   assert.equal((await get<{ truncated: boolean }>(W('git'))).truncated, true);
 });
 
+test('a partial clone fetching what it lacks runs no program its config names', async t => {
+  const { project, get } = await setup(t);
+  const home = dirname(project.workdir);
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.name=A', '-c', 'user.email=a@b', ...args], { cwd, encoding: 'utf8' }).trim();
+  const origin = join(home, 'origin');
+  mkdirSync(origin);
+  git(origin, 'init', '-q');
+  await writeFile(join(origin, 'a.txt'), 'one\n');
+  git(origin, 'add', 'a.txt');
+  git(origin, 'commit', '-q', '-m', 'one');
+  await writeFile(join(origin, 'a.txt'), 'two\n');
+  git(origin, 'commit', '-q', '-am', 'two');
+  git(origin, 'config', 'uploadpack.allowFilter', 'true');
+  execFileSync('git', ['clone', '-q', '--no-checkout', '--filter=blob:none', `file://${origin}`, project.workdir]);
+  const ran = join(home, 'ran');
+  await writeFile(join(home, 'program.sh'), `#!/bin/sh\ntouch ${ran}\nexec git-upload-pack "$@"\n`);
+  await chmod(join(home, 'program.sh'), 0o755);
+  git(project.workdir, 'config', 'remote.origin.uploadpack', join(home, 'program.sh'));
+  const W = (path: string, more: Record<string, string> = {}) =>
+    `/api/v2/workspace/${path}?${new URLSearchParams({ sid: project.id, workspace_id: `project:${project.id}`, ...more })}`;
+  await get(W('git/commit', { commit: git(origin, 'rev-parse', 'HEAD') }));
+  await get(W('git'));
+  assert.equal(existsSync(ran), false);
+});
+
 test('the results listed are the newest files, however many the workdir has', async t => {
   const { project, get } = await setup(t);
   // More files than are listed, made in an order other than their times.

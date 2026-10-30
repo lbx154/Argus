@@ -188,23 +188,33 @@ export async function serve(options: ServeOptions): Promise<Served> {
         let roleCursor = -1;
         const wake = listeners.get(id!) ?? new Set();
         listeners.set(id!, wake);
+        // Each event is sent once what it set going has run on to its next wait, as the project's
+        // state is, together with the events that came meanwhile.
+        let due: boolean | undefined;
+        const later = (moved: boolean): void => {
+          if (due === undefined) setImmediate(() => { const rows = due!; due = undefined; flush(rows); });
+          due ||= moved;
+        };
         const flush = (moved = true) => {
           let now: Project;
           // A project deleted meanwhile ends its stream.
-          try { now = store.load(work.id); } catch { wake.delete(flush); response.end(); return; }
+          try { now = store.load(work.id); } catch { wake.delete(later); response.end(); return; }
           const reading = readRecord(store, work.id);
           const rows = moved ? conversationRows(reading, now, runs.live(work.id)) : [];
+          // A row goes out when what it shows changed, not the line it was read at; a stream just
+          // begun sends those past its cursor.
+          const shown = new Map(rows.map(row => [String(row.row_id), JSON.stringify({ ...row, event_id: 0 })]));
           const changed = rows.filter(row => previous.size
-            ? previous.get(String(row.row_id)) !== JSON.stringify(row) : Number(row.event_id) > cursor);
-          if (moved) previous = new Map(rows.map(row => [String(row.row_id), JSON.stringify(row)]));
+            ? previous.get(String(row.row_id)) !== shown.get(String(row.row_id)) : Number(row.event_id) > cursor);
+          if (moved) previous = shown;
           cursor = reading.fold.line - 1;
           send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round,
             role_events: reading.roleEvents.filter(event => Number(event.event_id) > roleCursor) });
           roleCursor = cursor;
         };
         flush();
-        wake.add(flush);
-        response.on('close', () => wake.delete(flush));
+        wake.add(later);
+        response.on('close', () => wake.delete(later));
         return;
       }
       const read = follow(store, work.id);
@@ -354,8 +364,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject).listen(options.port, host, resolveListen);
   });
-  // Work a shutdown cut off goes on; what the operator stopped stays stopped.
-  for (const { id, status } of store.list()) if (status === 'working') runs.resume(id);
+  // Work a shutdown cut off goes on, the Manager's answer to a message too; what the operator stopped
+  // stays stopped, and a failure waits for the operator.
+  for (const { id, status, forManager } of store.list()) {
+    if (status === 'working' || forManager?.length && status !== 'stopped' && status !== 'failed') runs.resume(id);
+  }
   return {
     url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
     close: async () => {

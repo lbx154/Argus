@@ -53,6 +53,12 @@ reviewer, whose workspace is read-only, type-checks with
 `npx tsc --noEmit -p packages/core/tsconfig.json` and runs the tests on the Engineer's build,
 `node --import tsx --test packages/core/test/*.test.ts`.
 
+## Handing it over
+
+The change is its commits: the letter that delivers it names them, and opens first on the source
+files they change, so the operator reads the change itself. What only checked it once (a report,
+screenshots, a one-off script) stays out of the repository.
+
 ## Done when
 
 The requested behaviour is shown at a real entry point (the web cockpit, served by the build's

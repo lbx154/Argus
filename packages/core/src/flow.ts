@@ -48,12 +48,10 @@ export class Flow {
     // The message is named: the Manager's turn on it, and the letter that answers it, name it in turn.
     const message: OperatorMessage = { text, request_id, ...attachments?.length ? { attachments } : {} };
     // A message to a stopped project takes the place of the operator's the stop left unanswered; the
-    // team's letters wait for Resume, or for this message to set the team working again. What a
-    // failed Manager turn left is taken up again.
-    const failed = project.failures?.some(failure => failure.role === 'manager');
-    if (project.status === 'stopped' && !failed && project.forManager) project.forManager = project.forManager.filter(letter => typeof letter === 'string');
+    // team's letters wait for Resume, or for this message to set the team working again.
+    if (project.status === 'stopped' && project.forManager) project.forManager = project.forManager.filter(letter => typeof letter === 'string');
     this.record(project, { type: 'message', from: 'operator', ...message });
-    if (project.status !== 'stopped' || failed) this.retry(project);
+    if (project.status !== 'stopped') this.retry(project);
     return this.writeToManager(project, message);
   }
 
@@ -198,9 +196,10 @@ export class Flow {
       }
       else project.inbox.push(handedTo('manager', null, letter));
       // New work wakes a resting team; a stopped one only when the operator asked for it, which resumes
-      // what the stop interrupted too.
-      if (operator && project.status === 'stopped') this.retry(project);
-      if (project.status !== 'failed' && (operator || project.status !== 'stopped')) this.status(project, 'working');
+      // what the stop interrupted too, unless the operator stopped it again meanwhile.
+      const woken = operator && !this.options.signal?.aborted;
+      if (woken && project.status === 'stopped') this.retry(project);
+      if (project.status !== 'failed' && (woken || project.status !== 'stopped')) this.status(project, 'working');
     }
     this.run(project);
     return handoff;

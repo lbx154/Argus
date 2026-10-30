@@ -116,7 +116,7 @@ test('each message the Manager takes up is a question and its answer on the map,
     [['q0', ['timer.html']], ['q23', ['timer.html']], ['q45', ['README.md', 'check_timer.py']]].map(([id, paths], index) =>
       [id, 'qa', 'done', 'manager', said[index].text, paths, [], at(said[index].ts), at(answers[index].ts)]));
   // Named by what the operator asked, so a file handed over twice names two cards apart.
-  assert.deepEqual(map.tasks.map(card => card.title), said.map(event => event.text.split('\n')[0].slice(0, 100)));
+  assert.deepEqual(map.tasks.map(card => card.title), said.map(event => event.text.split('\n')[0]));
   // Its answer is the letter, where the map's reader of a question and its answer finds it.
   assert.deepEqual(map.events.map(letter => [letter.id, letter.item_id, letter.type]), [['e22', 'q0', 'turn.replied'], ['e44', 'q23', 'turn.replied'], ['e51', 'q45', 'turn.replied']]);
   assert.equal(map.tasks[2]!.latest_action?.text, map.events[2]!.text);
@@ -208,16 +208,22 @@ test('a message is on the map while it is answered, and after only if its answer
   const cards = (status: typeof project.status) => progressMap(store, { ...project, status }, 0).tasks.map(card => [card.id, card.status, card.deps, card.result_paths]);
   const done = [['q0', 'done', [], []], ['t1', 'done', ['q0'], []], ['t2', 'done', ['t1'], []], ['t3', 'in_progress', [], []]];
   // A reply alone is the conversation's; one a failure left unanswered waits for Resume, off the map.
+  project.forManager = [{ text: 'Chart it.', request_id: 'r15' }];
   assert.deepEqual(cards('failed'), done);
   assert.deepEqual(cards('working'), [...done, ['q15', 'in_progress', [], []]]);
   write([{ type: 'handoff', role: 'manager', to: 'operator', letter: 'Here it is.', open: ['chart.png'], answers: 'r15' }]);
+  project.forManager = [];
   assert.deepEqual(cards('working').at(-1), ['q15', 'done', [], ['chart.png']]);
   // A later reply alone stays till the next message, to be read on the map.
   write([{ type: 'message', from: 'operator', text: 'Thanks!', request_id: 'r20' }, manager('r20'),
     { type: 'handoff', role: 'manager', to: 'operator', letter: 'You are welcome.', answers: 'r20' }]);
   assert.deepEqual(cards('working').slice(-2).map(card => card.slice(0, 2)), [['q15', 'done'], ['q20', 'done']]);
   write([{ type: 'message', from: 'operator', text: 'One more thing.', request_id: 'r23' }]);
+  project.forManager = [{ text: 'One more thing.', request_id: 'r23' }];
   assert.deepEqual(cards('working').slice(-2).map(card => card.slice(0, 2)), [['q15', 'done'], ['q23', 'in_progress']]);
+  // One a later message took the place of is answered by none, off the map.
+  project.forManager = [];
+  assert.ok(!cards('working').some(([id]) => id === 'q23'));
 });
 
 test('the original request survives Manager clarification, with the answer and resulting task in the same exchange', t => {
@@ -248,4 +254,26 @@ test('the original request survives Manager clarification, with the answer and r
   assert.equal(new Set(after.tasks.map(card => card.id)).size, after.tasks.length);
   assert.deepEqual(progressMap(store, { ...project, status: 'stopped' }, 0).tasks[0]!.objective, project.request);
   assert.deepEqual(progressMap(store, { ...project, status: 'failed' }, 0).tasks[0]!.objective, project.request);
+});
+
+test("the Manager's word for a task under way is answered once that task closes, and the task's row comes below it", t => {
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-map-word-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: '', request: 'Build it.', backend: 'codex', model: null });
+  project.tasks = [{ ...task, from: 'planner', status: 'closed' }, { ...task, id: 't2', from: 'planner' }];
+  project.status = 'working';
+  let second = 0;
+  fs.writeFileSync(join(store.dir(project.id), 'events.jsonl'), ([
+    { type: 'message', from: 'operator', text: 'Build it.', request_id: 'r0' }, { type: 'call.start', role: 'manager', answers: 'r0' },
+    { type: 'handoff', role: 'manager', to: 'planner', letter: 'Plan it.', answers: 'r0' },
+    { type: 'task.added', task: project.tasks[0] }, { type: 'task.added', task: project.tasks[1] },
+    { type: 'message', from: 'operator', text: 'Use the newer model.', request_id: 'r5' }, { type: 'call.start', role: 'manager', answers: 'r5' },
+    { type: 'handoff', role: 'manager', to: 'engineer', task: 't1', letter: 'Use the newer model.', answers: 'r5' },
+    { type: 'task.closed', task: 't1' },
+  ] as object[]).map(row => `${JSON.stringify({ ts: new Date(Date.UTC(2026, 9, 29, 11, 0, second++)).toISOString(), ...row })}\n`).join(''));
+  const card = progressMap(store, project, 0).tasks.find(card => card.id === 'q5')!;
+  assert.deepEqual([card.deps, card.status], [['t1'], 'done']);
+  const rows = conversationRows(readRecord(store, project.id), project, { since: 1, calls: [], requests: [] });
+  assert.deepEqual(rows.filter(row => row.type === 'ui.task').map(row => [row.item_id, row.order]), [['t2', 4.2], ['t1', 7.2]]);
 });

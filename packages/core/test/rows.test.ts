@@ -55,7 +55,7 @@ test('each prefix of the real record has identical live and refreshed rows and c
   });
 });
 
-test('answers stay beside their question and task lines stay where opened through answers, closing and steps', () => {
+test("answers stay beside their question, and a task's row comes below the last answer to it, through closing and steps", () => {
   const work: Project = { ...project, tasks: project.tasks.slice(0, 2).map(task => ({ ...task, status: 'open' })), status: 'working', questions: [] };
   const questions = work.tasks.map(task => ({ role: 'engineer' as const, task: task.id, question: `Choose for ${task.id}?` }));
   const events: Recorded[] = [
@@ -70,7 +70,7 @@ test('answers stay beside their question and task lines stay where opened throug
   const rows = rowsOf(events, work, { since: 1, calls: [{ role: 'engineer', task: work.tasks[1]!.id }], requests: [] });
   const dialogue = rows.filter(row => row.type !== 'ui.task');
   assert.deepEqual(dialogue.map(row => row.text), [questions[1]!.question, 'Second choice', questions[0]!.question, 'First choice']);
-  assert.deepEqual(rows.filter(row => row.type === 'ui.task').map(row => [row.item_id, row.order]), [[work.tasks[0]!.id, 0.2], [work.tasks[1]!.id, 1.2]]);
+  assert.deepEqual(rows.filter(row => row.type === 'ui.task').map(row => [row.item_id, row.order]), [[work.tasks[1]!.id, 4.2], [work.tasks[0]!.id, 5.2]]);
   assert.equal(rows.find(row => row.item_id === work.tasks[0]!.id && row.type === 'ui.task')?.state, 'done');
   const page = conversationPage(rows, events.length - 1, 3);
   assert.equal(page.rows[0]?.type, 'ui.question');

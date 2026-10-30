@@ -44,7 +44,7 @@ const TO: Record<Form, Record<string, string>> = {
 const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
 const LETTERS = 'Your letters, each passed on as written: to the Engineer, one for each task; to anyone else, one. Each reader sees the workspace and its letter, not your conversation.';
 const AFTER = 'The tasks this one waits for, by id: an open or closed one, or one of these letters\' tasks above it, which take the next free ids in order. It starts once they have all closed. Empty when it can start now, and in a letter to anyone else.';
-const TASK = 'The open task this letter is for, by id: whoever holds it reads the letter as soon as they can, in the turn under way or their next, and no task is opened. Empty for a letter that opens a task, and in a letter to anyone else.';
+const TASK = 'The open task this letter is for, by id, when it is about that task\'s own work: whoever holds it reads the letter as soon as they can, in the turn under way or their next, and no task is opened. Empty for a letter that opens a task, such as work that can go on beside it, and in a letter to anyone else.';
 // The result the operator opens: shown beside the letter as written, without a check.
 const OPEN = 'What the operator opens to see the result your letter hands over, if it hands one over: the paths of its files, relative to the workspace, the one to open first first. Empty when it hands over none.';
 

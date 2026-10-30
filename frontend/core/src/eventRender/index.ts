@@ -558,9 +558,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'ui.argus': {
       const body = stringField(event, 'text');
-      // Pending and interrupted replies have a state before they have final words.
-      const working = row(event).live === true || ['stopped', 'failed'].includes(String(row(event).status));
-      return body.trim() || working
+      // A reply still to come, or one that never will, has a state before it has words.
+      return body.trim() || row(event).status
         ? model('manager', 'role.argus', '', body, 'bright', { expandable: context.density === 'full', rule: true })
         : hidden();
     }
@@ -710,7 +709,7 @@ export function renderLine(event: EventMsg, context: RenderContext): RenderedLin
   const modelValue = renderEvent(event as TypedArgusEvent, context);
   if (modelValue.visibility === 'hidden') return null;
   const text = renderText(modelValue);
-  if (!text && !(event.type === 'ui.argus' && (event.live === true || ['stopped', 'failed'].includes(String(event.status))))) return null;
+  if (!text && event.type !== 'ui.argus') return null;
   return {
     role: modelValue.role,
     labelKey: modelValue.labelKey,

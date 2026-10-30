@@ -712,9 +712,8 @@ test('a stopped project stays stopped through a failed Manager turn, a chat and 
     { role: 'manager', to: 'engineer', letter: brief },
     { role: 'engineer', waits: engineer.shut, to: 'operator', letter: 'Which column?' },
     { role: 'manager', throws: 'network down' },
-    // The letter the failed turn left goes to the Manager again with the operator's next.
+    // The operator's next message takes the place of the one the failed turn left.
     { role: 'manager', to: 'operator', letter: 'The team is stopped.' },
-    { role: 'manager', to: 'operator', letter: 'Resume it when you are ready.' },
   ]);
   await flow.say(id, 'Make me a CSV summary tool');
   while (requests.length < 2) await tick();
@@ -726,7 +725,8 @@ test('a stopped project stays stopped through a failed Manager turn, a chat and 
   const [question] = (await flow.settled(id)).questions;
   flow.answer(id, question!, 'The second one.');
   const project = await flow.settled(id);
-  assert.deepEqual([project.status, requests.map(request => request.role)], ['stopped', ['manager', 'engineer', 'manager', 'manager', 'manager']]);
+  assert.deepEqual([project.status, requests.map(request => request.role)], ['stopped', ['manager', 'engineer', 'manager', 'manager']]);
+  assert.match(requests.at(-1)!.prompt, /OK\s*$/);
 });
 
 test('letters to the Manager are taken one for one: the same words twice are two letters, handed on twice', async t => {
