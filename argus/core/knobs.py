@@ -455,13 +455,9 @@ def resolve_role_model(
     consistently, not just in whichever process happened to make it.
     """
     env_map = env if env is not None else os.environ
-    hosted_trial = hosting().enabled(env_map) and str(
-        backend or resolve_role_backend(route, env=env_map, default="codex")
-    ).strip().lower() == "copilot"
-    # Trial is a custom catalog. Normalize automatic choices before admission,
-    # logging and execution, not only in the CLI command builder (upstream's
-    # trial_model_options). Explicit choices still reach the validation guard.
-    auto_model = hosting().client_model if hosted_trial else ""
+    auto_model = hosting().auto_model(
+        backend or resolve_role_backend(route, env=env_map, default="codex"), env_map,
+    )
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
         if explicit:
@@ -487,8 +483,8 @@ def resolve_role_model(
             if persisted_shared.lower() in _AUTO_MODEL_SENTINELS
             else persisted_shared
         )
-    if hosted_trial:
-        return hosting().client_model
+    if auto_model:
+        return auto_model
     from ..agent_cli.runner_backend import BACKEND_MEMORY, normalize_runner_backend
 
     # default="codex": the backend is used here ONLY to choose between "name an
@@ -637,7 +633,7 @@ def backend_uses_openai_catalog(
     if normalized not in _OPENAI_CATALOG_BACKENDS:
         return False
     if normalized == "copilot":
-        return not hosting().enabled(env)
+        return not hosting().provider_active("copilot", env)
     from ..tools.capability_vault import read_codex_provider_config
 
     # An unreadable Codex config reads as None: legacy Codex behaviour.
@@ -727,8 +723,8 @@ def resolve_role_reasoning_effort(
     switch or natural-language "engineer 用 high 强度") -> ``default``.
     """
     env_map = env if env is not None else os.environ
-    if hosting().enabled(env_map):
-        return hosting().reasoning_effort
+    if (effort := hosting().effort_override(env_map)) is not None:
+        return effort
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
         if explicit:

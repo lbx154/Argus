@@ -6,8 +6,7 @@ Reviewer sent back run at ``high``. Nothing runs at ``xhigh`` unless the
 operator asks for it.
 
 An operator's explicit effort always wins: the role's knob set in the
-environment or switched with ``/config`` ("engineer 用 xhigh"), and a hosted
-deployment's fixed effort.
+environment or switched with ``/config`` ("engineer 用 xhigh").
 """
 
 from __future__ import annotations

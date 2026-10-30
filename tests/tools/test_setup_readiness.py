@@ -360,7 +360,6 @@ def test_dedicated_login_uses_official_cli_and_does_not_persist_failure(
 
 @pytest.mark.parametrize("options", [
     {"backend": "codex", "copilot_home": "/dedicated"},
-    {"backend": "copilot", "copilot_home": "/dedicated", "trial_url": "https://trial.example"},
     {"backend": "copilot", "copilot_home": "/dedicated", "api_url": "https://api.example"},
     {"backend": "copilot", "copilot_login": True, "non_interactive": True},
     {"backend": "copilot", "copilot_login": True},

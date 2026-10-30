@@ -118,8 +118,8 @@ def copilot_usage_db_candidates() -> list[Path]:
     sandboxed copy of it."""
     from ..core.sandbox import private_copies
     account_home = copilot_account_home()
-    if trial_store := hosting().copilot_session_store():
-        candidates = [trial_store]
+    if provider_store := hosting().copilot_session_store():
+        candidates = [provider_store]
     elif account_home is not None:
         candidates = [account_home / "session-store.db"]
     else:
@@ -141,8 +141,8 @@ def capture_copilot_usage_cursor(
     # home even before its DB is created; accounting itself remains read-only.
     # A sandboxed call keeps that home in its workdir's private copy.
     from ..core.sandbox import private_path
-    if trial_store := hosting().copilot_session_store():
-        return _capture_cursor(private_path(trial_store, working_dir))
+    if provider_store := hosting().copilot_session_store():
+        return _capture_cursor(private_path(provider_store, working_dir))
     account_home = copilot_account_home()
     if account_home is not None:
         return _capture_cursor(private_path(account_home / "session-store.db", working_dir))

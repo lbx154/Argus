@@ -364,7 +364,7 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
         "core", "life", "engineer", "reviewer", "planner", "manager",
         "roles", "skills", "daemon", "webapi", "wiki",
         "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
-        "maintenance", "trial", "release_tools", "cli", "integrations",
+        "maintenance", "release_tools", "cli", "integrations",
     ))
 
     assert offenders == []
@@ -910,7 +910,7 @@ LAYERS: dict[str, tuple[str, ...]] = {
     "runtime": ("life", "manager", "messaging"),
     "process": ("daemon",),
     "delivery": (
-        "apps", "webapi", "plugin", "maintenance", "trial", "integrations", "release_tools",
+        "apps", "webapi", "plugin", "maintenance", "integrations", "release_tools",
     ),
 }
 LAYER_ORDER = tuple(LAYERS)
@@ -1047,7 +1047,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "adapters/agent_cli_backend/_exec.py -> messaging",
     "advisor/service.py -> life",
     "core/agent_probe.py -> adapters",
-    "core/hosting.py -> trial",
     "core/backend_readiness.py -> agent_cli",
     "core/backend_readiness.py -> tools",
     "core/jsonl_reader.py -> life",
@@ -1155,7 +1154,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "skills -> argus.verticals._data_domain",
     "skills -> argus.verticals._registry",
     "tools -> argus.agent_cli._process_control",
-    "trial -> argus.tools.setup._verify_setup_smoke",
     "verticals -> argus.tools.image_api._DEFAULT_MAX_RETRIES",
     "verticals -> argus.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
     "verticals -> argus.tools.image_api._atomic_write_json",
@@ -1254,42 +1252,7 @@ def test_function_body_imports_to_higher_layers_are_pinned() -> None:
     )
 
 
-def test_only_the_hosting_seam_imports_the_trial() -> None:
-    """Core reaches the trial client only through ``core/hosting.py``.
 
-    The trial client is optional; any other file that names it, at module
-    level or inside a function, would stop working without it.
-    """
-    importers = {
-        path.relative_to(ARGUS).as_posix()
-        for path in _every_python_file()
-        for record in _cross_package_imports(path)
-        if _target_package(record.module) == "trial"
-    }
-    assert importers == {"core/hosting.py"}
-
-
-def test_argus_never_imports_the_hosted_trial_server() -> None:
-    """The hosted trial server depends on Argus, never the reverse.
-
-    ``trial_server/`` (package ``argus_trial_server``) is installed beside
-    Argus only on the hosting machine. Argus reaches its runtime answers
-    through the ``argus.hosting`` entry point in ``core/hosting.py``; an
-    import, or a module path handed to ``importlib``, would make the product
-    fail wherever the server is not installed.
-    """
-    offenders = sorted(
-        f"{path.relative_to(ARGUS).as_posix()}:{node.lineno}"
-        for path in _every_python_file()
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if (isinstance(node, ast.Import)
-            and any(alias.name.split(".")[0] == "argus_trial_server" for alias in node.names))
-        or (isinstance(node, ast.ImportFrom) and not node.level
-            and (node.module or "").split(".")[0] == "argus_trial_server")
-        or (isinstance(node, ast.Constant) and isinstance(node.value, str)
-            and node.value.split(".")[0] == "argus_trial_server")
-    )
-    assert offenders == []
 
 def test_private_modules_are_not_imported_across_packages() -> None:
     """A leading underscore is a promise that only the owning package reads it.

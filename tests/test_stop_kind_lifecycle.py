@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from argus.adapters.agent_cli_backend import _raw_backend_stop_kind
 from argus.agent_cli._event_consumers import EventConsumerMixin
 from argus.core.models import ReviewDecision, RunnerResult
 from argus.core.pipeline_state import read_pipeline_state, write_pipeline_state
@@ -90,32 +89,12 @@ def test_external_stops_do_not_enter_backend_failure_retry(
     ]
 
 
-def test_copilot_trial_quota_error_pauses_after_one_attempt(tmp_path: Path) -> None:
-    message = "402 Insufficient trial tokens for this request."
-    state = (None, False, False, None)
-    for event in [
-        {"type": "session.error", "data": {
-            "errorType": "query", "message": message, "statusCode": 402,
-        }},
-        {"type": "result", "sessionId": "trial-session", "exitCode": 1},
-    ]:
-        state = EventConsumerMixin._consume_copilot_event(
-            event=event, thread_id=state[0], agent_messages=[],
-            turn_completed=state[1], turn_failed=state[2], fatal_error=state[3],
-        )
-    assert state == ("trial-session", False, True, f"query: HTTP 402: {message}")
-    stop_kind = _raw_backend_stop_kind(fatal_error=state[3], exit_code=1)
-    assert stop_kind == "provider_fence"
-    status, backend, events = _run_engineer(tmp_path, stop_kind)
-    assert status == "parked"
-    assert backend.calls == 1
-    assert not any(event["type"] == "round.backend_failure.backoff" for event in events)
 
 
 def test_native_delegate_query_error_does_not_fail_parent_turn() -> None:
     state = EventConsumerMixin._consume_copilot_event(
         event={"type": "session.error", "agentId": "delegate", "data": {
-            "errorType": "query", "message": "402 Insufficient trial tokens for this request.",
+            "errorType": "query", "message": "Payment Required",
             "statusCode": 402,
         }},
         thread_id="parent", agent_messages=[], turn_completed=False,
@@ -124,30 +103,8 @@ def test_native_delegate_query_error_does_not_fail_parent_turn() -> None:
     assert state == ("parent", False, False, None)
 
 
-@pytest.mark.parametrize("message", [
-    "402 Insufficient trial tokens for this request.",
-    '402 {"error":{"code":"trial_quota_exceeded","message":"Insufficient trial tokens for this request."}}',
-    "HTTP 402: Payment Required",
-])
-def test_trial_quota_receipts_are_provider_fences(message: str) -> None:
-    assert _raw_backend_stop_kind(fatal_error=message, exit_code=1) == "provider_fence"
 
 
-def test_rejected_trial_request_does_not_retry_as_a_backend_outage(tmp_path: Path) -> None:
-    message = (
-        "HTTP 400: 400 Unsupported trial request; use text/tool "
-        "Chat Completions with model argus-trial."
-    )
-    stop_kind = _raw_backend_stop_kind(fatal_error=message, exit_code=1)
-
-    assert stop_kind == "permanent_error"
-    status, backend, events = _run_engineer(tmp_path, stop_kind)
-    assert status == "error"
-    assert backend.calls == 1
-    assert not any(event["type"] == "round.backend_failure.backoff" for event in events)
-    assert _raw_backend_stop_kind(
-        fatal_error="HTTP 400: context length exceeded", exit_code=1,
-    ) == "backend_unavailable"
 
 
 def test_backend_unavailable_holds_identical_failures_until_the_round_budget(

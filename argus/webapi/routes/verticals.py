@@ -11,8 +11,8 @@ Contract (``verticals.store.v1``):
   an unknown name or action 404
 * ``GET  /api/verticals/{name}/operation`` -> the operation record or 404
 
-Every write is same-origin only, like plugin management. On a hosted trial
-the store is host-managed: install/update/uninstall answer 403 there, while
+Every write is same-origin only, like plugin management. With a service-managed
+store: install/update/uninstall answer 403 there, while
 enable/disable change only the caller's own overlay. Timestamps on the wire
 are ISO-8601 UTC strings and ``operation.progress`` is an integer percent.
 """
@@ -20,7 +20,6 @@ are ISO-8601 UTC strings and ``operation.progress`` is an integer percent.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from urllib.parse import urlparse
 
@@ -71,7 +70,7 @@ def register_vertical_routes(app, ctx):
     def manage(name: str, action: str, request: Request, payload: dict = Body(default_factory=dict)):
         if action not in store.ACTIONS:
             raise HTTPException(404, f"unknown vertical action: {action}")
-        if action in store.JOB_ACTIONS and os.environ.get("ARGUS_TRIAL_HARNESS"):
+        if action in store.JOB_ACTIONS and store.managed_by_host():
             raise HTTPException(403, "Vertical installation is managed by the service")
         _same_origin(request)
         if set(payload) - {"force"} or type(payload.get("force", False)) is not bool:

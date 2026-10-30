@@ -12,7 +12,6 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from ...core.hosting import hosting
 from ...core.metrics import metrics_root_for_project, record_metric
 from ...core.models import RunnerResult
 from ...core.runner_errors import result_rejected_before_output
@@ -151,7 +150,6 @@ def finalize_result(
                 premium_requests=premium,
                 total_nano_aiu=result.total_nano_aiu,
                 copilot_token_billing_expected=ctx.copilot_token_billing_expected,
-                hosted_trial=backend._backend_name == "copilot" and hosting().enabled(),
                 provider_cost_usd=(
                     provider_cost_usd
                     if backend._backend_name in {"opencode", "pi"}
@@ -201,4 +199,3 @@ def finalize_result(
             log.exception("failed to record provider metric for %s", ctx.call_id)
     backend._io_logger.close(ctx.call_id)
     return result
-

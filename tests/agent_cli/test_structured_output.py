@@ -15,8 +15,8 @@ from argus.agent_cli.agent_cli_runner import (
     RunnerOptions,
 )
 
-# The hosted trial's capture observer; only its place on the command line matters here.
-CAPTURE_EXTENSION = "/opt/argus/trial_server/argus_trial_server/pi_training_extension.mjs"
+# An external capture observer; only its place on the command line matters here.
+CAPTURE_EXTENSION = "/opt/observer/capture_extension.mjs"
 SCHEMA = {
     "type": "object", "properties": {"answer": {"$ref": "#/$defs/answer"}},
     "required": ["answer"], "additionalProperties": False,

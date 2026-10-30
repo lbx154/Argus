@@ -327,10 +327,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
         "Argus pauses this task and retries it after a short wait.",
         "模型服务提示配额已用完：{cause}。Argus 会暂停这项任务，稍后重试。",
     ),
-    "cause_allowance_exhausted": (
-        "The trial allowance is used up, so this round stopped; all files are kept.",
-        "试用额度已用完，这一轮停了下来，文件都保留着。",
-    ),
     "cause_model_catalog": (
         "The model service could not list its models: {cause}. "
         "Argus pauses this task and retries it after a short wait.",
@@ -364,10 +360,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     "why_service_quota": (
         "the model service reported that its quota is used up ({cause})",
         "模型服务提示配额已用完（{cause}）",
-    ),
-    "why_allowance_exhausted": (
-        "the trial allowance is used up",
-        "试用额度已用完",
     ),
     "why_model_catalog": (
         "the model service could not list its models ({cause})",
@@ -426,14 +418,6 @@ _SENTENCES: dict[str, tuple[str, str]] = {
     "update_run_to_continue": (
         "Once it is resolved, click Resume to continue; nothing retries on its own until then.",
         "问题解决后点「继续运行」就能接着做；在那之前不会自动重试。",
-    ),
-    "allowance_exhausted": (
-        "The trial allowance is used up, so the task is paused; all files are kept.",
-        "试用额度已用完，任务已暂停，文件都保留着。",
-    ),
-    "update_resume_after_top_up": (
-        "Once the allowance is topped up, click Resume to continue; nothing retries on its own until then.",
-        "额度补上后点「继续运行」就能接着做；在那之前不会自动重试。",
     ),
     "update_reason": ("Reason: {why}", "原因：{why}"),
     "update_next": ("Next: {action}", "接下来：{action}"),
@@ -755,7 +739,12 @@ _STAGE_NAMES_ZH = {
 
 def say(kind: str, chinese: bool, **params: Any) -> str:
     """Return the sentence for *kind* in the requested language."""
-    english, zh = _SENTENCES[kind]
+    from ..hosting import hosting
+
+    words = _SENTENCES.get(kind) or hosting().wording(kind)
+    if words is None:
+        raise KeyError(kind)
+    english, zh = words
     if not params:
         return zh if chinese else english
     if not chinese:

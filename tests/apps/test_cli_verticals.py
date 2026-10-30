@@ -16,7 +16,6 @@ from tests.verticals import fake_release as fake
 @pytest.fixture(autouse=True)
 def release(tmp_path, monkeypatch) -> Path:
     monkeypatch.delenv(store.HOST_ROOT_ENV, raising=False)
-    monkeypatch.delenv("ARGUS_TRIAL_HARNESS", raising=False)
     catalog = fake.build_release(tmp_path / "dist", [
         fake.spec("base_v"),
         fake.spec("child_v", requires=("base_v",), parents=("base_v",), purpose_zh="子垂直"),

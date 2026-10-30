@@ -47,7 +47,7 @@ jobs:
         # is consumed only by the existing isolated Store integration tests.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e '.[dev,qr,trial]'
+          python -m pip install -e '.[dev,qr]'
       - name: Lint
         run: python -m ruff check argus argus_skill tests
       - name: Build Node packages for Python integration tests

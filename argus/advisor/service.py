@@ -56,7 +56,7 @@ def make_advisor_backend(config: AdvisorConfig, interrupt: Callable[[], str | No
     if config.backend == "copilot":
         model, effort = hosting().model_options(config.model, config.effort or None)
         if model != config.model or effort != (config.effort or None):
-            raise ValueError("hosted trial would override the advisor model or effort; configure an independent route")
+            raise ValueError("provider would override the advisor model or effort; configure an independent route")
     executable = resolve_runner_bin(config.backend, config.runner_bin or None)
     if not executable:
         raise ValueError("configured advisor runner is unavailable")

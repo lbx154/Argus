@@ -69,7 +69,6 @@ _NAMED_FAILURE_KINDS = frozenset({
     "service_proxy",
     "cli_missing",
     "service_quota",
-    "allowance_exhausted",
     "model_catalog",
     "sign_in",
 })
@@ -79,7 +78,9 @@ def _named_failure(event: Mapping[str, Any]) -> tuple[str, str]:
     """The infrastructure failure an event names, as ``(kind, cause line)``."""
     kind = _text(event, "failure_kind")
     line = _text(event, "failure_cause", 200)
-    if kind in _NAMED_FAILURE_KINDS and line:
+    from ..hosting import hosting
+
+    if line and (kind in _NAMED_FAILURE_KINDS or hosting().wording(f"cause_{kind}") is not None):
         return kind, line
     return "", ""
 

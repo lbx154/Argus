@@ -338,7 +338,7 @@ class PromptDeliveryMixin:
             )
         if self.backend == BACKEND_COPILOT and env is not None and options.isolate_workdir:
             # Workdir isolation strips ambient credentials. Reapply only the
-            # explicitly selected trial provider, never unrelated accounts.
+            # explicitly selected custom provider, never unrelated accounts.
             apply_copilot_provider(env)
             # Headless opt-in: the operator's explicit Copilot token survives
             # the scrub above; GH_TOKEN/GITHUB_TOKEN and git creds do not.

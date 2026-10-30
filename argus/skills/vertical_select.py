@@ -64,7 +64,7 @@ _FALLBACK_WARNED_ROOTS: set[str] = set()
 #: Built-in verticals: the ones whose ``stages.py`` ships inside this package.
 #: ``"research"`` is first and is the canonical default. This tuple is the
 #: whole *built-in* inventory and nothing more -- the frozen desktop build and
-#: the hosted trial's public-asset check enumerate it deliberately -- but it is
+#: external public-asset checks enumerate it deliberately -- but it is
 #: not the set of verticals a running Argus can select: installed entry-point
 #: verticals (``argus-verticals``) are merged in by ``available_verticals()``.
 #: ``argus_maintenance.architecture_audit`` reads this tuple with

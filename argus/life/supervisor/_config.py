@@ -45,7 +45,7 @@ class LifeBudget:
     """An optional ceiling on the missions one supervisor run starts.
 
     Spending is never a reason to stop: every call is recorded in the usage
-    ledger for display, and a hosted trial is limited at its gateway.
+    ledger for display.
     """
 
     max_missions: int = 0

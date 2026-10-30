@@ -18,7 +18,7 @@ On success it returns ``(cli_options, None)`` — the caller may proceed to the
 spawn phase with the translated ``cli_options``.
 
 Spending is never a reason to refuse a call here: every call is recorded in
-the usage ledger for display, and a hosted trial is limited at its gateway.
+the usage ledger for display.
 """
 from __future__ import annotations
 

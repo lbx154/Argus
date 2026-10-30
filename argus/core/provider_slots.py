@@ -83,7 +83,7 @@ def acquire_provider_slot(
     interrupt: Callable[[], str | None] | None = None,
 ) -> tuple[BinaryIO | None, str]:
     # Explicitly opt in. Older installations keep their provider-specific
-    # limits; the public trial sets this to its shared process allowance.
+    # limits; each deployment can set its shared process allowance.
     raw = resolve_knob("ARGUS_SKILL_PROVIDER_MAX_CONCURRENCY", "0").value
     try:
         count = int(raw)

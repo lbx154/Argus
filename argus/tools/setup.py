@@ -508,99 +508,91 @@ def run_setup(
     api_url: str | None = None,
     api_key: str | None = None,
     api_model: str | None = None,
-    trial_url: str | None = None,
     copilot_home: str | None = None,
     copilot_login: bool = False,
 ) -> int:
     """Validate an account binding before saving it with the backend profile."""
-    from ..agent_cli.copilot_home import (
-        COPILOT_ACCOUNT_HOME_KNOB,
-        apply_copilot_account,
-        copilot_account_home,
-    )
-    from ..agent_cli.runner_backend import runner_child_environment
-    from ..core.paths import resolve_runtime_path
-
-    account_options = copilot_home is not None or copilot_login
-    if account_options and (
-        backend != "copilot" or trial_url or api_url or api_key or api_model
-        or auth_mode not in (None, AUTH_MODE_SUBSCRIPTION)
-    ):
-        _write_stderr(
-            "argus: --copilot-home / --copilot-login require --backend copilot "
-            "with subscription_cli authentication, without trial or API options\n"
+    with hosting().provider_setup():
+        from ..agent_cli.copilot_home import (
+            COPILOT_ACCOUNT_HOME_KNOB,
+            apply_copilot_account,
+            copilot_account_home,
         )
-        return SETUP_EXIT_USAGE
-    if copilot_login and non_interactive:
-        _write_stderr("argus: --copilot-login requires interactive setup\n")
-        return SETUP_EXIT_USAGE
+        from ..agent_cli.runner_backend import runner_child_environment
+        from ..core.paths import resolve_runtime_path
 
-    previous_home = os.environ.get(COPILOT_ACCOUNT_HOME_KNOB)
-    previous_trial = os.environ.get("ARGUS_SKILL_COPILOT_TRIAL")
-    try:
-        if account_options:
-            os.environ["ARGUS_SKILL_COPILOT_TRIAL"] = "0"
-        if copilot_home is not None:
-            copilot_home = (
-                str(resolve_runtime_path(copilot_home, context="--copilot-home").resolve())
-                if copilot_home.strip()
-                else ""
+        account_options = copilot_home is not None or copilot_login
+        if account_options and (
+            backend != "copilot" or api_url or api_key or api_model
+            or auth_mode not in (None, AUTH_MODE_SUBSCRIPTION)
+        ):
+            _write_stderr(
+                "argus: --copilot-home / --copilot-login require --backend copilot "
+                "with subscription_cli authentication, without API options\n"
             )
-            os.environ[COPILOT_ACCOUNT_HOME_KNOB] = copilot_home
-        home = copilot_account_home() if backend == "copilot" else None
-        if home is not None:
-            copilot_home = str(home)
-            print(f"  Dedicated Copilot account directory: {home}")
-            print("  Inherited GitHub tokens and custom providers will not be used.")
-        if copilot_login:
-            if home is None:
-                _write_stderr("argus: --copilot-login requires a dedicated --copilot-home PATH\n")
-                return SETUP_EXIT_USAGE
-            executable = _resolve_setup_runner_bin("copilot", explicit_selection=True)
-            if executable is None:
-                _write_stderr("argus: install Copilot CLI before account login\n")
-                return SETUP_EXIT_NOT_READY
-            child_env = apply_copilot_account(dict(os.environ))
-            child_env = runner_child_environment(executable, env=child_env) or child_env
-            completed = subprocess.run([executable, "login"], env=child_env, check=False)
-            if completed.returncode != 0:
-                _write_stderr("argus: Copilot login failed; the account binding was not saved\n")
-                return SETUP_EXIT_NOT_READY
-        result = _run_setup(
-            backend=backend,
-            auth_mode=auth_mode,
-            non_interactive=non_interactive,
-            allow_prerelease=allow_prerelease,
-            api_url=api_url,
-            api_key=api_key,
-            api_model=api_model,
-            trial_url=trial_url,
-            copilot_home=copilot_home,
-        )
-        if home is not None:
-            if result == 0:
-                print("  Restart running Argus TUI, Web/API and daemons to use this account.")
-            else:
-                _write_stderr(
-                    "argus: if login is needed, rerun with --copilot-login and the same "
-                    "--copilot-home in an interactive terminal\n"
+            return SETUP_EXIT_USAGE
+        if copilot_login and non_interactive:
+            _write_stderr("argus: --copilot-login requires interactive setup\n")
+            return SETUP_EXIT_USAGE
+
+        previous_home = os.environ.get(COPILOT_ACCOUNT_HOME_KNOB)
+        try:
+            if copilot_home is not None:
+                copilot_home = (
+                    str(resolve_runtime_path(copilot_home, context="--copilot-home").resolve())
+                    if copilot_home.strip()
+                    else ""
                 )
-        return result
-    except (OSError, ValueError, RuntimeError) as exc:
-        if not account_options:
-            raise
-        _write_stderr(f"argus: dedicated Copilot account setup failed: {exc}\n")
-        return SETUP_EXIT_NOT_READY
-    finally:
-        if previous_home is None:
-            os.environ.pop(COPILOT_ACCOUNT_HOME_KNOB, None)
-        else:
-            os.environ[COPILOT_ACCOUNT_HOME_KNOB] = previous_home
-        if account_options:
-            if previous_trial is None:
-                os.environ.pop("ARGUS_SKILL_COPILOT_TRIAL", None)
+                os.environ[COPILOT_ACCOUNT_HOME_KNOB] = copilot_home
+            home = copilot_account_home() if backend == "copilot" else None
+            if home is not None:
+                copilot_home = str(home)
+                print(f"  Dedicated Copilot account directory: {home}")
+                print("  Inherited GitHub tokens and custom providers will not be used.")
+            if copilot_login:
+                if home is None:
+                    _write_stderr("argus: --copilot-login requires a dedicated --copilot-home PATH\n")
+                    return SETUP_EXIT_USAGE
+                executable = _resolve_setup_runner_bin("copilot", explicit_selection=True)
+                if executable is None:
+                    _write_stderr("argus: install Copilot CLI before account login\n")
+                    return SETUP_EXIT_NOT_READY
+                child_env = apply_copilot_account(dict(os.environ))
+                child_env = runner_child_environment(executable, env=child_env) or child_env
+                completed = subprocess.run([executable, "login"], env=child_env, check=False)
+                if completed.returncode != 0:
+                    _write_stderr("argus: Copilot login failed; the account binding was not saved\n")
+                    return SETUP_EXIT_NOT_READY
+            result = _run_setup(
+                backend=backend,
+                auth_mode=auth_mode,
+                non_interactive=non_interactive,
+                allow_prerelease=allow_prerelease,
+                api_url=api_url,
+                api_key=api_key,
+                api_model=api_model,
+                copilot_home=copilot_home,
+            )
+            if home is not None:
+                if result == 0:
+                    print("  Restart running Argus TUI, Web/API and daemons to use this account.")
+                else:
+                    _write_stderr(
+                        "argus: if login is needed, rerun with --copilot-login and the same "
+                        "--copilot-home in an interactive terminal\n"
+                    )
+            return result
+        except (OSError, ValueError, RuntimeError) as exc:
+            if not account_options:
+                raise
+            _write_stderr(f"argus: dedicated Copilot account setup failed: {exc}\n")
+            return SETUP_EXIT_NOT_READY
+        finally:
+            if previous_home is None:
+                os.environ.pop(COPILOT_ACCOUNT_HOME_KNOB, None)
             else:
-                os.environ["ARGUS_SKILL_COPILOT_TRIAL"] = previous_trial
+                os.environ[COPILOT_ACCOUNT_HOME_KNOB] = previous_home
+
 
 
 def _run_setup(
@@ -612,22 +604,9 @@ def _run_setup(
     api_url: str | None,
     api_key: str | None,
     api_model: str | None,
-    trial_url: str | None,
     copilot_home: str | None,
 ) -> int:
     """Configure and validate one explicit backend/auth contract."""
-    if trial_url:
-        if api_url or api_key or api_model or backend not in (None, "copilot") or auth_mode:
-            _write_stderr("argus: --trial-url selects its own backend and model; omit other backend/auth/API options\n")
-            return SETUP_EXIT_USAGE
-        try:
-            return hosting().setup(trial_url, non_interactive=non_interactive)
-        except (ValueError, OSError, subprocess.SubprocessError) as exc:
-            _write_stderr(f"argus: trial setup failed: {exc}\n")
-            return SETUP_EXIT_NOT_READY
-    # An explicit regular setup verifies the user's chosen account/provider.
-    # Persisting that validated profile below disables any prior trial mode.
-    os.environ["ARGUS_SKILL_COPILOT_TRIAL"] = "0"
     if non_interactive:
         return _run_noninteractive_setup(
             backend=backend,

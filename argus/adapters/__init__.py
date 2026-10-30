@@ -10,8 +10,8 @@ stream-json lines -> ``engineer.progress`` events). Everything here
 implements or feeds a ``core.ports`` protocol. At module level the package
 imports only ``core`` and ``provider_integrations``; ``agent_cli`` is resolved
 at call time through ``agent_cli_backend/_runtime.py`` so importing the
-backend never pulls in the subprocess driver, and three call-time edges into
-``trial`` and ``tools`` (``agent_cli_backend/_exec.py``, ``_exec_finalize.py``,
+backend never pulls in the subprocess driver, and call-time edges into
+``tools`` (``agent_cli_backend/_exec.py``, ``_exec_finalize.py``,
 ``_core.py``) are pinned in tests/test_architecture_invariants.py
 (``FUNCTION_BODY_UPWARD_ALLOWLIST``) and shrink from there.
 

@@ -54,11 +54,6 @@ dependencies = [
 #   pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
 # Deliberately not a dependency here: the framework must run without any
 # particular vertical installed.
-# The trial-key client needs nothing extra. The hosted trial server and its
-# dependencies are the separate package in trial_server/
-# (``pip install -e . -e trial_server``); this empty extra keeps existing
-# ``.[trial]`` install commands working.
-trial = []
 # Optional plotting stack for publication figures.
 figures = [
   "matplotlib>=3.8",
@@ -165,8 +160,6 @@ extend-exclude = [
   "build",
   "dist",
   ".venv",
-  # Optional argus-hosting submodule; linted by its own repository.
-  "hosting",
 ]
 
 [tool.ruff.lint]
@@ -181,14 +174,12 @@ ignore = [
 "tests/*" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["argus", "argus_skill", "argus_trial_server"]
+known-first-party = ["argus", "argus_skill"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
-testpaths = ["tests", "trial_server/tests"]
-# The hosted trial server is importable in tests without being installed.
-pythonpath = ["trial_server"]
-norecursedirs = ["hosting", ".*", "build", "dist", "node_modules"]
+testpaths = ["tests"]
+norecursedirs = [ ".*", "build", "dist", "node_modules"]
 markers = [
   "integration: crosses local process, thread, filesystem, or API boundaries",
   "e2e: exercises a complete workflow through a real entry point or toolchain",
@@ -199,7 +190,7 @@ filterwarnings = [
 
 [tool.mypy]
 python_version = "3.11"
-exclude = '''^(?:build|dist|hosting|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv)(?:/|$)'''
+exclude = '''^(?:build|dist|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.venv)(?:/|$)'''
 # Type-check stable shared contracts (the argus_skill alias package is not
 # type-checked: it is an import-time shim).
 files = [

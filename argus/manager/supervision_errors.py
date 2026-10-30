@@ -19,17 +19,16 @@ def _provider_failure_metadata(result: Any, exc: Exception) -> dict[str, str]:
     failed, diagnostic = _manager_backend_failure(result) if result is not None else (False, "")
     if failed:
         kind = normalize_stop_kind(getattr(result, "stop_kind", None))
-        quota = bool(re.search(r"\btrial_quota_exceeded\b", diagnostic, re.IGNORECASE))
         # Legacy runners may omit stop_kind. Do not reclassify arbitrary prose:
-        # only trusted control prefixes and this explicit provider code qualify.
+        # only trusted control prefixes qualify.
         kind = kind or stop_kind_from_external_interrupt(diagnostic)
-        if kind is None and quota:
+        from ..core.http_status import has_http_status
+
+        if kind is None and has_http_status(diagnostic, {402}):
             kind = "provider_fence"
         if kind is not None:
             metadata["stop_kind"] = kind
-        if kind == "provider_fence" and quota:
-            metadata["error_code"] = "trial_quota_exceeded"
-        elif kind in {"daemon_shutdown", "operator_pause", "operator_abort"}:
+        if kind in {"daemon_shutdown", "operator_pause", "operator_abort"}:
             metadata["error_code"] = "cancelled"
         elif kind == "transient_error" and re.search(
             r"\b(?:timed out|timeout|wall-clock (?:time )?limit)\b", diagnostic, re.IGNORECASE,
@@ -65,8 +64,6 @@ def _failure_reason(stage: str, metadata: dict[str, Any], *, issued: bool = Fals
             if issued else
             "The Manager control commit did not complete cleanly; inspect this receipt for any recorded effects before retrying."
         )
-    if code == "trial_quota_exceeded":
-        return "The trial quota was insufficient for this Manager check; prior controls remain authoritative."
     if code == "timeout":
         return "The Manager evidence check timed out; prior controls remain authoritative."
     if code == "cancelled":

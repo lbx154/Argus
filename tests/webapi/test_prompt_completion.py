@@ -94,7 +94,7 @@ def test_asks_the_light_model_once_while_the_manager_is_busy(tmp_path, model):
     assert call["prompt"].endswith('## Draft (a JSON string)\n"Compare the two "\n\n## Starts with\n"Compare the two"')
 
 
-@pytest.mark.parametrize("case", ["hosted", "pi trial", "no model", "secret", "no project", "failure"])
+@pytest.mark.parametrize("case", ["policy", "no model", "secret", "no project", "failure"])
 def test_any_obstacle_is_simply_no_suggestion(tmp_path, monkeypatch, model, case):
     sid, _ = _project(tmp_path)
     text = "Compare the two baselines and"
@@ -103,12 +103,8 @@ def test_any_obstacle_is_simply_no_suggestion(tmp_path, monkeypatch, model, case
         raise map_model.MapGenerationError("provider_error")
 
     calls = model(answer)
-    if case == "hosted":
-        monkeypatch.setattr(hosting, "hosting", lambda: SimpleNamespace(enabled=lambda env=None: True))
-    elif case == "pi trial":
-        # The pi harness keeps the Copilot trial switch off yet meters and captures each call.
-        monkeypatch.setenv("ARGUS_SKILL_COPILOT_TRIAL", "0")
-        monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
+    if case == "policy":
+        monkeypatch.setattr(hosting, "hosting", lambda: SimpleNamespace(prompt_completion_enabled=lambda: False))
     elif case == "no model":
         monkeypatch.setattr(map_model, "resolve_map_model", lambda: map_model.MapModel("memory", "", None, ""))
     elif case == "secret":

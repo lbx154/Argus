@@ -1,17 +1,13 @@
-"""A workspace whose storage is full pauses its work and says so.
-
-The hosted runtime's storage monitor (trial_server/deploy/native_runtime.py)
-records the pause in the Argus home; the server refuses new daemons, keeps
-the work a host shutdown interrupted for later, and puts the numbers on the
-project page (2026-10-29 trial4: the runtime stopped for 12 hours and the page
-showed nothing).
-"""
+"""A service pause stops starts and automatic recovery, and is exposed unchanged."""
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
+
+from argus.core import hosting
 from argus.core.session import SessionMeta, write_session_meta
-from argus.core.storage_pause import clear_storage_pause, record_storage_pause
 from argus.daemon import life_worker as daemon_worker
 from argus.daemon.state import (
     read_continuous_state,
@@ -21,7 +17,21 @@ from argus.daemon.state import (
 )
 from argus.webapi import daemon_lifecycle, host_resume, project_state
 
-GB = 1024**3
+
+@pytest.fixture
+def set_pause(monkeypatch):
+    current = None
+    provider = SimpleNamespace(work_pause=lambda root: current)
+    monkeypatch.setattr(hosting, "hosted_runtime", lambda: provider)
+
+    def set_value(value):
+        nonlocal current
+        current = value
+
+    return set_value
+
+
+PAUSE = {"reason": "Workspace maintenance in progress", "since": 1793318400.0}
 
 
 def _project(root: Path, sid: str) -> Path:
@@ -31,33 +41,34 @@ def _project(root: Path, sid: str) -> Path:
     return life
 
 
-def test_no_daemon_starts_while_storage_is_full(tmp_path, monkeypatch):
+def test_no_daemon_starts_while_work_is_paused(tmp_path, monkeypatch, set_pause):
     _project(tmp_path, "s-full")
     spawned = []
     monkeypatch.setattr(
         daemon_worker, "spawn_detached_daemon_clean",
         lambda config, quiet=True: spawned.append(config.life_dir) or 0,
     )
-    record_storage_pause(tmp_path, used_bytes=34 * GB, limit_bytes=30 * GB)
+    set_pause(PAUSE)
 
     result = daemon_lifecycle.start_project_daemon("s-full", global_root=tmp_path)
 
     assert result is not None and result["rc"] == 4
-    assert result["error"].startswith("workspace storage is full (34.0 GB of 30.0 GB)")
+    assert result["error"] == PAUSE["reason"]
+    assert result["work_pause"] == PAUSE
     assert spawned == []
 
 
-def test_the_project_page_carries_the_pause(tmp_path):
+def test_the_project_page_carries_the_pause(tmp_path, set_pause):
     _project(tmp_path, "s-page")
-    assert project_state.build_snapshot("s-page", global_root=tmp_path)["storage_pause"] is None
-    record_storage_pause(tmp_path, used_bytes=34 * GB, limit_bytes=30 * GB)
+    assert project_state.build_snapshot("s-page", global_root=tmp_path)["work_pause"] is None
+    set_pause(PAUSE)
 
-    pause = project_state.build_snapshot("s-page", global_root=tmp_path)["storage_pause"]
+    pause = project_state.build_snapshot("s-page", global_root=tmp_path)["work_pause"]
 
-    assert pause["used_bytes"] == 34 * GB and pause["limit_bytes"] == 30 * GB
+    assert pause == PAUSE
 
 
-def test_interrupted_work_waits_for_room_then_resumes(tmp_path):
+def test_interrupted_work_waits_for_clearance_then_resumes(tmp_path, set_pause):
     life = _project(tmp_path, "s-interrupted")
     write_continuous_config(life, enabled=True, objective="train the model")
     generation = read_continuous_state(life).generation
@@ -68,9 +79,9 @@ def test_interrupted_work_waits_for_room_then_resumes(tmp_path):
         started.append(sid)
         return {"rc": 0}
 
-    record_storage_pause(tmp_path, used_bytes=34 * GB, limit_bytes=30 * GB)
+    set_pause(PAUSE)
     assert host_resume.resume_host_stopped_daemons([tmp_path], start) == []
     assert read_host_shutdown(life) is not None
 
-    clear_storage_pause(tmp_path)
+    set_pause(None)
     assert host_resume.resume_host_stopped_daemons([tmp_path], start) == ["s-interrupted"]

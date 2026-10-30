@@ -94,10 +94,11 @@ def test_writes_are_same_origin_only(client) -> None:
     assert web.post("/api/verticals/catalog/refresh", headers=same).status_code == 200
 
 
-def test_hosted_trial_refuses_installation_but_allows_toggling(monkeypatch) -> None:
+def test_service_managed_installation_still_allows_toggling(monkeypatch) -> None:
     root = Path(os.environ["ARGUS_SKILL_HOME"])
     store.install("base_v", root, wait=True)
-    monkeypatch.setenv("ARGUS_TRIAL_HARNESS", "argus-pi")
+    from argus.core import hosting
+    monkeypatch.setattr(hosting, "hosted_runtime", lambda: SimpleNamespace(manages_verticals=lambda env: True))
     app = FastAPI()
     register_vertical_routes(app, SimpleNamespace(global_root=root, require_auth=lambda: None, token=None))
     web = TestClient(app)

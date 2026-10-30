@@ -88,7 +88,7 @@ def _isolate_argus_state_roots(
     # exercising the "no explicit home was chosen" path. Host roots and
     # preinstall declarations would point a test at a real host's installs.
     # Start from a clean slate; a test that needs a value sets it itself.
-    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN", "ARGUS_VERTICALS_", "ARGUS_DESKTOP_", "ARGUS_TRIAL_"))]:
+    for name in [k for k in os.environ if k.startswith(("ARGUS_SKILL_", "ARGUS_WORKBENCH_", "ARGUS_PLUGIN", "ARGUS_VERTICALS_", "ARGUS_DESKTOP_"))]:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("COPILOT_HOME", raising=False)
 

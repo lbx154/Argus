@@ -267,15 +267,15 @@ class AgentCliBackend:
             )
 
     def _refresh_known_secret_values(self) -> None:
-        trial_values: tuple[str, ...] = ()
+        provider_values: tuple[str, ...] = ()
         if getattr(self, "_is_copilot", False):
             from ...agent_cli.copilot_home import copilot_runtime_redactions
 
-            trial_values = copilot_runtime_redactions()
+            provider_values = copilot_runtime_redactions()
         self._known_secret_values = tuple(dict.fromkeys((
             *self._known_secret_values_override,
             *known_secret_values(),
-            *trial_values,
+            *provider_values,
         )))
 
     def _configured_pricing_model(self, *, profile: str = "") -> str:

@@ -50,7 +50,6 @@ def no_provider_or_credentials(monkeypatch):
     from argus.core import secret_guard
 
     monkeypatch.setenv("ARGUS_SKILL_MANAGER_MODEL", "fake-manager")
-    monkeypatch.setenv("ARGUS_SKILL_COPILOT_TRIAL", "0")
     monkeypatch.setattr(secret_guard, "known_secret_values", lambda *_args, **_kwargs: ())
 
 
@@ -223,7 +222,7 @@ def worker(root, sid, mode="normal"):
         [sys.executable, "-c", WORKER, str(root), sid, mode], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         env={"PATH": os.defpath, "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
              "ARGUS_SKILL_HOME": str(root), "CODEX_HOME": str(root / "unused-codex"),
-             "ARGUS_SKILL_MANAGER_MODEL": "fake-manager", "ARGUS_SKILL_COPILOT_TRIAL": "0"},
+             "ARGUS_SKILL_MANAGER_MODEL": "fake-manager"},
     )
 
 

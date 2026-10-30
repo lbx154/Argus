@@ -131,13 +131,13 @@ def test_budget_failures_keep_provider_provenance_without_exposing_raw_details(t
     event = project(tmp_path)
     before = controls(tmp_path)
     if case.startswith("quota"):
-        body = {"code": "trial_quota_exceeded", "message": "Insufficient trial tokens for this request."}
+        body = {"code": "payment_required", "message": "Payment Required"}
         if case in {"quota-with-private-fields", "quota-in-stderr"}:
             body.update(secret=SECRET, prompt=PROMPT_MARKER, raw_body=BODY_MARKER)
-        fatal = "402: " + json.dumps(body)
+        fatal = "HTTP 402: " + json.dumps(body)
         kind = _raw_backend_stop_kind(fatal_error=fatal, exit_code=1)
         assert kind == "provider_fence"
-        code = "trial_quota_exceeded"
+        code = None
     else:
         fatal = "Global daily budget exhausted: " + SECRET + " " + PROMPT_MARKER
         kind, code = "budget_exhausted", None

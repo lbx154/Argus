@@ -34,13 +34,13 @@ def test_adapter_patterns_do_not_include_dependencies(tmp_path: Path) -> None:
     assert list(_source_files(tmp_path)) == []
 
 
-def test_the_hosted_trial_server_is_not_part_of_the_release(tmp_path: Path) -> None:
+def test_external_packages_are_not_part_of_the_release(tmp_path: Path) -> None:
     for relative in (
-        "trial_server/argus_trial_server/gateway.py",
-        "trial_server/argus_trial_server/pi_training_extension.mjs",
-        "trial_server/deploy/native_preview.py",
+        "external_service/service/gateway.py",
+        "external_service/service/extension.mjs",
+        "external_service/deploy/preview.py",
     ):
         source = tmp_path / relative
         source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text("# hosted trial\n", encoding="utf-8")
+        source.write_text("# external service\n", encoding="utf-8")
     assert list(_source_files(tmp_path)) == []

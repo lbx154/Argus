@@ -670,7 +670,6 @@ def build_usage_record(
     premium_requests: float | None = None,
     total_nano_aiu: int | None = None,
     copilot_token_billing_expected: bool = False,
-    hosted_trial: bool = False,
     provider_cost_usd: float | None = None,
     thread_id: str | None = None,
     model_usage: Iterable[dict[str, Any]] | None = None,
@@ -718,9 +717,12 @@ def build_usage_record(
         and not usage.observed
         and not (premium_requests or 0.0)
     )
+    from .hosting import hosting
+
+    provider_pricing = hosting().usage_pricing(normalized_provider)
     interrupted_empty_turn = (
         normalized_provider == "copilot"
-        and not hosted_trial
+        and provider_pricing is None
         and is_interrupted_empty_copilot_turn(
             provider=normalized_provider,
             status=status,
@@ -743,19 +745,14 @@ def build_usage_record(
         pricing_tier = PROVIDER_REJECTED_TIER
         cost_usd = 0.0
         cost_basis = "none"
+    elif provider_pricing is not None:
+        pricing_status, pricing_tier, cost_usd, cost_basis = provider_pricing
     elif interrupted_empty_turn:
         premium_quote = quote_copilot_usage(1.0)
         pricing_status = "priced"
         pricing_tier = INTERRUPTED_REQUEST_TIER
         cost_usd = premium_quote.cost_usd
         cost_basis = "premium_request"
-    elif normalized_provider == "copilot" and hosted_trial:
-        # Trial users owe no provider dollars. The server enforces and records
-        # their token allowance; BYOK sessions have no local Copilot AIU bill.
-        pricing_status = "not_billed"
-        pricing_tier = "hosted_trial"
-        cost_usd = 0.0
-        cost_basis = "hosted_trial"
     elif normalized_provider == "copilot" and total_nano_aiu is not None:
         pricing_status = "priced"
         pricing_tier = "copilot_token"

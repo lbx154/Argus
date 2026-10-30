@@ -1,4 +1,4 @@
-"""Argus core runs with the hosted trial absent, as it will once the trial leaves the tree."""
+"""The installed local runtime runs without any hosting providers."""
 from __future__ import annotations
 
 import subprocess
@@ -15,19 +15,20 @@ CORE_TESTS = [
     "tests/test_copilot_session_binding.py",
 ]
 
-WITHOUT_TRIAL = """
+WITHOUT_HOSTING = """
 import sys
-sys.modules["argus.trial"] = None  # import argus.trial now fails as if it were not installed
-from argus.core.hosting import NO_HOSTING, hosting
+from argus.core.hosting import NO_HOSTING, hosting, hosted_runtime, work_pause
 assert hosting() is NO_HOSTING
+assert hosted_runtime() is NO_HOSTING
+assert work_pause(".") is None
 import pytest
 sys.exit(pytest.main(sys.argv[1:]))
 """
 
 
-def test_core_runs_a_manager_turn_and_team_dispatch_without_the_trial(tmp_path):
+def test_core_runs_a_manager_turn_and_team_dispatch_without_hosting(tmp_path):
     result = subprocess.run(
-        [sys.executable, "-c", WITHOUT_TRIAL, "-p", "no:cacheprovider", "-p", "no:xdist",
+        [sys.executable, "-c", WITHOUT_HOSTING, "-p", "no:cacheprovider", "-p", "no:xdist",
          f"--basetemp={tmp_path / 'bt'}", *CORE_TESTS],
         cwd=ROOT, capture_output=True, text=True, timeout=300,
     )
