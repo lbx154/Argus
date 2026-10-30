@@ -166,8 +166,19 @@ def test_chunk_body_is_bounded_without_expanding_other_requests(client):
     path = begin(client, size=10 * MIB)
     assert append(client, path, b"x" * (4 * MIB + 1)).status_code == 413
     assert client.get(path).json()["offset"] == 0
-    assert client.post("/api/projects/s-upload/message", json={"text": "x" * (256 * 1024)}).status_code == 413
-    assert client.put("/api/projects/s-upload/unrelated", content=b"x" * (256 * 1024 + 1)).status_code == 413
+    assert client.post("/api/projects/s-upload/message", json={"text": "x" * (8 * MIB)}).status_code == 413
+    assert client.put("/api/projects/s-upload/unrelated", content=b"x" * (8 * MIB + 1)).status_code == 413
+
+
+def test_a_message_of_a_million_characters_is_accepted_and_one_more_is_not(client):
+    from argus.webapi.request_limits import MESSAGE_MAX_CHARS
+
+    assert MESSAGE_MAX_CHARS == 1_000_000
+    # A full-length CJK message is ~3 MB of JSON: past the byte gate, it reaches validation.
+    longest = client.post("/api/projects/s-upload/message", json={"text": "字" * MESSAGE_MAX_CHARS})
+    assert longest.status_code != 413
+    too_long = client.post("/api/projects/s-upload/message", json={"text": "字" * (MESSAGE_MAX_CHARS + 1)})
+    assert too_long.status_code == 422
 
 
 def test_pending_quota_cleanup_and_completed_files_survive(client, tmp_path):

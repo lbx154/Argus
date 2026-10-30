@@ -25,7 +25,7 @@ def test_chunked_json_limit_does_not_trust_content_length(app, monkeypatch):
     async def exercise():
         async def chunks():
             yield b'{"text":"'
-            for _ in range(17):
+            for _ in range(8 * 64 + 1):  # one 16 KiB chunk past the 8 MiB JSON limit
                 yield b"x" * 16_384
             yield b'"}'
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:

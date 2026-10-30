@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { MESSAGE_TEXT_MAX_CHARS } from "../lib/attachments";
 import { MapComposer, type MapComposerProps } from "../map/MapComposer";
 import { referenceText, type CardReference } from "../map/presentation";
 
@@ -76,7 +77,7 @@ it("keeps an empty map as an island until activation, then focuses synchronously
 
 it("keeps an oversized map draft and blocks both Enter and form submission", async () => {
   const onSend = vi.fn();
-  const value = 'x'.repeat(32_001);
+  const value = 'x'.repeat(MESSAGE_TEXT_MAX_CHARS + 1);
   act(() => { renderer = create(<MapComposer {...defaults} value={value} onSend={onSend} />, { createNodeMock: nodeMock }); });
   await act(async () => textarea().props.onKeyDown(key("Enter")));
   await act(async () => renderer!.root.findByType('form').props.onSubmit({ preventDefault: vi.fn() }));
