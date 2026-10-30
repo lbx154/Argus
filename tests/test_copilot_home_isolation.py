@@ -154,12 +154,15 @@ def test_unavailable_dedicated_home_fails_instead_of_using_another_account(
     assert not argus_copilot_home(env).exists()
 
 
-def test_account_binding_does_not_override_an_explicit_trial(tmp_path: Path) -> None:
+def test_account_binding_does_not_override_hosting(tmp_path: Path, monkeypatch) -> None:
+    from argus.core.hosting import NO_HOSTING
+
+    # As with a hosting package installed and switched on.
+    monkeypatch.setattr(NO_HOSTING, "enabled", lambda env=None: True)
     env = {
         COPILOT_ACCOUNT_HOME_KNOB: str(tmp_path / "dedicated"),
-        "ARGUS_SKILL_COPILOT_TRIAL": "1",
-        "COPILOT_HOME": str(tmp_path / "trial"),
-        "COPILOT_PROVIDER_API_KEY": "fake-trial-key",
+        "COPILOT_HOME": str(tmp_path / "hosted"),
+        "COPILOT_PROVIDER_API_KEY": "fake-hosted-key",
     }
     assert copilot_account_home(env) is None
     assert apply_copilot_account(dict(env)) == env

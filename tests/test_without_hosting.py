@@ -1,4 +1,4 @@
-"""Argus core runs with the hosted trial absent, as it will once the trial leaves the tree."""
+"""Argus core runs with no hosting package installed."""
 from __future__ import annotations
 
 import subprocess
@@ -17,7 +17,6 @@ CORE_TESTS = [
 
 WITHOUT_TRIAL = """
 import sys
-sys.modules["argus.trial"] = None  # import argus.trial now fails as if it were not installed
 from argus.core.hosting import NO_HOSTING, hosting
 assert hosting() is NO_HOSTING
 import pytest

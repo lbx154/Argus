@@ -54,11 +54,6 @@ dependencies = [
 #   pip install "argus-verticals @ git+https://github.com/Argus-AiTeam/argus-verticals.git"
 # Deliberately not a dependency here: the framework must run without any
 # particular vertical installed.
-# Server-only authenticated encryption and HTTP forwarding for the hosted trial.
-trial = [
-  "cryptography>=41",
-  "httpx>=0.27,<1",
-]
 # Optional plotting stack for publication figures.
 figures = [
   "matplotlib>=3.8",
@@ -115,8 +110,6 @@ dev = [
 ]
 
 [project.scripts]
-argus-trial-server = "argus.trial.admin:main"
-argus-compute = "argus.trial.compute_client:main"
 argus = "argus.apps.tui_launcher:main"
 argus-doctor = "argus_doctor:main"
 # Pre-rename command name, kept for one release; prints a deprecation line.

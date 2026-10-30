@@ -54,7 +54,7 @@ typing-only under `if TYPE_CHECKING:`) are tolerated only while their
 | roles | `roles`, `planner`, `engineer`, `reviewer` | kernel through roles; `engineer` and `reviewer` never import `verticals` (existing test) |
 | runtime | `life`, `manager`, `messaging` | kernel through runtime; the intra-layer cycle `life` <-> `manager` is tolerated (not measured by the tests) |
 | process | `daemon` | kernel through process |
-| delivery | `apps`, `webapi`, `plugin`, `maintenance`, `trial`, `integrations`, `release_tools` | everything |
+| delivery | `apps`, `webapi`, `plugin`, `maintenance`, `integrations`, `release_tools` | everything |
 
 Notes on the table:
 
@@ -83,7 +83,7 @@ that fixes it.
 - `argus/agent_cli/` (providers) - low-level driver for the codex/claude/copilot/cursor/opencode/pi/grok/dsh CLIs: argv construction, process control, event parsing, prompt delivery. `runner_backend.py` holds the backend-name `Literal` (becomes `core/backend_names.py` in phase 1).
 - `argus/provider_integrations/` (providers) - provider-specific telemetry and policy: Copilot per-call usage and cross-process guard, the single bounded 401 replay.
 - `argus/adapters/` (providers) - `AgentCliBackend` (the real `RunnerBackend` over `agent_cli`, split into admission/spawn/finalize phases), the deterministic in-memory backend for tests, and the stream-progress forwarder.
-- `argus/advisor/` (providers) - independent, evidence-bound advice requested by a role: an outbound side-channel to an external advisor model (Copilot, MCP, Pi extension) with receipts and evidence; it advises, it never adjudicates. Added upstream on 2026-09-13; its call-time imports of `life` and `trial` are pinned as upward edges.
+- `argus/advisor/` (providers) - independent, evidence-bound advice requested by a role: an outbound side-channel to an external advisor model (Copilot, MCP, Pi extension) with receipts and evidence; it advises, it never adjudicates. Added upstream on 2026-09-13; its call-time import of `life` is pinned as an upward edge.
 - `argus/tools/` (capabilities) - operator-approved tools that missions invoke as `python -m argus.tools.<x>`: capability vault, resource probe, image API, setup wizard, experience and peer queries, efficiency report. These module paths are cited by prompts and Skills and are frozen.
 - `argus/wiki/` (capabilities) - minimal per-project Wiki: semantic pages plus one `INDEX.md`.
 - `argus/cli/` (capabilities) - ANSI theme, role colours and event rendering for headless terminals. It is terminal rendering, not the command-line interface (that is `apps/cli/`); renamed `terminal/` in phase 6.
@@ -100,10 +100,9 @@ that fixes it.
 - `argus/messaging/` (runtime) - advisory messages between projects owned by one Argus user/tenant: store, inbox, transport and handler beside `life` and `manager`. Added upstream on 2026-09-13; `adapters` and `tools` import it at call time (pinned upward edges).
 - `argus/daemon/` (process) - the detached 7x24 life worker: boot and run phases, admission caps, blue/green handoff, status sidecar and stop control, health, durable commands, spawn helper.
 - `argus/apps/` (delivery) - the Python CLI (`apps/cli/`; `python -m argus`, and every admin flag and subcommand of the `argus` command), the `argus` console-script launcher (`tui_launcher`: the Ink cockpit by default, the CLI for admin flags), updaters, `--watch` and `--init-identity`. Today it also holds the mission runtime (`_runtime*.py`, `_self_reply.py`; about 4.6k lines shared by daemon and Manager front door; moves to `mission_runner/` in phase 5) and the operator inbox helpers `_inbox`, `_life_actions` (move to `life/` in phase 4).
-- `argus/webapi/` (delivery) - the FastAPI server and `routes/` that the Web and Ink cockpits consume. It also hosts the framework-free `manager_*`, `map_*`, `daemon_*`, `mission_items`, `project_state`, `diagnostics` service modules that `plugin/`, `apps/`, `maintenance/`, `trial/` and `life/chat` import: a service layer that has not been named as one. `fastapi` and `uvicorn` are hard dependencies (`[project.dependencies]`); there is no `[web]` extra (the docstring that claimed one was fixed in phase 0).
+- `argus/webapi/` (delivery) - the FastAPI server and `routes/` that the Web and Ink cockpits consume. It also hosts the framework-free `manager_*`, `map_*`, `daemon_*`, `mission_items`, `project_state`, `diagnostics` service modules that `plugin/`, `apps/`, `maintenance/` and `life/chat` import: a service layer that has not been named as one. `fastapi` and `uvicorn` are hard dependencies (`[project.dependencies]`); there is no `[web]` extra (the docstring that claimed one was fixed in phase 0).
 - `argus/plugin/` (delivery) - the host-plugin facade and stdio MCP server behind the `argus-plugin-server` script; installed from `plugins/argus/`.
 - `argus/maintenance/` (delivery) - the Doctor: read-only findings, closed repair registry, installed-Agent advisor, and the deployment boundary. Not the `argus_maintenance` vertical and not the `~/.argus-skill/maintenance/` decision cards; renamed `doctor/` in phase 6.
-- `argus/trial/` (delivery) - the server-metered hosted trial: gateway, egress, compute queue, portal, admin, training capture. 40 files (39 `.py`) ship in the wheel; the product proper uses about four of them. Needs the `[trial]` extra.
 - `argus/integrations/` (delivery) - lets the Harbor Framework invoke the complete Argus runtime as an installed agent. Distinct from the top-level `integrations/` directory below.
 - `argus/release_tools/` (delivery) - release and CI tooling: release build, plugin wheel build, manifest and artifact checks, repository parity check. The PR gate moved to the `argus-hosting` repository (see `hosting/` below).
 - Package-root modules (delivery): `argus/__init__.py` (public API, lazy via PEP 562 from phase 0), `__main__.py` (`python -m argus`; re-exports `apps.cli.main` and is the target of the pre-rename `argus-skill` console script, kept one release), `loop.py` (`SkillLoop`; moves to `mission_runner/` in phase 5).
@@ -123,7 +122,6 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `argus_skill/` - the two-file import alias for the package's pre-rename name (`__init__.py` installs a `sys.meta_path` finder so `argus_skill[.x]` is the same module object as `argus[.x]`; `__main__.py` delegates to `argus.__main__`). Shipped in the wheel for one release after 2026-09-14, then removed. Not a package of its own, not type-checked, no layer.
 - `companions/` - `FLYWHEEL`, a standalone research-data-flywheel control plane that talks to Argus only over the versioned WebAPI. Not built, not tested, not shipped.
 - `contrib/` - community contributions (`figure-studio` paper-figure pipeline, `pi-research-workflow-skill` for Pi/Hermes). Not built, not tested, not shipped.
-- `deploy/` - systemd units and Dockerfiles for the hosted trial (`deploy/trial/`).
 - `desktop-tauri/` - the Tauri desktop shell; it ships the TypeScript core (`packages/core`) and runs it with the system's Node.js.
 - `docs/` - operator and developer documentation; `docs/audits/` holds dated audit reports and their data attachments.
 - `examples/` - worked examples the guides refer to: `verticals/` holds the small `lab_notebook` vertical built in `docs/building-a-vertical.md` and the helper that packages a vertical into a local store catalog. Not built, not tested, not shipped.

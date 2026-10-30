@@ -32,8 +32,8 @@ dimension must still equal the returned vector dimension.
 
 For Copilot's embeddings endpoint, explicitly set `api_format="copilot"` and
 `endpoint="https://api.githubcopilot.com/embeddings"`. This format sends a
-one-element `input` array, omits `encoding_format`, and uses the same CLI
-identity headers as the trial gateway. Supply the authorized bearer credential
+one-element `input` array, omits `encoding_format`, and sends the Copilot CLI's
+identity headers. Supply the authorized bearer credential
 through `credential_env`; the recall adapter does not discover or renew it.
 Copilot can omit `model` in its response. This format binds encoder identity to
 the configured request and still rejects an explicit conflicting response

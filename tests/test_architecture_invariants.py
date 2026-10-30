@@ -364,7 +364,7 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
         "core", "life", "engineer", "reviewer", "planner", "manager",
         "roles", "skills", "daemon", "webapi", "wiki",
         "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
-        "maintenance", "trial", "release_tools", "cli", "integrations",
+        "maintenance", "release_tools", "cli", "integrations",
     ))
 
     assert offenders == []
@@ -909,7 +909,7 @@ LAYERS: dict[str, tuple[str, ...]] = {
     "runtime": ("life", "manager", "messaging"),
     "process": ("daemon",),
     "delivery": (
-        "apps", "webapi", "plugin", "maintenance", "trial", "integrations", "release_tools",
+        "apps", "webapi", "plugin", "maintenance", "integrations", "release_tools",
     ),
 }
 LAYER_ORDER = tuple(LAYERS)
@@ -1046,7 +1046,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
     "adapters/agent_cli_backend/_exec.py -> messaging",
     "advisor/service.py -> life",
     "core/agent_probe.py -> adapters",
-    "core/hosting.py -> trial",
     "core/backend_readiness.py -> agent_cli",
     "core/backend_readiness.py -> tools",
     "core/jsonl_reader.py -> life",
@@ -1158,8 +1157,6 @@ PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
     "skills -> argus.verticals._data_domain",
     "skills -> argus.verticals._registry",
     "tools -> argus.agent_cli._process_control",
-    "trial -> argus.agent_cli.copilot_home._read_managed_config",
-    "trial -> argus.tools.setup._verify_setup_smoke",
     "verticals -> argus.tools.image_api._DEFAULT_MAX_RETRIES",
     "verticals -> argus.tools.image_api._DEFAULT_TIMEOUT_SECONDS",
     "verticals -> argus.tools.image_api._atomic_write_json",
@@ -1258,11 +1255,11 @@ def test_function_body_imports_to_higher_layers_are_pinned() -> None:
     )
 
 
-def test_only_the_hosting_seam_imports_the_trial() -> None:
-    """Core reaches the hosted trial only through ``core/hosting.py``.
+def test_nothing_imports_the_trial() -> None:
+    """The hosted trial lives in the hosting repository, not in Argus.
 
-    The trial is moving to its own repository; any other file that names it,
-    at module level or inside a function, would stop working without it.
+    Core reaches hosting only through ``core/hosting.py``, which finds it by the
+    ``argus.hosting`` entry point and never names it.
     """
     importers = {
         path.relative_to(ARGUS).as_posix()
@@ -1270,7 +1267,7 @@ def test_only_the_hosting_seam_imports_the_trial() -> None:
         for record in _cross_package_imports(path)
         if _target_package(record.module) == "trial"
     }
-    assert importers == {"core/hosting.py"}
+    assert importers == set()
 
 def test_private_modules_are_not_imported_across_packages() -> None:
     """A leading underscore is a promise that only the owning package reads it.
@@ -1911,7 +1908,6 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "roles": 4,
     "skills": 30,
     "tools": 3,
-    "trial": 14,
     "verticals": 59,
     "webapi": 125,
     "wiki": 5,

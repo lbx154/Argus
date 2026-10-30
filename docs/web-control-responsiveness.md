@@ -88,58 +88,12 @@ and real short sleeps through the complete SkillLoop path.
 
 ## Ownership boundaries
 
-The accounting worker and role prompt reads have separate lifetimes. Their
-ownership rules are documented below so cancellation changes can be reviewed
-without treating the whole runner as a single black box.
-
-### Gateway accounting ownership
-
-`trial/gateway.py` owns HTTP admission, provider dispatch and response selection.
-`trial/gateway_accounting.py` owns bounded billing leases and a single SQLite
-worker. A cancelled HTTP request releases its HTTP slot promptly; its billing
-lease remains owned until any late reservation, settlement and upstream response
-close finish. Repeated cancellation therefore cannot create an unlimited worker
-queue. `trial/gateway_observation_queue.py` coalesces optional status snapshots
-with a separate bound and never makes HTTP wait for those snapshots.
-
-`trial/store.py` remains the accounting authority. A durable operation key makes
-reservation replay idempotent and links cleanup to a reservation even when its
-ID never reached the HTTP caller. The provider may be called only after a
-`submitted` intent commits. On restart, an active managed `reserved` operation
-can be refunded; `submitted` and legacy interrupted work remain conservatively
-charged. Submission intent alone does not prove a provider received the call.
-Terminal settlement fixes the charge and TPM expiry once.
-
-Each lease freezes its selected usage before asynchronous cleanup starts.
-Cancellation or a later fallback cannot replace known usage with an unknown
-estimate. Successful JSON/SSE completion waits for settlement within its
-deadline. Cancelled, timed out or failed streams detach from cleanup while the
-gateway keeps ownership. A durable settlement failure makes health report
-`billing_recovery_required` and blocks new model admissions until recovery.
-
-An admitted lease also owns one disconnect watcher during upstream preparation,
-response headers and JSON body reads. A real `http.disconnect` cancels the
-current request task while it awaits upstream I/O. The watcher stops
-synchronously before SSE handoff, where StreamingResponse takes over disconnect
-listening. No new await splits response ownership from handoff. Cleanup collects
-the watcher before returning billing capacity, including cancellation consumed
-by AnyIO or cancellation before the watcher started.
-
-The request still owns a transport that consumes cancellation and returns late:
-its response is closed without reading a late body, and shutdown retains the
-process lock until cleanup ends. This is cooperative cancellation, not forced
-termination of arbitrary transport code. Once valid JSON usage has been read,
-it is captured before the final disconnect check so a late disconnect cannot
-replace known usage with the reservation estimate. The current authorization
-method reads its vault synchronously; a synthetic awaited-authorization barrier
-does not prove that vault I/O itself became interruptible.
-
-Lifespan shutdown rejects new request owners and drains requests, leases,
-response closes and observations before releasing `gateway.lock`. Tests and
-operators use `accounting.wait_idle()` to establish quiescence; observing zero
-active rows before a blocked reservation commits is insufficient. The worker's
-SQLite transaction timeout still applies: cancelling HTTP does not kill a
-transaction already running in its worker.
+Role prompt reads have their own lifetime. Their ownership rules are documented
+below so cancellation changes can be reviewed without treating the whole runner
+as a single black box. The hosted trial gateway's accounting, once described
+here, was removed from this branch with the old trial code (2026-10-30): hosting
+code belongs in the hosting repository (the `hosting` submodule,
+lbx154/argus-hosting).
 
 ### Role prompt reads
 
@@ -177,8 +131,7 @@ protocol before making intake cancellation-aware.
 `test_message_cancellation_lifecycle.py` cancels actual route coroutines while
 threads are running or queued. `test_message_stop_delivery.py` covers provider
 interruption, stale handoffs, resolved questions and paused/completed task replay
-through both HTTP message transports. Trial proxy tests hold ordinary connections
-open while forwarding cancellation on the reserved pool.
+through both HTTP message transports.
 
 `test_dispatch_receipt_truth.py` drives the real Manager/canonical Backlog through
 both HTTP transports with deterministic classification and startup, including

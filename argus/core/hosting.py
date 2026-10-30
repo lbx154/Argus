@@ -1,18 +1,18 @@
-"""The one place Argus core reaches the optional hosted trial.
+"""The one place Argus core reaches hosting, which lives in the hosting repository.
 
-Core asks ``hosting().<question>`` and never imports the trial package. When
-the trial is installed, ``hosting()`` is its ``argus.trial.hosting`` module;
-when it is not, ``NO_HOSTING`` answers instead, which is exactly how Argus
-behaves today with the trial switched off: nothing is hosted, rewritten,
-redacted, captured or restricted.
+Core asks ``hosting().<question>`` and never names the hosting package: an
+installed one registers itself under the ``argus.hosting`` entry point. With
+none, ``NO_HOSTING`` answers instead: nothing is hosted, rewritten, redacted,
+captured or restricted.
 
-Every question is listed in ``NO_HOSTING``; ``argus.trial.hosting`` answers
-the same names.
+Every question is listed in ``NO_HOSTING``; a hosting package answers the same
+names.
 """
 from __future__ import annotations
 
 import functools
 from contextlib import nullcontext
+from importlib.metadata import entry_points
 from types import ModuleType, SimpleNamespace
 
 
@@ -49,11 +49,7 @@ NO_HOSTING = SimpleNamespace(
 
 @functools.cache
 def hosting() -> ModuleType | SimpleNamespace:
-    """The installed hosting package, or ``NO_HOSTING`` when there is none."""
-    try:
-        from ..trial import hosting as installed
-    except ModuleNotFoundError as exc:
-        if exc.name != "argus.trial":
-            raise
-        return NO_HOSTING
-    return installed
+    """The hosting package registered under ``argus.hosting``, or ``NO_HOSTING``."""
+    for entry in entry_points(group="argus.hosting"):
+        return entry.load()
+    return NO_HOSTING

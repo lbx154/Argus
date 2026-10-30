@@ -2,6 +2,8 @@
 
 > 注（2026-10）：Argus 已不再计算或记录 SHA-256，下文出现的摘要值仅作为历史记录保留。
 
+> 注（2026-10-30）：下文的 `trial/`（及 `deploy/trial/`、`docs/hosted-research-trial.md`、`docs/trial-gateway.md`、`argus-trial-server` 与 `argus-compute` 两个命令）已从 feat/ts-core 删除，第 5 张决策卡"trial 是否退出产品 wheel"因此了结；托管代码今后放在 hosting 子模块（lbx154/argus-hosting），核心只经 `core/hosting.py` 按 `argus.hosting` 入口点找它。下文与数据附件里的数字是 2026-09-14 的测量，未改。
+
 > 只读调查产物，未改任何代码，未提交。起因：操作者感觉"软件架构不够明晰，需要调整"。
 > 本文回答三个问题：这种感觉有没有实证？根因是什么？该怎么调、按什么顺序、哪些要操作者拍板？
 > 数据附件：`architecture-clarity-2026-09-14.data.json`（诊断、核验、最终方案的结构化原文）。

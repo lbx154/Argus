@@ -9,9 +9,8 @@ it and, with no subcommand:
   in the background even after you log out.
 
 It is not the only console script: ``pyproject.toml`` also installs
-``argus`` (TUI launcher), ``argus-doctor``, ``argus-plugin-server``,
-``argus-trial-server`` and ``argus-compute``; this module owns only
-``argus``.
+``argus`` (TUI launcher), ``argus-doctor`` and ``argus-plugin-server``;
+this module owns only ``argus``.
 
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
