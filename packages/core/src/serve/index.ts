@@ -199,11 +199,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
           due ||= moved;
         };
         const flush = (moved = true) => {
-          let now: Project;
-          // A project deleted meanwhile ends its stream.
-          try { now = store.load(work.id); } catch { wake.delete(later); response.end(); return; }
+          // A command or an edit moves no row, and the project is not read for it; one deleted
+          // meanwhile ends its stream.
+          let now: Project | undefined;
+          if (moved) try { now = store.load(work.id); } catch { wake.delete(later); response.end(); return; }
           const reading = readRecord(store, work.id);
-          const rows = moved ? conversationRows(reading, now, runs.live(work.id)) : [];
+          const rows = now ? conversationRows(reading, now, runs.live(work.id)) : [];
           // A row goes out when what it shows changed, not the line it was read at; a stream just
           // begun sends those past its cursor.
           const shown = new Map(rows.map(row => [String(row.row_id), JSON.stringify({ ...row, event_id: 0 })]));

@@ -501,7 +501,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       const replied = event.to === 'operator';
       Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
       // Word for a task under way joins the message to that task.
-      if (event.task) card.deps = [event.task];
+      if (event.task && added.has(event.task) && !closed.has(event.task)) card.deps = [event.task];
       reading.answered = card.id;
       if (event.to === 'planner') reading.briefed = card.id;
       if (event.to !== 'operator' || event.open?.length) worked.add(card.id);

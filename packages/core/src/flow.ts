@@ -52,9 +52,11 @@ export class Flow {
     project.request ||= text;
     // The message is named: the Manager's turn on it, and the letter that answers it, name it in turn.
     const message: OperatorMessage = { text, request_id, ...attachments?.length ? { attachments } : {} };
-    // A message to a stopped project takes the place of the operator's the stop left unanswered; the
-    // team's letters wait for Resume, or for this message to set the team working again.
-    if (project.status === 'stopped' && project.forManager) project.forManager = project.forManager.filter(letter => typeof letter === 'string');
+    // A message to a stopped project takes the place of the operator's the stop left unanswered, not
+    // of one sent since that a Manager turn is taking; the team's letters wait for Resume, or for this
+    // message to set the team working again.
+    const taking = this.handing.get(project) ?? [];
+    if (project.status === 'stopped' && project.forManager) project.forManager = project.forManager.filter(letter => typeof letter === 'string' || taking.includes(letter));
     this.record(project, { type: 'message', from: 'operator', ...message });
     if (project.status !== 'stopped') this.retry(project);
     return this.writeToManager(project, message);

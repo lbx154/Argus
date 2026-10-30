@@ -655,7 +655,7 @@ for (const timing of ['before delivery', 'after delivery']) {
     await supplement;
     const project = await flow.settled(id);
     assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.status, project.tasks[0]?.unread, project.inbox], ['idle', 1, 'closed', undefined, []]);
-    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which closed before it was read:\n${letter}`).length, 1);
+    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which is not open, was not read:\n${letter}`).length, 1);
     assert.ok(!requests.some(request => request.role === 'planner'));
     assert.equal(events().filter(event => event.type === 'task.added').length, 1);
   });
@@ -683,7 +683,7 @@ test("a Planner's letter to a task that closed during its turn goes back to it, 
     [['t1', 'Train the baseline', []], ['t2', 'Evaluate it', []], ['t3', 'Compare', ['t2']]]);
   assert.deepEqual(events().filter(event => event.type === 'handoff' && event.role === 'planner' && event.to === 'engineer')
     .slice(-3).map(event => 'task' in event ? event.task : undefined), ['t1', undefined, undefined]);
-  assert.equal(project.inbox.at(-1), 'Your letter to task t1, which closed before it was read:\nAlso log the loss.');
+  assert.equal(project.inbox.at(-1), 'Your letter to task t1, which is not open, was not read:\nAlso log the loss.');
 });
 
 test('a letter that reaches a task during the turn that closes it goes back to the Planner', async t => {
@@ -703,7 +703,7 @@ test('a letter that reaches a task during the turn that closes it goes back to t
   t1.open();
   const project = await flow.settled(id);
   assert.deepEqual([project.tasks[0]?.status, project.tasks[0]?.unread], ['closed', undefined]);
-  assert.match(requests[5]!.prompt, /Your letter to task t1, which closed before it was read:\nSwitch to the newer data now\./);
+  assert.match(requests[5]!.prompt, /Your letter to task t1, which is not open, was not read:\nSwitch to the newer data now\./);
 });
 
 test('a stopped project stays stopped through a failed Manager turn, a chat and an answer', async t => {

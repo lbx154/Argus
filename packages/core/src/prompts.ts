@@ -92,8 +92,8 @@ export const rewritePrompt = (draft: string): string => join(
   "Rewrite the operator's draft below as one clear paragraph the team can carry out as it stands. Keep the operator's language and intent, and add no requirement they did not state. Your letter, to the operator, is the rewritten paragraph alone: they read it, and send it as their own.",
   section('Draft', draft));
 
-/** A letter to a task that closed before its holder read it, back to its writer. */
-export const unread = (task: string, letter: string): string => `Your letter to task ${task}, which closed before it was read:\n${letter}`;
+/** A letter to a task that is not open, or closed before its holder read it, back to its writer. */
+export const unread = (task: string, letter: string): string => `Your letter to task ${task}, which is not open, was not read:\n${letter}`;
 
 /** A letter put into a turn under way. */
 export const letterPrompt = (from: Note['from'], text: string): string => section(`From the ${NAMES[from]}, during your turn`, text);

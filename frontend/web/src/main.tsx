@@ -9,7 +9,6 @@ import { I18nProvider, useI18n, translate } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { queryRetryPolicy } from './hooks';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
-import { version } from '../../../packages/core/package.json';
 import { persistQueryCache, restoreQueryCache } from './lib/queryPersistence';
 import { loadApplicationBrand } from './applicationBrand';
 import '@fontsource-variable/geist';
@@ -19,10 +18,13 @@ import './index.css';
 
 const App = lazy(() => import('./App'));
 
+// This build: the entry chunk's own address, fingerprinted by what the build made.
+const build = import.meta.url;
+
 // A cockpit left open across an update can still reference a deleted hashed
 // chunk. Reload the no-store shell before React turns that import into a blank UI.
 installStaleChunkRecovery(window, () => window.location.reload(), {
-  buildId: version,
+  buildId: build,
   storage: () => window.sessionStorage,
 });
 
@@ -43,8 +45,8 @@ const queryClient = new QueryClient({
 // A reload in this tab starts from the views it last showed.
 {
   const storage = () => window.sessionStorage;
-  restoreQueryCache(queryClient, storage, version);
-  persistQueryCache(queryClient, storage, version);
+  restoreQueryCache(queryClient, storage, build);
+  persistQueryCache(queryClient, storage, build);
 }
 
 function WorkbenchEntry() {

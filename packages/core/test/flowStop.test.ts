@@ -84,7 +84,7 @@ test("a letter for a task that closes while it is being put into the turn goes b
   await flow.say(id, 'Use the newer model');
   const project = await flow.settled(id);
   assert.deepEqual([project.tasks[0]!.status, project.tasks[0]!.unread], ['closed', undefined]);
-  assert.match(requests.at(-1)!.prompt, /Your letter to task t1, which closed before it was read:\nUse the newer model\./);
+  assert.match(requests.at(-1)!.prompt, /Your letter to task t1, which is not open, was not read:\nUse the newer model\./);
 });
 
 test('a letter put into a turn that is then stopped is read at the next turn', async t => {
@@ -273,4 +273,47 @@ test('a stop while a Manager letter is put into a turn under way keeps the proje
   const project = store.load(id);
   assert.deepEqual([project.status, requests.length], ['stopped', 3]);
   assert.equal(snapshot(store, project, idle).daemon.resumable, true);
+});
+
+test('a message sent to a stopped project while another sent since is being answered leaves that one to its turn', async t => {
+  const controller = new AbortController();
+  const { flow: first, id, store, requests } = await setup(t, [aborted], controller);
+  void first.say(id, 'A', { request_id: 'A' });
+  await until(() => requests.length === 1);
+  first.stop(id);
+  controller.abort();
+  await first.settled(id);
+  // B is being answered, C comes, and the work is stopped again.
+  const again = new AbortController();
+  const second = agent([aborted]);
+  const flow = new Flow(store, second.callAgent, { signal: again.signal });
+  const b = flow.say(id, 'B: train on the full data', { request_id: 'B' });
+  await until(() => second.requests.length === 1);
+  const c = flow.say(id, 'C: and plot the loss', { request_id: 'C' });
+  flow.stop(id);
+  again.abort();
+  await Promise.all([b, c]);
+  await flow.settled(id);
+  assert.deepEqual(replies(store, id), [['A', 'replaced'], ['B', 'stopped'], ['C', 'stopped']]);
+  const third = agent([reply('On B'), reply('On C')]);
+  const resumed = new Flow(store, third.callAgent);
+  resumed.resume(id);
+  await resumed.settled(id);
+  assert.deepEqual(third.requests.map(request => /B: train/.test(request.prompt) ? 'B' : /C: and plot/.test(request.prompt) ? 'C' : '?'), ['B', 'C']);
+});
+
+test("a Manager letter to a task that is not open answers its message once the team rests", async t => {
+  const { flow, id, store } = await setup(t, [
+    async () => ({ to: 'engineer', letters: ['Build the CSV tool'] }),
+    async () => ({ to: 'manager', letters: ['Built.'] }),
+    reply('Done.'),
+    async () => ({ to: 'engineer', letters: ['Also handle quoted commas.'], tasks: [{ task: 'T1', after: [] }] }),
+    reply('t1 had already closed; I will open a new task if you want.'),
+  ]);
+  await flow.say(id, 'Build a CSV tool', { request_id: 'A' });
+  await flow.settled(id);
+  await flow.say(id, 'Also handle quoted commas', { request_id: 'B' });
+  await flow.settled(id);
+  assert.equal(store.load(id).status, 'idle');
+  assert.deepEqual(cards(store, id).find(([objective]) => objective === 'Also handle quoted commas'), ['Also handle quoted commas', 'done']);
 });
