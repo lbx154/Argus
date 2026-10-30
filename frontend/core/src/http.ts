@@ -11,7 +11,7 @@ export class ApiError extends Error {
   readonly status: number;
   readonly method: string;
   readonly path: string;
-  /** A machine-readable reason from the service, such as "trial_route_unavailable"; empty when none was given. */
+  /** A machine-readable reason from the service, such as "invalid_request"; empty when none was given. */
   readonly code: string;
   /** The service's own sentence (the JSON `detail`), without the request line; empty when none was given. */
   readonly detail: string;

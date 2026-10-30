@@ -196,7 +196,7 @@ describe('plain error messages', () => {
     expect(errorText(new ApiError('GET /api/projects/s → 404', 404, 'GET', '/api/projects/s'))).toBe('要找的内容已不存在，可能被删除或移动了。');
     expect(errorText(new ApiError('POST /x → 409: Nothing is waiting to start.', 409, 'POST', '/x', '', 'Nothing is waiting to start.')))
       .toBe('Nothing is waiting to start.');
-    expect(errorText(new ApiError('GET /x → 401', 401, 'GET', '/x'))).toContain('重新打开试用链接');
+    expect(errorText(new ApiError('GET /x → 401', 401, 'GET', '/x'))).toContain('重新打开配对链接');
     expect(errorText(new ApiError('GET /x → 500', 500, 'GET', '/x'))).toBe('Argus 服务出了点问题，请稍后重试。');
     expect(errorText(new Error('plain'))).toBe('plain');
   });

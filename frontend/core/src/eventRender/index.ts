@@ -117,7 +117,6 @@ function supervisionFailure(event: TypedArgusEvent, context: RenderContext): { t
   }
   if (quiet) return null;
   const why: Record<string, [string, string]> = {
-    trial_quota_exceeded: ['the trial quota is running low', '试用额度不够了'],
     timeout: ['the model took too long to answer', '模型太久没有回应'],
   };
   const cause = (chinese: boolean) => (Object.hasOwn(why, code) ? why[code][chinese ? 1 : 0] : '')

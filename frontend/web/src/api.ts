@@ -263,7 +263,6 @@ export interface ConfigKnob {
 }
 export interface ConfigSnapshot {
   schema_version: number;
-  trial_mode?: boolean;
   generated_at_utc: string;
   roles: ConfigRole[];
   operator_knobs: ConfigKnob[];
@@ -777,7 +776,7 @@ const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}$
 /** URL of the served, self-sandboxing preview page for an HTML result. A
  * sandboxed iframe loads it by URL so the delivered site keeps its own styles
  * and scripts; it cannot send an auth header, so it presents the cookie that
- * `api.artifactPreview` received (a hosted portal adds the header upstream). */
+ * `api.artifactPreview` received. */
 export const previewPageUrl = (sid: string, path: string): string =>
   P(sid, `/artifact/preview/page?${new URLSearchParams({ path })}`);
 export const newRequestId = (): string => globalThis.crypto?.randomUUID?.()

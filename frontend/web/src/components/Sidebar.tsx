@@ -12,7 +12,7 @@ import { workStatusLabel, type WorkStatus } from '../lib/workStatus';
 import { filterProjects, hasHumanProjectLabel } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
-import { Archive, ChevronDown, ChevronRight, Cpu, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, Monitor } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Play, Flag, Search, Settings, Monitor } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 
 const ADVANCED_KEY = 'argus.sidebar.advanced.v1';
@@ -480,12 +480,6 @@ export function Sidebar({
               </summary>
               <div className="sidebar-more-menu">
                 {onDevices && <button type="button" onClick={onDevices} className="icon-control flex h-8 w-full items-center gap-2 px-2 text-xs" aria-label={zh ? '设备与登录' : 'Devices and sign-in'}><Monitor size={15} />{zh ? '设备与登录' : 'Devices and sign-in'}</button>}
-                {import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' ? (
-                  <a href="/invite/compute" aria-label={t('sidebar.compute')} title={t('sidebar.compute')}
-                    className="icon-control flex h-8 w-8 items-center justify-center">
-                    <Cpu size={16} />
-                  </a>
-                ) : null}
                 <AppearanceControls themeMode={themeMode} onCycleTheme={onCycleTheme} labelled />
               </div>
             </details>

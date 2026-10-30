@@ -185,7 +185,7 @@ describe('project organization', () => {
   it('keeps readable names searchable without changing the backend identifier', () => {
     const row = { name: 'software', kind: 'builtin' as const, purpose: 'Software engineering', purpose_zh: null,
       tags: [], requires: [], shared: [], version: null, installed_version: null, enabled: true, update_available: false,
-      python_requirements: [], missing_python: [], size_bytes: null, used_by: [], operation: null, managed_by_host: false, actions: [] };
+      python_requirements: [], missing_python: [], size_bytes: null, used_by: [], operation: null, actions: [] };
     expect(verticalTitle(row, 'zh-CN')).toBe('软件开发');
     expect(matchesQuery(row, '软件开发')).toBe(true);
     expect(row.name).toBe('software');

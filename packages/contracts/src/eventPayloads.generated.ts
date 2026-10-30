@@ -195,7 +195,7 @@ export interface LifeManagerSupervisionFailedEvent extends EventMsg {
   "error_type"?: string;
   "failure_stage"?: "provider" | "decision" | "commit";
   "stop_kind"?: "budget_exhausted" | "provider_cooldown" | "provider_fence" | "daemon_shutdown" | "operator_pause" | "operator_abort" | "backend_unavailable" | "transient_error" | "permanent_error";
-  "error_code"?: "trial_quota_exceeded" | "timeout" | "cancelled" | "superseded" | "observation_incomplete" | "busy" | "handoff_missing" | "decision_invalid";
+  "error_code"?: "timeout" | "cancelled" | "superseded" | "observation_incomplete" | "busy" | "handoff_missing" | "decision_invalid";
   "backend_exit_code"?: number;
 }
 

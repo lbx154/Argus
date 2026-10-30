@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../../core/src/http';
 import type { VerticalRow } from '../../../core/src/types';
 import {
-  EMPTY_FILTER, deriveRoutingPaths, deriveTags, failureDetail, filterRows, formatSize, hasStoreCapability, hostedTrialBuild, isStoreConflict,
+  EMPTY_FILTER, deriveRoutingPaths, deriveTags, failureDetail, filterRows, formatSize, hasStoreCapability, isStoreConflict,
   isStoreMissing, matchesKind, pollInterval, progressPercent, purposeText, visibleActions,
 } from '../lib/verticalStore';
 
 const row = (over: Partial<VerticalRow> & { name: string }): VerticalRow => ({
   purpose: 'Purpose', purpose_zh: null, kind: 'available', version: '1.0.0', installed_version: null, enabled: false,
   update_available: false, requires: [], shared: [], python_requirements: [], missing_python: [], tags: [], size_bytes: null,
-  used_by: [], operation: null, managed_by_host: false, actions: ['install'], ...over,
+  used_by: [], operation: null, actions: ['install'], ...over,
 });
 
 const rows: VerticalRow[] = [
@@ -71,20 +71,14 @@ describe('tags', () => {
 });
 
 describe('actions a card may show', () => {
-  it('is exactly the server list on a self-hosted copy', () => {
-    expect(visibleActions(rows[2], false)).toEqual(['update', 'disable', 'uninstall']);
-    expect(visibleActions(rows[3], false)).toEqual(['install']);
+  it('is exactly the server list', () => {
+    expect(visibleActions(rows[2])).toEqual(['update', 'disable', 'uninstall']);
+    expect(visibleActions(rows[3])).toEqual(['install']);
   });
 
-  it('drops install, update and uninstall when the host owns the store or the row', () => {
-    expect(visibleActions(rows[2], true)).toEqual(['disable']);
-    expect(visibleActions(rows[3], true)).toEqual([]);
-    expect(visibleActions({ ...rows[2], managed_by_host: true }, false)).toEqual(['disable']);
-    expect(visibleActions(row({ name: 'x', actions: ['enable'] }), true)).toEqual(['enable']);
-  });
 
   it('ignores actions this interface does not know', () => {
-    expect(visibleActions(row({ name: 'x', actions: ['install', 'launch' as never] }), false)).toEqual(['install']);
+    expect(visibleActions(row({ name: 'x', actions: ['install', 'launch' as never] }))).toEqual(['install']);
   });
 });
 
@@ -147,12 +141,9 @@ describe('polling and errors', () => {
     expect(isStoreMissing(conflict)).toBe(false);
   });
 
-  it('checks the capability list and the hosted build flag', () => {
+  it('checks the capability list', () => {
     expect(hasStoreCapability(['a', 'verticals.store.v1'], 'verticals.store.v1')).toBe(true);
     expect(hasStoreCapability(['a'], 'verticals.store.v1')).toBe(false);
     expect(hasStoreCapability(undefined, 'verticals.store.v1')).toBe(false);
-    expect(hostedTrialBuild({ VITE_ARGUS_HOSTED_TRIAL: '1' })).toBe(true);
-    expect(hostedTrialBuild({ VITE_ARGUS_HOSTED_TRIAL: '0' })).toBe(false);
-    expect(hostedTrialBuild({})).toBe(false);
   });
 });

@@ -219,7 +219,6 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
     }, new Map<string, string[]>())]
       .map(([model, names]) => `${names.join(locale === 'zh-CN' ? '、' : ', ')}${locale === 'zh-CN' ? '：' : ': '}${model}`)
       .join(' · ') + (effort ? ` · ${effortName(effort)}` : '');
-  const trial = config.data?.trial_mode === true;
   const loading = config.isLoading || choicesQuery.isLoading;
   const failed = config.isError || choicesQuery.isError;
 
@@ -229,8 +228,7 @@ export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
       <div className="model-picker">
         {loading && <div className="flex justify-center py-10"><Spinner /></div>}
         {!loading && failed && <p role="alert" className="px-1 py-8 text-center text-sm text-err">{t('models.loadError')}</p>}
-        {!loading && !failed && trial && <EmptyHint>{t('models.trial')}</EmptyHint>}
-        {!loading && !failed && !trial && choices && <>
+        {!loading && !failed && choices && <>
           <div className="model-picker-controls">
             <div className="route-seg" role="radiogroup" aria-label={t('models.modeLabel')}>
               <button type="button" role="radio" aria-checked={mode === 'all'} onClick={() => { setMode('all'); setMessage(null); }}>{t('models.modeAll')}</button>
@@ -309,7 +307,7 @@ export function ModelPickerButton({ sid, onOpenSettings }: { sid: string; onOpen
   const { t } = useI18n();
   const { data } = useConfig(sid, true);
   const [open, setOpen] = useState(false);
-  if (!data || data.trial_mode) return null;
+  if (!data) return null;
   const models = [...new Set(data.roles
     .filter(row => (CHOOSER_ROLES as string[]).includes(row.role))
     .map(row => (unset(row.model) ? t('models.none') : row.model)))];

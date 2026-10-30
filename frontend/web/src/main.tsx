@@ -18,10 +18,8 @@ import '@fontsource-variable/geist-mono';
 import 'katex/dist/katex.min.css';
 import './index.css';
 
-const isAdminData = window.location.pathname === '/admin/data' || window.location.pathname.startsWith('/admin/data/');
 const App = lazy(() => import('./App'));
 const WorkflowWorkbench = lazy(() => import('./components/WorkflowWorkbench'));
-const AdminDataApp = lazy(() => import('./admin-data/AdminDataApp'));
 
 // A cockpit left open across an update can still reference a deleted hashed
 // chunk. Reload the no-store shell before React turns that import into a blank UI.
@@ -32,7 +30,7 @@ installStaleChunkRecovery(window, () => window.location.reload(), {
 
 // Runs before the first request so a QR-paired phone is authenticated for
 // every later load, not just the one carrying `?token=`.
-if (!isAdminData) adoptTokenFromUrl();
+adoptTokenFromUrl();
 
 const embeddedDesktop = window.parent !== window;
 document.documentElement.dataset.argusEmbedded = String(embeddedDesktop);
@@ -45,7 +43,7 @@ const queryClient = new QueryClient({
   },
 });
 // A reload in this tab starts from the views it last showed.
-if (!isAdminData) {
+{
   const storage = () => window.sessionStorage;
   restoreQueryCache(queryClient, storage, RELEASE_ID);
   persistQueryCache(queryClient, storage, RELEASE_ID);
@@ -76,14 +74,14 @@ function WebApp() {
       <PageUpdateNotice />
       <WorkspaceErrorBoundary locale={locale}>
         <Suspense fallback={<div className="grid min-h-screen place-items-center text-sm text-ink-faint">{locale === 'zh-CN' ? '正在加载工作台…' : 'Loading workbench…'}</div>}>
-          {isAdminData ? <AdminDataApp /> : <WorkbenchEntry />}
+          <WorkbenchEntry />
         </Suspense>
       </WorkspaceErrorBoundary>
     </>
   );
 }
 
-void (isAdminData ? Promise.resolve() : loadApplicationBrand()).then(() => ReactDOM.createRoot(document.getElementById('root')!).render(
+void loadApplicationBrand().then(() => ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <I18nProvider>

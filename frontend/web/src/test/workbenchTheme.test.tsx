@@ -18,7 +18,7 @@ beforeEach(() => {
     setItem: (key: string, value: string) => storage.set(key, value),
   });
   const browser = {
-    location: { href: 'https://argus.test/admin/data', search: '' },
+    location: { href: 'https://argus.test/', search: '' },
     history: { replaceState: vi.fn() },
     parent: null as unknown,
     matchMedia: () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
@@ -49,7 +49,7 @@ it('uses the workbench preference and publishes changes for the other surface', 
   expect(document.documentElement.dataset.theme).toBe('light');
 });
 
-it('updates an open administrator view when the user workbench changes theme', () => {
+it('updates another open view when the user workbench changes theme', () => {
   act(() => { renderer = create(<Probe />); });
   expect(current.themeMode).toBe('light');
   storage.set('argus.theme', 'dark');

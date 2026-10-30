@@ -6,12 +6,11 @@ import { ResourceStatusView } from '../../components/ResourceStatus';
 import { RawDisclosure } from '../../components/primitives';
 import { useI18n } from '../../i18n';
 import { isImeComposing } from '../../lib/ime';
-import { requestFailureText, routeRefused } from '../../lib/requestFailure';
+import { requestFailureText } from '../../lib/requestFailure';
 import { currentWorkStatus, workStatusLabel } from '../../lib/workStatus';
 import type { ActiveWorkbenchPageProps } from './pageTypes';
 import './runtimeControl.css';
 
-const HOSTED_TRIAL = import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1';
 
 async function requireCommandSuccess(operation: Promise<unknown>) {
   const result = await operation;
@@ -53,7 +52,7 @@ export function RuntimeControlPage({
   });
   const source = useQuery({
     queryKey: ['runtime-source-update'], queryFn: ({ signal }) => api.sourceUpdateStatus(signal),
-    enabled: active && settingsOpen && !HOSTED_TRIAL && !readOnly, retry: false,
+    enabled: active && settingsOpen && !readOnly, retry: false,
     refetchInterval: query => query.state.data?.running ? 1_500 : false,
   });
   useEffect(() => {
@@ -85,7 +84,7 @@ export function RuntimeControlPage({
     if (!disabled && window.confirm(question)) void run(key, operation, message);
   };
   const requestError = (error: unknown) => error
-    ? routeRefused(error) ? t('operations.unavailableHere') : requestFailureText(error, t).text
+    ? requestFailureText(error, t).text
     : '';
   const replacements = snap.daemon_admission?.running_daemons ?? [];
 
@@ -142,7 +141,7 @@ export function RuntimeControlPage({
           <button className="button" disabled={disabled || external} onClick={() => confirmRun('restart', zh ? '等待当前工作结束后，使用当前版本重新启动。确认继续？' : 'Wait for active work, then restart on the current release?',
             () => api.upgradeDaemon(sid, snap.daemon_commands?.revision), zh ? '安全重启请求已提交。' : 'Safe restart requested.')}><RefreshCw size={15} />{zh ? '安全重启' : 'Restart safely'}</button>
         </div>
-        {!HOSTED_TRIAL && !readOnly && <div className="runtime-source-update">
+        {!readOnly && <div className="runtime-source-update">
           <h3>{t('operations.sourceUpdate')}</h3>
           {source.error ? <p role="alert">{requestError(source.error)}</p> : source.data?.error || source.data?.message ? <p>{source.data.error || source.data.message}</p> : null}
           {!source.error && <div className="runtime-field-row">
