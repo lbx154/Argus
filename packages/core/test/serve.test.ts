@@ -569,6 +569,20 @@ test("a project whose work comes to rest ends its sessions, unless a question wa
   assert.deepEqual(closed, [`${sid}/`, `${sid}/`]);
 });
 
+test('a project that comes to rest failed keeps its sessions: what the failed task started runs on', async t => {
+  const { store, post, closed } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: brief },
+    { role: 'engineer', to: 'reviewer', letter: 'Training runs in the background; the first checkpoint is in two hours.' },
+    { role: 'reviewer' },
+    { role: 'reviewer' },
+  ]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  await frames(await post(`/api/projects/${sid}/message/stream`, { text: 'Train it', request_id: 'r1' }));
+  await eventually(async () => store.load(sid).status, status => status === 'failed');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(closed, []);
+});
+
 test('work a shutdown cut off goes on when Argus starts again; what the operator stopped stays stopped', async t => {
   const home = await mkdtemp(join(tmpdir(), 'argus-serve-'));
   t.after(() => rm(home, { recursive: true, force: true }));

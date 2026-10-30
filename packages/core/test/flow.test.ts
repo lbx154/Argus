@@ -937,3 +937,22 @@ test('a message whose tasks wait on each other is answered once the last of them
   training.open();
   assert.equal(qa(store, await flow.settled(id)).status, 'done');
 });
+
+test('a new session whose turn did work before it failed is gone on in, though nothing was counted', async t => {
+  const { store, id } = await setup(t, []);
+  const requests: AgentRequest[] = [];
+  // As Claude when its process dies mid-turn: steps were taken, no result reports usage.
+  const callAgent: CallAgent = async request => {
+    requests.push(request);
+    if (requests.length === 1) {
+      request.onStep?.({ kind: 'command', text: 'python train.py &' });
+      return { callId: 'c1', threadId: 'worked', completed: false, error: 'claude exited with code 137', handoff: null, model: null, usage: null, ms: 1 };
+    }
+    return { callId: 'c2', threadId: 'worked', completed: true, error: null, handoff: { form: request.form, to: 'operator', letters: ['Training is running.'] }, model: 'fake', usage: null, ms: 1 };
+  };
+  const flow = new Flow(store, callAgent);
+  assert.equal((await say(flow, id, 'train it')).status, 'failed');
+  assert.equal(store.load(id).sessions.manager, 'worked');
+  await say(flow, id, 'go on');
+  assert.equal(requests[1]?.resume, 'worked');
+});

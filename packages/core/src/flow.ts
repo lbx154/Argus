@@ -321,6 +321,7 @@ export class Flow {
     if (signal?.aborted) return null;
     const key = task ? `${task.id}.${role}` : role;
     const resume = project.sessions[key];
+    let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
     this.record(project, { type: 'call.start', role, ...where, ...answering });
@@ -332,7 +333,7 @@ export class Flow {
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
-        ...(task ? { giver: task.from } : {}), onStep: step => this.record(project, { type: 'step', role, ...where, ...step }), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+        ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); }, callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
       // The call never ran to an end of its own: it is recorded as ended, failed.
@@ -343,11 +344,11 @@ export class Flow {
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
     // A turn goes on next time in the session its backend reported, whether it ended, was cut off
-    // or failed: its work is not done again. With none reported, or a new one whose turn failed with
-    // nothing spent, which holds no work and may hold the settings it failed on, the role starts
-    // afresh; and a session reset while the turn went on stays reset.
+    // or failed: its work is not done again. With none reported, or a new one whose turn failed before
+    // a step, which holds no work and may hold the settings it failed on, the role starts afresh; and
+    // a session reset while the turn went on stays reset.
     if (project.sessions[key] === resume) {
-      if (threadId && (resume || completed || usage || signal?.aborted)) project.sessions[key] = threadId;
+      if (threadId && (resume || completed || stepped || signal?.aborted)) project.sessions[key] = threadId;
       else delete project.sessions[key];
     }
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
