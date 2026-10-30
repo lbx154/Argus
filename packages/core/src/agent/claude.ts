@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { isJsonObject } from '@argus/contracts';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
-import { said, used } from './steps.js';
+import { said, thought, used } from './steps.js';
 
 export const claude: StartBackend = (request, { confined, schema }) => {
   const args = [
@@ -43,11 +43,13 @@ export const claude: StartBackend = (request, { confined, schema }) => {
           mine = event.type === 'user' && event.uuid === uuid;
           return false;
         }
-        // What a subagent runs and edits are the role's steps; its words are its own.
+        // What a subagent runs and edits are the role's steps; its words and thoughts are its own.
+        // A thought is Claude's summary of its thinking, where it gives one.
         const content = event.type === 'assistant' && isJsonObject(event.message) && Array.isArray(event.message.content)
           ? event.message.content.filter(isJsonObject) : [];
         for (const part of content) {
-          onStep(part.type === 'text' && !event.parent_tool_use_id ? said(part.text) : part.type === 'tool_use' ? used(part.name, part.input) : null);
+          onStep(part.type === 'text' && !event.parent_tool_use_id ? said(part.text) : part.type === 'tool_use' ? used(part.name, part.input)
+            : part.type === 'thinking' && !event.parent_tool_use_id ? thought([part.thinking]) : null);
         }
         if (event.type !== 'result') return false;
         result = event;
