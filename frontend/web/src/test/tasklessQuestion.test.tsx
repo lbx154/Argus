@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Store } from '../../../../packages/core/src/store';
-import { snapshot } from '../../../../packages/core/src/serve/views';
+import { conversationRows, projectRecord, readEvents, snapshot } from '../../../../packages/core/src/serve/views';
 import type { Snapshot } from '../api';
 import { api } from '../api';
-import { PendingBanner } from '../components/PendingBanner';
+import { EventStream, setRoleLog } from './serverSnapshot';
 import { usePendingReplySession } from '../usePendingReplySession';
 import * as i18n from '../i18n';
 
@@ -20,7 +20,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it('keeps a Planner question taskless from the server snapshot through the banner and answer endpoint', async () => {
+it('keeps a Planner question taskless from the conversation row through the answer endpoint', async () => {
   home = mkdtempSync(join(tmpdir(), 'argus-taskless-question-'));
   const store = new Store(home);
   const project = store.create({ workdir: home, request: '确认研究范围', backend: 'codex', model: null });
@@ -30,6 +30,9 @@ it('keeps a Planner question taskless from the server snapshot through the banne
   store.save(project);
   store.append(project.id, { type: 'handoff', role: 'planner', to: 'operator', letter: question });
   const snap = snapshot(store, project, { since: null, calls: [], requests: [] });
+  const reading = projectRecord(readEvents(store, project.id));
+  const rows = conversationRows(reading, project, { since: null, calls: [], requests: [] });
+  setRoleLog(project.id, reading.roleEvents);
   expect(snap.pending_questions?.[0]).toMatchObject({
     id: 'planner', title: 'The Planner asks',
     operator_decision: { id: 'planner', item_id: '', question },
@@ -41,14 +44,15 @@ it('keeps a Planner question taskless from the server snapshot through the banne
   function QuestionPath({ snap }: { snap: Snapshot }) {
     session = usePendingReplySession({ activeSid: snap.session.id, pendingQuestions: snap.pending_questions,
       backlog: snap.backlog, notify, refetchSnapshot: async () => {} });
-    return session.pendingReply ? <PendingBanner reply={session.pendingReply} /> : null;
+    return <EventStream snapshot={snap} events={rows} connected showReasoning={false} embedded />;
   }
   act(() => { renderer = create(<QuestionPath snap={snap} />); });
   expect(session.pendingReply.item_id).toBe('');
   expect(session.pendingReply.task_title).toBeUndefined();
   const words = () => renderer!.root.findAll(node => typeof node.type === 'string')
     .flatMap(node => node.children.filter(child => typeof child === 'string')).join('');
-  expect(words()).toBe(question);
+  expect(words().split(question)).toHaveLength(2);
+  expect(renderer!.root.findAllByProps({ 'data-conversation-question': 'q0' })).toHaveLength(1);
   expect(words()).not.toContain('The Planner asks');
   expect(words()).not.toContain('Argus');
   await act(async () => { expect(await session.answerPendingReply('只研究已有数据。')).toBe(true); });

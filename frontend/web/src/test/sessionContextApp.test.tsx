@@ -49,7 +49,6 @@ vi.mock('../components/ArtifactModal', () => ({ ArtifactModal: () => null }));
 vi.mock('../components/EventStream', async importOriginal => ({ ...await importOriginal<object>(), EventStream: () => null }));
 vi.mock('../components/ResearchCanvas', async importOriginal => ({ ...await importOriginal<object>(), ResearchCanvas: () => null }));
 vi.mock('../components/TopBar', () => ({ TopBar: () => null }));
-vi.mock('../components/PendingBanner', () => ({ PendingBanner: () => null }));
 vi.mock('../components/CommandPalette', async importOriginal => ({ ...await importOriginal<object>(), CommandPalette: () => null }));
 vi.mock('../components/KeybindingHelp', () => ({ KeybindingHelp: () => null }));
 vi.mock('../components/InfoModals', () => ({ ConfigModal: () => null, TranscriptModal: () => null }));

@@ -465,7 +465,7 @@ describe('server conversation rows and role channel', () => {
       { type: 'ui.task', item_id: 'task-a', title: 'Research task A', state: 'done', row_id: 't1', ts: 4 },
     ];
     act(() => { renderer = create(<EventStream events={events} snapshot={snapshot} connected showReasoning={false} />, { createNodeMock: nodeMock }); });
-    expect(visibleText(renderer!.root)).toContain('Engineer asks about “Research task A”: Which option?');
+    expect(visibleText(renderer!.root)).toContain('Engineer asks about “Research task A”:\n\nWhich option?');
     expect(streamOrder()).toEqual(['thread', 'task task-a']);
     expect(visibleText(renderer!.root.findByProps({ 'data-task-work': 'task-a' }))).toBe('Ended: Research task A');
     expect(visibleText(work())).not.toContain('This round only');

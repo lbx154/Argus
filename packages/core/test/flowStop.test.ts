@@ -320,3 +320,18 @@ test("a Manager letter to a task that is not open answers its message once the t
   assert.equal(store.load(id).status, 'idle');
   assert.deepEqual(cards(store, id).find(([objective]) => objective === 'Also handle quoted commas'), ['Also handle quoted commas', 'done']);
 });
+
+test("a first request a later one took the place of gives the project that one's request", async t => {
+  const controller = new AbortController();
+  const { flow: first, id, store, requests } = await setup(t, [aborted], controller);
+  first.edit(id, project => { project.request = ''; });
+  void first.say(id, 'Write 300 words on the pomodoro technique', { request_id: 'A' });
+  await until(() => requests.length === 1);
+  first.stop(id);
+  controller.abort();
+  await first.settled(id);
+  const next = new Flow(store, agent([async () => ({ to: 'engineer', letters: ['Time blocking essay'] })]).callAgent);
+  await next.say(id, 'Write 300 words on time blocking instead', { request_id: 'B' });
+  const project = await next.settled(id);
+  assert.deepEqual([project.request, project.requestId, project.name], ['Write 300 words on time blocking instead', 'B', 'Time blocking essay']);
+});

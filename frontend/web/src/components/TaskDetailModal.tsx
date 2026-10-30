@@ -66,7 +66,6 @@ export function TaskDetailModal({
             {item.pending_question ? (
               <div className="rounded-lg border border-warn/40 bg-warn/5 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-warn">{t('task.waitingOnYou')}</div>
-                <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">{item.pending_question}</p>
               </div>
             ) : null}
             {/* A task the Planner wrote has no request of the reader's own: its

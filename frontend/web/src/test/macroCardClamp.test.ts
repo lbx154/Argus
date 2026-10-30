@@ -10,8 +10,14 @@ describe("atlas overview card text is line-clamped", () => {
   const atlas = readFileSync(new URL("../map/atlas.css", import.meta.url), "utf8");
   const design = readFileSync(new URL("../map/design.css", import.meta.url), "utf8");
   const rule = (selector: string, css = atlas) => {
-    const match = css.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`));
-    return match ? match[1] : "";
+    const matches = css.matchAll(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{([^}]*)\\}`, "g"));
+    // Later rules override earlier declarations of the same selector.
+    const declarations = new Map<string, string>();
+    for (const match of matches) for (const declaration of match[1].split(";")) {
+      const colon = declaration.indexOf(":");
+      if (colon >= 0) declarations.set(declaration.slice(0, colon).trim(), declaration.slice(colon + 1).trim());
+    }
+    return [...declarations].map(([key, value]) => `${key}: ${value};`).join("\n");
   };
   it("clamps the title to two lines and wraps long tokens", () => {
     const title = rule(".macro-summary .map-card h3");
@@ -19,10 +25,12 @@ describe("atlas overview card text is line-clamped", () => {
     expect(title).toMatch(/overflow:\s*hidden/);
     expect(title).toMatch(/overflow-wrap:\s*anywhere/);
   });
-  it("keeps the final title layout fixed and never squeezes its two lines", () => {
+  it("uses three wrapping lines in the final title rule, including the phone far view", () => {
     const title = rule(".argus-map .macro-summary .map-card h3", design);
-    expect(title).toMatch(/-webkit-line-clamp:\s*2/);
-    expect(title).toMatch(/font-size:\s*16px/);
+    expect(title).toMatch(/display:\s*-webkit-box/);
+    expect(title).toMatch(/-webkit-box-orient:\s*vertical/);
+    expect(title).toMatch(/-webkit-line-clamp:\s*3/);
+    expect(title).not.toMatch(/white-space:\s*nowrap/);
     expect(title).toMatch(/flex-shrink:\s*0/);
   });
   it("keeps the fixed-height overview card and its results row from bleeding", () => {

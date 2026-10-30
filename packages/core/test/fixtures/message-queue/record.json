@@ -1,0 +1,82 @@
+{
+  "source": "p-f6a790f1/events.jsonl:232, 2026-10-30T02:17:12.933Z; queue feedback excerpt. Events captured at the built CLI web cockpit on 2026-10-30T02:24:54Z with controlled fake-codex gates; request IDs shortened to r1/r2. The messages below replay that browser sequence.",
+  "feedback": "停着时我连发两条消息，第二条明明在排队，界面却在两条下面都写\"正在回复你的消息\"（两个绿点）；输入框下面另有一句\"已排队…\"。期望：排队的那条就写它在等，不说正在回复；这件事只在一处说。",
+  "messages": [
+    {
+      "text": "第一条消息",
+      "request_id": "r1"
+    },
+    {
+      "text": "第二条消息",
+      "request_id": "r2"
+    }
+  ],
+  "events": [
+    {
+      "ts": "2026-10-30T02:24:54.881Z",
+      "type": "message",
+      "from": "operator",
+      "text": "第一条消息",
+      "request_id": "r1"
+    },
+    {
+      "ts": "2026-10-30T02:24:54.883Z",
+      "type": "call.start",
+      "role": "manager",
+      "answers": "r1"
+    },
+    {
+      "ts": "2026-10-30T02:24:55.078Z",
+      "type": "message",
+      "from": "operator",
+      "text": "第二条消息",
+      "request_id": "r2"
+    },
+    {
+      "ts": "2026-10-30T02:24:55.487Z",
+      "type": "call.end",
+      "role": "manager",
+      "callId": "20261030022454-c66ceb",
+      "threadId": "b639f22a-826c-4063-9082-60b779910eda",
+      "completed": true,
+      "error": null,
+      "model": "fake",
+      "usage": null,
+      "ms": 590
+    },
+    {
+      "ts": "2026-10-30T02:24:55.487Z",
+      "type": "handoff",
+      "role": "manager",
+      "to": "operator",
+      "letter": "第一条已回答。",
+      "answers": "r1"
+    },
+    {
+      "ts": "2026-10-30T02:24:55.489Z",
+      "type": "call.start",
+      "role": "manager",
+      "answers": "r2"
+    },
+    {
+      "ts": "2026-10-30T02:24:55.695Z",
+      "type": "call.end",
+      "role": "manager",
+      "callId": "20261030022455-0f869c",
+      "threadId": "b639f22a-826c-4063-9082-60b779910eda",
+      "completed": true,
+      "error": null,
+      "model": "fake",
+      "usage": null,
+      "ms": 193
+    },
+    {
+      "ts": "2026-10-30T02:24:55.696Z",
+      "type": "handoff",
+      "role": "manager",
+      "to": "operator",
+      "letter": "第二条已回答。",
+      "answers": "r2"
+    }
+  ]
+}

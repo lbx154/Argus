@@ -681,23 +681,12 @@
   .map-card-bottom, .map-card-results button) { font-size: var(--text-size); }
 /* The card kind shares a row with the state: hidden, it takes no room from it. */
 .argus-map .macro-summary .map-card .map-card-kind { font-size: calc(var(--text-size) * var(--near)); }
-/* A title keeps its full text for the reader; the overview ends it with an ellipsis. */
+/* The overview uses the three whole title lines reserved by the font-size bound. */
 .argus-map .macro-summary .map-card h3 {
   font-size: max(19px, min(56px, calc(15px / var(--on-screen)), calc((var(--summary-height, 300px) - 55px - 1.5 * var(--status-size)) / 4.2)));
   font-weight: 500;
-  display: block;
-  -webkit-line-clamp: unset;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
+  -webkit-line-clamp: 3;
   padding-right: 4px;
-}
-.argus-map .macro-summary .map-card-question {
-  margin: 0;
-  font-size: var(--text-size);
-  line-height: 1.6;
-  color: rgb(var(--ink));
-  overflow-wrap: anywhere;
 }
 .argus-map .macro-summary .map-card > :not(h3):not(.map-card-top) { scale: var(--near); }
 .argus-map .macro-summary .map-card .map-card-state[data-question="true"] { scale: 1; }

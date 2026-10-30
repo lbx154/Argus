@@ -17,7 +17,6 @@ import { promptHistory, type PromptSources } from './lib/promptCompletion';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette';
 import { KeybindingHelp } from './components/KeybindingHelp';
 import { ConfigModal } from './components/InfoModals';
-import { PendingBanner } from './components/PendingBanner';
 import { rankProjects } from '../../core/src/projects';
 import { ArtifactModal } from './components/ArtifactModal';
 import {
@@ -1083,7 +1082,6 @@ export default function App() {
                 {!kiosk ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
                     <div className="mx-auto w-full max-w-full lg:max-w-[61.8vw]">
-                    {workspaceView === 'activity' && pendingReply ? <PendingBanner key={`${activeSid}:${pendingReply.id}`} reply={pendingReply} /> : null}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}

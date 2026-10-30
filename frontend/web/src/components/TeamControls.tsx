@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
 import type { Snapshot } from '../../../core/src/types';
-import { applicationBrand } from '../applicationBrand';
 import { useI18n } from '../i18n';
 import { roleLabel } from '../lib/enumLabels';
 import type { WorkStatus } from '../lib/workStatus';

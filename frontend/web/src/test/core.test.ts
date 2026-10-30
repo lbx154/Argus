@@ -29,7 +29,6 @@ import {
   selectPreviewArtifacts,
 } from '../components/ResearchCanvas';
 import { MarkdownContent } from '../components/MarkdownContent';
-import { PendingBanner } from '../components/PendingBanner';
 import { Sidebar } from '../components/Sidebar';
 import { BackendHandshake } from '../components/BackendHandshake';
 import { motionDistance, motionDuration, motionQueries } from '../lib/motion';
@@ -263,27 +262,6 @@ describe('shared frontend core', () => {
     expect(EVENT_TYPES.AGENT_IO_COMPLETE).toBe(typedCallEvent.type);
     expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
     expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
-  });
-
-  it('renders operator questions above the composer without a dialog', () => {
-    const html = renderToStaticMarkup(createElement(PendingBanner, {
-      reply: {
-        id: 'engineer-blocked-1',
-        item_id: 'blocked-1',
-        revision: 1,
-        status: 'pending',
-        title: 'Blocked task',
-        reason: 'Dataset access is required.',
-        question: 'Which dataset should the process use?',
-        evidence: [],
-        options: [{ id: 'custom', label: 'Choose dataset', description: 'Name the dataset.' }],
-        selected_option: '',
-        note: '',
-      },
-    }));
-    expect(html).not.toContain('role="dialog"');
-    expect(html).toContain('Which dataset should the process use?');
-    expect(html).not.toMatch(/<textarea|<form|<button/);
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {

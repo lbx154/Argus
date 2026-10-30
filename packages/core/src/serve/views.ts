@@ -413,7 +413,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<Snapshot['spend_status']>, usage_summary: summary,
     pending_questions: questions(project),
     manager_requests: [...new Set([...live.requests, ...live.calls.flatMap(call => call.answers ?? [])])]
-      .map(request_id => ({ request_id, status: 'running' as const })),
+      .map(request_id => ({ request_id, status: live.calls.some(call => call.answers === request_id) ? 'running' as const : 'waiting' as const })),
   };
 }
 

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { progressMap, taskTrace } from '../src/serve/views.js';
+import { named, progressMap, taskTrace } from '../src/serve/views.js';
 import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 
@@ -75,11 +75,13 @@ const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
 
-test('a project is named once, by the first work the Manager hands on, not by a greeting before it', async t => {
-  const name = 'Build the CSV summary tool with complete words '.repeat(4).trim();
-  const { flow, id } = await setup(t, [
-    { role: 'manager', to: 'operator', letter: 'Hello! What shall we work on?' },
-    { ...toEngineer, letter: name },
+test('a follow-up first handed to the team keeps the initial request as the project name', async t => {
+  const record = JSON.parse(readFileSync(new URL('./fixtures/project-name/record.json', import.meta.url), 'utf8')) as {
+    request: string; followup: string; task_title: string;
+  };
+  const { flow, store, id, callAgent } = await setup(t, [
+    report,
+    { ...toEngineer, letter: record.task_title },
     { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
     { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
     report,
@@ -90,11 +92,43 @@ test('a project is named once, by the first work the Manager hands on, not by a 
   ]);
   // A project made on the page has no request till its first message.
   flow.edit(id, project => { project.request = ''; });
-  const hello = await say(flow, id, 'Hello');
-  assert.deepEqual([hello.request, hello.name], ['Hello', undefined]);
-  assert.equal((await say(flow, id, 'Make me a CSV summary tool')).name, name);
-  const later = await say(flow, id, 'Also export a PDF');
-  assert.deepEqual([later.request, later.name], ['Hello', name]);
+  const first = await say(flow, id, record.request);
+  assert.equal(first.tasks.length, 0); // The Manager delivered it without the team.
+  assert.equal(named(first), record.request);
+  // Resetting the conversation opens a new backend session, not a new naming opportunity.
+  flow.edit(id, project => { delete project.sessions.manager; });
+  const followup = await say(flow, id, record.followup);
+  assert.equal(followup.tasks[0]?.title, record.task_title);
+  assert.deepEqual([named(followup), followup.name], [record.request, undefined]);
+  // Reload the persisted record before further work, as on a cockpit restart.
+  const later = await say(new Flow(store, callAgent), id, 'Also export a PDF');
+  assert.equal(named(later), record.request);
+  assert.equal(store.load(id).request, record.request);
+});
+
+test('a project first handed to the team uses its short title, and later requests keep it', async t => {
+  const { flow, store, id, callAgent } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+    { role: 'manager', to: 'engineer', letter: 'Export the totals as a PDF' },
+    { role: 'engineer', to: 'manager', letter: 'PDF added' },
+    report,
+  ]);
+  flow.edit(id, project => { project.request = ''; });
+  const first = await say(flow, id, 'Make me a CSV summary tool with all the details in this long request');
+  assert.equal(named(first), 'Build the CSV summary tool.');
+  const later = await say(new Flow(store, callAgent), id, 'Also export a PDF');
+  assert.equal(named(later), 'Build the CSV summary tool.');
+});
+
+test('an existing Manager session without a saved name keeps its original request name', async t => {
+  const { flow, id } = await setup(t, [toEngineer, { role: 'engineer', to: 'operator', letter: 'Which columns?' }]);
+  flow.edit(id, project => { project.sessions.manager = 'earlier-direct-answer'; });
+  const project = await say(flow, id, 'Make me a CSV summary tool');
+  assert.equal(project.name, undefined);
+  assert.equal(named(project), 'the request');
 });
 
 test('a project with work from before names were kept keeps the name its request gives it', async t => {
@@ -120,8 +154,7 @@ test('a result the Manager hands the operator keeps its files in the record, bes
   // Each delivery names its files by their paths in the workspace, and is titled by its first.
   const handoffs = events().flatMap(event => event.type === 'handoff' ? [event] : []);
   assert.deepEqual(handoffs.map(event => [event.letter, event.open, event.title]), [[report.letter, open, 'summary.py'], [report.letter, open, 'summary.py'], [report.letter, open, 'summary.py']]);
-  // A reply to the operator names no project.
-  assert.equal(project.name, undefined);
+  assert.equal(named(project), 'the request');
   // A text file is copied as delivered; a binary one is named by its size and time.
   const [first, again, changed] = handoffs.map(event => event.snapshots ?? []);
   assert.deepEqual(first?.map(({ path, size, stored }) => [path, size, stored]), [['summary.py', 9, true], ['plot.png', 4, false]]);

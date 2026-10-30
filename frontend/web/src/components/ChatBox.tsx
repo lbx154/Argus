@@ -64,13 +64,11 @@ export function ChatBox({
   const [attachmentNotice, setAttachmentNotice] = useState('');
   const [dragDepth, setDragDepth] = useState(0);
   const [focused, setFocused] = useState(false);
-  const [queuedNotice, setQueuedNotice] = useState(false);
   const [cursor, setCursor] = useState<Caret | null>(null);
   const [navigated, setNavigated] = useState(false);
   const [composing, setComposing] = useState(false);
   const [dismissed, setDismissed] = useState('');
   const caretAfter = useRef<number | null>(null);
-  useEffect(() => { if (!pending) setQueuedNotice(false); }, [pending]);
   useEffect(() => {
     if (!pending && !rewriting) return;
     // CSS animates the eye; only elapsed durations need a once-per-second tick.
@@ -151,7 +149,6 @@ export function ChatBox({
         setMenuDismissed(false);
         setNavigated(false);
         setAttachmentNotice('');
-        setQueuedNotice(whileRunning);
       }
     } finally { submitting.current = false; }
   };
@@ -202,7 +199,7 @@ export function ChatBox({
       if (!dataTransferHasFiles(event.dataTransfer)) return;
       event.preventDefault(); setDragDepth(0); addFiles(extractFilesFromDataTransfer(event.dataTransfer));
     }}>
-    {pending && (pendingNote || queuedNotice) ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{pendingNote || t('chat.queuedWhileRunning')}</div> : null}
+    {pending && pendingNote ? <div className="px-3 py-2 text-xs text-ink-faint" role="status">{pendingNote}</div> : null}
     {completionOpen ? <PromptCompletionMenu items={visibleCompletions} selected={activeCompletion ? bounded : -1} onSelect={applySelected}
       label={t(menu?.kind === '@' ? 'completion.files' : 'completion.tasks')} /> : null}
     {(attachments.length || ready.length || attachmentNotice || dragDepth > 0) ? <div className="px-3 py-2">

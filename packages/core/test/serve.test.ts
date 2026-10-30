@@ -115,6 +115,34 @@ async function eventually<T>(read: () => Promise<T>, done: (value: T) => boolean
 
 const brief = 'Summarize the CSV.\nreport.md gives the column totals.';
 
+test('a legacy project keeps its original name after resetting the Manager and first delegating a follow-up', async t => {
+  const record = JSON.parse(await readFile(new URL('./fixtures/project-name/record.json', import.meta.url), 'utf8')) as {
+    request: string; followup: string; task_title: string;
+  };
+  const { store, requests, get, post } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: record.task_title },
+    { role: 'engineer', to: 'operator', letter: '请确认图表格式。' },
+  ]);
+  // The old Manager delivered the initial request itself: no stored name or tasks.
+  const project = store.create({ workdir: '', request: record.request, backend: 'codex', model: null });
+  project.sessions.manager = 'legacy-manager';
+  store.save(project);
+  const P = `/api/projects/${project.id}`;
+  const snapshot = () => get<Snapshot>(`${P}/snapshot`);
+  assert.equal((await snapshot()).session.display_name, record.request);
+  assert.equal((await post(`${P}/reset`, {})).status, 200);
+  assert.deepEqual(store.load(project.id).sessions, {});
+  const sent = await post(`${P}/message/stream`, { text: record.followup, request_id: 'followup-after-reset' });
+  assert.equal(sent.status, 200);
+  await sent.text();
+  const settled = await eventually(snapshot, value => !value.daemon.alive);
+  assert.equal(settled.backlog[0]?.title, record.task_title);
+  assert.equal(settled.session.display_name, record.request);
+  const rows = await get<{ projects: { id: string; display_name: string }[] }>('/api/projects');
+  assert.equal(rows.projects.find(row => row.id === project.id)?.display_name, record.request);
+  assert.equal(requests[0]?.resume, undefined);
+});
+
 test('the cockpit runs a project: handshake, message, progress, question, answer, results', async t => {
   const { home, get, post, call, requests } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: brief },
@@ -710,6 +738,54 @@ test('a message typed while a reply is under way is answered after it', async t 
   assert.deepEqual(turns.map(turn => [turn.type, turn.text]), [
     ['ui.operator', 'first'], ['ui.operator', 'second'], ['ui.argus', 'First answered.'], ['ui.argus', 'Second answered.'],
   ]);
+});
+
+test('two messages sent to a stopped project show only the actual call as running', async t => {
+  const record = JSON.parse(await readFile(new URL('fixtures/message-queue/record.json', import.meta.url), 'utf8'));
+  let firstDone!: () => void;
+  let secondDone!: () => void;
+  const firstGate = new Promise<void>(resolve => { firstDone = resolve; });
+  const secondGate = new Promise<void>(resolve => { secondDone = resolve; });
+  const { store, get, post, requests } = await setup(t, [
+    { role: 'manager', to: 'operator', letter: 'First answered.', until: firstGate },
+    { role: 'manager', to: 'operator', letter: 'Second answered.', until: secondGate },
+  ]);
+  // Both turns start from the stopped state in the report, with no background work.
+  const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  project.status = 'stopped';
+  store.save(project);
+  const P = `/api/projects/${project.id}`;
+  const snap = () => get<Snapshot>(`${P}/snapshot`);
+  const rows = () => get<ConversationPage>(`${P}/conversation`);
+  const replies = async () => (await rows()).rows.filter(row => row.type === 'ui.argus')
+    .sort((a, b) => String(a.request_id).localeCompare(String(b.request_id)));
+  const first = frames(await post(`${P}/message/stream`, record.messages[0]));
+  try {
+    await eventually(snap, value => value.roles[0]!.active);
+    assert.equal((await post(`${P}/message/followup`, record.messages[1])).status, 200);
+    assert.deepEqual((await snap()).manager_requests, [
+      { request_id: 'r1', status: 'running' }, { request_id: 'r2', status: 'waiting' },
+    ]);
+    assert.deepEqual((await replies()).map(row => [row.request_id, row.status, row.live]),
+      [['r1', 'running', true], ['r2', 'waiting', true]]);
+    assert.equal(requests.length, 1);
+    firstDone();
+    await first;
+    await eventually(snap, value => value.manager_requests?.length === 1 && requests.length === 2);
+    assert.deepEqual((await snap()).manager_requests, [{ request_id: 'r2', status: 'running' }]);
+    assert.deepEqual((await replies()).map(row => [row.request_id, row.status, row.text]),
+      [['r1', undefined, 'First answered.'], ['r2', 'running', '']]);
+    secondDone();
+    const ended = await eventually(snap, value => !value.daemon.alive);
+    assert.deepEqual(ended.manager_requests, []);
+    assert.deepEqual((await replies()).map(row => [row.request_id, row.live, row.text]),
+      [['r1', undefined, 'First answered.'], ['r2', undefined, 'Second answered.']]);
+  } finally {
+    firstDone();
+    secondDone();
+    await first;
+    await eventually(snap, value => !value.daemon.alive);
+  }
 });
 
 test('the Manager rewrites a draft in a turn of its own, and a failed rewrite leaves the draft as it was', async t => {

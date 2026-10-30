@@ -91,11 +91,11 @@ describe('the task holder, the latest thing said and results on the map card', (
     expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('打开结果'))).toHaveLength(0);
   });
 
-  it('shows the pending question and distinguishes waiting for an answer from stopping', () => {
+  it('keeps waiting status without copying the question, and distinguishes waiting for an answer from stopping', () => {
     const waiting = { ...task, pending_question: '请问输出用中文还是英文？' };
     const props = card(waiting);
     act(() => { tree = create(<MacroTaskNode {...props} />); });
-    expect(tree!.root.findByProps({ 'data-testid': 'map-card-question' }).children.join('')).toBe(waiting.pending_question);
+    expect(JSON.stringify(tree!.toJSON())).not.toContain(waiting.pending_question);
     expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('等你回答');
     expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-live' })).toHaveLength(0);
     const workStatus = { state: 'paused', reason: 'operator_input' } as NonNullable<MacroData['workStatus']>;

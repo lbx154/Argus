@@ -29,6 +29,12 @@ and the patch lacks is a failure even when the happy path passes, and a probe of
 function does not show that the wrapper, CLI or serialization above it works. For optimization,
 measure a baseline on the task's own workload and report a like-for-like before and after.
 
+## Tasks side by side in one repository
+
+Each works on its own branch, in a git worktree under a visible folder of the workspace: files in a
+hidden one cannot be handed over. Merging them is a task of its own that waits for them (`after`),
+and removes their worktrees and branches once merged.
+
 ## The commands
 
 The commands the project's CI runs are the ones the change will be judged by: look in

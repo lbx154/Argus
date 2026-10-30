@@ -167,7 +167,7 @@ export interface Snapshot {
   usage_summary?: UsageSummary;
   pending_questions?: Array<Record<string, unknown>>;
   /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
-  manager_requests?: Array<{ request_id: string; status: 'running' }>;
+  manager_requests?: Array<{ request_id: string; status: 'running' | 'waiting' }>;
 }
 
 /** How many of a role's newest entries its log holds: a round can run for hours, and its earlier

@@ -12,6 +12,14 @@ const markup = () => renderToStaticMarkup(
 );
 
 describe('task details', () => {
+  it('keeps waiting status without repeating the question from conversation', () => {
+    item = { id: 't', title: 'Run the experiment', objective: 'Evaluate the result', status: 'parked',
+      pending_question: '请确认运行 **3 次**？' } as BacklogItem;
+    const html = markup();
+    expect(html).toContain('Waiting on you');
+    expect(html).not.toContain(item.pending_question);
+  });
+
   it('shows a resumed task without its earlier result, and never the routing tags', () => {
     // Trial s-934a4569: the running task still read "work cannot continue",
     // and the team's tags showed as #manager_direct #stage_closing ….

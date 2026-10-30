@@ -49,14 +49,17 @@ export class Flow {
    * Resolves with the Manager's hand-off, or null when the turn failed or was interrupted. */
   say(id: string, text: string, { request_id = randomUUID(), attachments }: Omit<OperatorMessage, 'text'> = {}): Promise<HandOff | null> {
     const project = this.project(id);
-    project.request ||= text;
     // The message is named: the Manager's turn on it, and the letter that answers it, name it in turn.
     const message: OperatorMessage = { text, request_id, ...attachments?.length ? { attachments } : {} };
     // A message to a stopped project takes the place of the operator's the stop left unanswered, not
-    // of one sent since that a Manager turn is taking; the team's letters wait for Resume, or for this
-    // message to set the team working again.
+    // of one sent since that a Manager turn is taking; the team's letters wait for Resume.
     const taking = this.handing.get(project) ?? [];
-    if (project.status === 'stopped' && project.forManager) project.forManager = project.forManager.filter(letter => typeof letter === 'string' || taking.includes(letter));
+    const replaced = project.status === 'stopped' ? (project.forManager ?? []).filter(letter => typeof letter !== 'string' && !taking.includes(letter)) : [];
+    if (replaced.length) project.forManager = project.forManager!.filter(letter => !replaced.includes(letter));
+    // The project's request is its first message, or the one that took that one's place.
+    if (!project.request || replaced.some(letter => typeof letter !== 'string' && letter.request_id === project.requestId)) {
+      Object.assign(project, { request: text, requestId: request_id });
+    }
     this.record(project, { type: 'message', from: 'operator', ...message });
     if (project.status !== 'stopped') this.retry(project);
     return this.writeToManager(project, message);
@@ -183,13 +186,15 @@ export class Flow {
   }
 
   private async managerTurn(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
+    const first = typeof letter !== 'string' && letter.request_id === project.requestId;
     const input = typeof letter === 'string' ? letter : operatorText(letter);
     const answers = typeof letter === 'string' ? undefined : letter.request_id;
     const handoff = (await this.call(project, 'manager', null,
       resumed => managerPrompt(input, resumed), answers ? { answers } : {}))?.handoff ?? null;
-    // The project is named once, by the first work the Manager hands the team, whose first line is a
-    // title: one with work before it keeps its name, and a reply to the operator names nothing.
-    const title = !handoff || project.name || begun(project) || handoff.to === 'operator' ? '' : firstLine(read(handoff));
+    // Only the first request's turn names the project, by the title of the work it hands the team;
+    // answered directly, the project keeps its request's first line. Later turns keep that name, even
+    // after a session reset.
+    const title = !first || !handoff || project.name || handoff.to === 'operator' ? '' : firstLine(read(handoff));
     if (title) project.name = title;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
@@ -432,9 +437,6 @@ export const firstLine = (text: string): string => text.split('\n')
 
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');
-
-/** Whether the team has had work: a task, or a letter to the Planner. */
-const begun = ({ tasks, inbox, sessions }: Project): boolean => tasks.length > 0 || inbox.length > 0 || 'planner' in sessions;
 
 /** Whether a question or a failed turn holds up the task, or with none, the Planner: it waits for the operator. */
 const held = ({ questions, failures = [] }: Project, task: Task | null): boolean =>

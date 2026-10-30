@@ -37,8 +37,8 @@ export function latestManagerMessage(events: readonly EventMsg[]): string {
   return '';
 }
 
-/** A question is attributed to its author and task before its own words. */
+/** Attribution is its own Markdown block so the question can start with a table. */
 export function questionSentence(role: string, task: string | undefined, question: string, zh: boolean): string {
-  return zh ? `${role}${task ? `在「${task}」上` : ''}问：${question}`
-    : `${role} asks${task ? ` about “${task}”` : ''}: ${question}`;
+  return zh ? `${role}${task ? `在「${task}」上` : ''}问：\n\n${question}`
+    : `${role} asks${task ? ` about “${task}”` : ''}:\n\n${question}`;
 }

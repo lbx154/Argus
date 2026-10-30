@@ -104,7 +104,7 @@ it.each([true, false])('shows the card’s own record without writing, failure o
   expect(JSON.stringify(renderer!.toJSON())).not.toMatch(/正在撰写说明|Writing the explanation|重试|Retry/);
 });
 
-it('leaves a pending question at the composer instead of copying it into the task reader', () => {
+it('leaves a pending question in conversation instead of copying it into the task reader', () => {
   const question = 'Please choose the input to compare.';
   act(() => { renderer = create(<MapReaderContent cardKey={task.id} taskId={task.id}
     task={{ ...task, pending_question: question }} originalDetail="Useful task objective" />); });

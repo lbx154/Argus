@@ -372,10 +372,11 @@ const ConversationRow = memo(function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
-            {ev.live === true ? <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim" role="status" data-manager-reply="running">
+            {ev.status === 'running' ? <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim" role="status" data-manager-reply="running">
               <span className="status-dot" data-tone="running" aria-hidden="true" />
               <span className="min-w-0 truncate" title={liveMessage || undefined}>{liveMessage || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
-            </div> : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
+            </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" role="status" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
+              : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
               : ev.status === 'replaced' ? <p className="text-sm text-ink-dim" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
               : ev.status === 'failed' ? <p className="text-sm text-err">{locale === 'zh-CN' ? '回复中断，请查看错误提示后继续运行。' : 'Reply interrupted. Check the error before resuming.'}</p>
               : reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
@@ -982,7 +983,6 @@ export function EventStream({
             {deferredEvents.map(event => {
               const key = String(event.row_id ?? event.message_id ?? event.event_id);
               if (event.type === 'ui.task') return <TaskWorkCard key={key} event={event} onOpenArtifact={onOpenArtifact} onInspect={setInspectingTask} />;
-              if (event.type === 'ui.question' && !deferredEvents.some(answer => answer.answer_to === event.question_id)) return null;
               if (event.type === 'ui.question') return <section key={key} data-conversation-question={String(event.question_id)} className="mx-auto w-full px-6 py-3 lg:max-w-[808px]">
                 <MarkdownContent>{questionSentence(roleLabel(String(event.agent_layer), t), taskTitle(eventTaskId(event)) || undefined, String(event.text), locale === 'zh-CN')}</MarkdownContent>
               </section>;

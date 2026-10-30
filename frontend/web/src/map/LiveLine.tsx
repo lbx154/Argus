@@ -34,10 +34,9 @@ export function CardNow({ task, zh }: { task: MapTask; zh: boolean }) {
   const { t } = useI18n();
   const said = task.latest_action;
   const holder = task.status === 'done' || task.role === said?.role ? undefined : task.role;
-  if (!holder && !said && !task.pending_question) return null;
+  if (!holder && !said) return null;
   return (
     <div className="map-card-now" data-testid="map-card-now">
-      {task.pending_question ? <p className="map-card-question" data-testid="map-card-question">{task.pending_question}</p> : null}
       {holder ? <p className="map-card-said" data-testid="map-card-owner">
         {zh ? '负责人：' : 'Owner: '}{roleLabel(holder, t)}
       </p> : null}
