@@ -128,6 +128,9 @@ it.each(surfaces)('%s keeps Chinese sentence punctuation outside bare URLs', (_n
     expect(html).toMatch(/href="http:\/\/localhost:8000\/"/);
     expect(html).toContain(`</a>${punctuation}`);
   }
+  const html = renderToStaticMarkup(<Surface>{'当前可打开 http://localhost:18740/。以后也可在本目录运行'}</Surface>);
+  expect(html).toMatch(/href="http:\/\/localhost:18740\/"/);
+  expect(html).toContain('</a>。以后也可在本目录运行');
 });
 
 it.each(surfaces)('%s preserves deliberate and encoded punctuation and Chinese URL paths', (_name, Surface) => {

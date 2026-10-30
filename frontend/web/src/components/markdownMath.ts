@@ -36,7 +36,7 @@ function remarkPathUnderscores() {
   };
 }
 
-/** GFM bare URLs keep sentence-ending Chinese punctuation in the surrounding prose. */
+/** A bare URL ends at Chinese punctuation: it and what follows stay in the surrounding prose. */
 function remarkUrlPunctuation() {
   return (tree: MarkdownRoot, file: VFile) => {
     const source = String(file.value);
@@ -48,11 +48,13 @@ function remarkUrlPunctuation() {
         const written = source.slice(child.position?.start.offset, child.position?.end.offset);
         // Explicit Markdown links and <autolinks> retain the URL their author chose.
         if (written !== text.value) return [child];
-        const end = /[。，；：！？、）》」』】〕〉]+$/.exec(text.value)?.[0];
-        if (!end) return [child];
-        text.value = text.value.slice(0, -end.length);
-        child.url = child.url.replace(/[。，；：！？、）》」』】〕〉]+$/, '');
-        return [child, { type: 'text', value: end } as Text];
+        // A bare URL runs on to the next space, so the sentence after it may follow the punctuation.
+        const cut = text.value.search(/[。，；：！？、）》」』】〕〉]/);
+        if (cut < 0) return [child];
+        const rest = text.value.slice(cut);
+        text.value = text.value.slice(0, cut);
+        child.url = child.url.slice(0, -rest.length);
+        return [child, { type: 'text', value: rest } as Text];
       });
     };
     trim(tree);
