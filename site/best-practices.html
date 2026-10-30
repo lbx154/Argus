@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用好 Argus · Argus 文档</title>
+<meta name="description" content="怎么写目标、怎么中途插话、怎么选模型和控制花费、什么任务适合交给 Argus。">
+<link rel="icon" href="assets/argus-logo-horizontal.svg">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/app.js"></script>
+</head>
+<body data-page="best-practices">
+
+<header class="topnav">
+  <button class="icon-btn menu-btn" id="menu-btn" aria-label="目录">☰</button>
+  <a class="brand" href="index.html"><img class="logo-light" src="assets/argus-logo-horizontal.svg" alt="Argus"><img class="logo-dark" src="assets/argus-logo-horizontal-dark.svg" alt="Argus"></a>
+  <nav>
+    <a href="index.html">快速上手</a>
+    <a class="active" href="best-practices.html">用好 Argus</a>
+    <a href="build-a-vertical.html">建自己的纵向</a>
+  </nav>
+  <div class="spacer"></div>
+  <a class="icon-btn" href="https://argusbot.cn/zh/" style="display:inline-grid;place-items:center;color:inherit;text-decoration:none">官网</a>
+  <a class="icon-btn" href="https://github.com/microsoft/ArgusAgent" style="display:inline-grid;place-items:center;color:inherit;text-decoration:none">GitHub</a>
+  <button class="icon-btn" id="theme-btn" aria-label="切换深色模式">☾</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>开始使用</h4>
+    <a href="index.html">快速上手</a>
+    <a href="index.html#troubleshooting">常见问题</a>
+    <h4>用好 Argus</h4>
+    <a class="active" href="best-practices.html">概览</a>
+    <a class="sub" href="#goals">怎么写目标</a>
+    <a class="sub" href="#steer">中途插话、改方向</a>
+    <a class="sub" href="#models">选后端和模型</a>
+    <a class="sub" href="#cost">控制花费</a>
+    <a class="sub" href="#fit">什么任务适合交给 Argus</a>
+    <a class="sub" href="#examples">真实项目里的例子</a>
+    <h4>建自己的纵向</h4>
+    <a href="build-a-vertical.html">从零做一个纵向</a>
+    <a href="build-a-vertical.html#publish">发布到纵向商店</a>
+  </aside>
+
+  <main class="content">
+    <article class="article">
+      <div class="crumbs"><a href="index.html">首页</a> › 用好 Argus</div>
+      <h1>用好 Argus</h1>
+      <p class="lead">跑通第一个任务之后，决定结果好坏的主要是四件事：目标写得清不清楚、什么时候插话、用什么模型、花多少钱。每一条都配了 Argus 真实项目里的例子。</p>
+
+      <!-- ================= GOALS ================= -->
+      <h2 class="first" id="goals">怎么写目标</h2>
+      <p>Manager 会把你的话整理成一份任务契约：目标、范围、完成标准、不做什么、可以动哪些路径。你写得越清楚，这份契约就越准，后面需要它停下来问你的次数就越少。</p>
+
+      <h3 id="goal-three">三件事一定要写</h3>
+      <ol>
+        <li><b>要什么</b>：交付物是什么，而不是“帮我研究一下”。</li>
+        <li><b>怎样算完成</b>：能检查的标准。测试通过、指标达到、对比用的是哪个基线。</li>
+        <li><b>不许做什么</b>：不能换的模型、不能动的目录、不能引入的依赖。</li>
+      </ol>
+      <div class="compare">
+        <div class="bad"><span class="tag">模糊</span><pre>帮我把这个模型的推理优化一下。</pre></div>
+        <div class="good"><span class="tag">清楚</span><pre>把 model/ 的推理延迟在单张 A6000 上降 20% 以上。
+基线：当前 main，batch=1，同一组 100 条输入，各跑 10 次取中位数。
+质量：输出与基线逐条比对，不允许下降。
+不许：换更小的模型、用多卡、改 data/。</pre></div>
+      </div>
+
+      <h3 id="goal-shrink">把“不许缩小任务”写进去</h3>
+      <p>Agent 最常见的偷懒方式，是悄悄把任务变小：换个小模型、少跑几轮、用估算代替实测，然后报告“完成了”。在目标里直接写明不允许这样做，同时告诉它<b>做不到时怎样算合格的结果</b>，它就不会为了交差硬凑。Argus 自己的长任务目标就是这么写的：</p>
+      <div class="code" data-lang="摘自 ARGUS_IMPRESSIVE_RESULTS.md"><pre>If RTX 5090 is infeasible because of memory, operators, or software support,
+“infeasible, with evidence and minimum viable requirements” is a valid result.
+Never silently switch to a smaller model, omit checkpoint components, or use
+multiple GPUs while claiming single-GPU success.</pre></div>
+
+      <h3 id="goal-long">长任务：用一份完整的任务书</h3>
+      <p>要跑好几天的任务，建议一次发一份结构化的任务书，而不是零散地聊。仓库里的 <a href="https://github.com/microsoft/ArgusAgent/blob/main/ARGUS_IMPRESSIVE_RESULTS.md">ARGUS_IMPRESSIVE_RESULTS.md</a> 有多份可以直接照抄的范本，结构都是：</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>段落</th><th>写什么</th></tr></thead>
+        <tbody>
+          <tr><td>开头一句</td><td>这是一个长期任务，测到新数据可以改计划；不要只交一个计划就停，做到完成或者说清楚卡在哪、需要我做什么。</td></tr>
+          <tr><td>MISSION</td><td>要交付的成果，以及<b>用什么来评判</b>（比如端到端延迟和质量，而不是某个微基准）。</td></tr>
+          <tr><td>EXECUTION PATH</td><td>先做什么、后做什么，每一步的进入条件。</td></tr>
+          <tr><td>DECISION RULES</td><td>遇到岔路时怎么选，哪些结论算无效。</td></tr>
+          <tr><td>REQUIRED DELIVERABLES</td><td>冻结的基线、重复测量的结果表、一句话的结论，以及结论的适用范围。</td></tr>
+        </tbody>
+      </table></div>
+      <div class="note">
+        <span class="label">小技巧</span>
+        <p>不确定自己写得够不够清楚，可以在终端驾驶舱里用 <code>/rewrite 你的目标</code> 让 Manager 先帮你改写一遍再发；用 <code>/plan 你的目标</code> 先看 Planner 会怎么拆，再决定要不要真的开工。</p>
+      </div>
+
+      <!-- ================= STEER ================= -->
+      <h2 id="steer">中途插话、改方向</h2>
+      <p>你说的每一句话都先到 Manager。它会判断：自己直接回答、只读地查一下，还是交给团队去做。暂停、中止、授权这类控制指令走单独的通道，不会被当成新任务。正在跑任务时再交新任务，会排在当前任务后面。</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>你想……</th><th>终端驾驶舱</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>补充一个要求</td><td><code>/nudge 文字</code></td><td>把指导塞进正在跑的任务，不打断它</td></tr>
+          <tr><td>只问问题</td><td><code>/ask 问题</code></td><td>Manager 直接回答，不排任务，不惊动 Planner / Engineer / Reviewer</td></tr>
+          <tr><td>先看看计划</td><td><code>/plan 目标</code></td><td>预览 Planner 的执行计划</td></tr>
+          <tr><td>直接排一个任务</td><td><code>/task 文字</code></td><td>跳过对话，直接进待办</td></tr>
+          <tr><td>停掉某个任务的自动迭代</td><td><code>/stop 编号</code></td><td>不删除任务</td></tr>
+          <tr><td>立刻停下当前任务</td><td><code>/abort</code></td><td>中断正在跑的任务</td></tr>
+          <tr><td>看完整的任务契约</td><td><code>/item 编号</code></td><td>目标、范围、完成标准都在里面</td></tr>
+        </tbody>
+      </table></div>
+      <p>在网页驾驶舱里，直接在对话框说同样的话即可，比如“暂停一下”“现在在干什么？”“换成 copilot 后端”。</p>
+
+      <h3 id="steer-when">什么时候该插话</h3>
+      <ul>
+        <li><b>它在问你。</b>默认的 <code>pragmatic</code> 模式下，Argus 只在这几种情况停下来问：需要凭据、要多花钱、不可撤销或对外的操作、要改你定下的完成标准。看到提问就及时回，回得越快它闲着的时间越短。</li>
+        <li><b>你知道它不知道的事。</b>比如“这台机器 GPU0 被别人长期占着”“那个数据集的标签有问题”。这种信息越早给越省事。</li>
+        <li><b>方向明显偏了。</b>先 <code>/nudge</code> 说清楚为什么偏、要回到哪里；改动大到要换目标时，<code>/abort</code> 之后重新交一份目标，比在原任务上反复打补丁干净。</li>
+      </ul>
+      <p>不需要插话的情况：超时、测试失败、换技术路线、调基准规模。这些在 <code>pragmatic</code> 模式下它会自己处理。</p>
+
+      <h3 id="autonomy">调整它多久问你一次</h3>
+      <div class="code" data-lang="bash"><pre><span class="p">$ </span>export ARGUS_SKILL_AUTONOMY_MODE=cautious     <span class="c"># 每个明确的问题都问你</span>
+<span class="p">$ </span>export ARGUS_SKILL_AUTONOMY_MODE=pragmatic    <span class="c"># 默认：技术问题自己恢复</span>
+<span class="p">$ </span>export ARGUS_SKILL_AUTONOMY_MODE=autonomous   <span class="c"># 可撤销的操作尽量自己做</span></pre></div>
+      <p>不论哪种模式，凭据、付款、不可撤销的操作和对外发布都一定会停下来等你。</p>
+
+      <h3 id="stop">安全地停下来</h3>
+      <div class="code" data-lang="bash"><pre><span class="p">$ </span>argus --status                    <span class="c"># 看后台和待办</span>
+<span class="p">$ </span>argus --daemon-stop --drain       <span class="c"># 推荐：等当前任务到自然边界再停</span>
+<span class="p">$ </span>argus --daemon-stop --force       <span class="c"># 强制：会打断正在跑的任务</span></pre></div>
+      <p>关掉驾驶舱不会停掉后台工作；你主动暂停的任务也不会被记成“失败经验”。</p>
+
+      <!-- ================= MODELS ================= -->
+      <h2 id="models">选后端和模型</h2>
+      <p>Argus 支持 <code>codex</code>、<code>claude</code>、<code>copilot</code>、<code>cursor</code>、<code>opencode</code>、<code>pi</code>、<code>grok</code>、<code>qoder</code>、<code>dsh</code>。不知道选哪个时，<b>选你平时已经在用、已经登录的那个</b>，不用为 Argus 再开账号。</p>
+      <div class="code" data-lang="bash"><pre><span class="p">$ </span>argus --setup --backend claude        <span class="c"># 换后端，并真实跑一轮确认</span>
+<span class="p">$ </span>argus --config-help                   <span class="c"># 每个角色实际用的后端、模型及来源</span></pre></div>
+      <p>在驾驶舱里也能直接换：终端用 <code>/backend copilot</code>，网页上说“把模型换成 claude-sonnet-5”。</p>
+
+      <h3 id="per-role">不同角色用不同模型</h3>
+      <p>四个角色的分工不同，默认的思考强度也不同：Engineer 是 <code>xhigh</code>，Manager、Planner、Reviewer 是 <code>high</code>。需要时可以单独给某个角色指定模型或后端：</p>
+      <div class="code" data-lang="bash"><pre><span class="p">$ </span>export ARGUS_SKILL_MODEL=auto                  <span class="c"># 所有角色共用，auto = 后端自己的默认</span>
+<span class="p">$ </span>export ARGUS_SKILL_ENGINEER_MODEL=...          <span class="c"># 只改 Engineer</span>
+<span class="p">$ </span>export ARGUS_SKILL_REVIEWER_BACKEND=claude     <span class="c"># 让 Reviewer 用另一家后端</span></pre></div>
+      <div class="note">
+        <span class="label">建议</span>
+        <p>让 Reviewer 和 Engineer 用<b>不同家</b>的模型，审查会更独立，一个模型的盲点不容易被另一个同款模型放过。</p>
+      </div>
+      <p>用 Pi 或 OpenCode 这类可以接多家供应商的 CLI 时，要说明用哪家：OpenCode 必须设 <code>ARGUS_SKILL_OPENCODE_PROVIDER</code>，否则配置的模型不生效。细节见 <a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/backend-providers.md">后端与模型供应商</a>。</p>
+
+      <!-- ================= COST ================= -->
+      <h2 id="cost">控制花费</h2>
+      <p>Argus 会一直干到完成为止，所以上限要你自己定。最常用的几个旋钮：</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>配置项</th><th>默认</th><th>作用</th></tr></thead>
+        <tbody>
+          <tr><td><code>ARGUS_SKILL_GLOBAL_DAILY_CAP_USD</code></td><td>1000</td><td>每天全局花费上限（美元）。到了上限任务会暂停，提高上限或到第二天会自动继续</td></tr>
+          <tr><td><code>ARGUS_SKILL_GLOBAL_DAILY_TOKEN_CAP</code></td><td>0（关）</td><td>每天全局 token 上限</td></tr>
+          <tr><td><code>ARGUS_SKILL_CODEX_DAILY_CALL_CAP</code></td><td>300</td><td>Codex 每天调用次数上限</td></tr>
+          <tr><td><code>ARGUS_TEAM_DEFAULT_WIDTH</code></td><td>2</td><td>一个任务默认同时开几个 Engineer</td></tr>
+          <tr><td><code>ARGUS_TEAM_MAX_TOTAL_IN_FLIGHT</code></td><td>2</td><td>全局最多同时在跑的队员数</td></tr>
+          <tr><td><code>ARGUS_SKILL_MAX_ROUNDS</code></td><td>0（不限）</td><td>一个任务最多跑几轮</td></tr>
+        </tbody>
+      </table></div>
+      <p>这些都可以在 <code>argus --config-help</code> 里看到当前值，也可以在驾驶舱里用 <code>/config key=value</code> 修改。</p>
+      <div class="note warn">
+        <span class="label">注意</span>
+        <ul>
+          <li>供应商的计费数据是异步回来的，所以实际花费可能<b>略微超过</b>上限，不会差太多。</li>
+          <li>查不到价格的调用默认会被拦下（<code>ARGUS_SKILL_UNPRICED_COST_POLICY=block</code>），不会被当成免费。</li>
+          <li>账目记在 Argus 数据目录的 <code>cost-control.json</code> 和项目的 <code>usage.jsonl</code> 里，<b>不要删</b>。</li>
+        </ul>
+      </div>
+      <h3 id="cost-habits">省钱的习惯</h3>
+      <ul>
+        <li>简单问题用 <code>/ask</code>，它只让 Manager 回答一次，不会拉起整个团队。</li>
+        <li>第一次跑新类型的任务，先把每日上限调低，看一天的花费曲线再放开。</li>
+        <li>并行宽度不是越大越好：同时跑的 Engineer 越多，花费成倍增加；资源（比如 GPU）不够时它们还会互相抢。</li>
+      </ul>
+
+      <!-- ================= FIT ================= -->
+      <h2 id="fit">什么任务适合交给 Argus</h2>
+      <p>Argus 是为<b>长时间、需要审查的自主工作</b>设计的。在 27 个长期任务、累计 1,548 小时的运行里，它平均约 310 小时才需要人做一次决定。</p>
+      <div class="compare">
+        <div class="good"><span class="tag">适合</span>
+          <ul>
+            <li>有明确评判标准、要反复实验的研究和优化：训练、调参、性能优化、复现论文。</li>
+            <li>要跑好几个小时甚至几天、你不想一直盯着的工程任务。</li>
+            <li>需要“做完还要有人审”的结果：结论要有证据、数字要能追到日志。</li>
+          </ul>
+        </div>
+        <div class="bad"><span class="tag">不太适合</span>
+          <ul>
+            <li>一句话就能答的问题。用 <code>/ask</code>，或者直接问你的 Agent CLI。</li>
+            <li>“好不好”完全取决于你个人口味、又说不出标准的任务。</li>
+            <li>必须由人负责的动作：付款、对外发布、不可撤销的操作。Argus 会停下来把这些交还给你。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ================= EXAMPLES ================= -->
+      <h2 id="examples">真实项目里的例子</h2>
+
+      <h3 id="ex-setup">先怀疑实验设置，再怀疑模型</h3>
+      <p>一次复现里，MATH-500 测出 <b>6.0%</b>，而公开结果是 <b>79.7%</b>，这个数字差点被当成“边界结果”写进论文。原因是生成长度被限制在 <b>12 个 token</b>，测的是这个上限，不是模型。放开上限后到了 <b>68.8%</b>，再按公开协议调用它假定的工具，到了 <b>76.4%</b>。</p>
+      <p><b>给你的启发：</b>目标里写上“和公开数字差距很大时，先排查设置”。Argus 现在内置了一条 <code>suspect-the-setup</code> skill 专门处理这种情况。（来源：<a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/failure-modes-and-fixes.md">failure-modes-and-fixes.md</a>）</p>
+
+      <h3 id="ex-abandon">敢于放弃走错的路线</h3>
+      <p>FlashDA 把六种扩散语言模型的掩码移植进 FlashAttention-4 内核，最后在 H200 上达到原生 FA4 的 <b>92–95%</b>。但最初的路线比原生<b>慢 4.9–29.6 倍</b>，是认识到数据通路选错并放弃它，才有了后来的结果；被放弃的路线和证据也都保留了下来。全程 <b>21.85 小时</b>模型计算，花费<b>不到 80 元</b>。</p>
+      <p><b>给你的启发：</b>目标里允许“推翻自己的路线”，并要求保留被否定的路线和证据，比只要一个漂亮数字更容易得到真结果。（来源：<a href="https://github.com/microsoft/ArgusAgent#what-argus-has-done-so-far">README</a>）</p>
+
+      <h3 id="ex-scope">把结论的范围写窄</h3>
+      <p>Argus 的成果记录里，结论只覆盖实际测过的硬件、形状、重复次数和审查状态；查不到原始来源的 3.92× 和 4.52× 已经被删掉，没被合并的 PR 也如实写成“已关闭，未合并”。</p>
+      <p><b>给你的启发：</b>在完成标准里要求“一句话结论 + 适用范围 + 已知例外”，你拿到的结果才能放心转述给别人。</p>
+
+      <div class="pager">
+        <a href="index.html"><div class="dir">上一篇</div><div class="ttl">← 快速上手</div></a>
+        <a class="next" href="build-a-vertical.html"><div class="dir">下一篇</div><div class="ttl">建自己的纵向 →</div></a>
+      </div>
+    </article>
+  </main>
+
+  <aside class="toc"></aside>
+</div>
+
+<footer class="site-foot">Argus · MIT License · <a href="https://github.com/microsoft/ArgusAgent">GitHub</a></footer>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "data_report",
+  "module": "argus_verticals.data_report.stages",
+  "version": "0.1.0",
+  "purpose_zh": "把一份表格数据变成一份每个数字都能复算的分析报告。",
+  "paths": ["argus_verticals/data_report"],
+  "requires": [],
+  "shared": [],
+  "python_requirements": ["pandas>=2"],
+  "tags": ["data", "analysis", "report"],
+  "maintainers": ["your-github-id"]
+}

@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>建自己的纵向 · Argus 文档</title>
+<meta name="description" content="以一个真实的小纵向为例，从零做完：目录、阶段、skill、本地测试，最后发布到纵向商店。">
+<link rel="icon" href="assets/argus-logo-horizontal.svg">
+<link rel="stylesheet" href="assets/style.css">
+<script src="assets/app.js"></script>
+</head>
+<body data-page="build-a-vertical">
+
+<header class="topnav">
+  <button class="icon-btn menu-btn" id="menu-btn" aria-label="目录">☰</button>
+  <a class="brand" href="index.html"><img class="logo-light" src="assets/argus-logo-horizontal.svg" alt="Argus"><img class="logo-dark" src="assets/argus-logo-horizontal-dark.svg" alt="Argus"></a>
+  <nav>
+    <a href="index.html">快速上手</a>
+    <a href="best-practices.html">用好 Argus</a>
+    <a class="active" href="build-a-vertical.html">建自己的纵向</a>
+  </nav>
+  <div class="spacer"></div>
+  <a class="icon-btn" href="https://argusbot.cn/zh/" style="display:inline-grid;place-items:center;color:inherit;text-decoration:none">官网</a>
+  <a class="icon-btn" href="https://github.com/microsoft/ArgusAgent" style="display:inline-grid;place-items:center;color:inherit;text-decoration:none">GitHub</a>
+  <button class="icon-btn" id="theme-btn" aria-label="切换深色模式">☾</button>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <h4>开始使用</h4>
+    <a href="index.html">快速上手</a>
+    <h4>用好 Argus</h4>
+    <a href="best-practices.html">概览</a>
+    <h4>建自己的纵向</h4>
+    <a class="active" href="build-a-vertical.html">从零做一个纵向</a>
+    <a class="sub" href="#step-1">1. 想清楚“做完”的样子</a>
+    <a class="sub" href="#step-2">2. 建目录</a>
+    <a class="sub" href="#step-3">3. 写 stages.py</a>
+    <a class="sub" href="#step-4">4. 写 skill</a>
+    <a class="sub" href="#step-5">5. 本地装上并检查</a>
+    <a class="sub" href="#step-6">6. 用它跑一个任务</a>
+    <a class="sub" href="#publish">7. 发布到纵向商店</a>
+    <a href="#reference">字段速查</a>
+    <h4>参考</h4>
+    <a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/vertical-store.md">纵向商店</a>
+    <a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/workflow-profiles.md">工作流档位</a>
+    <a href="https://github.com/Argus-AiTeam/argus-verticals">argus-verticals 社区仓库</a>
+  </aside>
+
+  <main class="content">
+    <div class="progress" aria-live="polite">
+      <span class="count">已完成 0 / 7 步</span>
+      <span class="bar"><i></i></span>
+      <button class="reset" type="button">重置进度</button>
+    </div>
+
+    <article class="article">
+      <div class="crumbs"><a href="index.html">首页</a> › 建自己的纵向</div>
+      <h1>建自己的纵向</h1>
+      <p class="lead">纵向就是你把某个领域的经验教给 Argus 的方式：这类工作分几个阶段、每个阶段怎样算做完、做事和审查时该凭什么判断。本页带你从零做一个真实可用的小纵向 <code>data_report</code>，最后发布到纵向商店，让别人一条命令就能装上。</p>
+
+      <h2 class="first" id="what">纵向是什么</h2>
+      <p>Argus 的核心只管调度和记账，<b>领域的事都归纵向</b>：阶段、skill、工具、证据的含义、审查标准、怎样算完成。Argus 自带 7 个纵向（research、software、math 等），社区仓库里还有十几个（诗词、芯片设计、量化、医学……）。Manager 收到任务后，会挑最合适的纵向来做。</p>
+      <div class="cards">
+        <div class="card"><div class="card-title">阶段</div><div class="card-body">这类工作按什么顺序推进，每个阶段要交出什么证据。</div></div>
+        <div class="card"><div class="card-title">skill</div><div class="card-body">一篇篇 Markdown，告诉做事和审查的角色该凭什么判断。</div></div>
+        <div class="card"><div class="card-title">路由</div><div class="card-body">一句用途说明和分类路径，让 Manager 知道什么时候该用你。</div></div>
+      </div>
+      <p>一个最小的纵向只要 <b>一个 Python 文件加几篇 Markdown</b>。完整的例子在仓库的 <a href="https://github.com/lbx154/Argus/tree/main/docs/examples/verticals/data_report"><code>docs/examples/verticals/data_report/</code></a>，下面每一步都对应其中的文件。</p>
+      <div class="note">
+        <span class="label">开始之前</span>
+        <p>先按<a href="index.html">快速上手</a>装好 Argus 并跑通一个任务。下面的命令里，<code>argus</code> 和 <code>python</code> 都指<b>装 Argus 的那个环境</b>，Linux 上就是 <code>$HOME/Argus/.venv/bin/</code> 里的。</p>
+      </div>
+
+      <!-- ============ STEP 1 ============ -->
+      <section class="step" data-step="1">
+        <h2 id="step-1" data-toc="1. 想清楚“做完”的样子"><span class="step-h"><span class="step-num">1</span>想清楚“做完”是什么样子</span></h2>
+        <p>先别写代码。拿一张纸回答三个问题，这比后面所有步骤都重要：</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>问题</th><th>data_report 的答案</th></tr></thead>
+          <tbody>
+            <tr><td>这个领域的任务长什么样？</td><td>给一份表格数据，写出一份分析报告。</td></tr>
+            <tr><td>老手做这件事分几步？</td><td>先摸清数据 → 再分析 → 最后写报告。</td></tr>
+            <tr><td>每一步做到什么程度才算数？拿什么证明？</td><td>报告里的<b>每个数字都能用项目里的脚本重新算出来</b>。证据是脚本、命令和保存下来的输出。</td></tr>
+          </tbody>
+        </table></div>
+        <p>第三个问题的答案就是这个纵向的灵魂。说不清楚的话，先去看看你所在领域里，好的成果和糊弄的成果到底差在哪。</p>
+        <label class="step-check"><input type="checkbox"> 我做完了：写下了阶段和每个阶段的证据</label>
+      </section>
+
+      <!-- ============ STEP 2 ============ -->
+      <section class="step" data-step="2">
+        <h2 id="step-2" data-toc="2. 建目录"><span class="step-h"><span class="step-num">2</span>建目录</span></h2>
+        <p>纵向的名字只能用小写字母、数字和下划线，以字母开头，而且不能和自带的纵向重名。目录结构是固定的：</p>
+<div class="tree">data_report/                        <span class="c"># 这一层是一个可安装的 Python 包</span>
+├── pyproject.toml                  <span class="c"># 声明入口点，让 Argus 找到你</span>
+├── vertical.json                   <span class="c"># 发布到商店时用的清单</span>
+└── argus_verticals/                <span class="c"># 命名空间，不要放 __init__.py</span>
+    └── data_report/
+        ├── __init__.py
+        ├── stages.py               <span class="c"># 阶段、检查项、路由</span>
+        └── skills/
+            ├── engineer/
+            │   └── data-report-analysis.md
+            └── reviewer/
+                └── data-report-review.md</div>
+        <div class="code" data-lang="bash"><pre><span class="p">$ </span>mkdir -p data_report/argus_verticals/data_report/skills/{engineer,reviewer}
+<span class="p">$ </span>cd data_report
+<span class="p">$ </span>echo '"""Data report vertical."""' &gt; argus_verticals/data_report/__init__.py</pre></div>
+        <p>然后写 <code>pyproject.toml</code>。最关键的是 <code>argus.verticals</code> 这个入口点，Argus 就是靠它找到你的纵向：</p>
+        <div class="code" data-lang="pyproject.toml"><pre>[build-system]
+requires = ["setuptools&gt;=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argus-vertical-data-report"
+version = "0.1.0"
+requires-python = "&gt;=3.11"
+
+[project.entry-points."argus.verticals"]
+data_report = "argus_verticals.data_report.stages"
+
+[tool.setuptools.packages.find]
+include = ["argus_verticals*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"argus_verticals.data_report" = ["skills/**/*.md"]</pre></div>
+        <label class="step-check"><input type="checkbox"> 我做完了：目录和 pyproject.toml 建好了</label>
+      </section>
+
+      <!-- ============ STEP 3 ============ -->
+      <section class="step" data-step="3">
+        <h2 id="step-3" data-toc="3. 写 stages.py"><span class="step-h"><span class="step-num">3</span>写 stages.py：阶段和检查项</span></h2>
+        <p>纵向不需要继承任何类，<code>stages.py</code> 里的几个模块级变量就是全部约定。把第 1 步纸上的答案原样翻译过来：</p>
+        <div class="code" data-lang="argus_verticals/data_report/stages.py"><pre>from pathlib import Path
+
+from argus.skills.stage_machine import ChecklistItem
+
+ARGUS_VERTICAL_API_VERSION = 1
+VERTICAL_PURPOSE = (
+    "Turn one tabular dataset (CSV, Excel, Parquet) into a short analysis report "
+    "whose every number can be recomputed from a script in the project."
+)
+VERTICAL_ROUTING_PATH = ("analytics", "data", "report")
+VERTICAL_SKILL_PARENTS = ()
+VERTICAL_SKILLS = Path(__file__).resolve().parent / "skills"
+
+CHECKLIST_STAGE_ORDER = ("understand", "analyze", "report")
+CHECKLIST_ITEMS = {
+    "understand": (
+        ChecklistItem(
+            "understand.data_profile",
+            "The dataset's rows, columns, types, missing values and obvious errors are described from the real file.",
+            "a profiling script and its saved output",
+        ),
+    ),
+    "analyze": (
+        ChecklistItem(
+            "analyze.reproducible_numbers",
+            "Every number the report will quote is produced by a script that runs end to end on the original file.",
+            "the analysis script, the exact command, and its saved output",
+        ),
+    ),
+    "report": (
+        ChecklistItem(
+            "report.claims_traced",
+            "Each claim in the report names the number, the script output it comes from, and its limits.",
+            "report.md with a reproduction section",
+        ),
+    ),
+}
+completion_gate = "none"
+# One dataset and one report is a bounded analyze-check-revise task, so it keeps
+# the framework defaults, written out: the progress window opens after round 12,
+# an explicit progress judgement is required from round 24, and four consecutive
+# no-progress verdicts end the mission.
+ROUND_POLICY = {
+    "stall_threshold": 4,
+    "no_progress_threshold": 2,
+    "soft_round_limit": 12,
+    "hard_escalate_rounds": 24,
+}
+
+
+def role_banner(role: str) -&gt; str:
+    common = "DATA REPORT: every number must be recomputable from a script in this project."
+    if role == "reviewer":
+        return common + " Rerun the scripts and compare their output with the report before approving."
+    return common</pre></div>
+        <h3 id="fields">每个字段在干什么</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>ARGUS_VERTICAL_API_VERSION</code></td><td>必须是 <code>1</code>，否则不会加载。</td></tr>
+            <tr><td><code>VERTICAL_PURPOSE</code></td><td>一句话用途。Manager 主要靠它判断什么任务该交给你，写清楚<b>什么时候该用</b>。</td></tr>
+            <tr><td><code>VERTICAL_ROUTING_PATH</code></td><td>分类 / 领域 / 细分。领域和细分用下划线连起来<b>必须等于纵向名</b>：<code>data</code> + <code>report</code> = <code>data_report</code>。</td></tr>
+            <tr><td><code>CHECKLIST_STAGE_ORDER</code></td><td>阶段顺序，不能重复。</td></tr>
+            <tr><td><code>CHECKLIST_ITEMS</code></td><td>每个阶段的检查项：<code>ChecklistItem(编号, 要满足的陈述, 证据提示)</code>。编号在阶段内唯一。</td></tr>
+            <tr><td><code>completion_gate</code></td><td><code>none</code>、<code>metric</code> 或 <code>certified</code>。不确定就用 <code>none</code>。</td></tr>
+            <tr><td><code>VERTICAL_SKILLS</code></td><td>skill 目录。通过 pip 安装时要写；从商店安装时会自动用 <code>stages.py</code> 旁边的 <code>skills/</code>。</td></tr>
+            <tr><td><code>ROUND_POLICY</code></td><td>四个轮次守卫：连续几轮没进展算卡住、多少轮后开始判断进展等。<b>发布到社区仓库时必须写</b>，并用注释说明为什么这样取值；当前 Argus 本地运行时会忽略它。有边界的任务用默认的 4 / 2 / 12 / 24 即可。</td></tr>
+            <tr><td><code>role_banner(role)</code></td><td>可选。给每个角色的一句最高原则。</td></tr>
+          </tbody>
+        </table></div>
+        <div class="note">
+          <span class="label">检查项写陈述，不写数量</span>
+          <p>好的检查项描述<b>一个可以核实的事实</b>（“每个数字都能由脚本复算”），并告诉审查者去哪里找证据。不要写“至少 3 张图”“报告 500 字以上”这种配额，Agent 很擅长凑数。</p>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：stages.py 写好了</label>
+      </section>
+
+      <!-- ============ STEP 4 ============ -->
+      <section class="step" data-step="4">
+        <h2 id="step-4" data-toc="4. 写 skill"><span class="step-h"><span class="step-num">4</span>写 skill：教判断，不下结论</span></h2>
+        <p>skill 是放在 <code>skills/&lt;角色&gt;/</code> 下的 Markdown，角色目录可以是 <code>manager</code>、<code>planner</code>、<code>engineer</code>、<code>reviewer</code>。开头的 frontmatter <b>只有两个字段</b>：<code>name</code> 和 <code>description</code>。Agent 需要时会自己去读。</p>
+        <div class="code" data-lang="skills/engineer/data-report-analysis.md"><pre>---
+name: "Data Report Analysis"
+description: "How to analyze one dataset so that the report's numbers can be trusted and recomputed."
+---
+# Data report analysis
+
+Look at the data before you summarize it. Open the real file, count rows, and
+read a sample of raw values; profiling output you have not looked at is not
+understanding.
+
+When a number surprises you, suspect the pipeline first: an encoding, a wrong
+delimiter, duplicated rows, a unit mismatch, or a filter that silently dropped
+data explains more surprises than a real effect does.
+
+Choose the analysis by the question the operator asked, not by habit. A mean
+is the wrong summary for a skewed column; a correlation says nothing about
+cause. Say why the method you chose fits this data.
+
+Keep every quoted number reproducible: write it from a script, save the output,
+and reference that output in the report. If a number cannot be recomputed, do
+not report it.
+
+Report what the data cannot answer. Missing segments, small samples, and
+measurement limits belong in the report as plainly as the findings do.</pre></div>
+        <p>审查用的 <code>skills/reviewer/data-report-review.md</code> 结构一样，核心只有一句：<b>重新跑脚本，把输出和报告里的每个数字对一遍</b>。完整内容见<a href="https://github.com/lbx154/Argus/tree/main/docs/examples/verticals/data_report/argus_verticals/data_report/skills">例子目录</a>。</p>
+
+        <h3 id="judgment">为什么写判断依据，而不是规则</h3>
+        <div class="compare">
+          <div class="bad"><span class="tag">配额式规则</span><pre>- 摘要必须 5 句话、不超过 170 词
+- 每张图的说明里必须有数字
+- 至少比较 3 个基线</pre></div>
+          <div class="good"><span class="tag">判断依据</span><pre>- 结论决定篇幅，没有固定配额
+- 数字出现在读者需要它的地方
+- 选和你的结论真正竞争的基线，
+  并说明为什么是它们</pre></div>
+        </div>
+        <p>这不是理论。Argus 的研究纵向以前用左边那种配额规则写论文，结果摘要变成了“数字墙”。2026 年 9 月 6 日改成右边那种判断式指导后，审查者按目标会议审稿人的标准来判断，而不是逐条核对配额。</p>
+        <ul>
+          <li><b>讲为什么</b>：告诉它这件事在你的领域里为什么重要、通常错在哪里。</li>
+          <li><b>不替它下结论</b>：“均值对偏态数据不合适”是判断依据；“一律用中位数”是替它下了结论，遇到例外就会错。</li>
+          <li><b>少而精</b>：每一篇都要能指出它在哪种真实情况下帮上了忙，说不出来就删掉。</li>
+        </ul>
+        <label class="step-check"><input type="checkbox"> 我做完了：engineer 和 reviewer 的 skill 都写好了</label>
+      </section>
+
+      <!-- ============ STEP 5 ============ -->
+      <section class="step" data-step="5">
+        <h2 id="step-5" data-toc="5. 本地装上并检查"><span class="step-h"><span class="step-num">5</span>本地装上并检查</span></h2>
+        <p>把纵向以可编辑模式装进<b>装 Argus 的那个环境</b>，之后改 <code>stages.py</code> 或 skill 不用重装。</p>
+        <div class="tabs" data-group="os">
+          <div class="tab-panel" data-key="linux" data-label="Linux">
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>"$HOME/Argus/.venv/bin/python" -m pip install -e .</pre></div>
+          </div>
+          <div class="tab-panel" data-key="macos" data-label="macOS">
+            <div class="code" data-lang="bash"><pre><span class="p">$ </span>uv tool install --force --python 3.12 \
+    "argus @ https://github.com/microsoft/ArgusAgent/archive/refs/heads/main.zip" \
+    --with-editable .</pre></div>
+          </div>
+          <div class="tab-panel" data-key="windows" data-label="Windows">
+            <div class="code" data-lang="powershell"><pre><span class="p">PS&gt; </span>py -m pip install -e .</pre></div>
+          </div>
+        </div>
+        <p>然后确认 Argus 认出了它：</p>
+        <div class="code" data-lang="bash"><pre><span class="p">$ </span>argus verticals list
+<span class="p">$ </span>argus verticals info data_report</pre></div>
+        <div class="expect">
+          <div class="expect-title">你应该看到（真实输出节选）</div>
+<pre style="margin:6px 0 0;font:13px/1.6 var(--mono);white-space:pre-wrap">data_report   package   -   -   yes   -   Turn one tabular dataset (CSV, Excel, Parquet) into a short ...
+
+name          data_report
+kind          package
+enabled       True
+routing_path  analytics, data, report</pre>
+        </div>
+        <div class="note warn">
+          <span class="label">列表里没有它？</span>
+          <p>导入失败或不符合约定的纵向会被<b>跳过</b>，原因写在服务日志里的一条警告中，警告会点名是哪个纵向。最常见的原因：<code>ARGUS_VERTICAL_API_VERSION</code> 不是 1、<code>VERTICAL_PURPOSE</code> 为空、路由路径拼起来不等于纵向名、名字和自带纵向重复、某个必需阶段没有检查项。</p>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：argus verticals list 里能看到它</label>
+      </section>
+
+      <!-- ============ STEP 6 ============ -->
+      <section class="step" data-step="6">
+        <h2 id="step-6" data-toc="6. 用它跑一个任务"><span class="step-h"><span class="step-num">6</span>用它跑一个真实任务</span></h2>
+        <p>重启驾驶舱，让它读到新纵向。准备一份真实的 CSV 放进练习目录，然后交一个任务：</p>
+        <div class="code" data-lang="任务"><pre>用 data_report 纵向分析 sales.csv：
+各地区的月度销售额趋势如何，哪个地区下滑最明显、可能的原因是什么。
+完成标准：report.md 里每个数字都能用项目里的脚本重新算出来，并写明数据回答不了的问题。</pre></div>
+        <p>Manager 一般会根据用途说明自己挑中你的纵向。第一次测试时<b>在任务里点名</b>，可以排除“没被选中”这个变量。选中的纵向记在项目的 <code>.argus/PIPELINE_STATE.json</code> 里。</p>
+        <div class="expect">
+          <div class="expect-title">检查这几件事</div>
+          <ul>
+            <li>地图上的阶段是 understand → analyze → report。</li>
+            <li>Engineer 先看了真实数据，而不是直接开始画图。</li>
+            <li>Reviewer 真的重跑了脚本。如果它只读了报告就放行，回到第 4 步把审查 skill 写得更明确。</li>
+          </ul>
+        </div>
+        <div class="note">
+          <span class="label">怎么迭代</span>
+          <p>每发现一次 Argus 做偏了，先问：是阶段的证据要求不清楚（改 <code>stages.py</code>），还是缺了一条判断依据（加或改 skill）？一次只改一处，再跑一次，才看得出是哪处改动起了作用。</p>
+        </div>
+        <label class="step-check"><input type="checkbox"> 我做完了：用这个纵向跑完了一个真实任务</label>
+      </section>
+
+      <!-- ============ STEP 7 ============ -->
+      <section class="step" data-step="7">
+        <h2 id="publish" data-toc="7. 发布到纵向商店"><span class="step-h"><span class="step-num">7</span>发布到纵向商店</span></h2>
+        <p>纵向商店读的是社区仓库 <a href="https://github.com/Argus-AiTeam/argus-verticals">Argus-AiTeam/argus-verticals</a> 的发布清单。别人装你的纵向不需要 pip，只要一条命令，桌面版和网页版也能用。发布流程就是往这个仓库提一个 PR。</p>
+
+        <h3 id="publish-files">1) 把纵向放进社区仓库</h3>
+        <p>Fork 并克隆社区仓库，然后：</p>
+        <ol>
+          <li>把你的 <code>argus_verticals/data_report/</code> 整个目录复制到仓库的 <code>argus_verticals/</code> 下。</li>
+          <li>在目录里加一份 <code>README.md</code>：这个纵向做什么、<b>不做什么</b>、和哪个相邻纵向的区别。</li>
+          <li>在目录里加 <code>vertical.json</code>（见下）。</li>
+          <li>在仓库根目录的 <code>pyproject.toml</code> 里，照着已有条目注册入口点：<code>data_report = "argus_verticals.data_report.stages"</code>。</li>
+          <li>给你写的每个确定性检查（如果有）在 <code>tests/</code> 下加测试。</li>
+          <li>运行 <code>python scripts/build_catalog.py</code> 重新生成 <code>catalog.json</code>。</li>
+        </ol>
+        <p>不知道怎么写的地方，照着仓库里已有的纵向抄，比如 <code>argus_verticals/materials/</code>。</p>
+        <div class="code" data-lang="argus_verticals/data_report/vertical.json"><pre>{
+  "name": "data_report",
+  "module": "argus_verticals.data_report.stages",
+  "version": "0.1.0",
+  "purpose_zh": "把一份表格数据变成一份每个数字都能复算的分析报告。",
+  "paths": ["argus_verticals/data_report"],
+  "requires": [],
+  "shared": [],
+  "python_requirements": ["pandas&gt;=2"],
+  "tags": ["data", "analysis", "report"],
+  "maintainers": ["your-github-id"]
+}</pre></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>name</code> / <code>module</code></td><td>纵向名，以及 <code>stages.py</code> 的模块路径</td></tr>
+            <tr><td><code>version</code></td><td>语义化版本。修文字是补丁号，加检查项或 skill 是次版本号，改阶段或交付物是主版本号</td></tr>
+            <tr><td><code>requires</code> / <code>shared</code></td><td>依赖的其他社区纵向和共享代码，必须和代码里实际 import 的一致</td></tr>
+            <tr><td><code>python_requirements</code></td><td>需要的 Python 包。<b>只展示给用户、不会自动安装</b>，装不装由用户决定</td></tr>
+            <tr><td><code>tags</code></td><td>2 到 4 个标签</td></tr>
+          </tbody>
+        </table></div>
+        <p>英文用途说明只写在 <code>stages.py</code> 里，<b>不要</b>重复写进清单；skill 父级、API 版本也会自动从 <code>stages.py</code> 读出。</p>
+
+        <h3 id="publish-check">2) 提 PR 前先过检查</h3>
+        <p>在社区仓库的根目录：</p>
+        <div class="code" data-lang="bash"><pre><span class="p">$ </span>pip install "argus @ git+https://github.com/lbx154/Argus.git@main"
+<span class="p">$ </span>pip install -e ".[dev,zh-fold]"
+<span class="p">$ </span>ruff check argus_verticals tests scripts
+<span class="p">$ </span>python scripts/build_catalog.py --check
+<span class="p">$ </span>pytest -q</pre></div>
+        <p>都通过后，向 <code>main</code> 提 PR，写清楚这个纵向做什么、刻意不做什么、你是怎么测试的。第 6 步那次真实运行就是最好的测试说明。</p>
+        <div class="note warn">
+          <span class="label">社区仓库的规矩</span>
+          <ul>
+            <li>约定一致性测试是门槛：它会导入每个入口点，检查 API 版本、用途、skill 目录，并要求有 README 和入口点注册。不过的 PR 不会进入审查。</li>
+            <li>纵向之间不能互相 import，除非通过写在 README 里的共享模块或父依赖。</li>
+            <li>不要提交密钥，也不要提交大数据集；测试数据用手写的小样本。</li>
+            <li>永远不要为了让测试通过而放宽阈值。</li>
+          </ul>
+          <p>以 <a href="https://github.com/Argus-AiTeam/argus-verticals/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a> 的最新版本为准。</p>
+        </div>
+
+        <h3 id="publish-release">3) 合并之后</h3>
+        <p>维护者打出新的版本标签后，CI 会把每个纵向打成 zip，连同带校验值的 <code>catalog.json</code> 一起发布。之后任何人都可以：</p>
+        <div class="code" data-lang="bash"><pre><span class="p">$ </span>argus verticals refresh               <span class="c"># 拉取最新的商店清单</span>
+<span class="p">$ </span>argus verticals install data_report   <span class="c"># 下载、校验、解压，依赖的纵向会一起装上</span>
+<span class="p">$ </span>argus verticals info data_report</pre></div>
+        <p>网页驾驶舱的“纵向”页面上也能浏览、安装、启用和停用。装好的纵向在 <code>~/.argus-skill/verticals/argus_verticals/data_report/</code>，Argus 会像对待自带纵向一样发现它。</p>
+        <label class="step-check"><input type="checkbox"> 我做完了：PR 已经提交</label>
+      </section>
+
+      <hr>
+
+      <h2 id="reference">字段速查</h2>
+      <p>上面没用到、但以后可能用得上的可选字段：</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>字段</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>VERTICAL_SKILL_PARENTS</code></td><td>直接复用另一个纵向的 skill（只复用知识，不继承流程）</td></tr>
+          <tr><td><code>WORKFLOW_PROFILES</code></td><td>给小任务用的精简流程，例如只跑其中两个阶段；必须保留一个等于完整顺序的 <code>full</code>。见<a href="https://github.com/microsoft/ArgusAgent/blob/main/docs/workflow-profiles.md">工作流档位</a></td></tr>
+          <tr><td><code>CHECKLIST_OPTIONAL_STAGES</code></td><td>可以没有检查项的阶段</td></tr>
+          <tr><td><code>VERIFICATION_STAGE_PROFILES</code></td><td>每个阶段的验证强度：<code>explore</code> / <code>develop</code> / <code>certify</code></td></tr>
+          <tr><td><code>REQUIRE_INDEPENDENT_REVIEW</code></td><td>是否要求独立审查，默认开启</td></tr>
+          <tr><td><code>stage_completion_issues(...)</code></td><td>用代码检查某阶段是否真的完成，比如文件是否存在</td></tr>
+        </tbody>
+      </table></div>
+      <p>完整约定由 <code>argus/core/vertical_contract.py</code> 检查；想看一个只有 3 个阶段的自带纵向，读 <code>argus/verticals/argus_maintenance/stages.py</code>。</p>
+
+      <div class="pager">
+        <a href="best-practices.html"><div class="dir">上一篇</div><div class="ttl">← 用好 Argus</div></a>
+      </div>
+    </article>
+  </main>
+
+  <aside class="toc"></aside>
+</div>
+
+<footer class="site-foot">Argus · MIT License · <a href="https://github.com/microsoft/ArgusAgent">GitHub</a></footer>
+</body>
+</html>
