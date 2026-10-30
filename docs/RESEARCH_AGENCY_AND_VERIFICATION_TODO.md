@@ -6,6 +6,14 @@
 >
 > 目标不是把 Reviewer 变“松”，而是同时做到：**探索更大胆、调研更深、失败归因更准、
 > 最终认证仍然严格**。
+>
+> **勾选状态（2026-10-27 按 `dev` 45d21b0f 的代码与测试核对，SC-14）。** 只有代码和测试里现在
+> 确实存在的条目才勾选 `[x]`，并注明提交和主要代码路径；做过、后来被另一种机制取代的条目标
+> `[~]` 并写明取代它的提交；部分实现或实现后又被移除的条目保持未勾选，附一句说明。
+> 注意：`kernel_engineering` vertical（含 `environment_audit.py`、`frontier_watch.py`、
+> tool registry）已在 d23658c7 移出本仓库，改由 Vertical Store（`Argus-AiTeam/argus-verticals`）
+> 发布；核对时该仓库 main 上还没有它（只有 `kernelbench`），所以所有 Kernel 相关条目
+> 在本仓库无法验证，一律未勾选。下文 §1.1 对 kernel 能力的描述也因此已过时。
 
 ## 0. 用户反馈与问题定义
 
@@ -140,29 +148,51 @@
   - `conservative`：明确预算紧/风险低的工程任务；
   - `balanced`：默认；
   - `frontier`：持续研究、kernel 优化、探索型 paper campaign。
+  - 核对：88ab960a / 1c9fdb0c（同一补丁落了两次）加入过，3692e18b 因无产品代码调用而删除；
+    现在 `PIPELINE_STATE.json` 里的 `exploration_posture` 被忽略。
 - [ ] 新增 `VerificationProfile`：
   - `explore`：验证 premise、方向和信息增益；
   - `develop`：验证实现、比较和可复现候选；
   - `certify`：验证完整 claim、venue 与 submission readiness；
   - `adaptive`：默认，按 stage/scope 自动解析以上三档。
-- [ ] `research_target_level` 只表示项目最终成功目标，不再承担每轮 verification bar。
+  - 核对（部分）：`argus/core/verification_policy.py` 的 `VERIFICATION_PROFILES` 只有
+    `explore | develop | certify`，永远由 stage/scope 解析（相当于只剩 `adaptive`）；可配置的
+    `adaptive` 值和 operator 选择在 3692e18b 删除。
+- [x] `research_target_level` 只表示项目最终成功目标，不再承担每轮 verification bar。
+  - 88ab960a / 1c9fdb0c，6a9b0c42；`argus/roles/prompts/reviewer.py`（“defines project
+    completion, not this round's bar” + `policy_line`）、`argus/roles/prompts/planner.py`
+    （“sets `to=done`, not this round”）；测试 `tests/core/test_verification_policy.py`。
 - [ ] effective profile 建议解析顺序：
   1. `scope=final_submission` 或 submission completion gate → 强制 `certify`；
   2. operator 明确的 project override；
   3. `adaptive` 的 stage mapping；
   4. 未解析时 fail-visible，不静默回落到最严或最松。
-- [ ] 建议的 research stage mapping：
+  - 核对（部分）：`resolve_policy()` 实现了 1、3、4（final scope → `certify`；vertical 的 stage
+    映射；未映射时 `resolved=False`，prompt 显示 `(unresolved)`；`completion_gate=certified` 的最后
+    一个 stage 也按 final 处理，见 `argus/core/vertical_contract.py`）。第 2 步 operator override 在
+    3692e18b 删除。
+- [x] 建议的 research stage mapping：
   - `research`, `plan` → `explore`；
   - `benchmark`, `run`, `analysis`, `draft` → `develop`；
   - `review`, `submission` → `certify`。
+  - 88ab960a / 1c9fdb0c 首次实现；ecf43253 把映射移到 vertical 的 `VERIFICATION_STAGE_PROFILES`，
+    8c1c8599 / 331fa183 改为四阶段后现在是 `idea → explore`、`experiment`/`paper → develop`、
+    `review → certify`（`argus/verticals/research/stages.py`）。原来的测试
+    `test_research_stage_mapping` 在 8c8497bb 删除，现在没有测试固定 research 的映射。
 - [ ] Kernel mapping：
   - `scope`, `environment` → `explore`；
   - `baseline`, `optimize` → `develop`；
   - `validate`, `report` → `certify`（仅对所声明的硬件/shape/claim 范围）。
+  - 核对：88ab960a 中有完整映射，后来 kernel vertical 只保留 `{"optimize": "develop"}`，并在
+    d23658c7 移出本仓库。
 - [ ] 将 operator 选择持久化在 state root 的 Manager-owned contract/config 中；降低最终 bar 属于
   改变“done”含义，必须走 operator confirmation，不能由 Engineer/Reviewer 自改。
+  - 核对：88ab960a 的 `set_policy(confirmed=...)` 实现过，但没有产品代码调用，3692e18b 删除。
 - [ ] 四角色 prompt 只注入一段短信息：最终 target、当前 profile、不可降低的 integrity floor、
   当前 mission 的 completion scope。
+  - 核对（部分）：只有 Planner 和 Reviewer 注入（`planner.py` 的 research target / vertical
+    verification staging 段，`reviewer.py` 的 `verification_instruction`）；Engineer 与 Manager
+    prompt 不含当前 profile。
 
 **建议代码触点**
 
@@ -191,6 +221,9 @@
 - [ ] `format_stage_checklist()` 按 effective profile 渲染相关 rubric；仍由 Reviewer 判断通过与否。
 - [ ] full-pipeline checklist 固定包含所有 certification item。
 - [ ] bounded mission 明确只认证该 mission 的交付，不因项目最终 target 尚未达到而保持无限 continue。
+  - 核对（部分）：`argus/core/research_contract.py` 中 `scope=bounded` 只认证自身验收标准，
+    `argus/manager/stage_decider.py::_mission_scope_can_complete` 禁止 bounded mission 关闭项目；
+    但没有本条所说的 checklist 成熟度元数据（`ChecklistItem` 仍只有 `id/statement/evidence_hint`）。
 - [ ] Reviewer reason 必须区分：
   - current mission gap；
   - project-to-target gap；
@@ -211,8 +244,17 @@
 
 ### TODO P0-03：分离 Mission Verdict 与四态 Idea Evidence
 
-- [ ] 保留 Reviewer 的 `done | continue | blocked | replan_requested` 作为 mission 控制状态。
+- [~] 保留 Reviewer 的 `done | continue | blocked | replan_requested` 作为 mission 控制状态。
+  - 被 77d00306 取代：5c25d87c 曾收敛为这四个值，现在 Reviewer 的交接表单写下一个持有人
+    （`argus/core/models.py` 的 `Holder`：`engineer | planner | manager | operator | done`，
+    `argus/core/handoff.py`），旧状态只在读旧记录时换算。
 - [ ] 复用 Kernel attempt outcome 已有的四态，不再新增第二套复杂状态机：
+  - 核对（以下各条共同说明）：dae5cd81 / a6c0a32f 把四态与不变式提到
+    `argus/core/evidence_status.py`（`IDEA_STATUSES`、`EvidenceContract`、`validate_evidence`），
+    并加了 research 的 `idea_evidence.py`（含 `premise_version`）和 kernel 的 `attempt_outcome.py`。
+    99d46e7c 把这两个 domain 模块当作无人调用的代码删除；现在 `evidence_status.py` 只被
+    `tests/core/test_evidence_status.py` 使用，没有任何产品路径记录或校验 `idea_status`。
+    因此下面依赖它的条目都只算部分实现。
   - `untested`：binding premise 没有被有效执行；
   - `inconclusive`：执行过，但证据不足以支持或反驳；
   - `supported`：证据在明确声明范围内支持 premise；
@@ -230,6 +272,7 @@
 - [ ] `supported` 只表示当前 premise 在声明范围内得到支持，不自动等于 publishable 或 project done。
 - [ ] `replan_requested` 表示需要新 scope/plan，不自动等于 idea/project 失败。
 - [ ] Idea history 保留 premise 版本；重新定义 premise 后可重新测试，避免旧结论污染新 premise。
+  - 核对：`premise_version` 只在已删除的 `idea_evidence.py` 中存在过（a6c0a32f 加，99d46e7c 删）。
 
 **验收标准**
 
@@ -240,7 +283,7 @@
 
 ### TODO P0-04：清理 AAAI/通用 Paper 规则冲突
 
-- [ ] 以 `verticals/research/stages.py` 的“claim-proportional、无 universal quota”原则为上位规则，
+- [x] 以 `verticals/research/stages.py` 的“claim-proportional、无 universal quota”原则为上位规则，
   审计并统一以下文件：
   - `verticals/research/venue_profiles.py`；
   - `verticals/research/skills/engineer/aaai-format-preflight.md`；
@@ -248,29 +291,51 @@
   - `verticals/research/skills/reviewer/academic-paper-peer-review-benchmark.md`；
   - EMNLP 对应 drafting/preflight/reviewer skills；
   - `verticals/research/paper_structural_minimums.py`、academic/language/layout review prompts。
-- [ ] 删除或降级为 advisory 的通用硬阈值：
+  - 4ecfc845 / 311b91f3 清理了 AAAI/EMNLP skill 与 `VenueProfile` 中的数量门槛；331fa183 删除
+    `paper_structural_minimums` 等脚本化门，并把 AAAI/EMNLP 专用 skill 换成通用
+    `venue-format-preflight.md`、`venue-academic-language-review.md`（无内置 venue）；
+    `paper_layout_review.py` 于 565d1a09 删除。测试 `tests/test_paper_length_and_citation_quotas.py`。
+- [x] 删除或降级为 advisory 的通用硬阈值：
   - 35 verified BibTeX entries；
   - 30 unique cited keys；
   - References 必须占两页；
   - Conclusion 不得早于第 6/7 页；
   - “必须填满 7 页”作为科学质量判断；
   - 单一 model-review score（如 4/5）作为独占完成门。
-- [ ] 保留 AAAI 真正官方/结构性硬约束：
+  - 4ecfc845 / 311b91f3（35/30、References 两页、Conclusion 页码、underfill hard gate）；331fa183
+    （删除脚本化 review 分数门）。现在最终门是 Reviewer 读论文后的 venue recommendation 对比
+    operator 设定的接受线（`argus/core/venue_review.py`）。说明：d158444d 在
+    `research-paper-playbook.md` 加了“接近页数上限”的写作目标，Reviewer 会比较正文篇幅，但它
+    不是硬门。
+- [x] 保留 AAAI 真正官方/结构性硬约束：
   - 当前官方 author kit、匿名模式和 page **上限**；
   - style/preamble/PDF requirements；
   - 引用必须真实且 claim-complete；
   - Reproducibility Checklist 的官方位置；
   - 无未解析 citation/reference、无明显 PDF 破损。
+  - 311b91f3 保留超页约束；331fa183 起由 `skills/engineer/venue-format-preflight.md` 按所选
+    venue 的官方 author kit 检查模板、匿名、页数上限、submission checklist、引用解析；
+    `reviewer/academic-paper-peer-review-benchmark.md` 把伪造/未解析引用列为不成立的问题。
 - [ ] 将“篇幅较短”改为 Reviewer 的诊断信号：只有当重要方法、证据或论证功能缺失时才阻断；
   不能仅按页码阻断。
-- [ ] Academic language/layout/infrastructure review JSON 保持 advisory evidence；Reviewer 读实际论文，
+  - 核对（部分）：311b91f3 去掉了按页码阻断；但 d158444d 之后 `research-review-playbook.md` 要求
+    Reviewer 把正文篇幅与“接近上限”的写作目标比较并提出扩写，短篇幅又成了一种压力，而不只是
+    缺失内容的诊断信号。
+- [~] Academic language/layout/infrastructure review JSON 保持 advisory evidence；Reviewer 读实际论文，
   不为刷模型分数反复改写自然段。
+  - 被 331fa183 取代：这些 JSON review 模块被删除，而不是保留为 advisory；`reviewer/venue-academic-language-review.md` 只读渲染
+    PDF、不改文件、“a preference for different wording is not”缺陷，`research-review-playbook.md`
+    写明不需要 JSON 或固定模板。
 - [ ] Venue profile 分离：
   - **format facts**：官方模板、页数上限、匿名、end matter；
   - **scientific review calibration**：当前 CFP/track 的 contribution expectations；
   - 不再把 house-style bibliography 数量放进 format profile。
+  - 核对（部分）：bibliography 数量字段已在 311b91f3 删除；但 `VenueProfile` 仍把 reviewer
+    persona/rubric id 与格式事实放在一起，没有独立的 scientific calibration。
 - [ ] AAAI 与 EMNLP 科学 review 不只换 persona 名称：从当年官方 CFP/author kit/track 页面刷新
   venue-specific rubric，并记录 primary source/date。
+  - 核对（部分）：`skills/engineer/venue-format-research.md`（331fa183）要求读当前官方 CFP 并返回
+    author-kit URL，Reviewer 按所选 venue 判断；但不记录来源日期，也没有 venue-specific 科学 rubric。
 
 **验收标准**
 
@@ -281,11 +346,19 @@
 
 ### TODO P0-05：修复认证后 Stage 推进的 liveness
 
-- [ ] Reviewer `done` 且 stage checklist 被当前 mission 覆盖后，立即触发一次 Manager stage decision；
+- [x] Reviewer `done` 且 stage checklist 被当前 mission 覆盖后，立即触发一次 Manager stage decision；
   不等待一个不相关的 operator 消息或下一次空 backlog 周期。
+  - stage-closing mission 结束后在 `argus/apps/_runtime_execute.py::_maybe_decide_stage_transition`
+    当场调用 `decide_stage_transition`；普通节点由 aa095d98 在每个 planning cycle 调 Planner 之前
+    重放未评估的 Reviewer 结论（`argus/life/supervisor/_planning_cycle.py::_pc_reconcile_reviewed_stage`，
+    仅 `continuous` campaign）。
 - [ ] 保持 Manager 是唯一语义 stage authority；Supervisor 只负责可靠触发和超时可见性。
+  - 核对（部分）：Manager 是唯一 stage writer（`argus/manager/stage_decider.py`、
+    `argus/manager/_stage_ops.py::decide_stage_transition`），Supervisor 负责触发；没有超时可见性。
 - [ ] 定义 SLO：stage certification 后若无外部 blocker，N 秒/一个 planning tick 内必须得到
   `advance | stay(reason) | rollback(reason)`。
+  - 核对（部分）：上面的重放让决定通常在下一个 planning tick 内出现，并以
+    `life.manager.stage_decision` 事件记录；没有定义或度量 SLO。
 - [ ] `stay` 必须给出仍缺的**当前 stage**价值工作，不能只说“等待 Manager”。
 - [ ] cockpit 显示“已认证，等待 Manager stage decision”及等待时长。
 
@@ -323,6 +396,12 @@
   - 30% adjacent；
   - 20% moonshot。
   比例是 planning budget，不是机械 GPU 配额。
+  - 核对（P1-01 共同说明）：未实现。posture 已在 3692e18b 删除，从未有过预算比例；
+    `argus/verticals/research/idea_portfolio.py` 只迁移旧数据（“runtime no longer forms idea
+    portfolios”）。只有提示词层面的零散要求：`research-idea-playbook.md` 要求比较多条机制不同的
+    路线、给出能推翻它的最小实验、不因便宜或易证而选题（3ccfba16、0d3e8c6a）；Planner prompt 要求
+    选“最能改变认知”的实验、淘汰改名重复任务（`argus/roles/prompts/planner.py`）；Experiment 的
+    `experiment.repair` 把负结果导向诊断梯。没有三类候选、counterfactual、overlap 分析或任何计数。
 
 **实现位置**
 
@@ -338,11 +417,20 @@
   - 哪个结果会使路线 A/B 的排序翻转？
   - 最便宜的 faithful probe 是什么？
   - 成功/失败后分别做什么？
+  - 核对（部分）：Planner prompt 要求“name each task's decision”，每个任务有可选的假设和决策规则字段，
+    不强制；没有排序翻转和 cheapest probe。
 - [ ] Reviewer 对负结果先检查“它是否真正减少了不确定性”，再决定 continue/replan。
+  - 核对（部分）：Reviewer prompt 与 `experiment-results-review.md` 要求结合后果解读负结果，但没有
+    这一判断顺序。
 - [ ] 避免因 final publication bar 未达到就否定一个高信息量早期实验。
+  - 核对（部分）：P0-01 的 stage→profile 映射和“target sets PROJECT_DONE, not this round”提示
+    （88ab960a / 1c9fdb0c）是主要机制；没有更多保护，仍由 Reviewer 判断。
 - [ ] 对 paper idea 使用“孵化状态”，而不是 research stage 内直接进行 final peer-review simulation。
-- [ ] `kill-argument` 只用于已成熟 idea/draft 的 adversarial stress test；不得作为所有早期 idea 的
+  - 核对（部分）：final review 只在 `review` stage（`certify`）；但没有 idea 级的孵化状态。
+- [x] `kill-argument` 只用于已成熟 idea/draft 的 adversarial stress test；不得作为所有早期 idea 的
   默认筛选器。
+  - 86b1e9b8 退役 `reviewer/kill-argument.md`（`argus/skills/builtins.py` 的退役列表），4a72b03a 的
+    替代品 `reviewer/strongest-argument-against.md` 写明只在 final Review 中使用。
 
 ### TODO P1-03：增加“研究主动性”可观测指标
 
@@ -358,6 +446,8 @@
 - [ ] `continue` 同 blocker 重复率与 replan latency；
 - [ ] stage-certified-to-manager-decision latency；
 - [ ] paper review loop 中纯措辞改写次数 vs 新证据/结构改动次数。
+  - 核对：十项都没有对应事件或投影（`argus/core/event_catalog.py`）；`evidence_status.py` 没有运行时
+    调用方，所以连 `idea_status` 变化也无从记录。
 
 这些指标用于行为评估和 shadow rollout，不直接变成 hard gate。
 
@@ -375,6 +465,14 @@
   - Triton/backend 自带 compiler/binary 路径；
   - conda/venv prefix、project tool directories；
   - registry entry 声明的 known install roots。
+  - 核对（K-01 各条共同说明）：4ecfc845 / 311b91f3 在
+    `argus/verticals/kernel_engineering/environment_audit.py` 实现过一部分：查 `CUDA_HOME`/`CUDA_PATH`/
+    `CUDA_ROOT`、`/usr/local/cuda*`、`/opt/cuda*`、torch 的 `CUDA_HOME`（含 Nsight 嵌套目录），
+    报告 `on_path`/`installed_not_on_path`/`not_found`，并由 `path_repair_hint()` 给出 PATH 修复行
+    （测试 `tests/test_kernel_tool_discovery.py`）。未实现 alternatives、Triton 自带二进制、
+    conda/venv 前缀、registry known roots、`installed_incompatible`/`probe_failed`、记录有效
+    PATH/CUDA_HOME 与 smoke 结果、环境变化后自动刷新。整个 vertical 及该测试在 d23658c7 移出本仓库，
+    所以在 `dev` 上无法验证，全部未勾选。
 - [ ] 报告区分：`installed_and_on_path`、`installed_not_on_path`、`not_installed`、
   `installed_incompatible`、`probe_failed`。
 - [ ] 对 `installed_not_on_path` 生成最小 environment repair proposal，而不是安装同一工具第二份。
@@ -405,6 +503,14 @@
 
 不要把任意 shell 安装命令直接当可信执行代码。Registry 先生成计划，执行层必须经过参数化 adapter、
 sandbox 和 approval policy。
+
+> 核对（K-02～K-06）：均未勾选。`specialized_tool_registry.json`、`tool_registry.py`、
+> `frontier_watch.py`、`leverage_gate.py` 等都在 d23658c7 随 kernel vertical 移出本仓库。删除前
+> registry 每条只有 `official_url`、探测字段和一句 `use_when`，只有 registry 级 `refreshed_at`；
+> `frontier_watch.validate_record` 已要求 `no_material_update` 附真实 queries/sources（K-03 最后一条），
+> `path_repair_hint` 只覆盖 K-04 修复顺序第 1 步；从未有 `plan-repair` 命令、机制卡或 K-06 的 agent
+> 级 E2E。仍留在本仓库的只有 `argus/core/evidence_status.py` 的“环境失败不能反驳 idea”不变量
+> （无调用方）和 `argus/builtin_skills/project-venv-package-management.md` 的“不改 Argus 框架环境”。
 
 ### TODO K-03：Latest Tool/Technique Frontier Refresh
 
@@ -484,40 +590,65 @@ sandbox 和 approval policy。
 
 - [ ] research idea 只使用 `untested | inconclusive | supported | refuted` 四态；seed、grounding、
   probe 和 development 是工作阶段/artifact，不再建一套候选状态枚举。
-- [ ] early probe 的 Reviewer 问题是“学到了什么、下一 probe 值不值”，不是“现在能否过 AAAI”；
-- [ ] publishable target 约束最终 destination，但不要求 seed/pilot 已是 publishable result；
+  - 核对（部分）：四态只在 `argus/core/evidence_status.py`（a6c0a32f），research 没有调用方
+    （见 P0-03 说明）。
+- [x] early probe 的 Reviewer 问题是“学到了什么、下一 probe 值不值”，不是“现在能否过 AAAI”；
+  - 88ab960a / 1c9fdb0c：`idea` stage 解析为 `explore`，Reviewer prompt 注入“is the premise real,
+    testable, and worth the next probe”（`argus/core/verification_policy.py`、`reviewer.py`）。
+- [x] publishable target 约束最终 destination，但不要求 seed/pilot 已是 publishable result；
+  - 88ab960a / 1c9fdb0c、6a9b0c42：同 P0-01 第三条；测试 `tests/core/test_verification_policy.py`。
 - [ ] Planner 可以 park 一个 `untested`/`inconclusive` candidate，或因 prior art 请求 replan；这些是
   调度决定，不改写成 idea 的 epistemic 状态。
 - [ ] 一个 candidate 被 `refuted` 或暂时 park 后，portfolio 中仍有 adjacent/moonshot 候选，避免
   project 与单 idea 同生共死；
 - [ ] novelty 风险与 evidence maturity 分开：可以是“高 novelty bet + inconclusive evidence”，
   而不是直接失败。
+  - 核对（部分）：research result 中 `novelty_status` 与 `correctness_status` 是不同字段
+    （`argus/core/research_contract.py`），但没有与四态 idea evidence 关联。
+  - 另注：现在的 Idea 阶段只读文献、选定一条路线后关闭搜索（`research-idea-playbook.md`），
+    没有 park 或 portfolio 概念，本节其余两条未实现。
 
 ### TODO P-02：分阶段 Paper Verification Rubric
 
 #### Explore
 
-- [ ] 文献 gap 是否真实；
-- [ ] idea 是否可证伪；
-- [ ] 最便宜 faithful probe 是否存在；
-- [ ] 当前证据只决定下一步，不要求完整 baseline/引用/page/layout。
+- [x] 文献 gap 是否真实；
+- [x] idea 是否可证伪；
+- [x] 最便宜 faithful probe 是否存在；
+- [x] 当前证据只决定下一步，不要求完整 baseline/引用/page/layout。
+  - 以上四条：Idea 阶段（映射为 `explore`）的 `research-idea-playbook.md`（3ccfba16、0d3e8c6a）要求
+    source-backed novelty distinction、每条路线给出能推翻它的最小完整实验及其耗时算力；Idea 阶段
+    只读文献，页面/版式/引用格式要求只在 Paper/Review。注意 probe 只被设计，不在 Idea 中执行。
 
 #### Develop
 
-- [ ] evaluator/implementation faithful；
-- [ ] strongest feasible baseline 与 public source；
-- [ ] claim 与证据范围一致；
+- [x] evaluator/implementation faithful；
+- [x] strongest feasible baseline 与 public source；
+- [x] claim 与证据范围一致；
+  - 以上三条：`argus/verticals/research/stages.py` 的 Experiment checklist（映射为 `develop`）
+    `experiment.implementation`、`experiment.fidelity`、`experiment.positive_control`、
+    `experiment.paper_bar`（e41f696d、d158444d、274c5cd3）。
 - [ ] paper 可以有 placeholder scaffold，但不能伪造结果；
+  - 核对（部分）：禁止伪造/占位结果（`research-paper-playbook.md`、`research-experiment-playbook.md`），
+    但没有允许 placeholder scaffold 的条款。
 - [ ] Reviewer 给少数最高杠杆修改，不输出无限 submission checklist。
+  - 核对（部分）：`research-review-playbook.md` 要求按价值区分 blocker、高影响改进和 speculative
+    建议（f2915be3、323cdb74），但没有数量上限。
 
 #### Certify
 
-- [ ] 完整 claim-critical evidence、uncertainty、comparisons；
-- [ ] 当前 venue 官方格式；
-- [ ] citation correctness/completeness；
-- [ ] PDF、figures、anonymity、reproducibility；
-- [ ] 独立 Reviewer 给 strongest accept/reject argument；
-- [ ] 只有此档可以认证 final submission。
+- [x] 完整 claim-critical evidence、uncertainty、comparisons；
+- [x] 当前 venue 官方格式；
+- [x] citation correctness/completeness；
+- [x] PDF、figures、anonymity、reproducibility；
+- [x] 独立 Reviewer 给 strongest accept/reject argument；
+  - 以上五条：Review 阶段（映射为 `certify`）checklist `review.authoritative`、`review.scientific`、
+    `review.visual`、`review.integrated`（`argus/verticals/research/stages.py`，4a72b03a、323cdb74、
+    86b1e9b8），`reviewer/academic-paper-peer-review-benchmark.md`（4a72b03a），
+    `engineer/venue-format-preflight.md`（331fa183、57f3322b），`REQUIRE_INDEPENDENT_REVIEW = True`。
+- [x] 只有此档可以认证 final submission。
+  - 88ab960a / 1c9fdb0c：`resolve_policy(scope="final_submission")` 恒为 `certify`；research 的
+    `completion_gate = "certified"`。测试 `test_a_final_submission_is_always_certified`。
 
 ### TODO P-03：AAAI Scientific Profile（与 Format Profile 分离）
 
@@ -529,15 +660,26 @@ sandbox 和 approval policy。
 - [ ] 引用数量、页数使用率、图数量、模型 review score均不得代替 contribution judgment；
 - [ ] 对 negative/boundary/diagnostic paper，先判断是否有独立的 surprising、decision-relevant insight；
   没有则 pivot，但不要因结果符号直接 kill。
+  - 核对（P-03 共同说明）：格式与科学 profile 没有分离（`VenueProfile` 只有格式字段和 persona）；
+    引用数量下限已去掉、页数上限是 ceiling（311b91f3），但 `research-paper-playbook.md` 仍有接近满页
+    的写作目标；venue 一律按 “selected venue” 通用处理，没有 AAAI/track 专属校准。另外现行 research
+    政策规定不得把 negative-result 或 restricted-case 论文当作达到 operator 目标（`stages.py`、
+    `tests/skills/test_fixed_claim_policy.py`），与本条方向相反。
 
 ### TODO P-04：Reviewer 输出“最强 accept case + 最强 reject case”
 
 - [ ] 在 develop/certify paper review 中要求先写 strongest accept argument，再写 strongest reject
   argument；
+  - 核对（部分）：只在 Review（certify）中要求（`review.authoritative`、
+    `reviewer/strongest-argument-against.md`，86b1e9b8、4a72b03a）；Experiment/Paper 没有。
 - [ ] `continue` 只给 1–3 个最高杠杆 gap，避免每轮生成完整 laundry list；
 - [ ] 明确 gap 类型：new evidence / implementation adequacy / claim scope / writing / format；
+  - 核对（部分）：benchmark skill 要求区分科学不确定性与写作/外观缺陷，但没有这五类。
 - [ ] writing/format gap 不得被升级成 idea refutation；
-- [ ] certification reject 不等于 research idea permanently killed。
+  - 核对（部分）：同上的文字区分；没有接入的 idea 状态可供约束。
+- [x] certification reject 不等于 research idea permanently killed。
+  - f2915be3、4271824b：`research-review-playbook.md` 规定 reject/borderline 留在 Review 继续修订，
+    不回滚 Idea、无修订次数上限；`experiment.repair` 也禁止因负结果重开 Idea。
 
 ### TODO P-05：Paper 回归集
 
@@ -552,6 +694,8 @@ sandbox 和 approval policy。
 - [ ] fabricated/stub evidence：所有 profile 失败；
 - [ ] final paper 格式错误：Explore/Develop 可继续，Certify 阻断；
 - [ ] mature negative/boundary insight：允许形成 paper，而不是正结果偏置。
+  - 核对：没有匿名 fixture/replay。只有 `tests/test_paper_length_and_citation_quotas.py` 对 skill
+    文本做断言（引用数量、页数上限），不是行为回归。
 
 ---
 
@@ -571,6 +715,9 @@ sandbox 和 approval policy。
   - “进入投稿前切回 certify”；
 - [ ] 降低最终 completion bar 时显示影响并要求确认；提高 bar 可直接确认写入。
 - [ ] 当前 profile 不得只靠进程 env；必须项目持久化、可恢复、可审计。
+  - 核对（UI-01 共同说明）：posture 与 operator profile 已在 3692e18b 删除；effective profile 由持久化
+    的 stage 推出，不读 env，但没有 configured profile、来源记录或审计。前端只在启动确认卡显示
+    research target 和 venue（`frontend/web/src/lib/launch.ts`），运行中不显示 profile。
 
 ### TODO UI-02：展示“为什么没继续探索”
 
@@ -579,6 +726,8 @@ sandbox 和 approval policy。
 - [ ] 对 Reviewer reject 显示 gap 类型，不只显示红色 rejected；
 - [ ] 对 stage WAITING 显示 authority/blocker/recheck 条件；
 - [ ] 展示最近一个 moonshot 和为何执行/未执行，防止 frontier posture 只是标签。
+  - 核对：未实现。Reviewer reject 在前端只显示 status 与 reason，stage hold 只显示 reason
+    （`frontend/core/src/eventRender/index.ts`）。
 
 ---
 
@@ -590,6 +739,8 @@ sandbox 和 approval policy。
 - [ ] 统计 early kill、相同 blocker 循环、环境 false negative、纯 checklist completion、
   paper wording loop、stage waiting；
 - [ ] 标注人工认为的 false reject / correct reject / false accept 风险。
+  - 核对：E-01～E-03 均未实现；仓库内没有对应基线数据、shadow 对比或指标采集（现有的 “shadow”
+    是 narrative review 的校准模式，与本节无关）。
 
 ### TODO E-02：Shadow Reviewer/Planner
 
@@ -636,19 +787,33 @@ sandbox 和 approval policy。
 
 为了避免一次改完整个框架，首个 PR 只做以下闭环：
 
-1. [ ] 新增 `adaptive | explore | develop | certify` verification profile resolver；
-2. [ ] publishable research target 在 research stage 自动得到 `explore`，final_submission 强制
+1. [x] 新增 `adaptive | explore | develop | certify` verification profile resolver；
+   - 88ab960a / 1c9fdb0c；`argus/core/verification_policy.py::resolve_policy`。现在只按 stage/scope
+     解析（3692e18b 删除了可配置的 `adaptive` 值和 operator override）。
+2. [x] publishable research target 在 research stage 自动得到 `explore`，final_submission 强制
    `certify`；
-3. [ ] Reviewer prompt 明确“current mission bar”与“project final target”分离；
-4. [ ] 删除 AAAI 的 35/30 与满 7 页 hard blocker，保留官方 format/integrity gate；
+   - 88ab960a / 1c9fdb0c；测试 `tests/core/test_verification_policy.py::test_a_final_submission_is_always_certified`。
+     idea stage 得到 `explore` 的测试（`test_a_publishable_project_explores_during_the_idea_stage`）
+     在 8c8497bb 删除。
+3. [x] Reviewer prompt 明确“current mission bar”与“project final target”分离；
+   - 88ab960a / 1c9fdb0c、6a9b0c42；`argus/roles/prompts/reviewer.py` 的 `verification_instruction`；
+     测试 `test_reviewer_injects_the_resolved_profile_not_just_the_target`。
+4. [x] 删除 AAAI 的 35/30 与满 7 页 hard blocker，保留官方 format/integrity gate；
+   - 4ecfc845 / 311b91f3；测试 `tests/test_paper_length_and_citation_quotas.py`。
 5. [ ] environment audit 发现 `/usr/local/cuda*` 下的 hidden tools；
+   - 核对：311b91f3 实现过，随 kernel vertical 在 d23658c7 移出本仓库。
 6. [ ] 添加五个核心回归：
    - publishable target + explore bounded probe；
    - final submission 强制 certify；
    - fabricated evidence 全 profile 失败；
    - AAAI 无引用数量单独误杀；
    - CUDA installed-not-on-PATH 被正确识别。
+   - 核对（部分）：第 2、4 个回归在上面的测试里，第 1 个的测试在 8c8497bb 删除；“fabricated evidence 全 profile 失败”没有按
+     profile 的矩阵测试；CUDA 回归 `tests/test_kernel_tool_discovery.py` 在 d23658c7 随 kernel vertical
+     删除。
 7. [ ] 增加 effective verification profile 的事件/状态展示。
+   - 核对：没有对应事件，前端（`frontend/*/src`）也不显示 profile；profile 只出现在 Planner/Reviewer
+     prompt 里。
 
 首个 PR **不**实现自动安装、不新增大段 prompt、不降低 final submission Reviewer 权威。
 
