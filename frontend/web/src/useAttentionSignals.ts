@@ -3,7 +3,7 @@ import { attentionBadge, type Attention } from './lib/attention';
 
 /**
  * The tab title says what needs the operator: a reply keeps its badge until
- * answered; results and errors badge only while the tab is in the background.
+ * answered; results badge only while the tab is in the background.
  */
 export function useAttentionSignals({ projectName, attention, zh, running = false }: {
   projectName: string;

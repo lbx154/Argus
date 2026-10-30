@@ -55,10 +55,18 @@ describe('spend estimate', () => {
 
 describe('attention signals', () => {
   it('puts an open question before results', () => {
-    const asking = snapshot({ backlog: [{ id: 'q', title: '选数据集', status: 'paused_operator', priority: 1, operator_decision: { id: 'q', revision: 1, item_id: 'q', status: 'pending', title: '选数据集', reason: '', question: '用哪个数据集？', evidence: [], options: [], selected_option: '', note: '' } }] });
+    const asking = snapshot({ backlog: [{ id: 'q', title: '选数据集', status: 'blocked', priority: 0, deps: [] }], pending_questions: [{ id: 'q', title: '选数据集', status: 'blocked', operator_decision: { id: 'q', revision: 1, item_id: 'q', status: 'pending', title: '选数据集', reason: '', question: '用哪个数据集？', evidence: [], options: [], selected_option: '', note: '' } }] });
     const reply = projectAttention({ snapshot: asking, zh: true });
     expect(reply?.kind).toBe('reply');
     expect(reply?.body).toContain('用哪个数据集');
+  });
+
+  it('does not turn a long run or failed tasks into an attention signal', () => {
+    const old = Date.now() / 1000 - 13 * 3600;
+    const working = snapshot({ daemon: { alive: true, pid: 1, uptime_seconds: 13 * 3600, started_at_iso: new Date(old * 1000).toISOString(), backend: 'codex' },
+      backlog: [{ id: 'closed', title: 'Just finished', status: 'done', priority: 0, deps: [] },
+        ...['a', 'b', 'c'].map(id => ({ id, title: id, status: 'failed', priority: 0, deps: [] }))] });
+    expect(projectAttention({ snapshot: working, zh: true })).toBeNull();
   });
 
   it('reports a new stage result', () => {

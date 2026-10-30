@@ -83,7 +83,7 @@ export function TopBar({
           aria-label={roleActive ? t('topbar.roleActive', { role: roleLabel(roleName, t) }) : undefined}
           aria-hidden={roleActive ? undefined : true}
         />
-        <span className="text-ink-dim" title={focus ? `${statusWords} · ${focus}` : statusWords}>{statusWords}</span>
+        <span className="topbar-work-status text-ink-dim" title={focus ? `${statusWords} · ${focus}` : statusWords}>{statusWords}</span>
         {activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{formatRelativeTime(activityAt, locale)}</time></> : null}
         {spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
         <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>

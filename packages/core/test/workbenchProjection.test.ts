@@ -15,7 +15,7 @@ const source = JSON.parse(readFileSync(new URL('project.json', fixture), 'utf8')
 const record = readFileSync(new URL('./fixtures/conversation-task/events.jsonl', import.meta.url), 'utf8').trim().split('\n').map(line => JSON.parse(line) as Recorded);
 const idle = { since: null, calls: [], requests: [] };
 
-test('snapshot carries task summaries; map and task details retain the recorded objective', async t => {
+test('snapshot and map carry task summaries; on-demand details retain the recorded objective', async t => {
   const home = mkdtempSync(join(tmpdir(), 'argus-workbench-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const store = new Store(home);
@@ -23,7 +23,7 @@ test('snapshot carries task summaries; map and task details retain the recorded 
   work.tasks = source.tasks;
   work.status = 'stopped';
   store.save(work);
-  writeFileSync(join(store.dir(work.id), 'events.jsonl'), record.map(event => JSON.stringify(event)).join('\n') + '\n');
+  writeFileSync(join(store.dir(work.id), 'events.jsonl'), readFileSync(new URL('events.jsonl', fixture)));
   const server = await serve({ store, callAgent: async () => { throw new Error('read-only replay'); }, backend: 'codex', model: null, port: 0, web: home });
   t.after(() => server.close());
   const get = async (path: string) => {
@@ -36,13 +36,17 @@ test('snapshot carries task summaries; map and task details retain the recorded 
   assert.equal('goal' in snap, false);
   assert.equal(snap.backlog.length, source.tasks.length);
   for (const [i, summary] of snap.backlog.entries()) {
-    assert.equal('objective' in summary, false);
+    assert.deepEqual(Object.keys(summary).sort(), ['deps', 'id', 'priority', 'status', 'title']);
     assert.equal(summary.title, source.tasks[i]!.title);
     assert.equal(summary.status, 'done');
   }
   const map = await get('map');
   const detail = await get('backlog/t3');
-  assert.equal(map.tasks.find((task: { id: string }) => task.id === 't3').objective, source.tasks[2]!.objective);
+  assert.ok(map.tasks.every((task: object) => !('objective' in task)));
+  const incremental = await get(`map?after=${map.cursor}`);
+  assert.ok(incremental.tasks.every((task: object) => !('objective' in task)));
+  const request = await get('backlog/q0');
+  assert.equal(request.item.objective, source.request);
   assert.equal(detail.item.objective, source.tasks[2]!.objective);
   assert.ok(detail.item.notes.includes('result.md'));
 });
@@ -64,7 +68,7 @@ test('recorded task: dialogue and map share hidden progress while asking, closin
     if (event.type === 'task.closed') work.tasks[2]!.status = 'closed';
     const reading = projectRecord(record.slice(0, end));
     const row = conversationRows(reading, work, idle).find(row => row.type === 'ui.task');
-    const map = progressMap(store, work, 0).tasks.find(task => task.id === 't3');
+    const map = progressMap(store, work, 0, []).tasks.find(task => task.id === 't3');
     if (!row) continue;
     assert.equal(row.ts, ts);
     assert.equal(map!.ts, ts);
@@ -75,7 +79,7 @@ test('recorded task: dialogue and map share hidden progress while asking, closin
     // Controlled pending state over the real record: the question itself owns the card.
     work.questions = [{ role: 'reviewer', task: 't3', question: 'Ship the recorded result?' }];
     const asking = conversationRows(reading, work, idle).find(row => row.type === 'ui.task')!;
-    const card = progressMap(store, work, 0).tasks.find(task => task.id === 't3')!;
+    const card = progressMap(store, work, 0, []).tasks.find(task => task.id === 't3')!;
     assert.equal(asking.progress, '');
     assert.equal(card.latest_action, undefined);
     assert.equal(card.pending_question, work.questions[0]!.question);

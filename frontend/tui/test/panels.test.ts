@@ -17,7 +17,7 @@ import {
 } from '../src/components/SlashMenu.js';
 import { CostGauge } from '../src/components/CostGauge.js';
 import { PendingDecisionPrompt } from '../src/components/PendingDecisionPrompt.js';
-import type { EventMsg, ResourceStatus, Snapshot, StatusView, UsageSummary } from '../src/api.js';
+import type { BacklogItem, EventMsg, ResourceStatus, Snapshot, StatusView, UsageSummary } from '../src/api.js';
 import { SLASH_COMMANDS } from '../src/input/slash.js';
 
 const ANSI = /\u001B\[[0-?]*[ -/]*[@-~]/g;
@@ -618,35 +618,29 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   assert.match(feed, /needs credentials/);
   assert.doesNotMatch(feed, /round 2 of work/);
 
-  const item = {
+  const item: BacklogItem = {
     id: 'task-123', title: 'Reproduce benchmark', objective: 'Run five seeds and verify there is no benchmark leakage.',
-    status: 'running', priority: 10, iterate: true,
-    iteration_cycles_done: 2, iteration_max_cycles: 6, iteration_cost_usd: 3.5,
+    status: 'in_progress', priority: 0, deps: [],
+    notes: 'Engineer to the Reviewer: Five seeds checked.', last_error: 'codex exited with code 1',
   };
   const task = await renderPanel({ kind: 'task', data: item }, 60);
   assert.match(task, /Run five seeds/);
+  assert.match(task, /Five seeds checked/);
+  assert.match(task, /codex exited with code 1/);
+  assert.doesNotMatch(task, /iteration|outcome/);
   assert.ok(task.split('\n').every((line) => Array.from(line).length <= 60));
 
   const snap = {
     session: { id: 's', display_name: '', objective: '', last_active: 0, workdir: '' },
     daemon: { alive: true, pid: 1, uptime_seconds: 1, backend: 'x'},
-    roles: [], backlog: [item, { ...item, id: 'done-1', title: 'Old result', status: 'done' }],
+    roles: [], backlog: [
+      { id: item.id, title: item.title, status: item.status, priority: item.priority, deps: item.deps },
+      { id: 'done-1', title: 'Old result', status: 'done', priority: 0, deps: [] },
+    ],
   } as Snapshot;
   const backlog = await renderPanel({ kind: 'backlog', selection: 0 }, 60, { snap });
-  assert.match(backlog, /› running/);
+  assert.match(backlog, /› in_progress/);
   assert.doesNotMatch(backlog, /Old result/);
-});
-
-test('a task a newer plan replaced shows neither the outcome nor the error of its last attempt', async () => {
-  // Trial s-757b9dac: the replaced task still read as paused, resumable, with a last error.
-  const item = {
-    id: 'task-old', title: 'Add format_hours', objective: 'Add it.', status: 'superseded', priority: 1,
-    outcome: { execution_status: 'blocked', review_status: 'blocked', stage_certification: 'not_certified', interruption_kind: 'none', resumable: true },
-    last_error: 'format_hours is not delivered yet',
-  };
-  const task = await renderPanel({ kind: 'task', data: item }, 80);
-  assert.match(task, /status\s+superseded/);
-  assert.doesNotMatch(task, /outcome|LAST ERROR|not delivered/);
 });
 
 test('workflow choice card shows request, options and optional note in a narrow terminal', async () => {

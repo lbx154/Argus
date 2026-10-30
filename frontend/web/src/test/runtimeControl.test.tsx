@@ -19,7 +19,7 @@ let props: ActiveWorkbenchPageProps & { readOnly: boolean };
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   props = {
-    sid: 's-test', snapshot: snap, active: false, events: [], refresh: vi.fn(), readOnly: false,
+    sid: 's-test', snapshot: snap, active: false, refresh: vi.fn(), readOnly: false,
   };
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected unmocked request'); }));
   vi.stubGlobal('window', { confirm: vi.fn(() => true) });

@@ -40,7 +40,7 @@ it.each<Locale>(['en', 'zh-CN'])('replays the same waiting, stopped and closed m
     expect(rows[0]?.state).toBe(closed ? 'done' : phase === 'asking' ? 'asking' : 'paused');
     const chat = renderToStaticMarkup(<I18nProvider><EventStream snapshot={snapshot(store, work, idle)} events={rows} connected showReasoning={false} /></I18nProvider>);
     expect(chat).toContain(words);
-    const map = progressMap(store, work, 0);
+    const map = progressMap(store, work, 0, []);
     const scene = layoutScene(buildMap(map.tasks.filter(item => item.id === task.id)), map.events as unknown as MapEvent[], locale === 'zh-CN');
     const card = scene.cards.find(card => card.task.id === task.id)!;
     const props: NodeProps<MacroNode> = {

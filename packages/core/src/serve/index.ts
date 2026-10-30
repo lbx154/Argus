@@ -71,20 +71,28 @@ export async function serve(options: ServeOptions): Promise<Served> {
   /** The streams following each project's record, and those following every project's state. */
   const listeners = new Map<string, Set<(moved: boolean) => void>>();
   const watchers = new Set<(frame: Record<string, unknown>) => void>();
-  /** Projects whose state is to be sent, once what changed it has run on to its next wait: a
-   * question is added just after the letter that asks it is recorded. */
-  const due = new Set<string>();
+  /** Send each project's changes once the current event has run on to its next wait:
+   * a question is added just after the letter that asks it is recorded. */
+  const due = new Map<string, { moved: boolean; state: boolean }>();
   const runs = new Runs(store, options.callAgent, (id, event) => {
+    if (!listeners.get(id)?.size && (!watchers.size || event?.type === 'step')) return;
     // A command or an edit moves no row, only its role's log; a message on a task is its progress.
     const moved = event?.type !== 'step' || event.kind === 'message' && event.task !== undefined;
-    for (const wake of listeners.get(id) ?? []) wake(moved);
-    // A step changes nothing but the record.
-    if (event?.type === 'step' || !watchers.size || due.has(id)) return;
-    due.add(id);
+    const pending = due.get(id);
+    if (pending) {
+      pending.moved ||= moved;
+      pending.state ||= event?.type !== 'step';
+      return;
+    }
+    due.set(id, { moved, state: event?.type !== 'step' });
     setImmediate(() => {
+      const changed = due.get(id)!;
       due.delete(id);
-      const frame = state(id);
-      for (const send of watchers) send(frame);
+      for (const wake of listeners.get(id) ?? []) wake(changed.moved);
+      if (changed.state && watchers.size) {
+        const frame = state(id);
+        for (const send of watchers) send(frame);
+      }
     });
   });
 
@@ -191,18 +199,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
         let roleCursor = -1;
         const wake = listeners.get(id!) ?? new Set();
         listeners.set(id!, wake);
-        // Each event is sent once what it set going has run on to its next wait, as the project's
-        // state is, together with the events that came meanwhile.
-        let due: boolean | undefined;
-        const later = (moved: boolean): void => {
-          if (due === undefined) setImmediate(() => { const rows = due!; due = undefined; flush(rows); });
-          due ||= moved;
-        };
         const flush = (moved = true) => {
           // A command or an edit moves no row, and the project is not read for it; one deleted
           // meanwhile ends its stream.
           let now: Project | undefined;
-          if (moved) try { now = store.load(work.id); } catch { wake.delete(later); response.end(); return; }
+          if (moved) try { now = store.load(work.id); } catch { wake.delete(flush); response.end(); return; }
           const reading = readRecord(store, work.id);
           const rows = now ? conversationRows(reading, now, runs.live(work.id)) : [];
           // A row goes out when what it shows changed, not the line it was read at; a stream just
@@ -217,8 +218,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
           roleCursor = cursor;
         };
         flush();
-        wake.add(later);
-        response.on('close', () => wake.delete(later));
+        wake.add(flush);
+        response.on('close', () => wake.delete(flush));
         return;
       }
       const read = follow(store, work.id);
@@ -328,7 +329,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, false, found.path));
     }],
-    ...library(store), ...workspace(project), ...preview(project, grant, result), ...records(store, project), ...resources(),
+    ...library(store), ...workspace(project), ...preview(project, grant, result), ...records(store, runs, project), ...resources(),
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {

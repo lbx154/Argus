@@ -14,7 +14,6 @@ const LIVE_RECEIPT =
 const task: MapTask = {
   id: "a",
   title: "A",
-  objective: "Measured objective",
   status: "running",
   deps: [],
 };

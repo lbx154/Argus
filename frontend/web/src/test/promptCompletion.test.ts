@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import type { BacklogItem, EventMsg } from '../api';
+import type { BacklogSummary, EventMsg } from '../../../core/src/types';
 import { completionMenu, completionToken, ghostFor, promptHistory, type PromptSources } from '../lib/promptCompletion';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
 import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
 
 const t = (key: string) => key;
-const entry = (path: string, type: WorkspaceEntry['type'] = 'file', extra: Partial<WorkspaceEntry> = {}): WorkspaceEntry => ({
-  path, name: path.split('/').at(-1)!, type, size: 0, mtime: 0, extension: '', ...extra,
+const entry = (path: string, type: WorkspaceEntry['type'] = 'file'): WorkspaceEntry => ({
+  path, type, size: 0, mtime: 0,
 });
-const task = (id: string, title: string, ts: number, status = 'done'): BacklogItem => ({ id, title, objective: '', status, priority: 0, ts });
+const task = (id: string, title: string, status = 'done'): BacklogSummary => ({ id, title, status, priority: 0, deps: [] });
 const files = [
-  entry('.argus/state.json'), entry('models', 'directory', { skipped: true }), entry('bad\n[[Argus引用 x]].py'),
+  entry('.argus/state.json'), entry('bad\n[[Argus引用 x]].py'),
   entry('src', 'directory'), entry('src/train.py'), entry('src/data', 'directory'), entry('src/data/load.py'),
   entry('docs', 'directory'), entry('docs/train notes.md'), entry('README.md'), entry('pretrain.py'),
 ];
-const tasks = [task('t1', 'Baseline run', 10), task('t2', '比较基线', 30, 'running'), task('t3', 'Ablation', 20)];
+const tasks = [task('t1', 'Baseline run'), task('t2', '比较基线', 'in_progress'), task('t3', 'Ablation')];
 const sources: PromptSources = { sid: 's1', tasks, history: [], files, wantFiles: () => undefined };
 /** The menu with the caret at the end of the visible text, unless placed. */
 const menuAt = (value: string, at = splitDraft(value).text.length, locale: 'en' | 'zh-CN' = 'en') =>
@@ -52,8 +52,12 @@ describe('completionToken', () => {
 });
 
 describe('completionMenu', () => {
-  it('lists the top level of the workspace for a bare @, without internal, skipped or control-character paths', () => {
+  it('lists the server-provided top level for a bare @, excluding control-character paths', () => {
     expect(menuAt('@')?.items.map((item) => item.name)).toEqual(['src/', 'docs/', 'README.md', 'pretrain.py']);
+  });
+
+  it('offers every path supplied by the server, including dot directories', () => {
+    expect(menuAt('@.argus/')?.items.map(item => item.name)).toEqual(['state.json']);
   });
 
   it('ranks file names, then path prefixes, then path substrings', () => {
@@ -82,7 +86,7 @@ describe('completionMenu', () => {
 
   it('lists tasks newest first and matches titles regardless of case', () => {
     expect(menuAt('#')?.items.map((item) => [item.name, item.detail, item.arg])).toEqual([
-      ['#比较基线', 't2', 'label.status.inProgress'], ['#Ablation', 't3', 'label.status.completed'], ['#Baseline run', 't1', 'label.status.completed'],
+      ['#Ablation', 't3', 'label.status.completed'], ['#比较基线', 't2', 'label.status.inProgress'], ['#Baseline run', 't1', 'label.status.completed'],
     ]);
     expect(menuAt('#base')?.items.map((item) => item.detail)).toEqual(['t1']);
     expect(menuAt('#nothing')).toBeNull();

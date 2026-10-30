@@ -255,6 +255,10 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   });
   const reader = detail ? rectFor(detail) : null;
   const read = (step: SubmapStep) => {
+    if (step.id === `${task.id}:brief` && data.readCopy) {
+      data.readCopy(id, task.id);
+      return;
+    }
     setReadingLayout(layout);
     setDetailId(step.id);
     data.readCopy?.(id, step.id);

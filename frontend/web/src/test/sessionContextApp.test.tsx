@@ -138,7 +138,7 @@ describe('App session composer ownership', () => {
     select('s-B');
     fixture.snapshots.set('s-A', { ...fixture.idle, data: cached, isFetching: true, isFetchedAfterMount: false });
     select('s-A');
-    expect(view()).toBe('Research map');
+    expect(view()).toBe('Map');
     fixture.snapshots.set('s-A', { ...fixture.idle, data: asked });
     refresh();
     expect(view()).toBe('Conversation');
@@ -146,7 +146,7 @@ describe('App session composer ownership', () => {
     map();
     fixture.snapshots.set('s-A', { ...fixture.idle, data: { ...asked, read_at: 2 } });
     refresh();
-    expect(view()).toBe('Research map');
+    expect(view()).toBe('Map');
     fixture.snapshots.set('s-B', { ...fixture.idle, data: snapshot('s-B'), isFetching: true, isFetchedAfterMount: false });
     select('s-B');
     select('s-A');
@@ -167,6 +167,29 @@ describe('App session composer ownership', () => {
     fixture.snapshots.set('s-A', { ...fixture.idle, data: asked });
     refresh();
     expect(renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props['data-selected']).toBe(true);
+  });
+
+  it('keeps project chrome and conversation loading when selecting an uncached project', () => {
+    fixture.snapshots.set('s-B', { ...fixture.idle, data: undefined, isLoading: true, isFetching: true });
+    select('s-B');
+    expect(renderer.root.findAllByType(Landing)).toHaveLength(0);
+    expect(renderer.root.findAllByType(EventStream)[0].props.historyStatus).toBe('loading');
+    expect(renderer.root.findAll(node => node.props.className === 'workspace-tab').map(node => node.children.join('')))
+      .toEqual(['Conversation', 'Map', 'Workbench']);
+    fixture.snapshots.set('s-B', { ...fixture.idle, data: snapshot('s-B') });
+    refresh();
+    expect(renderer.root.findByType(TopBar).props.snap.session.id).toBe('s-B');
+  });
+
+  it('keeps conversation loading after deleting the selected project and selecting an uncached one', async () => {
+    fixture.snapshots.set('s-B', { ...fixture.idle, data: undefined, isLoading: true });
+    fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, trash_path: 'trash/s-A' });
+    fixture.index.refetch.mockResolvedValueOnce({ data: { projects: fixture.index.data.projects.filter(row => (row as { id: string }).id === 's-B') } });
+    act(() => renderer.root.findByType(Sidebar).props.onManage('s-A'));
+    await act(async () => renderer.root.findByType(DaemonManageModal).props.onDelete());
+    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-B');
+    expect(renderer.root.findAllByType(Landing)).toHaveLength(0);
+    expect(renderer.root.findByType(EventStream).props.historyStatus).toBe('loading');
   });
 
   it('answers the displayed question through the main composer without sending a Manager message', async () => {
@@ -241,7 +264,7 @@ describe('App session composer ownership', () => {
     act(() => renderer.root.findByType(Sidebar).props.onNew());
     expect(document.title).toBe('Argus');
   });
-  it('counts the visible result files, even when the same files were delivered repeatedly', () => {
+  it('counts deliveries once for the sidebar and map, keeping the latest delivery as the sidebar target', () => {
     fixture.artifacts = [{ path: 'report.md', name: 'report.md', kind: 'markdown', source: 'delivery' },
       { path: 'data.csv', name: 'data.csv', kind: 'table', source: 'delivery' }] as never[];
     fixture.turns = [1, 2, 3].map(n => ({ type: 'ui.argus', ts: n, event_id: n, delivery: {
@@ -250,7 +273,10 @@ describe('App session composer ownership', () => {
       targets: fixture.artifacts.map((file: { path: string }) => ({ path: file.path, label: file.path, source: 'manager' })), primary_target: null,
     } }));
     refresh();
-    expect(renderer.root.findByType(Sidebar).props.resultsCount).toBe(2);
+    expect(renderer.root.findByType(Sidebar).props.resultsCount).toBe(3);
+    act(() => renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props.onClick());
+    expect(renderer.root.findByType(MapPanel).props.deliveryCount).toBe(3);
+    act(() => renderer.root.findAll(node => node.props.className === 'workspace-tab')[0].props.onClick());
     act(() => renderer.root.findByType(Sidebar).props.onOpenResults());
     const deliveryModal = renderer.root.findAllByType(ArtifactModal).find(node => node.props.delivery)!;
     expect(deliveryModal.props.delivery.delivery_id).toBe('d3');
@@ -258,13 +284,14 @@ describe('App session composer ownership', () => {
     act(() => renderer.root.find(node => node.type === 'button' && node.children.includes('Results & files')).props.onClick());
     expect(renderer.root.findByType(ResearchCanvas).props.artifacts).toHaveLength(2);
   });
-  it('opens the counted file list from the sidebar before any delivery exists', () => {
+  it('counts zero before any delivery exists and keeps files accessible from the file entry', () => {
     fixture.artifacts = [{ path: 'draft.md', name: 'draft.md', kind: 'markdown' }] as never[];
     refresh();
     const sidebar = renderer.root.findByType(Sidebar);
-    expect(sidebar.props.resultsCount).toBe(1);
+    expect(sidebar.props.resultsCount).toBe(0);
     expect(renderer.root.findAllByType(ResearchCanvas)).toHaveLength(0);
-    act(() => sidebar.props.onOpenResults());
+    expect(renderer.root.findAll(node => node.type === 'button' && node.props['data-sidebar-results'] !== undefined).every(node => node.props.disabled)).toBe(true);
+    act(() => renderer.root.find(node => node.type === 'button' && node.children.includes('Results & files')).props.onClick());
     const canvas = renderer.root.findByType(ResearchCanvas);
     expect(canvas.props.requestedPath).toBe('__argus_files__');
     expect(canvas.props.filesFirst).toBe(true);
@@ -470,7 +497,7 @@ describe('App session composer ownership', () => {
     const file = new File(['A'], 'report.md');
     type('shared');
     act(() => { props().onAttachmentsChange([file]); props().onRouteOverrideChange!('task'); });
-    await act(async () => renderer.root.findAllByType('button').find(node => node.children[0] === 'Research map')!.props.onClick());
+    await act(async () => renderer.root.findAllByType('button').find(node => node.children[0] === 'Map')!.props.onClick());
     const map = renderer.root.findByType(MapPanel);
     expect(renderer.root.findByType(TopBar).props.snap.session.id).toBe('s-A');
     expect(renderer.root.findByType(TopBar).props.showRunControl).toBe(false);

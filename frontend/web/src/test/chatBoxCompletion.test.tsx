@@ -8,7 +8,7 @@ import { referenceText, splitDraft, type CardReference } from '../map/presentati
 import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
 
 const entry = (path: string, type: WorkspaceEntry['type'] = 'file'): WorkspaceEntry => ({
-  path, name: path.split('/').at(-1)!, type, size: 0, mtime: 0, extension: '',
+  path, type, size: 0, mtime: 0,
 });
 const ref: CardReference = { source: 'map', task_id: 'other', task_title: 'Other study', event_ids: [] };
 
@@ -82,7 +82,7 @@ beforeEach(() => {
   send = vi.fn(() => false);
   sources = {
     sid: 's1', history: ['请比较两个基线的结果'], wantFiles: vi.fn(),
-    tasks: [{ id: 't2', title: '基线对比', status: 'done', priority: 0, ts: 2 }],
+    tasks: [{ id: 't2', title: '基线对比', status: 'done', priority: 0 }],
     files: [entry('src', 'directory'), entry('src/train.py'), entry('src/tools', 'directory'), entry('src/tools/trace.py'), entry('train.md')],
   };
 });

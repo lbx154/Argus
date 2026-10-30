@@ -349,7 +349,7 @@ export function buildSubmap(
       title: turn
         ? zh ? '你提出的问题' : "What you asked"
         : zh ? "任务目标" : "Task goal",
-      detail: relativizeWorkspacePaths(task.objective || task.title, workspace),
+      detail: relativizeWorkspacePaths(task.title, workspace),
       status: "recorded",
       source: "task",
       eventIds: [],

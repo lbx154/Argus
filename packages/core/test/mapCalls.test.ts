@@ -27,7 +27,7 @@ test('snapshot joins a live raw request to its map card, including a clarificati
   const live: Live = { since: started - 60, calls: [{ role: 'manager', task: undefined, answers: 'operator-answer', started_ts: started }], requests: ['operator-answer'] };
   const reading = snapshot(store, project, live);
   assert.deepEqual(reading.daemon.calls, [{ role: 'manager', answers: 'operator-answer', started_ts: started, request_card_id: 'q0' }]);
-  assert.deepEqual(progressMap(store, project, 0).tasks.map(card => card.id), ['q0']);
+  assert.deepEqual(progressMap(store, project, 0, []).tasks.map(card => card.id), ['q0']);
   // Two recorded requests have distinct cards; only the second is being answered now.
   const second = store.create({ request: '', workdir: home, backend: 'codex', model: null });
   writeFileSync(join(store.dir(second.id), 'events.jsonl'), updates.slice(0, 5).map(event => JSON.stringify(event)).join('\n') + '\n');
@@ -42,7 +42,7 @@ test('snapshot joins a live raw request to its map card, including a clarificati
   live.requests = [request.request_id!];
   const multiple = snapshot(store, second, live);
   assert.deepEqual(multiple.daemon.calls, [{ role: 'manager', answers: request.request_id, started_ts: started, request_card_id: 'q4' }]);
-  assert.deepEqual(progressMap(store, second, 0).tasks.filter(card => 'turn_kind' in card).map(card => card.id), ['q0', 'q4']);
+  assert.deepEqual(progressMap(store, second, 0, []).tasks.filter(card => 'turn_kind' in card).map(card => card.id), ['q0', 'q4']);
   // Work status distinguishes a question at rest from an operator stop, regardless of liveness.
   second.questions = [{ role: 'engineer', task: added.task.id, question: '请问输出用中文还是英文？' }];
   second.forManager = [];

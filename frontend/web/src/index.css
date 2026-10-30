@@ -900,12 +900,10 @@ button {
   padding-block: 8px;
 }
 .project-header .topbar-title { grid-column: 1; grid-row: 1; }
-.project-header .topbar-status { display: flex; flex-wrap: wrap; grid-column: 1; grid-row: 2; gap: 0 6px; }
-.project-header .topbar-actions { grid-column: 2; grid-row: 1 / span 2; }
-@media (max-width: 639px) {
-  .project-header .topbar-status { grid-column: 1 / -1; }
-  .project-header .topbar-actions { grid-row: 1; }
-}
+.project-header .topbar-status { display: flex; white-space: nowrap; grid-column: 1 / -1; grid-row: 2; gap: 0 6px; }
+.project-header .topbar-status > * { flex-shrink: 0; }
+.project-header .topbar-status > .topbar-work-status { min-width: 0; flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; }
+.project-header .topbar-actions { grid-column: 2; grid-row: 1; }
 .workspace-header + nav { border-bottom-color: rgb(var(--line)) !important; }
 
 /* Chat context: the conversation's tools, at the right. */

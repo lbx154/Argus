@@ -184,7 +184,7 @@ const idle: Live = { since: null, calls: [], requests: [] };
 const reply = (text: string): Turn => async () => ({ to: 'operator', letters: [text] });
 const replies = (store: Store, id: string, live = idle) => conversationRows(readRecord(store, id), store.load(id), live)
   .filter(row => row.type === 'ui.argus' && row.status).map(row => [row.request_id, row.status]);
-const cards = (store: Store, id: string) => progressMap(store, store.load(id), 0).tasks.map(card => [card.objective, card.status]);
+const cards = (store: Store, id: string) => progressMap(store, store.load(id), 0, []).tasks.map(card => [card.title, card.status]);
 
 test('a message a later one took the place of leaves the map, the original request too', async t => {
   const controller = new AbortController();

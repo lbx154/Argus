@@ -1,0 +1,42 @@
+{
+  "frames": [
+    {
+      "type": "ui.projection",
+      "event_id": 41,
+      "cursor": 41,
+      "rows": [],
+      "round": 0,
+      "role_events": [
+        {
+          "type": "engineer.progress",
+          "ts": 1793321267.937,
+          "event_id": 41,
+          "kind": "command_execution",
+          "agent_layer": "planner",
+          "text": "/usr/bin/bash -lc \"sed -n '1,150p' frontend/web/src/useConversationHistory.ts\""
+        }
+      ]
+    },
+    {
+      "type": "ui.projection",
+      "event_id": 67,
+      "cursor": 67,
+      "rows": [
+        {
+          "type": "ui.task",
+          "row_id": "task-t1",
+          "item_id": "t1",
+          "title": "对话性能与显示修复",
+          "state": "paused",
+          "progress": "",
+          "result_paths": [],
+          "ts": 1793321387.96,
+          "event_id": 67,
+          "order": 67.2
+        }
+      ],
+      "round": 0,
+      "role_events": []
+    }
+  ]
+}

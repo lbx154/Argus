@@ -13,7 +13,7 @@ vi.mock("@xyflow/react", async (original) => ({
 }));
 
 const task: MapTask = {
-  id: "recheck", title: "完成必经步骤① hc-35885033b637", objective: "", status: "running", deps: [], ts: 5,
+  id: "recheck", title: "完成必经步骤① hc-35885033b637", status: "running", deps: [], ts: 5,
 };
 const card = (patch: Partial<MacroData> = {}): NodeProps<MacroNode> => ({
   id: "recheck-card", type: "task", zIndex: 0, draggable: false, selected: false, dragging: false, selectable: true, deletable: false, isConnectable: false, positionAbsoluteX: 0, positionAbsoluteY: 0,

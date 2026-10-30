@@ -2,11 +2,12 @@ import type { ConversationPagination } from '../useConversationHistory';
 import { errorText } from '../lib/format';
 import { MapConversation } from './MapConversation';
 import { WorkStatusBar } from '../components/WorkStatusBar';
-import { Modal, ModalHeader } from '../components/Modal';
-import { MapReaderContent } from './MapReaderContent';
+import { Modal } from '../components/Modal';
+import { MapTaskReader } from './MapReaderContent';
 import { Activity, PackageCheck, MessageCircle } from 'lucide-react';
 import { ProjectRoleLogs } from '../components/EventStream';
 import { useRoleLog } from '../useRoleLog';
+import { useThrottledValue } from '../hooks';
 import { useMapGrowth } from './useMapGrowth';
 import { stepIdentity } from './growth';
 import './motion.css';
@@ -59,7 +60,7 @@ import "./submap.css";
 import "./atlas.css";
 import "./design.css";
 import { MapRelationEdge } from "./MapRelationEdge";
-import { livePollInterval, mergeMapProgress } from "./incremental";
+import { mergeMapProgress } from "./incremental";
 import { latestManagerMessage } from "../lib/taskLanguage";
 import { taskFigures } from "./cardFigure";
 import { MapCardFigureContext } from "./cardContext";
@@ -254,8 +255,8 @@ export function MapCanvas({
   // One predicate serves the dimmed-card filter, the match counter, and Enter
   // cycling, so the three can never disagree about what "a match" is.
   const cardSearchText = useCallback(
-    (card: { task: { id: string; title: string; objective?: string }; part: number }) =>
-      `${card.task.title} ${card.task.objective ?? ""} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
+    (card: { task: { id: string; title: string }; part: number }) =>
+      `${card.task.title} ${card.part > 1 ? (zh ? `续篇 ${card.part - 1}` : `Continued ${card.part - 1}`) : ""}`.toLowerCase(),
     [zh],
   );
   const matches = useMemo(
@@ -1008,15 +1009,14 @@ export function MapCanvas({
       </div>
       <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={readingTask?.turn_kind === 'qa' ? (zh ? '请求' : 'Request') : zh ? "任务说明" : "Task explanation"} width="max-w-3xl map-task-modal">
         {readingTask ? <>
-          <ModalHeader title={readingTask.turn_kind === 'qa' ? (zh ? '请求' : 'Request') : zh ? "任务说明" : "Task explanation"} sub={readingTask.turn_kind === 'qa' ? readingTask.objective || readingTask.title : readingTask.title} />
-          <div className="px-6 pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
+          <div className="pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
             {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
-            <MapReaderContent cardKey={readingTask.id} taskId={readingTask.id} task={readingTask}
+            <MapTaskReader task={readingTask}
               sessionId={sessionId} zh={zh}
               workspace={artifactScope.workspace}
-              originalDetail={readingTask.turn_kind === 'qa'
+              answer={readingTask.turn_kind === 'qa'
                 ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.latest_action?.text || (zh ? '尚无回答。' : 'No answer recorded.'))
-                : readingTask.objective || readingTask.latest_action?.text || (zh ? "这项任务尚无详细记录。" : "No detailed task record is available.")}
+                : undefined}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
           </div>
         </> : null}
@@ -1026,13 +1026,11 @@ export function MapCanvas({
   );
 }
 
-/** Memoized: the app re-renders on every streamed event and poll; the map
- * only needs to follow its own (throttled) props, not that firehose. */
+/** The map reads its own role log and throttles its display updates. */
 export const MapPanel = memo(function MapPanel({
   immersive = false,
   onImmersiveChange,
   snapshot,
-  events,
   pending,
   requestedTaskId,
   onTaskLocated,
@@ -1054,7 +1052,6 @@ export const MapPanel = memo(function MapPanel({
   onResumeTeam?: () => void;
   teamBusy?: boolean;
   snapshot: Snapshot;
-  events: EventMsg[];
   pending: boolean;
   requestedTaskId?: string;
   onTaskLocated?: () => void;
@@ -1066,7 +1063,8 @@ export const MapPanel = memo(function MapPanel({
   const { locale, t } = useI18n();
   const zh = locale === "zh-CN";
   const roleLog = useRoleLog(snapshot.session.id);
-  const managerMessage = latestManagerMessage(roleLog.events);
+  const events = useThrottledValue(roleLog.events, 250);
+  const managerMessage = latestManagerMessage(events);
   const client = useQueryClient();
   // The whole map is one answer; each read asks only for what came after the last.
   const liveKey = ["map-live", snapshot.session.id];
@@ -1081,65 +1079,7 @@ export const MapPanel = memo(function MapPanel({
     staleTime: Infinity,
     gcTime: 2 * 60 * 60 * 1000,
     refetchOnMount: "always",
-    refetchInterval: (query) => livePollInterval(query.state.data, snapshot), });
-  const latestMapEvent = events.filter((e) => e.run_label !== "map-summary" &&
-    /^(life\.(mission\.|phase\.|planner\.task_added)|manager\.turn\.|round\.|agent\.message|engineer\.progress|ui\.argus)/.test(String(e.type))).at(-1);
-  const updateKey = JSON.stringify([
-    latestMapEvent?.ts,
-    latestMapEvent?.event_id || latestMapEvent?.id,
-    latestMapEvent?.revision,
-    latestMapEvent?.updated_ts,
-    latestMapEvent?.status,
-    snapshot.backlog,
-    snapshot.work_status?.state,
-    snapshot.work_status?.reason,
-  ]);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // A refresh that lands mid-gesture commits a fresh node set under the
-  // operator's fingers — the profiled zoom stutter on live sessions. Track
-  // pointer activity on the panel and let refreshes wait out the gesture.
-  const interactingUntil = useRef(0);
-  const sectionRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    const bump = () => {
-      interactingUntil.current = Date.now() + 900;
-    };
-    const drag = (event: PointerEvent) => {
-      if (event.buttons) bump();
-    };
-    el.addEventListener("wheel", bump, { passive: true });
-    el.addEventListener("pointerdown", bump);
-    el.addEventListener("pointermove", drag);
-    return () => {
-      el.removeEventListener("wheel", bump);
-      el.removeEventListener("pointerdown", bump);
-      el.removeEventListener("pointermove", drag);
-    };
-  }, []);
-  useEffect(() => {
-    if (refreshTimer.current) return;
-    const fire = () => {
-      const wait = interactingUntil.current - Date.now();
-      if (wait > 0) {
-        refreshTimer.current = setTimeout(fire, wait + 120);
-        return;
-      }
-      refreshTimer.current = null;
-      void client.invalidateQueries({
-        queryKey: ["map-live", snapshot.session.id],
-      });
-    };
-    refreshTimer.current = setTimeout(fire, 650);
-  }, [updateKey, snapshot.session.id, client]);
-  useEffect(
-    () => () => {
-      if (refreshTimer.current) clearTimeout(refreshTimer.current);
-      refreshTimer.current = null;
-    },
-    [snapshot.session.id],
-  );
+  });
 
   const data = live.data;
   // Stable object identities: fresh actions objects on every render
@@ -1165,7 +1105,6 @@ export const MapPanel = memo(function MapPanel({
   return (
     <MapCardFigureContext.Provider value={cardFigures}>
     <section
-      ref={sectionRef}
       className="argus-map"
       data-immersive={immersive || undefined}
       aria-label={zh ? "进度地图" : "Progress map"}

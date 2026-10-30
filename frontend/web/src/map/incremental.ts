@@ -1,5 +1,4 @@
 import { replaceEqualDeep } from "@tanstack/react-query";
-import type { Snapshot } from "../api";
 import type { Dataset } from "./model";
 
 export interface MapSelection {
@@ -25,14 +24,4 @@ export function mergeMapProgress(previous: Dataset | undefined, next: Dataset): 
     // A page brings what happened earlier as well as later; keep the order it happened in.
     events: [...events.values()].filter((e) => tasks.has(e.item_id)).sort((a, b) => a.ts - b.ts),
   });
-}
-
-export function livePollInterval(
-  data: Pick<Dataset, "history_loading"> | undefined,
-  snapshot: Snapshot,
-): number | false {
-  if (data?.history_loading) return 400;
-  // SSE invalidation is the primary refresh trigger while work is active;
-  // this interval is only a safety net for missed events.
-  return snapshot.work_status?.state === 'running' || snapshot.work_status?.state === 'waiting' ? 15_000 : false;
 }

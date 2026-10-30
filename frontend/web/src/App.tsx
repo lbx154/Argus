@@ -3,14 +3,13 @@ import type { DispatchObserver, MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useProjects, useSnapshot, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { useRoleLog } from './useRoleLog';
 import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type UploadedAttachment, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
 import { TopBar } from './components/TopBar';
 import { ReplyChoiceContext } from './components/ReplyOptions';
-import { WorkspaceShell } from './components/WorkspaceShell';
+import { WorkspaceHeader, WorkspaceShell } from './components/WorkspaceShell';
 import { EventStream, latestConversationDelivery, SessionIdContext, WorkspaceRootsContext } from './components/EventStream';
 import { ChatBox } from './components/ChatBox';
 import { promptHistory, type PromptSources } from './lib/promptCompletion';
@@ -22,7 +21,6 @@ import { ArtifactModal } from './components/ArtifactModal';
 import {
   ResearchCanvas,
   FILES_PATH,
-  selectPreviewArtifacts,
 } from './components/ResearchCanvas';
 import { ActionNotice, type NoticeAction, type NoticeTone, type UiNotice } from './components/ActionNotice';
 import { DaemonManageModal } from './components/DaemonManageModal';
@@ -63,8 +61,6 @@ import './components/customerExperience.css';
 import { useDeliveryCenter } from './useDeliveryCenter';
 import { deliveryFiles, defaultDeliverySelection } from './components/deliveryPresentation';
 import { projectAttention } from './lib/attention';
-import { progressHealth } from './lib/progressHealth';
-import { ProgressHealthBanner } from './components/ProgressHealthBanner';
 import { useAttentionSignals } from './useAttentionSignals';
 import { DraftUploadContext, DraftUploads, type DraftUploadView } from './lib/draftUploads';
 import type { DeliveryReceipt } from '../../core/src/types';
@@ -92,35 +88,6 @@ const MapPanel = lazy(async () => {
   const module = await import('./map/MapPanel');
   return { default: module.MapPanel };
 });
-
-/** Trailing-edge throttle for hot props. Streamed events arrive many times a
- * second while agents work; the memoized map only needs a beat-level view. */
-function useThrottledValue<T>(value: T, ms: number): T {
-  const [current, setCurrent] = useState(value);
-  const latest = useRef(value);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stamp = useRef(0);
-  latest.current = value;
-  useEffect(() => {
-    if (value === current) return;
-    const due = stamp.current + ms - Date.now();
-    if (due <= 0) {
-      stamp.current = Date.now();
-      setCurrent(value);
-      return;
-    }
-    if (timer.current) return;
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      stamp.current = Date.now();
-      setCurrent(latest.current);
-    }, due);
-  }, [value, current, ms]);
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-  return current;
-}
 
 export default function App() {
   const { locale, t } = useI18n();
@@ -378,6 +345,7 @@ export default function App() {
   const snapQ = useSnapshot(activeSid);
   const manageSnapQ = useSnapshot(projects.some(project => project.id === manageTargetSid) ? manageTargetSid : null);
   const snap = snapQ.data;
+  const showProject = Boolean(snap || selectedSid && projects.length > 0 && !projectsQ.isLoading);
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   useEffect(() => {
     setEditor(null);
@@ -386,7 +354,6 @@ export default function App() {
   const { query: transcriptQ, events: activityEvents, connected, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
     loadedSid, true, localConversationEvents, localConversationSid.current,
   );
-  const { events } = useRoleLog(loadedSid);
   const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
   const promptHistoryList = useMemo(() => promptHistory(activityEvents), [activityEvents]);
   const promptSources = useMemo<PromptSources | undefined>(() => loadedSid ? {
@@ -424,12 +391,6 @@ export default function App() {
       void transcriptQ.refetch();
     }
   }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
-  // The map view follows the stream at a beat, not per token.
-  const mapInput = useMemo(() => ({ sid: loadedSid, events }), [loadedSid, events]);
-  const mapHistory = useThrottledValue(mapInput, 250);
-  // A pending throttle belongs to its original project, even when the next
-  // project's snapshot is already cached and renders synchronously.
-  const mapEvents = mapHistory.sid === loadedSid ? mapHistory.events : [];
   const {
     answerPendingReply,
     pendingReply,
@@ -458,15 +419,11 @@ export default function App() {
     () => latestConversationDelivery(activityEvents),
     [activityEvents],
   );
-  const [healthNow, setHealthNow] = useState(() => Date.now() / 1000);
-  useEffect(() => { const timer = setInterval(() => setHealthNow(Date.now() / 1000), 60_000); return () => clearInterval(timer); }, []);
-  const health = useMemo(() => (loadedSid && snap ? progressHealth(snap, healthNow) : null), [loadedSid, snap, healthNow]);
   const attention = useMemo(() => projectAttention({
     snapshot: loadedSid ? snap : undefined,
     delivery,
-    health,
     zh: locale === 'zh-CN',
-  }), [loadedSid, snap, delivery, health, locale]);
+  }), [loadedSid, snap, delivery, locale]);
   const projectBusy = useMemo(() => {
     if (!snap?.daemon.alive) return false;
     const state = currentWorkStatus(snap).state;
@@ -546,6 +503,7 @@ export default function App() {
     }
     return [...receipts.values()].filter((receipt) => deliveryFiles(receipt).length).sort((a, b) => b.delivered_at - a.delivered_at);
   }, [activityEvents, delivery]);
+  const deliveryCount = deliveryHistory.length;
   cancelDeliveryNavigationRef.current = useDesktopDeliveryNavigation({
     selectedSid, loadedSid, sidRef, snapshotError: snapQ.error, queryClient,
     receipts: transcriptQ.isPending ? [] : deliveryHistory,
@@ -609,11 +567,11 @@ export default function App() {
       const deleted = await manageActions.deleteProject.mutateAsync();
       setDaemonManageOpen(false);
       setManageTargetSid(null);
-      if (deletedSid === activeSid) clearProjectSelection('replace');
       const refreshed = await projectsQ.refetch();
       if (deletedSid === activeSid) {
         const next = rankProjects(refreshed.data?.projects ?? [])[0];
         if (next) selectProject(next.id, 'replace');
+        else clearProjectSelection('replace');
       }
       notify('success', t('project.trashed'), undefined, {
         label: t('project.undoDelete'),
@@ -969,7 +927,7 @@ export default function App() {
             }
             setSidebarOpen(false);
           }}
-          resultsCount={loadedSid ? selectPreviewArtifacts(artifactsQ.data).length : 0}
+          resultsCount={deliveryCount}
           onNew={() => { startNewSession(); setSidebarOpen(false); }}
           onSearch={() => setSearchOpen(true)}
           // The trial portal owns sign-in; a token kept here is this browser's own.
@@ -1001,10 +959,10 @@ export default function App() {
       <SessionIdContext.Provider value={snap?.session.id ?? null}>
       <WorkspaceRootsContext.Provider value={workspaceRoots}>
       <main className="flex min-w-0 flex-1 overflow-x-hidden">
-        {snap ? (
+        {showProject ? (
           <>
-            <section className={`${mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col min-[1200px]:flex`}>
-              <TopBar
+            <section className={`${!snap || mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col min-[1200px]:flex`}>
+              {snap ? <TopBar
                 snap={snap}
                 streamOk={connected}
                 onStart={requestStartDaemon}
@@ -1016,12 +974,16 @@ export default function App() {
                 busy={daemonBusy}
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
-              />
+              /> : <WorkspaceHeader className="project-header">
+                <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 text-ink">
+                  {projects.find(project => project.id === activeSid)?.display_name || t('sidebar.unnamedSession')}
+                </div>
+              </WorkspaceHeader>}
               <nav aria-label={t('mobile.views')} className="hidden h-11 shrink-0 items-center gap-3 border-b border-line/60 px-5 lg:flex">
                 <div className="workspace-tabs">
                   <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{locale === 'zh-CN' ? '研究地图' : 'Research map'}</button>
-                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{locale === 'zh-CN' ? '高级工作台' : 'Advanced workbench'}</button>
+                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
                 </div>
                 <button type="button" className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 text-sm text-ink-dim hover:text-ink"
                   onClick={() => setOverlay('palette')} title={t('topbar.commandsHint', { keys: shortcut('K') })}>
@@ -1036,11 +998,12 @@ export default function App() {
                   {locale === 'zh-CN' ? '成果与文件' : 'Results & files'}
                 </button>
               </nav>
+              {snap ? <>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
-              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel requestedTaskId={searchTarget?.sid === loadedSid ? searchTarget.task_id : undefined} onTaskLocated={() => setSearchTarget(null)} key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} events={mapEvents} pending={messagePending} readOnly={kiosk}
+              {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel requestedTaskId={searchTarget?.sid === loadedSid ? searchTarget.task_id : undefined} onTaskLocated={() => setSearchTarget(null)} key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} pending={messagePending} readOnly={kiosk}
                 onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
                 conversationEvents={activityEvents} conversationPagination={conversationPagination} connected={connected} artifacts={artifactsQ.data ?? []}
-                deliveryCount={deliveryHistory.length} onOpenDelivery={() => {
+                deliveryCount={deliveryCount} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory);
                   if (selection) openDelivery(selection.receipt, selection.path);
                 }}
@@ -1048,8 +1011,6 @@ export default function App() {
                 deliveries={deliveryHistory}
               /></Suspense>}
               <div className={`${workspaceView === 'activity' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1 flex-col`}>
-                <ProgressHealthBanner key={loadedSid || 'none'} sid={snap.session.id} health={health}
-                  onAdjust={kiosk ? undefined : () => setComposerFocus((value) => value + 1)} />
                 {/* The mobile activity minimum includes its header/status and 120px of conversation. */}
                   <div className={`flex flex-1 flex-col ${compactViewport ? 'min-h-0' : 'min-h-[209px] lg:min-h-0'}`}>
                   <ReplyChoiceContext.Provider value={kiosk ? null : replyChoice}>
@@ -1117,13 +1078,15 @@ export default function App() {
                 <div className={`${workspaceView === 'workbench' ? 'flex' : 'hidden'} workspace-view-surface min-h-0 flex-1`}>
                   <Suspense fallback={<div className="flex min-h-0 flex-1 items-center justify-center text-xs text-ink-faint">{t('common.loading')}</div>}>
                     <ResearchWorkbenchPanel sid={activeSid} active={workspaceView === 'workbench'} readOnly={kiosk} runtimeRequest={runtimeRequest}
-                      snapshot={loadedSid ? snap : undefined} failed={snapQ.isError} events={events}
+                      snapshot={loadedSid ? snap : undefined} failed={snapQ.isError}
                       refresh={() => void snapQ.refetch()} />
                   </Suspense>
                 </div>
               ) : null}
+              </> : <EventStream events={[]} connected={false} showReasoning={false} embedded showHeader={false}
+                historyStatus={snapQ.isError ? 'error' : 'loading'} onRetryHistory={() => void snapQ.refetch()} />}
             </section>
-            {rightPanelVisible && workspaceView !== 'map' ? (
+            {snap && rightPanelVisible && workspaceView !== 'map' ? (
               <div className="hidden min-[1200px]:contents"><SplitHandle
                 label={t('common.resizePreview')}
                 value={rightWidth}
@@ -1135,7 +1098,7 @@ export default function App() {
               /></div>
             ) : null}
 
-            {rightPanelVisible && <aside
+            {snap && rightPanelVisible && <aside
               data-resizable-panel="right"
               className={`${mobileView === 'preview' ? 'flex' : 'hidden'} relative min-w-0 flex-1 flex-col overflow-hidden border-l border-line/60 bg-panel min-[1200px]:flex min-[1200px]:flex-none min-[1200px]:w-[var(--preview-width)]`}>
               <div className="min-[1200px]:hidden">
@@ -1177,7 +1140,7 @@ export default function App() {
           </>
         ) : (
           <Landing
-            loading={projectsQ.isLoading || Boolean(activeSid && snapQ.isLoading)}
+            loading={projectsQ.isLoading}
             hasProjects={projects.length > 0 && !starting}
             error={
               projectsQ.isError && projects.length === 0
@@ -1281,7 +1244,7 @@ export default function App() {
         />
       ) : null}
       <ActionNotice notice={notice} onClose={dismissNotice} />
-      {snap && !kiosk ? (
+      {showProject && !kiosk ? (
         <MobileTabBar
           active={mobileView === 'preview' ? 'preview' : workspaceView}
           sidebarOpen={sidebarOpen}

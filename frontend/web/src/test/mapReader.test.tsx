@@ -2,9 +2,11 @@ import type { NodeProps } from '@xyflow/react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MacroTaskNode, MapArtifactContext, type MacroData, type MacroNode } from '../map/MacroTaskNode';
-import { MapReaderContent } from '../map/MapReaderContent';
+import { MapReaderContent, MapTaskReader } from '../map/MapReaderContent';
 import { layoutSubmap, type SubmapStep } from '../map/submap';
 import { MarkdownContent } from '../components/MarkdownContent';
+import { api } from '../api';
+import recorded from './fixtures/home/projects/p-c855623c/project.json';
 import { Spinner } from '../components/primitives';
 import * as i18n from '../i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -109,4 +111,59 @@ it('leaves a pending question in conversation instead of copying it into the tas
   act(() => { renderer = create(<MapReaderContent cardKey={task.id} taskId={task.id}
     task={{ ...task, pending_question: question }} originalDetail="Useful task objective" />); });
   expect(JSON.stringify(renderer!.toJSON())).not.toContain(question);
+});
+
+it('loads the full recorded brief only when its task reader opens', async () => {
+  const source = recorded.tasks[2];
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: Infinity } } });
+  let resolve!: (value: Awaited<ReturnType<typeof api.backlogItem>>) => void;
+  const request = vi.spyOn(api, 'backlogItem').mockReturnValue(new Promise(done => { resolve = done; }));
+  client.setQueryData(['task-trace', recorded.id, source.id], { task_id: source.id, groups: [] });
+  const summary = { id: source.id, title: source.title, status: 'done' };
+  const view = (open: boolean) => <QueryClientProvider client={client}>
+    {open && <MapTaskReader task={summary} sessionId={recorded.id} />}
+  </QueryClientProvider>;
+  act(() => { renderer = create(view(false)); });
+  expect(request).not.toHaveBeenCalled();
+  act(() => renderer!.update(view(true)));
+  expect(request).toHaveBeenCalledWith(recorded.id, source.id, expect.any(AbortSignal));
+  expect(renderer!.root.findByProps({ role: 'status' }).children.join('')).toContain('正在读取');
+  await act(async () => {
+    resolve({ ...summary, objective: source.objective, priority: 1 });
+    await new Promise(done => setTimeout(done, 10));
+  });
+  expect(renderer!.root.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(source.objective);
+  expect(renderer!.root.findByType(MapReaderContent).props.task).not.toHaveProperty('objective');
+  act(() => renderer!.unmount()); renderer = undefined;
+  client.clear();
+});
+
+it('opens the root task reader when the goal step is selected', () => {
+  const value = props({ layout: layoutSubmap(task, [], false) });
+  act(() => { renderer = create(<MacroTaskNode {...value} />); });
+  act(() => renderer!.root.findByProps({ 'data-step-id': `${task.id}:brief` }).props.onClick());
+  expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, task.id);
+});
+
+it.each(['in_progress', 'done', 'failed'])('reads the selected task %s step from its own full progress', status => {
+  const progress = recorded.tasks[2].note.text;
+  const current = { ...task, status, latest_action: { role: 'reviewer', text: progress, ts: 1 } };
+  const value = props({ task: current, layout: layoutSubmap(current, [], false) });
+  const stepId = `${task.id}:${status === 'in_progress' ? 'active' : 'outcome'}`;
+  act(() => { renderer = create(<MacroTaskNode {...value} />); });
+  act(() => renderer!.root.findByProps({ 'data-step-id': stepId }).props.onClick());
+  expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, stepId);
+  const reader = renderer!.root.findByProps({ 'data-testid': 'map-reader' });
+  expect(reader.findByType(MapReaderContent).props.originalDetail).toBe(progress);
+  expect(reader.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(progress);
+});
+
+it('reads a request answer step from its own answer', () => {
+  const answer = 'The recorded answer belongs to this step, separate from the original question.';
+  const current = { ...task, turn_kind: 'qa' as const, latest_action: { role: 'manager', text: answer, ts: 1 } };
+  const value = props({ task: current, layout: layoutSubmap(current, [], false) });
+  act(() => { renderer = create(<MacroTaskNode {...value} />); });
+  act(() => renderer!.root.findByProps({ 'data-step-id': `${task.id}:answer` }).props.onClick());
+  expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, `${task.id}:answer`);
+  expect(renderer!.root.findByProps({ 'data-testid': 'map-reader' }).findByType(MarkdownContent).props.children).toBe(answer);
 });

@@ -345,7 +345,7 @@ function runtimeFixture(alive = true) {
     session: { id: 'session', display_name: 'Research', objective: '', workdir: '/tmp', last_active: now },
     daemon: { alive, pid: alive ? 1 : null, uptime_seconds: 30, backend: 'pi'},
     roles: [{ role: 'engineer', active: true, status: 'running', label: 'Working', age_s: 1, backend: 'pi', backend_label: 'Pi', model: 'model', effort: null }],
-    backlog: [{ id: 'task-a', title: 'Research task A', status: 'running', started_ts: now - 20, priority: 1 }],
+    backlog: [{ id: 'task-a', title: 'Research task A', status: 'in_progress', priority: 1 }],
 
     work_status: { state: alive ? 'running' : 'idle', roles: alive ? ['engineer'] : [], role: '', taskId: '', title: '', reason: '', foreground: false, activityAt: null, label: { 'zh-CN': '', en: '' } },
   };

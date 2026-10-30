@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useI18n } from '../i18n';
 import type { BacklogSummary } from '../../../core/src/types';
 import { PanelHeader, EmptyHint, Chip } from './primitives';
-import { isRepeating, visibleBacklogItems } from '../../../core/src/backlog';
+import { visibleBacklogItems } from '../../../core/src/backlog';
 import { statusLabel } from '../lib/enumLabels';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -61,7 +61,6 @@ export function BacklogPanel({
               </button>
               <div className="mt-0.5 flex items-center gap-1.5">
                 <Chip color={color}>{statusLabel(it.status, t)}</Chip>
-                {isRepeating(it) && <span className="text-[10px] text-blue-sky">↻ {t('backlog.iterating')}</span>}
               </div>
             </div>
           );

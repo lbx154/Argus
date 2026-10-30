@@ -2,7 +2,7 @@ import type { BacklogSummary, EventMsg } from '../../../core/src/types';
 import { PROMPT_COMPLETION_VISIBLE_ROWS as ROWS, type CompletionItem } from '../components/PromptCompletionMenu';
 import type { Locale } from '../i18n';
 import { referenceText, splitDraft, type CardReference } from '../map/presentation';
-import { isInternalEntry, type WorkspaceEntry } from '../research-workbench/workspaceApi';
+import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
 import { statusLabel } from './enumLabels';
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
@@ -51,10 +51,10 @@ function fileRows(value: string, token: MentionToken, files: readonly WorkspaceE
   const tiers: WorkspaceEntry[][] = [[], [], []];
   for (const entry of files) {
     // A control character in a name could forge a reference line in the draft.
-    if (isInternalEntry(entry) || /[\u0000-\u001f\u007f]/.test(entry.path)) continue;
+    if (/[\u0000-\u001f\u007f]/.test(entry.path)) continue;
     const path = entry.path.toLowerCase();
     const tier = browsing ? (path.startsWith(needle) && !path.slice(needle.length).includes('/') ? 0 : -1)
-      : entry.name.toLowerCase().startsWith(needle) ? 0 : path.startsWith(needle) ? 1 : path.includes(needle) ? 2 : -1;
+      : entry.path.slice(entry.path.lastIndexOf('/') + 1).toLowerCase().startsWith(needle) ? 0 : path.startsWith(needle) ? 1 : path.includes(needle) ? 2 : -1;
     if (tier < 0 || tiers[tier].length >= ROWS) continue;
     tiers[tier].push(entry);
     if (tiers[0].length >= ROWS) break;
@@ -71,7 +71,7 @@ function fileRows(value: string, token: MentionToken, files: readonly WorkspaceE
     const insert = (folder && !quoted) || /^\s/.test(after) ? word : `${word} `;
     const slash = entry.path.lastIndexOf('/');
     return {
-      id: `file-${index}`, name: entry.name + (folder ? '/' : ''), detail: slash > 0 ? entry.path.slice(0, slash) : undefined,
+      id: `file-${index}`, name: entry.path.slice(slash + 1) + (folder ? '/' : ''), detail: slash > 0 ? entry.path.slice(0, slash) : undefined,
       value: before + insert + after, caret: token.start + insert.length, close: !folder || quoted,
     };
   });
@@ -85,7 +85,7 @@ function taskRows(value: string, token: MentionToken, sources: PromptSources, t:
   const rest = text.slice(token.end);
   const after = (!before || /\s$/.test(before)) && rest.startsWith(' ') ? rest.slice(1) : rest;
   return sources.tasks.filter((task) => task.title.toLowerCase().includes(needle))
-    .sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0)).slice(0, ROWS)
+    .reverse().slice(0, ROWS)
     .map((task, index) => {
       const quoted = refs.some((ref) => ref.task_id === task.id && !ref.step_id);
       const ref: CardReference = { source: `live:${sources.sid}`, task_id: task.id, task_title: task.title, event_ids: [], lang: locale === 'zh-CN' ? 'zh' : 'en' };

@@ -11,7 +11,7 @@ vi.mock("@xyflow/react", async (original) => ({
   useStore: (select: (state: { transform: number[] }) => unknown) => select({ transform: [0, 0, 1] }),
 }));
 
-const task: MapTask = { id: "mission", title: "Study", objective: "", status: "running", deps: [] };
+const task: MapTask = { id: "mission", title: "Study", status: "running", deps: [] };
 const events: MapEvent[] = Array.from({ length: 36 }, (_, i) => ({
   id: `review-${i}`, item_id: task.id, ts: i + 1, round_index: i + 1,
   type: "round.review.completed", text: `Review ${i + 1}`, status: "done",

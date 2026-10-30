@@ -1,5 +1,4 @@
-import { parkReason, settledStatus } from '../../../core/src/missionOutcome';
-import type { MissionOutcomeDimensions } from '../../../core/src/types';
+import { parkReason } from '../../../core/src/missionOutcome';
 import { agentRoleName, isAgentRole } from './agentRoles';
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
@@ -58,63 +57,6 @@ const FRONTIER_KEYS: Record<string, string> = {
   expanded: 'label.frontier.expanded',
 };
 
-const EXECUTION_KEYS: Record<string, string> = {
-  completed: 'label.outcome.workCompleted',
-  done: 'label.outcome.workCompleted',
-  success: 'label.outcome.workCompleted',
-  paused: 'label.outcome.workPaused',
-  blocked: 'label.outcome.workBlocked',
-  failed: 'label.outcome.workFailed',
-  error: 'label.outcome.workFailed',
-  aborted: 'label.outcome.workEnded',
-  ended: 'label.outcome.workEnded',
-  incomplete: 'label.outcome.workIncomplete',
-  stalled: 'label.outcome.workStalled',
-  no_progress: 'label.outcome.workStalled',
-  max_rounds: 'label.outcome.workStalled',
-  supervisor_error: 'label.outcome.workFailed',
-};
-
-// Keyed by the holder the review handed the work to (settledStatus reads older values).
-const REVIEW_KEYS: Record<string, string> = {
-  accepted: 'label.outcome.reviewPassed',
-  done: 'label.outcome.reviewPassed',
-  passed: 'label.outcome.reviewPassed',
-  engineer: 'label.outcome.reviewNeedsChanges',
-  rejected: 'label.outcome.reviewNeedsChanges',
-  planner: 'label.outcome.needsPlan',
-  manager: 'label.outcome.reviewBlocked',
-  operator: 'label.outcome.waitingForYou',
-  blocked: 'label.outcome.reviewBlocked',
-  stale: 'label.outcome.reviewOutdated',
-  pending: 'label.outcome.reviewPending',
-  pending_review: 'label.outcome.reviewPending',
-};
-
-const CERTIFICATION_KEYS: Record<string, string> = {
-  certified: 'label.outcome.stageApproved',
-  not_certified: 'label.outcome.stageNotApproved',
-  revoked: 'label.outcome.stageRevoked',
-  intentionally_skipped: 'label.outcome.stageNotNeeded',
-  deferred: 'label.outcome.stagePending',
-};
-
-const INTERRUPTION_KEYS: Record<string, string> = {
-  budget_exhausted: 'label.outcome.budgetPaused',
-  budget_pause: 'label.outcome.budgetPaused',
-  cost_unreconciled: 'label.outcome.costUnreconciled',
-  operator_input_required: 'label.outcome.waitingForYou',
-  operator_abort: 'label.outcome.stoppedByYou',
-  operator_pause: 'label.outcome.pausedByYou',
-  daemon_shutdown: 'label.outcome.sessionPaused',
-  backend_unavailable: 'label.outcome.serviceUnavailable',
-  provider_cooldown: 'label.outcome.serviceCoolingDown',
-  provider_fence: 'label.outcome.serviceUnavailable',
-  transient_error: 'label.outcome.temporaryIssue',
-  permanent_error: 'label.outcome.serviceError',
-  planner_empty_plan: 'label.outcome.needsPlan',
-};
-
 const ACCELERATOR_KEYS: Record<string, string> = {
   cuda: 'label.resource.nvidiaGpu',
   rocm: 'label.resource.amdGpu',
@@ -139,24 +81,6 @@ export function workKindLabel(value: string | null | undefined, t: Translate): s
 
 export function frontierLabel(value: string | null | undefined, t: Translate): string {
   return t(FRONTIER_KEYS[String(value ?? '').toLowerCase()] ?? 'label.frontier.updated');
-}
-
-export function outcomeLabels(
-  outcome: Partial<MissionOutcomeDimensions> | null | undefined,
-  t: Translate,
-): string[] {
-  if (!outcome?.execution_status) return [];
-  const rows = [
-    t(EXECUTION_KEYS[outcome.execution_status.toLowerCase()] ?? 'label.outcome.workUpdated'),
-  ];
-  const review = REVIEW_KEYS[settledStatus({ status: outcome.review_status })];
-  const certification = CERTIFICATION_KEYS[String(outcome.stage_certification ?? '').toLowerCase()];
-  const interruption = INTERRUPTION_KEYS[String(outcome.interruption_kind ?? '').toLowerCase()];
-  if (review) rows.push(t(review));
-  if (certification) rows.push(t(certification));
-  if (interruption) rows.push(t(interruption));
-  if (outcome.resumable) rows.push(t('label.outcome.canResume'));
-  return rows;
 }
 
 export function acceleratorLabel(value: string, t: Translate): string {

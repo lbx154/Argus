@@ -17,12 +17,9 @@ export interface WorkspaceProfileIndex {
 
 export interface WorkspaceEntry {
   path: string;
-  name: string;
   type: 'file' | 'directory' | 'symlink';
   size: number;
   mtime: number;
-  extension: string;
-  skipped?: boolean;
 }
 
 export interface WorkspaceTree {
@@ -87,15 +84,6 @@ export const workspaceApi = {
 
 export interface FileTreeNode extends WorkspaceEntry { children: FileTreeNode[] }
 
-/** Internal state (dot-directories such as `.argus`) and skipped heavy folders stay out of the default view. */
-export function isInternalEntry(entry: Pick<WorkspaceEntry, 'path'> & { skipped?: boolean }): boolean {
-  return Boolean(entry.skipped) || entry.path.split('/').some((part) => part.startsWith('.'));
-}
-
-export function visibleEntries(entries: WorkspaceEntry[], showInternal: boolean): WorkspaceEntry[] {
-  return showInternal ? entries : entries.filter((entry) => !isInternalEntry(entry));
-}
-
 export function searchEntries(entries: WorkspaceEntry[], query: string, limit = 200): WorkspaceEntry[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
@@ -112,7 +100,7 @@ export function buildFileTree(entries: WorkspaceEntry[]): FileTreeNode[] {
     if (parent) parent.children.push(node); else roots.push(node);
   });
   const sort = (items: FileTreeNode[]) => {
-    items.sort((left, right) => left.type !== right.type ? left.type === 'directory' ? -1 : 1 : left.name.localeCompare(right.name));
+    items.sort((left, right) => left.type !== right.type ? left.type === 'directory' ? -1 : 1 : left.path.slice(left.path.lastIndexOf('/') + 1).localeCompare(right.path.slice(right.path.lastIndexOf('/') + 1)));
     items.forEach((item) => sort(item.children));
   };
   sort(roots);

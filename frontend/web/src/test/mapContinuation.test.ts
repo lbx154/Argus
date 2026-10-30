@@ -5,7 +5,6 @@ import { buildSubmap, layoutScene, MAX_STEPS_PER_CARD } from "../map/submap";
 const task: MapTask = {
   id: "research",
   title: "Research",
-  objective: "Study",
   status: "running",
   deps: [],
   ts: 1,

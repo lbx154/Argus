@@ -11,7 +11,7 @@ const props: ActiveWorkbenchPageProps = {
   snapshot: { session: { id: 's-A', display_name: 'Synthetic A', workdir: '/synthetic', objective: '', last_active: 1 },
     daemon: { alive: false, pid: null, uptime_seconds: null, backend: 'memory'},
     roles: [], backlog: [], },
-  events: [], refresh: vi.fn(),
+  refresh: vi.fn(),
 };
 let client: QueryClient;
 let view: ReactTestRenderer;
@@ -59,7 +59,7 @@ it('uses a Windows workspace basename without losing the full root or covering t
 });
 it('omits source control for a non-Git workspace while keeping files readable without additional queries', () => {
   client.setQueryData(['workspace-tree', 's-A', 'workspace-A'], { root: '/synthetic', entries: [
-    { path: 'demo.txt', name: 'demo.txt', type: 'file', size: 6, mtime: 1, extension: '.txt' },
+    { path: 'demo.txt', type: 'file', size: 6, mtime: 1 },
   ], truncated: false });
   client.setQueryData(['workspace-file', 's-A', 'workspace-A', 'demo.txt'], {
     root: '/synthetic', workspace_id: 'workspace-A', path: 'demo.txt', content: 'plain workspace content', size: 23, mtime: 1, extension: '.txt',
@@ -72,6 +72,7 @@ it('omits source control for a non-Git workspace while keeping files readable wi
     .find(button => button.findAllByType('span').some(span => span.children.includes('demo.txt')))!;
   act(() => file.props.onClick());
   expect(view.root.findByProps({ className: 'vscode-code' }).findByType('code').children).toEqual(['plain workspace content']);
+  expect(view.root.findAllByProps({ className: 'vscode-terminal' })).toHaveLength(0);
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -79,7 +80,7 @@ it('reads the active stopped workspace once, then updates tree, git and the open
   vi.useFakeTimers();
   const profiles = vi.spyOn(workspaceApi, 'profiles').mockResolvedValue({ profiles: [{ id: 'workspace-A', label: 'A', path: '/synthetic', canonical: true, source: 'project', project_sid: 's-A' }], default_id: 'workspace-A' });
   const tree = vi.spyOn(workspaceApi, 'tree').mockResolvedValue({ root: '/synthetic', truncated: false, entries: [
-    { path: 'demo.txt', name: 'demo.txt', type: 'file', size: 6, mtime: 1, extension: '.txt' },
+    { path: 'demo.txt', type: 'file', size: 6, mtime: 1 },
   ] });
   const git = vi.spyOn(workspaceApi, 'git').mockResolvedValue({ available: false, branch: '', status: '', diff: '', log: '' });
   const file = vi.spyOn(workspaceApi, 'file').mockResolvedValue({ root: '/synthetic', workspace_id: 'workspace-A', path: 'demo.txt', content: 'before', size: 6, mtime: 1, extension: '.txt' });

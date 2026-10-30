@@ -37,45 +37,28 @@ export interface Daemon {
   }>;
 }
 
-/** A task summary carried by snapshots; its full brief comes from the detail or map API. */
+/** A task summary carried by snapshots; its full brief comes from the detail API. */
 export interface BacklogSummary {
   id: string;
   title: string;
   status: string;
   priority: number;
-  iterate?: boolean;
-  pending_question?: string;
-  operator_decision?: import('./decisions.js').OperatorDecisionCard;
-  ts?: number;
-  tags?: string[];
-  notes?: string;
-  started_ts?: number | null;
-  finished_ts?: number | null;
-  /** The latest thing a role said on this task: a message while it worked, or a letter. */
-  latest_action?: { role: string; text: string; ts: number };
-  /** Files named by the handoff that closed this task, in opening order. */
-  result_paths?: string[];
-  last_error?: string;
-  iteration_max_cycles?: number;
-  iteration_cycles_done?: number;
-  iteration_cost_usd?: number;
-  original_objective?: string;
-  orphan_retries?: number;
   deps?: string[];
-  /** The Planner's plan this task belongs to; empty for a task taken from a request. */
-  plan_id?: string;
-  acceptance_check?: string;
-  plan_hypothesis?: string;
-  goal_contribution?: string;
-  expected_regressions?: string;
-  decision_rule?: string;
-  non_goals?: string[];
-  outcome?: MissionOutcomeDimensions;
 }
 
-/** A task detail or map card, including the full brief. */
+/** A task detail, including the full brief. */
 export interface BacklogItem extends BacklogSummary {
   objective: string;
+  ts?: number;
+  started_ts?: number | null;
+  finished_ts?: number | null;
+  pending_question?: string;
+  /** The latest message or letter on this task. */
+  latest_action?: { role: string; text: string; ts: number };
+  result_paths?: string[];
+  /** Letters and the last call's error, supplied by the detail endpoint. */
+  notes?: string;
+  last_error?: string;
 }
 
 export interface MissionOutcomeDimensions {

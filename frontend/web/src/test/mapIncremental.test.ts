@@ -1,19 +1,18 @@
 import { expect, it } from "vitest";
 import { buildMap, latestMissionCompletion, type Dataset } from "../map/model";
 import { layoutScene } from "../map/submap";
-import { livePollInterval, mergeMapProgress } from "../map/incremental";
-import type { Snapshot } from "../api";
+import { mergeMapProgress } from "../map/incremental";
 
 const first: Dataset = {
   id: "live:s-map", kind: "live", title: "Study", description: "", read_only: false,
-  tasks: [{ id: "a", title: "Method", objective: "Compare", status: "running", deps: [], ts: 1 }],
+  tasks: [{ id: "a", title: "Method", status: "running", deps: [], ts: 1 }],
   events: [{ id: "e1", item_id: "a", type: "round.review.completed", ts: 2, text: "Check", revision: "v1" }],
   cursor: "one", history_cursor: "epoch:1", history_loading: false,
 };
 
 it("retains loaded records and object identities while connecting new work", () => {
   const next = mergeMapProgress(first, { ...first, incremental: true,
-    tasks: [{ id: "b", title: "Validate", objective: "Evaluate", status: "pending", deps: ["a"], ts: 3 }],
+    tasks: [{ id: "b", title: "Validate", status: "pending", deps: ["a"], ts: 3 }],
     events: [{ id: "e2", item_id: "b", type: "life.mission.started", ts: 4, text: "" }], cursor: "two" });
   expect(next.tasks.map((t) => t.id)).toEqual(["a", "b"]);
   expect(next.tasks[0]).toBe(first.tasks[0]);
@@ -60,16 +59,4 @@ it("keeps completion scope across event-only pages without leaking an earlier at
   expect(latestMissionCompletion(retried, [legacyFinish, {
     id: "restart", item_id: "a", type: "life.mission.started", ts: 14, text: "",
   }])).toBeUndefined();
-});
-
-it("polls from work status, including a question at rest and an operator stop", () => {
-  const snapshot = { daemon: { alive: false }, roles: [] } as unknown as Snapshot;
-  const status = (state: string, reason = '') => ({ ...snapshot,
-    work_status: { state, reason } as Snapshot['work_status'],
-  });
-  expect(livePollInterval(undefined, status('paused', 'operator_input'))).toBe(false);
-  expect(livePollInterval(undefined, status('paused', 'not_running'))).toBe(false);
-  expect(livePollInterval(undefined, status('running'))).toBe(15_000);
-  expect(livePollInterval(undefined, status('waiting'))).toBe(15_000);
-  expect(livePollInterval({ history_loading: true }, status('paused'))).toBe(400);
 });

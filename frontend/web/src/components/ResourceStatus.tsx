@@ -29,7 +29,7 @@ export function ResourceStatusView({
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-dim">{t('resource.title')}</h3>
         {status ? (
-          <span className={`rounded px-2 py-1 text-[10px] font-semibold uppercase ${status.enforcement === 'strict' ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'}`}>
+          <span className={`rounded px-2 py-1 text-[10px] font-semibold ${status.enforcement === 'strict' ? 'bg-ok/10 text-ok' : 'bg-warn/10 text-warn'}`}>
             {enforcementLabel(status.enforcement, t)}
           </span>
         ) : null}

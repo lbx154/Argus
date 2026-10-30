@@ -344,6 +344,11 @@ const ConversationRow = memo(function ConversationRow({
       },
     );
   });
+  if (!operator && ev.status === 'replaced') return (
+    <article ref={rowRef} data-conversation-ts={ev.ts} className="conversation-row mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
+      <p role="status" className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
+    </article>
+  );
   return (
     <article ref={rowRef} data-conversation-ts={ev.ts}
       className="conversation-row group mx-auto w-full max-w-full px-4 py-4 sm:px-6 lg:max-w-[808px]">
@@ -377,7 +382,6 @@ const ConversationRow = memo(function ConversationRow({
               <span className="min-w-0 truncate" title={liveMessage || undefined}>{liveMessage || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
             </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" role="status" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
               : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
-              : ev.status === 'replaced' ? <p className="text-sm text-ink-dim" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
               : ev.status === 'failed' ? <p className="text-sm text-err">{locale === 'zh-CN' ? '回复中断，请查看错误提示后继续运行。' : 'Reply interrupted. Check the error before resuming.'}</p>
               : reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
           </div>
@@ -542,11 +546,12 @@ export function ProjectRoleLogs({ snapshot, connected, showReasoning = false, de
   const workspace = snapshot.session.workdir || '';
   const titles = useMemo(() => new Map(snapshot.backlog.map(item => [item.id, item.title || ''])), [snapshot.backlog]);
   const title = useCallback((id: string) => titles.get(id) ?? '', [titles]);
-  const rows = useMemo(() => renderFeedRows(taskId ? log.events.filter(event => eventTaskId(event) === taskId) : log.events,
-    { locale, showReasoning, workspace }).list, [log.events, taskId, locale, showReasoning, workspace]);
   const working = (connected && snapshot.work_status?.state === 'running' ? snapshot.work_status.roles : [])
     .filter(role => !taskId || snapshot.roles.find(row => row.role === role)?.tasks?.includes(taskId));
-  if (!details && !working.length) return null;
+  const visible = details || working.length > 0;
+  const rows = useMemo(() => visible ? renderFeedRows(taskId ? log.events.filter(event => eventTaskId(event) === taskId) : log.events,
+    { locale, showReasoning, workspace }).list : [], [visible, log.events, taskId, locale, showReasoning, workspace]);
+  if (!visible) return null;
   return <WorkspaceContext.Provider value={workspace}><TaskTitleContext.Provider value={title}>
     <section data-project-work aria-label={locale === 'zh-CN' ? '团队进展' : 'Team progress'}
       className={details ? '' : 'mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]'}>
@@ -1002,7 +1007,7 @@ export function EventStream({
           onClick={jump}
           aria-label={t('stream.jumpToLatest')}
           title={t('stream.jumpToLatest')}
-          className="absolute bottom-4 left-1/2 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-line/60 bg-panel text-sm text-ink-dim shadow-glow transition-all duration-200 hover:border-ink-faint hover:text-ink"
+          className="my-2 flex h-8 w-8 shrink-0 self-center items-center justify-center rounded-full border border-line/60 bg-panel text-sm text-ink-dim shadow-glow transition-all duration-200 hover:border-ink-faint hover:text-ink"
         >
           ↓
         </button>

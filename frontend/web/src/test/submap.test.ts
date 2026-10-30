@@ -14,7 +14,6 @@ import { buildMap, type MapEvent, type MapTask } from "../map/model";
 const task: MapTask = {
   id: "a",
   title: "A",
-  objective: "Measured objective",
   status: "done",
   deps: [],
 };
@@ -334,7 +333,7 @@ it("keeps overview geometry fixed while detail content grows", () => {
   const graph = buildMap([task]);
   const first = layoutScene(graph, [], true);
   const prose = layoutScene(
-    buildMap([{ ...task, objective: "New public research detail" }]),
+    buildMap([{ ...task, latest_action: { role: "engineer", text: "New public research detail", ts: 1 } }]),
     [],
     true,
     first,
@@ -393,7 +392,7 @@ describe("work segments and single-agent turns", () => {
   });
 
   it("lays out a single-agent turn as ask, work and answer", () => {
-    const turn: MapTask = { id: "turn:web-1", turn_kind: "qa", title: "README 有几行？", objective: "README 有几行？", status: "done", deps: [], role: "manager" };
+    const turn: MapTask = { id: "turn:web-1", turn_kind: "qa", title: "README 有几行？", status: "done", deps: [], role: "manager" };
     const steps = buildSubmap(turn, [
       { ...event("turn:web-1:work", "work.segment", { item_id: "turn:web-1", role: "manager" }), text: "",
         steps: [{ kind: "command_execution", label: "$ wc -l README.md", ts: 10, tool: "Count README lines", status: "completed" }] },
@@ -495,7 +494,7 @@ describe("work segments inside a round", () => {
 });
 
 it("heads each step column with the round of work it holds", () => {
-  const task = { id: "t", title: "T", objective: "T", status: "done", deps: [] } as MapTask;
+  const task = { id: "t", title: "T", status: "done", deps: [] } as MapTask;
   const rounds = (n: number) =>
     Array.from({ length: n }, (_, i) => ({ id: `r${i + 1}`, type: "round.start", ts: i + 1, item_id: "t", round_index: i + 1, text: "" }) as MapEvent);
   const many = layoutSubmap(task, rounds(7), false);
@@ -522,7 +521,7 @@ it("heads each step column with the round of work it holds", () => {
 });
 
 it('shows question and answer without inventing work or review stages', () => {
-  const task: MapTask = { id: 'qa', title: 'How is SFT trained?', objective: 'How is SFT trained?', status: 'done', deps: [], turn_kind: 'qa' };
+  const task: MapTask = { id: 'qa', title: 'How is SFT trained?', status: 'done', deps: [], turn_kind: 'qa' };
   const rows = buildSubmap(task, [{ id: 'answer', item_id: 'qa', type: 'turn.replied', ts: 5, text: 'Train on verified trajectories.' }], true);
   expect(rows.map(row => row.kind)).toEqual(['plan', 'result']);
   expect(rows[1].detail).toBe('Train on verified trajectories.');
@@ -532,7 +531,7 @@ it('shows question and answer without inventing work or review stages', () => {
 });
 
 it("stacks a short card into one column on a narrow canvas so the answer is not cut off", () => {
-  const task: MapTask = { id: "qa", title: "在吗?", objective: "在吗?", status: "done", deps: [], turn_kind: "qa" };
+  const task: MapTask = { id: "qa", title: "在吗?", status: "done", deps: [], turn_kind: "qa" };
   const rows = [{ id: "answer", item_id: "qa", type: "turn.replied", ts: 5, text: "在的，你说。" }] as MapEvent[];
   const wide = layoutSubmap(task, rows, true);
   const narrow = layoutSubmap(task, rows, true, undefined, 0, true);
@@ -549,7 +548,7 @@ it("stacks a short card into one column on a narrow canvas so the answer is not 
   expect(frame.width).toBe(900);
   // A long card stacks as well: on a phone the reader pans down, never sideways
   // (the wide layout left its right two columns outside a 390px viewport).
-  const long = { id: "t", title: "T", objective: "T", status: "done", deps: [] } as MapTask;
+  const long = { id: "t", title: "T", status: "done", deps: [] } as MapTask;
   const rounds = Array.from({ length: 7 }, (_, i) => ({ id: `r${i + 1}`, type: "round.start", ts: i + 1, item_id: "t", round_index: i + 1, text: "" }) as MapEvent);
   const tall = layoutSubmap(long, rounds, true, undefined, 0, true);
   expect(tall.stacked).toBe(true);
@@ -559,7 +558,7 @@ it("stacks a short card into one column on a narrow canvas so the answer is not 
 });
 
 describe("where the task stands", () => {
-  const parent: MapTask = { id: "m", title: "Choose an idea", objective: "Compare routes", status: "running", deps: [] };
+  const parent: MapTask = { id: "m", title: "Choose an idea", status: "running", deps: [] };
 
   it("writes one conclusion line: what the review asked for, the round under way", () => {
     const rounds: MapEvent[] = [

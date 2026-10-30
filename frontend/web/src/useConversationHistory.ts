@@ -58,6 +58,7 @@ export function useConversationHistory(
         events: newestPerRole([...new Map([...(current?.events ?? []).filter(row => Number(row.event_id) >= Number(frame.round)),
           ...roleEvents].map(row => [row.event_id, row])).values()].sort((a, b) => Number(a.event_id) - Number(b.event_id))),
       }));
+      if (updates.length) void client.invalidateQueries({ queryKey: ['map-live', sid], exact: true });
       const fresh = [...updates, ...roleEvents].filter(event => Number(event.event_id) > cursor);
       if (fresh.some(event => event.delivery || event.type === 'provider.request.completed')) {
         void client.invalidateQueries({ queryKey: ['artifacts', sid], exact: true });

@@ -19,7 +19,7 @@ it('reads the original request, Manager clarification and operator answer on the
     const project = store.create({ request: original.text, workdir: '', backend: 'codex', model: null });
     project.tasks = [{ ...added.task, status: 'closed' }];
     writeFileSync(join(store.dir(project.id), 'events.jsonl'), record);
-    const data = progressMap(store, project, 0) as unknown as Dataset;
+    const data = progressMap(store, project, 0, []) as unknown as Dataset;
     const scene = layoutScene(buildMap(data.tasks), data.events, true);
     expect(scene.cards.map(card => card.id)).toEqual(['q0', 't1']);
     const steps = scene.layouts.q0.steps;

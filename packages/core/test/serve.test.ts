@@ -522,7 +522,7 @@ test('a stopped team keeps only the request currently being answered on the live
   await eventually(() => get<Snapshot>(`${P}/snapshot`), value => value.roles.some(role => role.role === 'engineer' && role.active));
   await post(`${P}/daemon/stop`, {});
   await eventually(() => get<Snapshot>(`${P}/snapshot`), value => !value.daemon.alive);
-  type Map = { cursor: string; tasks: Array<{ id: string; objective: string; status: string }> };
+  type Map = { cursor: string; tasks: Array<{ id: string; title: string; status: string }> };
   let replaced: string | undefined;
   for (const request of ['stopped-old', 'stopped-new']) {
     const before = Date.now() / 1000;
@@ -536,7 +536,7 @@ test('a stopped team keeps only the request currently being answered on the live
       assert.ok(call.started_ts >= before && call.started_ts <= current.read_at! / 1000);
       assert.ok(call.request_card_id);
       const map = await get<Map>(`${P}/map`);
-      assert.ok(map.tasks.some(card => card.id === call.request_card_id && card.objective === request && card.status === 'in_progress'));
+      assert.ok(map.tasks.some(card => card.id === call.request_card_id && card.title === request && card.status === 'in_progress'));
       assert.ok((await get<Map>(`${P}/map?after=${map.cursor}`)).tasks.some(card => card.id === call.request_card_id));
       assert.ok(!replaced || !map.tasks.some(card => card.id === replaced));
       replaced = call.request_card_id;
@@ -1278,6 +1278,9 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   const P = `/api/projects/${sid}`;
   await frames(await post(`${P}/message/stream`, { text: '开始核对', request_id: 'r-task' }));
   await eventually(async () => requests, rows => rows.length === 2);
+  // The scripted file write precedes its first progress message; wait for both before replacing it.
+  await eventually(() => get<ConversationPage>(`${P}/conversation`), page =>
+    page.rows.some(row => row.progress === '正在核对报告的输入。'));
   const reply = frames(await post(`${P}/message/stream`, { text: '现在做到哪', request_id: 'r-live' }));
   await eventually(async () => requests, rows => rows.length === 3);
   const response = await call(`${P}/stream?view=rows`);
@@ -1331,8 +1334,15 @@ test('the row stream shows a task asking once it has asked, while another task r
   const P = `${served.url}/api/projects/${project.id}`;
   const stream = frames(await fetch(`${P}/stream?view=rows&after=-1`, { signal: ended.signal }), frame =>
     (frame.rows as EventMsg[]).some(row => row.row_id === 'task-t1' && row.state === 'asking'));
+  const states = frames(await fetch(`${served.url}/api/projects/stream`, { signal: ended.signal }), frame =>
+    (frame.snapshot as Snapshot | undefined)?.pending_questions?.length === 1);
   await fetch(`${P}/daemon/start`, { method: 'POST', body: '{}' });
-  await stream;
+  const [rows, projects] = await Promise.all([stream, states]);
+  const pushed = projects.at(-1)!.snapshot as Snapshot;
+  const fresh = await (await fetch(`${P}/snapshot`)).json() as Snapshot;
+  assert.equal(pushed.backlog.find(task => task.id === 't1')?.status, 'blocked');
+  assert.deepEqual(pushed.pending_questions, fresh.pending_questions);
+  assert.equal((rows.at(-1)!.rows as EventMsg[]).find(row => row.item_id === 't1')?.state, 'asking');
 });
 
 test('project list and artifact routes expose only the fields their readers use', async t => {
@@ -1351,4 +1361,50 @@ test('project list and artifact routes expose only the fields their readers use'
   const file = await get<Record<string, unknown>>(`/api/projects/${work.id}/artifact?path=result.md`);
   assert.equal(file.preview, '# Ready');
   for (const field of ['why', 'exists', 'storage_path']) assert.equal(Object.hasOwn(file, field), false, field);
+});
+
+
+test('map and task detail use the same live request cards and snapshot request mapping', async t => {
+  const finishes: Array<() => void> = [];
+  const waiting = [0, 1].map(() => new Promise<void>(resolve => { finishes.push(resolve); }));
+  const { store, post, get, call, requests } = await setup(t, [
+    { role: 'manager', to: 'operator', until: waiting[0]!, letter: 'Recorded.' },
+    { role: 'manager', to: 'operator', until: waiting[1]!, letter: 'Recorded.' },
+  ]);
+  t.after(() => finishes.forEach(finish => finish()));
+  for (const [fixture, count, answers, text] of [
+    ['map-clarification', 4, 'operator-answer', '都用 6 面。'],
+    ['manager-task-update', 4, 'live-request', '请检查周均线。'],
+  ] as const) {
+    const work = store.create({ request: '', workdir: '', backend: 'codex', model: null });
+    const lines = (await readFile(new URL(`./fixtures/${fixture}/events.jsonl`, import.meta.url), 'utf8')).trim().split('\n').slice(0, count);
+    await writeFile(join(store.dir(work.id), 'events.jsonl'), lines.join('\n') + '\n');
+    work.status = 'stopped';
+    store.save(work);
+    const P = `/api/projects/${work.id}`;
+    const reply = frames(await post(`${P}/message/stream`, { text, request_id: answers }));
+    await eventually(() => get<Snapshot>(`${P}/snapshot`), snap => snap.daemon.calls?.some(call => call.answers === answers) === true);
+    if (fixture === 'manager-task-update') {
+      // A newer request follows while this stopped project's Manager still answers the middle one.
+      store.append(work.id, { type: 'message', from: 'operator', text: '下一项', request_id: 'later-request' });
+    }
+    const snap = await get<Snapshot>(`${P}/snapshot`);
+    const active = snap.daemon.calls!.find(call => call.answers === answers)!;
+    assert.equal(active.request_card_id, fixture === 'map-clarification' ? 'q0' : 'q4');
+    const map = await get<{ tasks: Array<{ id: string; latest_action?: unknown }> }>(`${P}/map`);
+    assert.ok(map.tasks.some(card => card.id === active.request_card_id));
+    for (const card of map.tasks) {
+      const detail = await call(`${P}/backlog/${card.id}`);
+      assert.equal(detail.status, 200, `detail missing map card ${card.id}`);
+      const { item } = await detail.json() as { item: Record<string, unknown> };
+      for (const [key, value] of Object.entries(card)) assert.deepEqual(item[key], value, key);
+    }
+    finishes[fixture === 'map-clarification' ? 0 : 1]!();
+    await reply;
+    // Give the next case its own held call.
+    if (fixture === 'map-clarification') {
+      // The scripted second Manager is reached only by the next project's message.
+      assert.equal(requests.length, 1);
+    }
+  }
 });

@@ -17,7 +17,6 @@ vi.mock("@xyflow/react", async (original) => ({
 const task: MapTask = {
   id: "parent",
   title: "Research portfolio",
-  objective: "",
   status: "running",
   deps: [],
 };

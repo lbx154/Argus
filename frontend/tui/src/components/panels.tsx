@@ -15,8 +15,7 @@ import type {
   StatusView,
 } from '../api.js';
 import { filterProjects, rankProjects } from '../../../core/src/projects.js';
-import { currentOutcome, visibleBacklogItems } from '../../../core/src/backlog.js';
-import { outcomeDimensionSummary } from '../../../core/src/missionOutcome.js';
+import { visibleBacklogItems } from '../../../core/src/backlog.js';
 import { eventMatchesView, type EventViewFilter } from '../../../core/src/events.js';
 import { buildEventLines } from '../eventLines.js';
 import { roleColor, toneColor } from '../eventRender.js';
@@ -393,20 +392,16 @@ function wrapDetail(text: string, width: number): string[] {
 }
 
 function TaskPanel({ item, page, pageSize, width }: { item: BacklogItem; page: number; pageSize: number; width: number }) {
-  const outcome = outcomeDimensionSummary(currentOutcome(item));
   const lines = [
     `status      ${item.status}`,
-    ...(outcome.length ? outcome.map((row, index) => `${index ? '            ' : 'outcome     '}${row}`) : []),
     `priority    p${item.priority}`,
-    ...wrapDetail(`iteration   ${item.iterate ? 'auto' : 'single'} · ${item.iteration_cycles_done ?? 0}/${item.iteration_max_cycles ?? '—'} cycles · cost $${(item.iteration_cost_usd ?? 0).toFixed(2)}`, width),
     ...(item.pending_question ? ['', 'WAITING ON YOU', ...wrapDetail(item.pending_question, width)] : []),
     '',
     'OBJECTIVE',
-    ...wrapDetail(item.objective || item.original_objective || '(none)', width),
+    ...wrapDetail(item.objective || '(none)', width),
     // A replaced task says so in its status; its last attempt's error is not its own.
     ...(item.last_error && item.status !== 'superseded' ? ['', 'LAST ERROR', ...wrapDetail(item.last_error, width)] : []),
     ...(item.notes ? ['', 'NOTES', ...wrapDetail(item.notes, width)] : []),
-    ...(item.tags?.length ? ['', ...wrapDetail(`tags        ${item.tags.join(', ')}`, width)] : []),
     ...(item.deps?.length ? wrapDetail(`depends on   ${item.deps.join(', ')}`, width) : []),
   ];
   const view = pageSlice(lines, page, pageSize);

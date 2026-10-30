@@ -1,78 +1,21 @@
-import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
-import type { Snapshot } from '../../../core/src/types';
-
-vi.mock('../i18n', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../i18n')>();
-  return {
-    ...actual,
-    useI18n: () => ({ locale: 'zh-CN', setLocale: vi.fn(), t: (key: string, variables?: Record<string, string | number>) => actual.translate(key, variables, 'zh-CN') }),
-  };
-});
-
-const { progressHealth } = await import('../lib/progressHealth');
-const { searchEntries, visibleEntries } = await import('../research-workbench/workspaceApi');
-const { ProgressHealthBanner } = await import('../components/ProgressHealthBanner');
-
-function snapshot(backlog: Snapshot['backlog'], alive = true, startedAt = 0): Pick<Snapshot, 'backlog' | 'daemon'> {
-  return { backlog, daemon: { alive, pid: alive ? 1 : null, uptime_seconds: null, backend: null,
-    started_at_iso: startedAt ? new Date(startedAt * 1000).toISOString() : null } };
-}
-const task = (id: string, status: string, finished: number, extra: Record<string, unknown> = {}) =>
-  ({ id, title: `任务 ${id}`, objective: '', status, priority: 1, started_ts: finished - 100, finished_ts: finished, ...extra });
-
-describe('progress health', () => {
-  it('flags several failed tasks in a row and names the latest reason', () => {
-    const health = progressHealth(snapshot([
-      task('a', 'done', 100), task('b', 'failed', 200), task('c', 'failed', 300),
-      task('d', 'failed', 400, { last_error: 'CUDA out of memory' }),
-    ]), 500);
-    expect(health).toMatchObject({ problem: 'repeated_failures', failures: 3, key: 'failures:d' });
-    expect(health?.latestFailure?.reason).toBe('CUDA out of memory');
-  });
-
-  it('flags a long active stretch without a reviewed result, and nothing when idle', () => {
-    const quiet = snapshot([task('a', 'done', 1000), task('b', 'running', 0, { started_ts: 2000, finished_ts: null })]);
-    expect(progressHealth(quiet, 1000 + 13 * 3600)).toMatchObject({ problem: 'no_accepted_result', hoursWithoutAccepted: 13 });
-    expect(progressHealth(quiet, 1000 + 3600)).toBeNull();
-    expect(progressHealth(snapshot([task('a', 'done', 1000)], false), 1000 + 30 * 3600)).toBeNull();
-  });
-
-  it('counts only the time work ran: a project restarted an hour ago after two stopped days is not 45 hours quiet', () => {
-    // Trial s-efe9deac: last reviewed result 10-24 10:30, stopped, started again 10-26 06:52; the banner said 45 hours.
-    const accepted = 1792751429, restarted = 1792997548;
-    const backlog = [task('a', 'done', accepted), task('b', 'running', 0, { started_ts: restarted + 60, finished_ts: null })];
-    expect(progressHealth(snapshot(backlog, true, restarted), restarted + 3600)).toBeNull();
-    expect(progressHealth(snapshot(backlog, true, restarted), restarted + 13 * 3600))
-      .toMatchObject({ problem: 'no_accepted_result', hoursWithoutAccepted: 13 });
-    // A task a stopped daemon left marked running is not work going on.
-    expect(progressHealth(snapshot(backlog, false, restarted), accepted + 45 * 3600)).toBeNull();
-  });
-
-  it('renders a dismissible banner with a way to adjust the request', () => {
-    const html = renderToStaticMarkup(<ProgressHealthBanner sid="s-1" onAdjust={() => undefined}
-      health={{ problem: 'repeated_failures', key: 'failures:d', failures: 3, hoursWithoutAccepted: 0, latestFailure: { title: '训练', reason: 'OOM' } }} />);
-    expect(html).toContain('最近 3 个任务都没有完成');
-    expect(html).toContain('最近一次：训练');
-    expect(html).toContain('<details');
-    expect(html).toMatch(/<pre[^>]*>OOM<\/pre>/);
-    expect(html).toContain('在对话里调整要求');
-    expect(html).toContain('知道了');
-  });
-});
+import { describe, expect, it } from 'vitest';
+import { buildFileTree, searchEntries } from '../research-workbench/workspaceApi';
 
 describe('workspace explorer', () => {
   const entries = [
-    { path: 'results', name: 'results', type: 'directory' as const, size: 0, mtime: 0, extension: '' },
-    { path: 'results/table.csv', name: 'table.csv', type: 'file' as const, size: 1, mtime: 0, extension: '.csv' },
-    { path: '.argus', name: '.argus', type: 'directory' as const, size: 0, mtime: 0, extension: '' },
-    { path: '.argus/team/log.json', name: 'log.json', type: 'file' as const, size: 1, mtime: 0, extension: '.json' },
-    { path: 'models', name: 'models', type: 'directory' as const, size: 0, mtime: 0, extension: '', skipped: true },
+    { path: 'results', type: 'directory' as const, size: 0, mtime: 0 },
+    { path: 'results/table.csv', type: 'file' as const, size: 1, mtime: 0 },
+    { path: '.argus', type: 'directory' as const, size: 0, mtime: 0 },
+    { path: '.argus/log.json', type: 'file' as const, size: 1, mtime: 0 },
+    { path: 'a.md', type: 'file' as const, size: 1, mtime: 0 },
+    { path: 'results/z.csv', type: 'file' as const, size: 1, mtime: 0 },
+    { path: 'results/a.csv', type: 'file' as const, size: 1, mtime: 0 },
   ];
-  it('hides internal state until asked and searches file names', () => {
-    expect(visibleEntries(entries, false).map((entry) => entry.path)).toEqual(['results', 'results/table.csv']);
-    expect(visibleEntries(entries, true)).toHaveLength(5);
-    expect(searchEntries(visibleEntries(entries, true), 'LOG').map((entry) => entry.path)).toEqual(['.argus/team/log.json']);
+  it('builds and searches the server tree using paths alone', () => {
+    const nodes = buildFileTree(entries);
+    expect(nodes.map(node => node.path)).toEqual(['.argus', 'results', 'a.md']);
+    expect(nodes[1].children.map(node => node.path)).toEqual(['results/a.csv', 'results/table.csv', 'results/z.csv']);
+    expect(searchEntries(entries, 'LOG').map(entry => entry.path)).toEqual(['.argus/log.json']);
     expect(searchEntries(entries, '  ')).toEqual([]);
   });
 });

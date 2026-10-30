@@ -77,8 +77,7 @@ function tree(root: string) {
       const type = entry.isSymbolicLink() ? 'symlink' : entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : null;
       if (!stat || !type) continue;
       entries.push({
-        path, name: entry.name, type, size: type === 'directory' ? 0 : stat.size, mtime: stat.mtimeMs / 1000,
-        extension: type === 'file' ? extname(entry.name).toLowerCase() : '',
+        path, type, size: type === 'directory' ? 0 : stat.size, mtime: stat.mtimeMs / 1000,
       });
       if (type === 'directory') walk(path);
     }

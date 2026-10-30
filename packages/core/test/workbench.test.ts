@@ -7,6 +7,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, truncate, utimes, writeFile } from
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
+import type { BacklogItem } from '@argus/contracts';
 import { Store, type Task } from '../src/store.js';
 import { keep } from '../src/serve/files.js';
 import { serve } from '../src/serve/index.js';
@@ -51,7 +52,7 @@ function unzip(zip: Buffer): Record<string, string> {
 
 test('the code workspace is the workdir: its tree, a file as text or bytes, and what git says', async t => {
   const { store, project, call, get } = await setup(t, {
-    'src/main.py': 'print(1)\n', 'Makefile': 'all:\n', 'plot.png': 'png', 'blob.bin': 'a\0b', '.env': 'KEY=1', 'node_modules/x/index.js': '',
+    'src/main.py': 'print(1)\n', 'Makefile': 'all:\n', 'plot.png': 'png', 'blob.bin': 'a\0b', '.env': 'KEY=1', '.argus/team/log.json': '{}', 'node_modules/x/index.js': '',
   });
   const sid = project.id;
   const W = (path: string, more: Record<string, string> = {}) =>
@@ -65,6 +66,9 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   assert.deepEqual(tree.entries.map(entry => `${entry.type} ${entry.path}`).sort(),
     ['directory src', 'file Makefile', 'file blob.bin', 'file plot.png', 'file src/main.py']);
   assert.equal(tree.truncated, false);
+  for (const entry of tree.entries) {
+    assert.deepEqual(Object.keys(entry).sort(), ['mtime', 'path', 'size', 'type']);
+  }
 
   assert.equal((await get<{ content: string }>(W('file', { path: 'src/main.py' }))).content, 'print(1)\n');
   assert.equal((await get<{ content: string }>(W('file', { path: 'Makefile' }))).content, 'all:\n');
@@ -397,14 +401,14 @@ test('a task in full and a search of every project\'s record', async t => {
   assert.deepEqual([questions, store.load(id).questions], [[], [question]]);
   const P = `/api/projects/${id}`;
 
-  const { item: done } = await get<{ item: Record<string, unknown> }>(`${P}/backlog/t1`);
+  const { item: done } = await get<{ item: BacklogItem }>(`${P}/backlog/t1`);
   assert.equal(done.title, 'Sales chart');
   assert.equal(done.status, 'done');
   assert.equal(done.objective, chart.objective);
   assert.ok(typeof done.started_ts === 'number' && typeof done.finished_ts === 'number' && done.finished_ts >= done.started_ts);
   assert.equal(done.notes, 'Engineer to the Reviewer:\nchart.png drawn from sales.csv\n\nReviewer to the Manager:\nThe chart matches the data.');
   assert.equal(done.last_error, '');
-  const { item: asking } = await get<{ item: Record<string, unknown> }>(`${P}/backlog/t2`);
+  const { item: asking } = await get<{ item: BacklogItem }>(`${P}/backlog/t2`);
   assert.deepEqual([asking.status, asking.pending_question, asking.last_error, asking.finished_ts], ['blocked', 'Which years?', 'codex exited with code 1', null]);
   assert.equal((await call(`${P}/backlog/t9`)).status, 404);
 

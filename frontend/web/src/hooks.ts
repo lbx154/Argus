@@ -1,9 +1,38 @@
 import { queryOptions, replaceEqualDeep, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, isAuthenticationError, openProjectStates, type ProjectIndex, type Snapshot } from './api';
 import { POLL_CAPABILITY, useCapability } from './lib/capabilities';
 import { cacheProjectName } from './lib/projectName';
 import { workspaceApi } from './research-workbench/workspaceApi';
+
+/** Trailing-edge throttle for hot props. Streamed events arrive many times a
+ * second while agents work; the memoized map only needs a beat-level view. */
+export function useThrottledValue<T>(value: T, ms: number): T {
+  const [current, setCurrent] = useState(value);
+  const latest = useRef(value);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stamp = useRef(0);
+  latest.current = value;
+  useEffect(() => {
+    if (value === current) return;
+    const due = stamp.current + ms - Date.now();
+    if (due <= 0) {
+      stamp.current = Date.now();
+      setCurrent(value);
+      return;
+    }
+    if (timer.current) return;
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      stamp.current = Date.now();
+      setCurrent(latest.current);
+    }, due);
+  }, [value, current, ms]);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  return current;
+}
 
 /* ------------------------------------------------------------------ REST */
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderLine } from "../../../core/src/eventRender";
-import { outcomeLabels, statusLabel } from "../lib/enumLabels";
+import { statusLabel } from "../lib/enumLabels";
 
 const renderEvent = (event: Parameters<typeof renderLine>[0]) => renderLine(event, {
   locale: "en", density: "full", showReasoning: false, unknownEventPolicy: "hide",
@@ -16,8 +16,6 @@ describe("unknown cost recovery presentation", () => {
     // A park reads as paused whatever its reason; the reason has its own label.
     expect(statusLabel("parked", (key) => key)).toBe("label.status.paused");
     expect(statusLabel("paused_cost", (key) => key)).toBe("label.status.paused");
-    expect(outcomeLabels({ execution_status: "paused", interruption_kind: "cost_unreconciled" }, (key) => key))
-      .toContain("label.outcome.costUnreconciled");
   });
 
   it("does not describe an acknowledged risk provision as a settled invoice", () => {

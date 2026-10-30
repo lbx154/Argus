@@ -8,7 +8,7 @@ import { WORKBENCH_MODULES } from './modules';
 import type { PageId, Snapshot } from './types';
 import './styles.css';
 
-/** The project's modules, on the snapshot and the record the page already follows. */
+/** The project's modules, on the snapshot the page already follows. */
 export function ResearchWorkbenchPanel({ snapshot, failed, runtimeRequest = 0, readOnly = false, ...data }:
   Omit<ActiveWorkbenchPageProps, 'snapshot'> & {
     snapshot: Snapshot | undefined; failed: boolean; readOnly?: boolean; runtimeRequest?: number;

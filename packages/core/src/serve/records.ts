@@ -1,35 +1,38 @@
 // What the record says beyond the map: a task in full, and a search
 // of every project's request, conversation and letters, read from project.json and events.jsonl.
 
+import type { Runs } from './runs.js';
 import { NAMES } from '../prompts.js';
 import type { Note, Project, Store } from '../store.js';
 import { HttpError, type Handler } from './index.js';
-import { named as projectName, progressMap, readEvents, webEvents } from './views.js';
+import { named as projectName, progressMap, readEvents, webEvents, type Live } from './views.js';
 
 const RESULTS = 50;
 const EXCERPT = 32_000;
 
 const named = (to: string): string => NAMES[to as Note['from']] ?? to;
 
-export function records(store: Store, project: (id: string) => Project): [string, RegExp, Handler][] {
+export function records(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
   return [
-    ['GET', /^\/api\/projects\/([^/]+)\/backlog\/([^/]+)$/, ({ params: [id, task] }) => ({ item: detail(store, project(id!), task!) })],
+    ['GET', /^\/api\/projects\/([^/]+)\/backlog\/([^/]+)$/, ({ params: [id, task] }) => ({ item: detail(store, project(id!), task!, runs.live(id!).calls) })],
     ['GET', /^\/api\/search$/, ({ url }) => search(store, url.searchParams.get('q') ?? '')],
   ];
 }
 
 /** A task in full: its card on the map, every letter written about it in order, by whom to whom,
  * and the error its last call ended with, if that call failed. */
-function detail(store: Store, project: Project, id: string) {
-  const card = progressMap(store, project, Infinity).tasks.find(task => task.id === id);
+function detail(store: Store, project: Project, id: string, calls: Live['calls']) {
+  const card = progressMap(store, project, Infinity, calls).tasks.find(task => task.id === id);
   if (!card) throw new HttpError(404, `unknown backlog item: ${id}`);
   const letters: string[] = [];
   let error = '';
-  for (const event of readEvents(store, project.id)) {
+  let objective = project.tasks.find(task => task.id === id)?.objective;
+  for (const [line, event] of readEvents(store, project.id).entries()) {
+    if ('turn_kind' in card && card.turn_kind === 'qa' && card.id === `q${line}` && event.type === 'message') objective = event.text;
     if (event.type === 'handoff' && event.task === id) letters.push(`${named(event.role)} to the ${named(event.to)}:\n${event.letter}`);
     else if (event.type === 'call.end' && event.task === id) error = event.error ?? '';
   }
-  return { ...card, notes: letters.join('\n\n'), last_error: error };
+  return { ...card, objective, notes: letters.join('\n\n'), last_error: error };
 }
 
 /** Where a text is quoted for the line found at `hit`: the paragraph, list or table it is in,

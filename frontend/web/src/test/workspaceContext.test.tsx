@@ -16,7 +16,7 @@ const snap: Snapshot = {
   roles: [], backlog: [], };
 const props: ActiveWorkbenchPageProps = {
   sid: 's-A', active: false, snapshot: snap,
-  events: [], refresh: vi.fn(),
+  refresh: vi.fn(),
 };
 let client: QueryClient;
 const fetch = vi.fn(() => { throw new Error('Context presentation must not fetch'); });
@@ -96,6 +96,23 @@ describe('A3 snapshot-only session context', () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('long-path\\'.repeat(100));
     expect(html).not.toContain('setWorkdir');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('renders the server-provided path-only tree without a second visibility control', () => {
+    client.setQueryData(['workspace-profiles', props.sid], { profiles: [{ id: 'w', label: 'Fixture', path: '/fixture' }], default_id: 'w' });
+    client.setQueryData(['workspace-tree', props.sid, 'w'], { root: '/fixture', entries: [
+      { path: 'reports', type: 'directory', size: 0, mtime: 0 },
+      { path: 'summary.md', type: 'file', size: 10, mtime: 0 },
+      { path: '.server-visible', type: 'file', size: 10, mtime: 0 },
+    ], truncated: false });
+    for (const locale of ['en', 'zh-CN'] as const) {
+      const html = markup(<IdePage {...props} />, locale);
+      expect(html).toContain('summary.md');
+      expect(html).toContain('.server-visible');
+      expect(html).not.toContain('type="checkbox"');
+      expect(html).not.toMatch(/Show internal files|显示内部文件|internal hidden|内部文件已隐藏|restricted|未展开/);
+    }
     expect(fetch).not.toHaveBeenCalled();
   });
 

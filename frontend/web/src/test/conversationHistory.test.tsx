@@ -111,6 +111,26 @@ it('updates a task across loaded pages without moving it behind the question and
   expect(latest.events[0]?.state).toBe('done');
 });
 
+it('invalidates only this project’s map when the recorded stream carries conversation rows', async () => {
+  const { openConversation } = await import('../api');
+  const { readFileSync } = await import('node:fs');
+  const record = JSON.parse(readFileSync(new URL('./fixtures/review-seven-stream.json', import.meta.url), 'utf8'));
+  client.setQueryData(['conversation', 'b'], cached('Saved reply'));
+  client.setQueryData(['map-live', 'b'], {});
+  client.setQueryData(['map-live', 'a'], {});
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  act(() => { renderer = create(tree('b')); });
+  const receive = vi.mocked(openConversation).mock.calls.at(-1)![2];
+  // Recorded command-only frame, then a changed conversation row.
+  act(() => receive(record.frames[0]));
+  expect(client.getQueryState(['map-live', 'b'])?.isInvalidated).toBe(false);
+  act(() => receive(record.frames[1]));
+  const mapCalls = invalidate.mock.calls.filter(([filter]) => filter?.queryKey?.[0] === 'map-live');
+  expect(mapCalls).toHaveLength(1);
+  expect(mapCalls.every(([filter]) => filter?.exact && filter.queryKey?.[1] === 'b')).toBe(true);
+  expect(client.getQueryState(['map-live', 'a'])?.isInvalidated).toBe(false);
+});
+
 it('adds an answered pair absent from the current page and uses the same paging controller to load older rows', async () => {
   const recent = { type: 'ui.argus', row_id: 'm30', text: 'Later Manager reply', event_id: 30, order: 30 };
   client.setQueryData(['conversation', 'b'], {

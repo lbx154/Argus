@@ -181,6 +181,14 @@ const unanswered = (project: Project): Set<string> =>
 const resumable = (project: Project): boolean => Boolean(project.forManager?.length) || project.status === 'failed'
   || project.status === 'stopped' && (openTasks(project).length > 0 || project.inbox.length > 0);
 
+/** Live calls joined to the request cards their answers belong to. */
+function requestCalls(calls: Live['calls'], qa?: MapReading['qa']) {
+  return calls.map(({ task, ...call }) => {
+    const card = call.answers ? qa?.get(call.answers) : undefined;
+    return { ...call, ...(task ? { task } : {}), ...(card ? { request_card_id: card.id } : {}) };
+  });
+}
+
 export function daemon(project: Project, live: Live, qa?: MapReading['qa']): Daemon {
   const { since } = live;
   return {
@@ -188,9 +196,7 @@ export function daemon(project: Project, live: Live, qa?: MapReading['qa']): Dae
     alive: since !== null, resumable: since === null && resumable(project), pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
     backend_label: BACKEND_LABELS[project.backend],
-    calls: live.calls.map(({ task, ...call }) => ({ ...call, ...task ? { task } : {},
-      ...call.answers && qa?.has(call.answers) ? { request_card_id: qa.get(call.answers)!.id } : {},
-    })),
+    calls: requestCalls(live.calls, qa),
   };
 }
 
@@ -227,6 +233,8 @@ const lastActive = (store: Store, id: string): number => statSync(join(store.dir
  * It runs on the whole record at first, then only on newly appended lines. */
 export interface Reading {
   end: number;
+  /** Complete usage lines and the byte where their next read starts. */
+  usage: { end: number; rows: Record<string, unknown>[] };
   fold: Fold;
   rows: Map<string, EventMsg>;
   roleEvents: EventMsg[];
@@ -242,7 +250,7 @@ export interface Reading {
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
-  end: 0, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
+  end: 0, usage: { end: 0, rows: [] }, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
   roleEvents: [], round: 0, activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
     answered: null, briefed: null, worked: new Set(), follows: new Map() },
@@ -313,6 +321,9 @@ export function readRecord(store: Store, id: string): Reading {
   const { rows, end } = jsonLines(path, previous?.end ?? 0);
   const reading = projectRecord(rows as unknown as Recorded[], previous);
   reading.end = end;
+  const spent = jsonLines(join(store.dir(id), 'usage.jsonl'), reading.usage.end);
+  reading.usage.rows.push(...spent.rows);
+  reading.usage.end = spent.end;
   readings.set(path, reading);
   return reading;
 }
@@ -382,9 +393,9 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   const { id, workdir, backend } = project;
   // What was spent counts every call; what the project runs on, only its own.
-  const spent = jsonLines(join(store.dir(id), 'usage.jsonl')).rows;
-  const summary = usage(spent);
   const reading = readRecord(store, id);
+  const spent = reading.usage.rows;
+  const summary = usage(spent);
   const { calls: made } = reading;
   const calls = spent.filter(call => made.has(String(call.callId)));
   // The model each role's last call ran on: with none chosen, the backend's own default.
@@ -428,7 +439,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
   };
 }
 
-type MapCard = BacklogItem & { role: string; turn_kind?: 'qa' };
+type MapCard = Omit<BacklogItem, 'objective' | 'notes' | 'last_error'> & { role: string; turn_kind?: 'qa' };
 
 /** Map facts in the shared project reading: when each task
  * was added and closed, the latest thing said on it (a message or a letter, not a command), the
@@ -456,7 +467,7 @@ interface MapReading {
  * hands over files. Clarifications before the original request starts work share its card,
  * which always stays. Request ids and the Manager's `answers` join the letters to their card,
  * and task handoffs join work to the request that set it going. The line cursor pages letters. */
-export function progressMap(store: Store, project: Project, after: number, calls: Live['calls'] = []) {
+export function progressMap(store: Store, project: Project, after: number, calls: Live['calls']) {
   return mapProjection(readRecord(store, project.id), project, after, calls);
 }
 
@@ -472,7 +483,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       Object.assign(previous, { status: '', finished_ts: null });
       letters.push({ line, letter: { id: `e${line}`, item_id: previous.id, type: 'turn.asked', ts, role: 'operator', to: 'manager', text: event.text } });
     } else qa.set(event.request_id, {
-      id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text), objective: event.text, priority: 0, deps: [], status: '',
+      id: `q${line}`, turn_kind: 'qa', title: firstLine(event.text), priority: 0, deps: [], status: '',
       role: 'manager', ts, started_ts: ts, finished_ts: null, result_paths: [],
     });
   }
@@ -524,7 +535,7 @@ function taskPresentation(reading: MapReading, project: Project, id: string) {
 }
 
 function mapProjection(record: Reading, project: Project, after: number, calls: Live['calls']) {
-  const { added, closed, actions, letters, qa, worked, follows } = record.map;
+  const { added, closed, letters, qa, worked, follows } = record.map;
   // An answered message stays if it is the original request, the latest one, or set work going; one
   // still to be answered while the team answers, and the original request even while it is stopped.
   const answering = project.status !== 'stopped' && project.status !== 'failed';
@@ -534,7 +545,7 @@ function mapProjection(record: Reading, project: Project, after: number, calls: 
   const waiting = new Set([...unanswered(project)].flatMap(request => qa.get(request) ?? []));
   // The Manager may answer a new message while the team stays stopped. Keep that call's
   // request card until the call ends; the usual filter still removes replaced requests.
-  const active = new Set(calls.flatMap(call => call.role === 'manager' && call.answers ? qa.get(call.answers) ?? [] : []));
+  const active = new Set(requestCalls(calls, qa).flatMap(call => call.role === 'manager' ? call.request_card_id ?? [] : []));
   // Work handed to the team is done once the tasks it went to, or that follow its message, have
   // closed, or with none of its own, once the team has no work going.
   const done = (card: MapCard): number | null => {
@@ -542,18 +553,14 @@ function mapProjection(record: Reading, project: Project, after: number, calls: 
     if (own.length ? own.some(task => !closed.has(task)) : project.status !== 'idle') return null;
     return Math.max(card.ts ?? 0, ...own.map(task => closed.get(task)!));
   };
-  const action = (id: string) => {
-    const found = actions.get(id);
-    return found ? { role: found.role, text: found.text, ts: found.ts } : undefined;
-  };
-  const tasks = [...cards.filter(card => active.has(card) || (card.status ? card === first || card === last || worked.has(card.id)
+  const tasks = [...cards.filter(card => active.has(card.id) || (card.status ? card === first || card === last || worked.has(card.id)
     : waiting.has(card) && (answering || card === first))).map(card => {
     const finished = card.status === 'in_progress' ? done(card) : card.finished_ts;
-    return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: action(card.id) };
+    return { ...card, status: card.status && finished !== null ? 'done' : 'in_progress', finished_ts: finished, latest_action: taskPresentation(record.map, project, card.id).latest_action };
   }), ...backlog(project).map((item, index) => {
     const follow = follows.get(item.id);
     return {
-      ...item, objective: project.tasks[index]!.objective, deps: item.deps?.length || !follow ? item.deps : [follow], ts: added.get(item.id), started_ts: added.get(item.id),
+      ...item, deps: item.deps?.length || !follow ? item.deps : [follow], ts: added.get(item.id), started_ts: added.get(item.id),
       finished_ts: closed.get(item.id) ?? null, role: project.tasks[index]!.holder,
       ...taskPresentation(record.map, project, item.id),
     };

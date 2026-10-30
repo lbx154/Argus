@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderLine } from '../../../core/src/eventRender';
 import { missionOutcomePresentation, parkReason, settledStatus } from '../../../core/src/missionOutcome';
-import { outcomeLabels } from '../lib/enumLabels';
 
 describe('statuses an older release wrote', () => {
   it('read a round status as the holder it named', () => {
@@ -39,19 +38,6 @@ describe('a task handed past the team', () => {
     const handed = missionOutcomePresentation({ type: 'life.mission.completed', status: 'manager', success: false } as never);
     expect(handed.outcomeClass).not.toBe('failed');
     expect(handed.tone).not.toBe('err');
-  });
-});
-
-describe('a task outcome a review settled', () => {
-  const t = (key: string) => key;
-
-  it('is labelled by the holder the review handed the work to', () => {
-    const labels = (review_status: string) => outcomeLabels({ execution_status: 'paused', review_status } as never, t);
-    expect(labels('engineer')).toContain('label.outcome.reviewNeedsChanges');
-    expect(labels('continue')).toContain('label.outcome.reviewNeedsChanges');
-    expect(labels('planner')).toContain('label.outcome.needsPlan');
-    expect(labels('manager')).toContain('label.outcome.reviewBlocked');
-    expect(labels('operator')).toContain('label.outcome.waitingForYou');
   });
 });
 

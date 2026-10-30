@@ -50,7 +50,7 @@ it('shows the pending question once in conversation with Markdown, keeping waiti
   expect(snap.pending_questions?.[0]).toMatchObject({ operator_decision: { id: 'engineer-t1', item_id: 't1', question } });
   expectOneFormattedQuestion(html);
   expect(snap.work_status?.label.en).toBe('Waiting for your answer');
-  expect(progressMap(store, project, 0).tasks[0].latest_action).toBeUndefined();
+  expect(progressMap(store, project, 0, []).tasks[0].latest_action).toBeUndefined();
 });
 
 it('retains the answered question as history and removes resend only from the actual answer bubble', () => {
@@ -58,7 +58,7 @@ it('retains the answered question as history and removes resend only from the ac
   const reading = projectRecord([added, ask, answer]);
   expect(conversationRows(reading, project, { since: null, calls: [], requests: [] })
     .find(row => row.type === 'ui.task')?.progress).toBe('');
-  expect(progressMap(store, project, 0).tasks[0].latest_action).toBeUndefined();
+  expect(progressMap(store, project, 0, []).tasks[0].latest_action).toBeUndefined();
   expectOneFormattedQuestion(html);
   expect(html).toContain(answer.text);
   expect(html).not.toContain('Edit and resend');

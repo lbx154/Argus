@@ -44,3 +44,11 @@ it('adds a local calendar date only to messages outside today', () => {
   expect(html).toContain('<time>2026-10-29 23:59:58</time>');
   expect(html).toContain('<time>10:11:12</time>');
 });
+
+it('renders a replaced reply as an unsigned status line', () => {
+  const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.argus', status: 'replaced', ts: 1 }]} connected showReasoning={false} />);
+  expect(html).toContain('role="status"');
+  expect(html).toContain('Your later message took its place.');
+  expect(html).not.toContain('argus-reply-name');
+  expect(html).not.toContain('conversation-tools');
+});

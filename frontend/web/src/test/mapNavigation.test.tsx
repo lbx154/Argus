@@ -53,10 +53,10 @@ vi.mock("../map/viewMemory", () => ({ recalledView: () => memory, rememberView: 
 const data: Dataset = {
   id: "live:navigation", title: "Navigation", description: "", kind: "live", read_only: false,
   tasks: [
-    { id: "parent", title: "Route data", objective: "", status: "done", deps: [], ts: 1 },
-    { id: "failed", title: "Route algorithm", objective: "", status: "failed", deps: ["parent"], ts: 2 },
-    { id: "question", title: "Route interface", objective: "", status: "blocked", deps: ["failed"], pending_question: "Which bridge?", ts: 3 },
-    { id: "unrelated", title: "Documentation", objective: "", status: "pending", deps: [], ts: 4 },
+    { id: "parent", title: "Route data", status: "done", deps: [], ts: 1 },
+    { id: "failed", title: "Route algorithm", status: "failed", deps: ["parent"], ts: 2 },
+    { id: "question", title: "Route interface", status: "blocked", deps: ["failed"], pending_question: "Which bridge?", ts: 3 },
+    { id: "unrelated", title: "Documentation", status: "pending", deps: [], ts: 4 },
   ],
   events: [{ id: "failure", item_id: "failed", ts: 1, type: "life.mission.failed", text: "The path is disconnected." }],
 };
@@ -116,7 +116,7 @@ it("omits the empty status row and ambient decoration without hiding active work
 
 it('associates the live manager call with one request card and keeps each cardâ€™s own action', () => {
   const requests: Dataset = { ...data, tasks: ['q0', 'q4'].map((id, index) => ({
-    id, title: `Request ${index}`, objective: '', status: 'in_progress', role: 'manager', turn_kind: 'qa', ts: index,
+    id, title: `Request ${index}`,  status: 'in_progress', role: 'manager', turn_kind: 'qa', ts: index,
     latest_action: { role: 'manager', text: `Only for ${id}`, ts: index },
   })), events: [] };
   const call = { role: 'manager', answers: 'raw-request', request_card_id: 'q4', started_ts: 185 };
@@ -139,6 +139,7 @@ it('associates the live manager call with one request card and keeps each cardâ€
 });
 
 it("keeps the task reader open when background focus changes and reads the real trajectory", () => {
+  client.setQueryData(['backlog-item', 'navigation', 'failed'], { ...data.tasks[1], objective: 'Check the failed route.' });
   act(() => nodes().find(node => node.id === 'failed')!.data.open('failed'));
   act(() => nodes().find(node => node.id === 'failed')!.data.readCopy!('failed', 'failed'));
   const reader = () => renderer.root.findByProps({ 'data-testid': 'map-task-reading' });

@@ -1,10 +1,10 @@
 import { parkReason } from "../../../core/src/missionOutcome";
-import type { BacklogItem } from "../../../core/src/types";
+import type { BacklogItem, MissionOutcomeDimensions } from "../../../core/src/types";
 
 export interface MapTask
   extends Pick<
     BacklogItem,
-    "id" | "title" | "objective" | "status" | "deps" | "pending_question" | "latest_action" | "result_paths"
+    "id" | "title" | "status" | "deps" | "pending_question" | "latest_action" | "result_paths"
   > {
   ts?: number;
   started_ts?: number | null;
@@ -52,7 +52,7 @@ export interface MapEvent {
   success?: boolean;
   review_skipped?: boolean;
   backend_unavailable?: boolean;
-  outcome?: Partial<NonNullable<BacklogItem["outcome"]>>;
+  outcome?: Partial<MissionOutcomeDimensions>;
   overall_complete?: boolean;
   campaign_continues?: boolean;
   stage_certification?: string;
@@ -262,7 +262,6 @@ export function buildMap(tasks: MapTask[]): MapGraph {
   const stubs: MapTask[] = [...missing].map((id) => ({
     id,
     title: "未包含的依赖",
-    objective: "该引用不在当前数据范围内。",
     status: "missing",
     deps: [],
     role: "system",

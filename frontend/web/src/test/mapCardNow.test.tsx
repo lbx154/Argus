@@ -48,7 +48,7 @@ let tree: ReactTestRenderer | undefined;
 afterEach(() => { act(() => tree?.unmount()); tree = undefined; artifactBlob.mockClear(); });
 
 describe('the task holder, the latest thing said and results on the map card', () => {
-  const task: MapTask = { id: 't1', title: 'Totals', objective: '', status: 'in_progress', role: 'engineer',
+  const task: MapTask = { id: 't1', title: 'Totals', status: 'in_progress', role: 'engineer',
     latest_action: { role: 'planner', text: 'Total the **columns**.', ts: 1 } };
   const card = (value: MapTask): NodeProps<MacroNode> => ({ id: value.id, data: {
     id: value.id, task: value, ordinal: 1, part: 1, partCount: 1, start: 1, end: 0, totalSteps: 0,
@@ -69,7 +69,7 @@ describe('the task holder, the latest thing said and results on the map card', (
     // Who said it is who holds it: the holder is not named twice.
     expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-owner' })).toHaveLength(0);
     expect(tree!.root.findByProps({ 'data-testid': 'map-card-action' }).props.title).toBe('正在核对总数。');
-    act(() => tree!.update(<CardNow task={{ id: 't2', title: 'Other', objective: '', status: 'pending' }} zh />));
+    act(() => tree!.update(<CardNow task={{ id: 't2', title: 'Other', status: 'pending' }} zh />));
     expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-now' })).toHaveLength(0);
   });
 

@@ -888,7 +888,7 @@ test('the first line of a task title is retained beyond 100 characters', async t
 });
 
 /** The card of the operator's message on the map. */
-const qa = (store: Store, project: ReturnType<Store['load']>) => progressMap(store, project, 0).tasks.find(task => 'turn_kind' in task)!;
+const qa = (store: Store, project: ReturnType<Store['load']>) => progressMap(store, project, 0, []).tasks.find(task => 'turn_kind' in task)!;
 
 // Backend review reproductions: a message handed to the team was marked answered too soon.
 test('a message handed to the Planner is not answered while the Planner waits for the operator', async t => {

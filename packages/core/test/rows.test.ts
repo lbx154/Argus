@@ -194,7 +194,7 @@ test('real task fragments: progress and files share the map projection; incoming
   // Append rather than replace the file: both views continue from their shared cursor.
   writeFileSync(path, events.slice(6).map(row => JSON.stringify(row)).join('\n') + '\n', { flag: 'a' });
   work.tasks[2]!.status = 'closed';
-  const map = progressMap(store, work, 0).tasks.find(task => task.id === 't3')!;
+  const map = progressMap(store, work, 0, []).tasks.find(task => task.id === 't3')!;
   const done = rowsOf(events, work).find(row => row.type === 'ui.task')!;
   // The Planner's later letter to it brings the row below it.
   const lastLetter = events.map(event => event.type === 'handoff' && event.role === 'planner' && event.task === 't3').lastIndexOf(true);

@@ -1,8 +1,5 @@
 import { expect, it } from "vitest";
 import { edgeLanes } from "../map/graphLayout";
-import { livePollInterval } from "../map/incremental";
-import type { Dataset } from "../map/model";
-import type { Snapshot } from "../api";
 
 // The quadratic prefix filter edgeLanes replaced; kept as the reference.
 const referenceLanes = (links: { source: string; target: string }[]) =>
@@ -34,15 +31,4 @@ it("assigns identical lanes to the quadratic prefix filter, including shared pai
     }));
     expect(edgeLanes(links)).toEqual(referenceLanes(links));
   }
-});
-
-const snapshot = (running: boolean) =>
-  ({ daemon: { alive: false }, roles: [], work_status: { state: running ? 'running' : 'paused' } }) as unknown as Snapshot;
-const dataset = (history_loading: boolean): Pick<Dataset, "history_loading"> => ({ history_loading });
-
-it("polls fast only while history pages load, then falls back to a slow SSE safety net", () => {
-  expect(livePollInterval(dataset(true), snapshot(true))).toBe(400);
-  expect(livePollInterval(undefined, snapshot(true))).toBe(15_000);
-  expect(livePollInterval(dataset(false), snapshot(true))).toBe(15_000);
-  expect(livePollInterval(dataset(false), snapshot(false))).toBe(false);
 });
