@@ -31,7 +31,7 @@ def main():
         shutil.copy2(source, output / target)
     manifest = {
         "version": version,
-        "notes": f"Argus {version}: private-key desktop trial.",
+        "notes": f"Argus {version}: desktop release.",
         "pub_date": datetime.now(timezone.utc).isoformat(),
         "platforms": {f"darwin-{arch}": {
             "url": f"https://github.com/lbx154/Argus/releases/download/v{version}/{name}.app.tar.gz",

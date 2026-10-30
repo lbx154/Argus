@@ -47,9 +47,10 @@ Source commit：${manifest.git_commit}
 1. 完整解压到新目录，运行其中的 Argus.exe；不要仅移动 EXE，不要在 ZIP 内运行。
 2. 需要 Windows 10/11 x64 和 Microsoft Edge WebView2 Runtime。包内包含 Loader DLL，但不包含系统 Runtime。
    缺少 Runtime 时请从 Microsoft 官方安装：https://developer.microsoft.com/microsoft-edge/webview2/
-   无需另装 Python；真实任务需要你自己明确配置的 Agent CLI/登录，或获邀的内测 Key。
-   本包不含账号、Key、用户数据；自动验收未使用真实账户或付费任务。
-   内测试用首次连接可能联网下载 CLI 并消耗少量额度；不要把它当作离线检查。
+   无需另装 Python；请先自行安装 Agent CLI，并用自己的账号完成登录。
+   首次启动时选择该 CLI，确认本地端口后点击“开始使用”；之后可从“文件 → 设置”更换 CLI 或端口。
+   本包不含账号、凭据或用户数据；Agent CLI 的登录、模型和凭据由所选 CLI 管理。
+   自动验收未使用真实账户或付费任务。
 3. 普通关闭隐藏到托盘，后台可能继续运行；托盘或再次运行 EXE 恢复窗口。
    明确退出请用“停止本地后端并退出”。不要按进程名称结束其他 Argus/Python。
 

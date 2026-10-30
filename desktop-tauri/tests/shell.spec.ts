@@ -38,10 +38,8 @@ async function launch(page: Page, complete = false, options: { state?: string; c
       motionSaves: 0,
       motionError: false,
       activate: () => callbacks.launch?.(undefined),
-      download: (value: unknown) => callbacks.download?.(value),
       pickerCalls: [] as string[],
       pickerPath: 'D:/中文 research/sample',
-      trialMode: false,
       failure: '',
       saveCount: 0,
       saved: null as unknown,
@@ -73,7 +71,7 @@ async function launch(page: Page, complete = false, options: { state?: string; c
       setWindowTheme: async () => undefined,
       setAppearance: async (appearance: unknown) => { state.savedAppearance = appearance; return appearance; },
       getSetup: async () => ({
-        complete: state.complete, trialMode: state.trialMode, canRestoreOwnAccount: configured,
+        complete: state.complete,
         host: '127.0.0.1', port: 18880,
         runnerKind: 'codex', runnerConfigured: state.complete,
         runnerBins: {}, detectedRunners: { codex: 'C:/agents/codex.cmd', pi: 'C:/agents/pi.cmd' },
@@ -82,20 +80,6 @@ async function launch(page: Page, complete = false, options: { state?: string; c
         runtimeIdentity: { state: state.status.state },
       }),
       openCockpit: async () => state.url,
-      onTrialProgress: (callback: (value: unknown) => void) => { callbacks.trialProgress = callback; },
-      onTrialDownload: (callback: (value: unknown) => void) => { callbacks.download = callback; },
-      getTrialStatus: async () => ({ tokensRemaining: 900000, tokenLimit: 1000000, stale: false }),
-      resumeTrial: async () => ({ tokensRemaining: 900000, tokenLimit: 1000000, stale: false }),
-      restoreOwnAccount: async () => { state.trialMode = false; return { ok: true }; },
-      completeTrialSetup: async () => {
-        state.saveCount++;
-        if (state.delaySave) await new Promise<void>((resolve) => { state.releaseSave = resolve; });
-        if (state.failure) return { ok: false, error: state.failure };
-        state.trialMode = true;
-        state.complete = true;
-        state.emit({ state: 'ready', message: '已就绪' });
-        return { ok: true };
-      },
       completeSetup: async (input: unknown) => {
         state.saveCount++;
         state.saved = input;
@@ -150,23 +134,6 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('.wizard-mark svg')).toBeHidden();
   });
 }
-
-test('trial byte progress remains available in the exclusive account-mode layout', async ({ page }) => {
-  await launch(page);
-  await page.locator('#trialOpen').click();
-  await configure(page, { delaySave: true });
-  await page.locator('#trialKey').fill(`argus_trial_${'a'.repeat(64)}`);
-  await page.locator('#trialSubmit').click();
-  await page.evaluate(() => (window as any).desktopTest.download({ downloaded_bytes: 1024, total_bytes: 2048 }));
-  await expect(page.locator('#trialDownload')).toBeVisible();
-  await expect(page.locator('#trialDownloadBar')).toHaveJSProperty('value', 50);
-  await expect(page.locator('#trialDownloadDetails')).toContainText('50%');
-  await expect(page.locator('#ownContent')).toBeHidden();
-  await page.evaluate(() => (window as any).desktopTest.download({ downloaded_bytes: 2048, total_bytes: null }));
-  await expect(page.locator('#trialDownloadBar')).not.toHaveAttribute('value');
-  await page.evaluate(() => (window as any).desktopTest.releaseSave());
-  await expect(page.locator('#wizard')).toBeHidden();
-});
 
 test('first launch requires an explicit CLI selection and saves the selected port', async ({ page }) => {
   await launch(page);
@@ -322,59 +289,16 @@ test('manual update check explains why preview does not install releases', async
 });
 
 for (const theme of ['light', 'dark']) {
-  test(`account choice has one focused panel and no added eye decoration (${theme})`, async ({ page }, testInfo) => {
+  test(`CLI settings retain their panel and eye decoration (${theme})`, async ({ page }) => {
     await page.setViewportSize({ width: 960, height: 640 });
-    await launch(page);
-    await expect(page.locator('#wizard')).toBeVisible();
-    await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
-    await expect(page.locator('#ownOpen')).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#trialPanel')).toBeHidden();
+    await launch(page, false, { theme: theme as 'light' | 'dark' });
     await expect(page.locator('#ownContent')).toBeVisible();
-    const layout = await page.evaluate(() => {
-      // Sample both boxes in one frame; the original wizard entrance animation
-      // translates the whole dialog between separate Playwright round trips.
-      const own = document.getElementById('ownOpen')!.getBoundingClientRect();
-      const trial = document.getElementById('trialOpen')!.getBoundingClientRect();
-      return { topDifference: Math.abs(own.y - trial.y), widthDifference: Math.abs(own.width - trial.width) };
-    });
-    expect(layout.topDifference).toBeLessThan(1);
-    expect(layout.widthDifference).toBeLessThan(1);
     await expect(page.locator('#wizardNext')).toBeInViewport();
     await expect(page.locator('.argus-splash-eye circle')).toHaveCount(2);
     await expect(page.locator('.argus-wizard-eye circle')).toHaveCount(2);
     await expect(page.locator('.argus-loading-ring')).toHaveCount(0);
-    await page.screenshot({ path: testInfo.outputPath('own-account.png'), animations: 'disabled' });
-    await page.locator('#trialOpen').click();
-    await expect(page.locator('#ownContent')).toBeHidden();
-    await expect(page.locator('#trialPanel')).toBeVisible();
-    await expect(page.locator('#trialKey')).toBeInViewport();
-    await expect(page.locator('#trialSubmit')).toBeInViewport();
-    await expect(page.locator('#wizardNext')).toBeHidden();
-    await page.screenshot({ path: testInfo.outputPath('trial-account.png'), animations: 'disabled' });
-    await page.locator('#trialKey').fill('discard-on-mode-change');
-    await page.locator('#ownOpen').click();
-    await expect(page.locator('#trialKey')).toHaveValue('');
-    await expect(page.locator('#ownContent')).toBeVisible();
   });
 }
-
-test('trial form reports failures and can complete without repeating own-account setup', async ({ page }) => {
-  await launch(page);
-  await page.locator('#trialOpen').click();
-  await page.locator('#trialKey').fill('invalid');
-  await page.locator('#trialSubmit').click();
-  await expect(page.locator('#trialProgress')).toContainText('完整的内部测试 Key');
-  await configure(page, { failure: '内测 Key 未被识别' });
-  await page.locator('#trialKey').fill('argus_trial_' + 'e'.repeat(64));
-  await page.locator('#trialSubmit').click();
-  await expect(page.locator('#trialKey')).toHaveValue('');
-  await expect(page.locator('#trialProgress')).toContainText('未被识别');
-  await configure(page, { failure: '' });
-  await page.locator('#trialKey').fill('argus_trial_' + 'e'.repeat(64));
-  await page.locator('#trialSubmit').click();
-  await expect(page.locator('#cockpit')).toBeVisible();
-  await expect(page.locator('#wizard')).toBeHidden();
-});
 
 test('CLI grid and settings stay usable at the minimum supported window size', async ({ page }) => {
   await page.setViewportSize({ width: 960, height: 640 });

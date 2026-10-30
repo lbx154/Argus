@@ -61,15 +61,6 @@ pub enum AppearanceTheme {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OwnAccountSettings {
-    pub runner_kind: RunnerKind,
-    pub runner_bins: BTreeMap<String, String>,
-    pub runner_configured: bool,
-    pub setup_complete: bool,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DesktopSettings {
     #[serde(default = "default_host")]
     pub host: String,
@@ -85,10 +76,6 @@ pub struct DesktopSettings {
     pub runner_configured: bool,
     #[serde(default)]
     pub setup_complete: bool,
-    #[serde(default)]
-    pub trial_mode: bool,
-    #[serde(default)]
-    pub own_account: Option<OwnAccountSettings>,
     #[serde(default)]
     pub appearance_theme: AppearanceTheme,
 }
@@ -111,8 +98,6 @@ impl Default for DesktopSettings {
             runner_bins: BTreeMap::new(),
             runner_configured: false,
             setup_complete: false,
-            trial_mode: false,
-            own_account: None,
             appearance_theme: AppearanceTheme::default(),
         }
     }
@@ -191,8 +176,6 @@ pub struct DesktopRuntimeIdentity {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSetup {
     pub complete: bool,
-    pub trial_mode: bool,
-    pub can_restore_own_account: bool,
     pub host: String,
     pub port: u16,
     pub runner_kind: RunnerKind,

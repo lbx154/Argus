@@ -221,13 +221,7 @@ try {
     assert(transition < 0.001, 'Only the eye may override reduced motion, not the rest of the UI.');
   }
   assert.equal(await page.locator('.argus-loading-ring').count(), 0, 'Do not add arcs or other decorations to the original eye.');
-  await expect(page.locator('#trialOpen')).toBeVisible();
-  await page.locator('#trialOpen').click();
-  await page.locator('#trialKey').fill('invalid-preview-key');
-  await page.locator('#trialSubmit').click();
-  await expect(page.locator('#trialProgress')).toContainText('完整的内部测试 Key');
-  await page.locator('#ownOpen').click();
-  record('Original eye geometry retained under the real OS preference; malformed trial keys rejected');
+  record('Original eye geometry retained under the real OS preference');
   await page.screenshot({ path: join(stage, 'preview-onboarding.png'), animations: 'disabled' });
   await page.locator('[data-kind="codex"]').click();
   await page.locator('#wizardNext').click();

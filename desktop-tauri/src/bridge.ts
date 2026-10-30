@@ -44,8 +44,6 @@ export interface DesktopRuntimeIdentity {
 
 export interface DesktopSetup {
   complete: boolean;
-  trialMode: boolean;
-  canRestoreOwnAccount?: boolean;
   host: string;
   port: number;
   runnerKind: RunnerKind;
@@ -60,17 +58,6 @@ export interface DesktopSetup {
 export interface DesktopAppearance {
   theme: AppearanceTheme;
   resolvedTheme: 'light' | 'dark';
-}
-
-export interface TrialBalance {
-  tokensRemaining?: number | null;
-  tokenLimit?: number | null;
-  tokensUsed?: number | null;
-  checkedAt?: number | null;
-  stale: boolean;
-  error?: string | null;
-  paused?: boolean;
-  attention?: string | null;
 }
 
 export interface SetupResult {
@@ -124,25 +111,11 @@ function eventSubscription<T>(
   };
 }
 
-export interface TrialDownloadProgress {
-  downloaded_bytes: number;
-  total_bytes: number | null;
-}
-
 export const desktopBridge = {
   getStatus: (): Promise<DesktopStatus> => invoke('get_status'),
   onStatus: (callback: (status: DesktopStatus) => void): (() => void) =>
     eventSubscription('argus:status', callback),
   getSetup: (): Promise<DesktopSetup> => invoke('get_setup'),
-  completeTrialSetup: (apiKey: string): Promise<SetupResult> =>
-    invoke('complete_trial_setup', { input: { apiKey } }),
-  getTrialStatus: (): Promise<TrialBalance> => invoke('get_trial_status'),
-  resumeTrial: (): Promise<TrialBalance> => invoke('resume_trial'),
-  restoreOwnAccount: (): Promise<SetupResult> => invoke('restore_own_account'),
-  onTrialProgress: (callback: (message: string) => void): (() => void) =>
-    eventSubscription('argus:trial-progress', callback),
-  onTrialDownload: (callback: (progress: TrialDownloadProgress) => void): (() => void) =>
-    eventSubscription('argus:trial-download', callback),
   getAppearance: (): Promise<DesktopAppearance> => invoke('get_appearance'),
   setAppearance: (appearance: { theme: AppearanceTheme }): Promise<DesktopAppearance> =>
     invoke('set_appearance', { input: appearance }),

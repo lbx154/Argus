@@ -11,7 +11,6 @@ mod release;
 mod resilience;
 mod runner;
 mod settings;
-mod trial;
 mod update_install;
 mod update_policy;
 mod updater;
@@ -361,7 +360,6 @@ fn read_setup(app: &AppHandle) -> Result<DesktopSetup, String> {
         .as_ref()
         .map(|runner| runner.kind.clone())
         .unwrap_or_else(|| settings.runner_kind.clone());
-    let can_restore_own_account = settings.own_account.as_ref().is_some_and(|own| own.setup_complete);
     let mut runner_bins = settings.runner_bins;
     if let Some(executable) = configured
         .as_ref()
@@ -371,8 +369,6 @@ fn read_setup(app: &AppHandle) -> Result<DesktopSetup, String> {
     }
     Ok(DesktopSetup {
         complete,
-        trial_mode: settings.trial_mode,
-        can_restore_own_account,
         host: settings.host,
         port: settings.port,
         runner_kind,
@@ -467,68 +463,7 @@ async fn complete_setup(app: AppHandle, input: CompleteSetupInput) -> SetupResul
     let Ok(_operation) = app_state.configuration_operation.try_lock() else {
         return SetupResult::error("正在更新本地服务，请稍候再试。");
     };
-    let result = apply_setup(&app, input, false).await;
-    if !result.ok { recover_previous_runtime(&app).await; }
-    result
-}
-
-#[tauri::command]
-async fn complete_trial_setup(app: AppHandle, input: trial::TrialSetupInput) -> SetupResult {
-    let app_state = state(&app);
-    let Ok(_operation) = app_state.configuration_operation.try_lock() else {
-        return SetupResult::error("正在准备试用，请稍候。");
-    };
-    let prepared = match trial::configure(&app, &make_release_context(&app), input.api_key.trim()).await {
-        Ok(value) => value, Err(error) => return SetupResult::error(error),
-    };
-    let settings = app_state.settings.snapshot();
-    let mut profile = match trial::ProfileChange::begin(input.api_key.trim()) {
-        Ok(value) => value, Err(error) => return SetupResult::error(error),
-    };
-    let mut bins = settings.runner_bins;
-    bins.insert("copilot".to_owned(), prepared.runner_bin);
-    let result = apply_setup(&app, CompleteSetupInput {
-        port: settings.port as u32, runner_kind: models::RunnerKind::Copilot, runner_bins: bins,
-    }, true).await;
-    if result.ok {
-        profile.commit();
-        trial::cache_balance(&prepared.balance);
-    } else {
-        if let Err(error) = profile.rollback() { return SetupResult::error(error); }
-        recover_previous_runtime(&app).await;
-    }
-    result
-}
-
-#[tauri::command]
-async fn get_trial_status(app: AppHandle) -> Result<trial::TrialBalance, String> {
-    let app_state = state(&app);
-    let _operation = app_state.configuration_operation.try_lock().map_err(|_| "正在更新设置，请稍候。")?;
-    if !app_state.settings.snapshot().trial_mode { return Err("当前使用自己的账号。".to_owned()); }
-    trial::status(&app, &make_release_context(&app), false).await
-}
-
-#[tauri::command]
-async fn resume_trial(app: AppHandle) -> Result<trial::TrialBalance, String> {
-    let app_state = state(&app);
-    let _operation = app_state.configuration_operation.try_lock().map_err(|_| "正在更新设置，请稍候。")?;
-    if !app_state.settings.snapshot().trial_mode { return Err("当前使用自己的账号。".to_owned()); }
-    trial::status(&app, &make_release_context(&app), true).await
-}
-
-#[tauri::command]
-async fn restore_own_account(app: AppHandle) -> SetupResult {
-    let app_state = state(&app);
-    let Ok(_operation) = app_state.configuration_operation.try_lock() else {
-        return SetupResult::error("正在更新本地服务，请稍候。");
-    };
-    let settings = app_state.settings.snapshot();
-    let Some(own) = settings.own_account else {
-        return SetupResult::error("没有已保存的原账号设置，请在设置中选择自己的 Agent CLI。");
-    };
-    let result = apply_setup(&app, CompleteSetupInput {
-        port: settings.port as u32, runner_kind: own.runner_kind, runner_bins: own.runner_bins,
-    }, false).await;
+    let result = apply_setup(&app, input).await;
     if !result.ok { recover_previous_runtime(&app).await; }
     result
 }
@@ -541,28 +476,18 @@ async fn recover_previous_runtime(app: &AppHandle) {
     }
 }
 
-async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: bool) -> SetupResult {
+async fn apply_setup(app: &AppHandle, input: CompleteSetupInput) -> SetupResult {
     if !(1024..=65535).contains(&input.port) {
         return SetupResult::error("端口需在 1024 - 65535 之间");
     }
     let app_state = state(app);
     let previous = app_state.settings.snapshot();
     let mut next = previous.clone();
-    if trial_mode && !previous.trial_mode {
-        next.own_account = Some(models::OwnAccountSettings {
-            runner_kind: previous.runner_kind.clone(), runner_bins: previous.runner_bins.clone(),
-            runner_configured: previous.runner_configured, setup_complete: previous.setup_complete,
-        });
-    } else if !trial_mode {
-        next.own_account = None;
-    }
-    next.trial_mode = trial_mode;
     next.port = input.port as u16;
     next.runner_kind = input.runner_kind;
     next.runner_bins = normalized_runner_bins(&input.runner_bins);
     next.runner_configured = true;
     next.setup_complete = true;
-    next.trial_mode = trial_mode;
     let configured = match resolve_runner_configuration(&next) {
         Ok(configured) => configured,
         Err(error) => return SetupResult::error(error.to_string()),
@@ -581,14 +506,11 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput, trial_mode: boo
             return SetupResult::error(error);
         }
     }
-    // Replacing a key restarts the runtime so no worker keeps the old provider environment.
-    let runtime_changed = trial_mode || previous.trial_mode != next.trial_mode || previous.port != next.port
+    let runtime_changed = previous.port != next.port
         || previous.runner_kind != next.runner_kind
         || previous.runner_configured != next.runner_configured
         || previous.runner_bins != next.runner_bins;
-    // Trial startup chooses a free port without taking over a foreign listener.
-    if !trial_mode
-        && (previous.port != next.port || app_state.supervisor.current_status().state != BackendState::Ready)
+    if previous.port != next.port || app_state.supervisor.current_status().state != BackendState::Ready
     {
         if let Err(error) = available_backend_port(&next) {
             return SetupResult::error(format!("端口 {} 已被占用或不可用，请选择其他端口。现有设置未更改。{error}", next.port));
@@ -897,10 +819,6 @@ pub fn run_with_context(mut context: tauri::Context<tauri::Wry>) {
         choose_runner,
         choose_local_path,
         complete_setup,
-        complete_trial_setup,
-        get_trial_status,
-        resume_trial,
-        restore_own_account,
         restart_backend,
         export_diagnostics,
         hide_desktop,
