@@ -52,7 +52,6 @@ export interface BacklogItem extends BacklogSummary {
   ts?: number;
   started_ts?: number | null;
   finished_ts?: number | null;
-  pending_question?: string;
   /** The latest message or letter on this task. */
   latest_action?: { role: string; text: string; ts: number };
   result_paths?: string[];

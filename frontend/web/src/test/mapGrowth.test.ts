@@ -22,15 +22,6 @@ describe('live map growth', () => {
     expect(added.links[stepIdentity('a', 'brief-execute')]).toBeLessThan(added.steps[stepIdentity('a', 'execute')]);
     expect(added.steps[stepIdentity('a', 'execute')]).toBeLessThan(added.steps[stepIdentity('a', 'review')]);
   });
-  it('silently pages old history, then animates the next real task', () => {
-    const ledger = new GrowthLedger(); ledger.observe(scene(['brief']), true);
-    expect(ledger.observe(scene(['brief', 'run']), true)).toBeNull();
-    expect(ledger.observe(scene(['brief', 'run', 'historic-result']))).toBeNull();
-    const added = ledger.observe(scene(['brief', 'run', 'historic-result'], true))!;
-    expect(Object.keys(added.cards)).toEqual(['b']);
-    expect(Object.keys(added.links)).toEqual(['a-b']);
-    expect(ledger.observe(scene(['brief', 'run', 'historic-result'], true))).toBeNull();
-  });
   it('grows the first submitted task after an initially empty map', () => {
     const ledger = new GrowthLedger(); ledger.observe({ cards: [], layouts: {}, links: [] });
     expect(ledger.observe(scene(['brief']))!.cards).toHaveProperty('a');

@@ -1,10 +1,9 @@
-import { parkReason } from "../../../core/src/missionOutcome";
-import type { BacklogItem, MissionOutcomeDimensions } from "../../../core/src/types";
+import type { BacklogItem } from "../../../core/src/types";
 
 export interface MapTask
   extends Pick<
     BacklogItem,
-    "id" | "title" | "status" | "deps" | "pending_question" | "latest_action" | "result_paths"
+    "id" | "title" | "status" | "deps" | "latest_action" | "result_paths"
   > {
   ts?: number;
   started_ts?: number | null;
@@ -12,63 +11,15 @@ export interface MapTask
   role?: string;
   turn_kind?: 'qa';
 }
-/** One tool call inside a work segment, as the runner reported it. */
-export interface WorkStep {
-  kind: string;
-  label: string;
-  ts: number;
-  tool?: string;
-  status?: string;
-  call_id?: string;
-}
+/** The server sends task letters, operator clarifications and Manager replies. */
 export interface MapEvent {
   id: string;
-  revision?: string;
   item_id: string;
-  type: string;
+  type: 'handoff' | 'turn.asked' | 'turn.replied';
   ts: number;
   text: string;
-  /** work.segment: when the segment's last step happened. */
-  ts_end?: number;
-  /** work.segment: the tool calls that followed the narration. */
-  steps?: WorkStep[];
-  tool_details_recorded?: boolean;
-  overflow?: number;
   role?: string;
-  /** handoff: whom the letter is to; ``role`` wrote it. */
   to?: string;
-  status?: string;
-  /** Why a ``parked`` mission paused; older ``paused_*`` statuses name it themselves. */
-  park_reason?: string;
-  /** life.mission.completed the Reviewer accepted: the files the task produced. */
-  delivery_candidates?: string[];
-  review_source?: string;
-  /** What a review or task handed to the operator asks them. */
-  operator_question?: string;
-  /** Who or what stopped this work short of a failure, as the record names it. */
-  stop_kind?: string;
-  round_index?: number;
-  attempt?: number;
-  success?: boolean;
-  review_skipped?: boolean;
-  backend_unavailable?: boolean;
-  outcome?: Partial<MissionOutcomeDimensions>;
-  overall_complete?: boolean;
-  campaign_continues?: boolean;
-  stage_certification?: string;
-  title?: string;
-  deps?: string[];
-  owner?: string;
-  reason?: string;
-  width?: number;
-  pending_question?: string;
-  started_ts?: number | null;
-  finished_ts?: number | null;
-  updated_ts?: number;
-  next_action?: string;
-  /** An answered question: the option chosen, as the card offered it. */
-  option?: string;
-  association?: "explicit" | "single_active_window";
 }
 export interface Dataset {
   id: string;
@@ -80,19 +31,6 @@ export interface Dataset {
   events: MapEvent[];
   /** The next recorded line to request when following map history. */
   cursor?: string;
-  incremental?: boolean;
-  tasks_complete?: boolean;
-  removed_task_ids?: string[];
-  reset_history?: boolean;
-  history_cursor?: string;
-  history_loading?: boolean;
-  history_progress?: { loaded_bytes: number; total_bytes: number };
-  coverage?: {
-    truncated?: boolean;
-    note?: string;
-    included_tasks?: number;
-    source_tasks_read?: number;
-  };
 }
 export interface MapLink {
   id: string;
@@ -118,22 +56,6 @@ export interface MapGraph {
 
 export const ACTIVE = new Set(["running", "in_progress", "claimed"]);
 
-/** Resolve from merged events, not a page-local task snapshot or an earlier attempt. */
-export function latestMissionCompletion(task: MapTask, events: MapEvent[]): MapEvent | undefined {
-  let latest: MapEvent | undefined;
-  for (const event of events) {
-    if (event.item_id !== task.id || ![
-      "life.mission.started", "life.mission.completed", "life.mission.failed", "life.mission.orphaned",
-    ].includes(event.type)) continue;
-    if (!latest || event.ts >= latest.ts) latest = event;
-  }
-  if (latest?.type !== "life.mission.completed") return undefined;
-  // Settlement is recorded after the backlog finish timestamp. History pages
-  // may not yet contain the current attempt's completion.
-  if (latest.ts < Math.max(task.started_ts || 0, task.finished_ts || 0)) return undefined;
-  return latest;
-}
-
 /** The newest moment work demonstrably moved on: a later card finished or is running. */
 function latestProgressTs(tasks: MapTask[]): number {
   return tasks.reduce((latest, task) => (
@@ -143,7 +65,7 @@ function latestProgressTs(tasks: MapTask[]): number {
 
 /** A failed card the pipeline has since moved past: later work finished or is running. */
 export function supersededByLaterWork(task: MapTask, tasks: MapTask[]): boolean {
-  return task.status === "failed" && !task.pending_question && (task.ts ?? 0) < latestProgressTs(tasks);
+  return task.status === "failed" && (task.ts ?? 0) < latestProgressTs(tasks);
 }
 
 export function attentionTasks(tasks: MapTask[]): MapTask[] {
@@ -156,10 +78,9 @@ export function attentionTasks(tasks: MapTask[]): MapTask[] {
   // housekeeping step on Argus's own records (.argus/…): none of these is
   // something the reader has to act on (rule 6, s-7d7b7d22 2026-10-24).
   return tasks
-    .filter((task) => task.status !== "done" && !ACTIVE.has(task.status) &&
-      (task.pending_question || (task.status === "failed" && !supersededByLaterWork(task, tasks)
-)))
-    .sort((a, b) => Number(!!b.pending_question) - Number(!!a.pending_question));
+    .filter(task => task.status === 'blocked' ||
+      (task.status === 'failed' && !supersededByLaterWork(task, tasks)))
+    .sort((a, b) => Number(b.status === 'blocked') - Number(a.status === 'blocked'));
 }
 
 export function currentTask(tasks: MapTask[]): MapTask | undefined {
@@ -185,13 +106,8 @@ export function taskDependencies(graph: MapGraph, taskId: string) {
 
 export function statusKey(task: MapTask): string {
   if (task.status === "cancelled") return "aborted";
-  if (task.pending_question) return "question";
+  if (task.status === 'blocked') return "question";
   if (ACTIVE.has(task.status)) return "running";
-  // The Manager kept the stage open after a reviewed attempt: the work is
-  // waiting on the next step, not broken. The backlog still records it as
-  // failed so retry accounting is unchanged; only the reading differs.
-  if (parkReason(task.status) !== null || task.status === "blocked")
-    return "paused";
   return [
     "done",
     "failed",

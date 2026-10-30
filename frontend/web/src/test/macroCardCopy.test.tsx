@@ -84,11 +84,11 @@ describe("macro card copy", () => {
     expect(markup).not.toContain("Unknown status");
     expect(markup).not.toContain('class="macro-state">Paused');
   });
-  it("shows a blocked task without a pending question as stopped", () => {
+  it("shows a blocked task as waiting for the operator", () => {
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([], {
       task: { ...task, status: "blocked" }, live: false,
     })} />);
-    expect(markup).toContain("Stopped");
+    expect(markup).toContain("Waiting for your answer");
   });
   it("says under the title only who holds the task and what was last said, not its objective or a step's summary", () => {
     const completed = { ...task, status: "done", objective: "Build a reusable date workflow",

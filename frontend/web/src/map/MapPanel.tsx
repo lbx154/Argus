@@ -81,8 +81,6 @@ interface MapWorkspaceActions {
   teamStatus?: ReactNode;
 }
 
-/** How long the opening fit waits for saved explanations before it shows the map anyway. */
-const OPENING_WAIT_MS = 700;
 const NODE_TYPES = { task: MacroTaskNode };
 const EDGE_TYPES = { relation: MapRelationEdge };
 /** The canvas's zoom buttons, named in the reader's language. */
@@ -171,7 +169,6 @@ export function MapCanvas({
   const readingTask = readingCopy ? data.tasks.find(task => task.id === readingCopy.key) : undefined;
   const readingAnswer = readingTask?.turn_kind === 'qa'
     ? data.events.filter(event => event.item_id === readingTask.id && event.type === 'turn.replied').at(-1) : undefined;
-  const readingNode = readingCopy ? nodes.find(node => node.id === readingCopy.nodeId) : undefined;
   const [traceId, setTraceId] = useState<string | null>(null);
   const tracedTask = graph.tasks.find((task) => task.id === traceId);
   const dependencies = useMemo(
@@ -206,19 +203,12 @@ export function MapCanvas({
   const [arriving, setArriving] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const ordinalOf = useMemo(() => new Map(scene.cards.map((card) => [card.id, card.ordinal])), [scene.cards]);
-  const growth = useMapGrowth(scene, !!data.history_loading);
+  const growth = useMapGrowth(scene);
   // The map is fitted when its first cards appear (a map opened before its
   // project has a task fits when the tasks come), and again whenever cards
   // come or go while the reader has not moved the view (fitUpdatedScene).
-  const [waited, setWaited] = useState(false);
-  useEffect(() => {
-    if (!nodesReady || waited) return;
-    const timer = setTimeout(() => setWaited(true), OPENING_WAIT_MS);
-    return () => clearTimeout(timer);
-  }, [nodesReady, waited]);
   useEffect(() => {
     if (!nodesReady || initialFit.current) return;
-    if (savedView.current?.camera && data.history_loading && !waited) return;
     const frame = requestAnimationFrame(() => {
       initialFit.current = true;
       const saved = savedView.current?.camera;
@@ -232,7 +222,7 @@ export function MapCanvas({
       setFitted(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [nodesReady, camera.fit, camera.restore, scene.cards, data.history_loading, waited]);
+  }, [nodesReady, camera.fit, camera.restore, scene.cards]);
   useEffect(() => {
     if (!fitted || savedView.current?.camera || camera.reducedMotion) return;
     setArriving(true);
@@ -740,7 +730,6 @@ export function MapCanvas({
                 aria-pressed={immersive}
                 onClick={() => onImmersiveChange(!immersive)}
                 title={immersive ? (zh ? "显示项目列表、总览和图例" : "Show projects, overview and legend") : (zh ? "全屏画布：收起周围的内容" : "Full canvas: fold everything around it")}
-                aria-label={immersive ? (zh ? "退出全屏画布" : "Leave full canvas") : (zh ? "全屏画布" : "Full canvas")}
               >
                 {immersive ? <Shrink size={15} /> : <Expand size={15} />}
                 <span>{immersive ? (zh ? "显示周围" : "Show panels") : (zh ? "全屏画布" : "Full canvas")}</span>
@@ -889,7 +878,6 @@ export function MapCanvas({
                   type="button"
                   className="map-agent-toggle"
                   aria-expanded={agentsOpen}
-                  aria-label={zh ? 'Agent 动态' : 'Agent activity'}
                   title={zh ? '各个角色正在做什么' : 'What each role is doing'}
                   onClick={() => { setAgentsOpen((open) => !open); setConversationOpen(false); }}
                 >
@@ -899,7 +887,6 @@ export function MapCanvas({
                   type="button"
                   className="map-delivery-toggle"
                   disabled={!actions.deliveryCount}
-                  aria-label={zh ? '交付成果' : 'Deliveries'}
                   title={zh ? '已交付的成果' : 'What has been delivered'}
                   onClick={actions.onOpenDelivery}
                 >
@@ -1010,12 +997,11 @@ export function MapCanvas({
       <Modal open={!!readingTask} onClose={() => setReadingCopy(null)} label={readingTask?.turn_kind === 'qa' ? (zh ? '请求' : 'Request') : zh ? "任务说明" : "Task explanation"} width="max-w-3xl map-task-modal">
         {readingTask ? <>
           <div className="pb-6" data-testid="map-task-reading" data-task-id={readingTask.id}>
-            {readingNode?.data.completionScope ? <p className="mb-2 text-xs text-ink-dim">{readingNode.data.completionScope}</p> : null}
             <MapTaskReader task={readingTask}
               sessionId={sessionId} zh={zh}
               workspace={artifactScope.workspace}
               answer={readingTask.turn_kind === 'qa'
-                ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : readingTask.latest_action?.text || (zh ? '尚无回答。' : 'No answer recorded.'))
+                ? readingAnswer?.text || (readingTask.status === 'running' ? (zh ? '正在回答…' : 'Answering…') : readingTask.status === 'cancelled' ? (zh ? '本次回答已中断。' : 'This answer was interrupted.') : (zh ? '尚无回答。' : 'No answer recorded.'))
                 : undefined}
               artifacts={artifactScope.artifacts} onOpenArtifact={artifactScope.onOpenArtifact} />
           </div>

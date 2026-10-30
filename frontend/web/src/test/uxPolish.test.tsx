@@ -43,6 +43,36 @@ describe('team status and controls', () => {
     expect(onStop).toHaveBeenCalledOnce();
   });
 
+  it('keeps one button through stopping and resuming', () => {
+    const running = { ...snap(true), roles: [] } as Snapshot;
+    const stopped = { ...snap(false, [], { resumable: true }), roles: [] } as Snapshot;
+    const onResume = vi.fn();
+    let renderer!: ReactTestRenderer;
+    const show = (snapshot: Snapshot) => <RunControl snapshot={snapshot} onStop={() => {}} onResume={onResume} />;
+    act(() => { renderer = create(show(running)); });
+    const button = renderer.root.findByProps({ 'data-stop-work': true });
+    act(() => renderer.update(show(stopped)));
+    expect(renderer.root.findByProps({ 'data-resume-work': true })).toBe(button);
+    act(() => button.props.onClick());
+    expect(onResume).toHaveBeenCalledOnce();
+    act(() => renderer.update(show(running)));
+    expect(renderer.root.findByProps({ 'data-stop-work': true })).toBe(button);
+    act(() => renderer.unmount());
+  });
+
+  it('keeps the control focusable while busy and ignores another action', () => {
+    const onResume = vi.fn();
+    const stopped = { ...snap(false, [], { resumable: true }), roles: [] } as Snapshot;
+    let renderer!: ReactTestRenderer;
+    act(() => { renderer = create(<RunControl snapshot={stopped} busy onStop={() => {}} onResume={onResume} />); });
+    const button = renderer.root.findByProps({ 'data-resume-work': true });
+    expect(button.props.disabled).toBeUndefined();
+    expect(button.props['aria-disabled']).toBe(true);
+    act(() => button.props.onClick());
+    expect(onResume).not.toHaveBeenCalled();
+    act(() => renderer.unmount());
+  });
+
   it('offers Resume only for work the server says stopped short, and nothing on finished work', () => {
     const resume = renderToStaticMarkup(<RunControl snapshot={snap(false, [{ status: 'in_progress' }], { resumable: true })} onStop={() => {}} onResume={() => {}} />);
     expect(resume).toContain('data-resume-work');

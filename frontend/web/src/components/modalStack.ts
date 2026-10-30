@@ -10,11 +10,12 @@ const layers: ModalLayer[] = [];
 const topLayer = () => layers[layers.length - 1];
 const focusableElements = (dialog: HTMLElement) => Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector))
   .filter(element => element.getAttribute('aria-hidden') !== 'true'
+    && !element.closest('details:not([open]) > :not(summary)')
     && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden');
 
 function focusDialog(dialog: HTMLElement) {
   const target = dialog.querySelector<HTMLElement>('[data-autofocus]')
-    ?? dialog.querySelector<HTMLElement>(focusableSelector);
+    ?? focusableElements(dialog)[0];
   (target ?? dialog).focus();
 }
 

@@ -31,12 +31,13 @@ describe('conversation as the starting view', () => {
     expect(layout.workspaceView).toBe('activity');
   });
 
-  it('keeps an explicitly chosen map and remembers a new choice', () => {
+  it('ignores a saved view and keeps choices only in this project', () => {
     storage.set('argus.workspace.view.v3', 'map');
     mount();
-    expect(layout.workspaceView).toBe('map');
-    act(() => layout.setWorkspaceView('activity'));
-    expect(storage.get('argus.workspace.view.v3')).toBe('activity');
+    expect(layout.workspaceView).toBe('activity');
+    act(() => layout.setWorkspaceView('map'));
+    expect(storage.get('argus.workspace.view.v3')).toBe('map');
+    act(() => { window.location.search = '?project=other'; tree.update(<Harness />); });
     expect(layout.workspaceView).toBe('activity');
   });
 
@@ -45,7 +46,7 @@ describe('conversation as the starting view', () => {
     mount();
     expect(layout.workspaceView).toBe('map');
     act(() => tree.unmount());
-    window.location.search = '?kiosk=1';
+    window.location.search = '?kiosk=1&view=map';
     mount();
     expect(layout.workspaceView).toBe('map');
   });
@@ -64,7 +65,7 @@ describe('conversation as the starting view', () => {
 
 describe('full canvas map', () => {
   it('makes Ctrl/Cmd+B on the full canvas map unfold the project list instead of silently flipping the saved choice', () => {
-    storage.set('argus.workspace.view.v3', 'map');
+    window.location.search = '?view=map';
     mount();
     expect(layout.mapImmersive).toBe(true);
     expect(layout.sidebarShown).toBe(false);
@@ -79,7 +80,7 @@ describe('full canvas map', () => {
   });
 
   it('sizes the results panel against the 56px rail the full canvas map shows', () => {
-    storage.set('argus.workspace.view.v3', 'map');
+    window.location.search = '?view=map';
     storage.set('argus.sidebar.width.v2', '400');
     window.innerWidth = 1300;
     mount();
@@ -95,7 +96,7 @@ describe('full canvas map', () => {
   });
 
   it('offers no full canvas toggle in presentation mode, where it could not take effect', () => {
-    window.location.search = '?kiosk=1';
+    window.location.search = '?kiosk=1&view=map';
     mount();
     expect(layout.workspaceView).toBe('map');
     expect(layout.mapImmersive).toBe(false);

@@ -37,10 +37,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { finishManagerMessage } from './lib/messageResult';
 import { EDITIONS_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
-  mergeOptimisticManagerReply,
-  optimisticManagerEvent,
+  mergeManagerReply,
   optimisticOperatorEvent,
-  settleOptimisticManagerTurn,
 } from './lib/conversationEvents';
 import { errorText, managerStreamFailureMessage, shortcut } from './lib/format';
 import { useCreateDaemonSession } from './useCreateDaemonSession';
@@ -212,7 +210,7 @@ export default function App() {
       : t('project.missingCreate', { requested: requested ?? '' }),
     projects,
     projectsError: projectsQ.isError,
-    projectsReady: projectsQ.isSuccess,
+    projectsReady: projectsQ.isFetchedAfterMount,
     queryClient,
     setArtifactPath,
     setSidebarOpen,
@@ -269,6 +267,7 @@ export default function App() {
   }), [composerAttachments, composerUploaded, draftUploads, removeUploaded, selectedSid, uploadsVersion, attachmentLimits.data]);
   const selectProject = useCallback((id: string, mode?: ProjectHistoryMode) => {
     cancelDeliveryNavigationRef.current();
+    setComposerFocus(0);
     selectProjectBase(id, mode);
   }, [selectProjectBase]);
   const clearProjectSelection = useCallback((mode?: ProjectHistoryMode) => {
@@ -336,6 +335,7 @@ export default function App() {
     setMobileView('activity');
     setStarting(true);
     clearProjectSelection('push');
+    setComposerFocus(value => value + 1);
   }, [clearProjectSelection, setWorkspaceView, setMobileView]);
   useEffect(() => { if (activeSid) setStarting(false); }, [activeSid]);
   const startNewSessionRef = useRef(startNewSession);
@@ -402,19 +402,6 @@ export default function App() {
     pendingQuestions: snap?.pending_questions,
     refetchSnapshot: snapQ.refetch,
   });
-  const openedProject = useRef<string | null>(null);
-  useEffect(() => { openedProject.current = null; }, [activeSid]);
-  useEffect(() => {
-    if (openedProject.current === loadedSid) return;
-    // Cached content can predate a question. Finish choosing the opening view only
-    // after a fresh snapshot, or as soon as the held snapshot already has a question.
-    if (loadedSid && !pendingReply && (!snapQ.isFetchedAfterMount || snapQ.isError)) return;
-    openedProject.current = loadedSid;
-    if (loadedSid && pendingReply && !kiosk) {
-      setWorkspaceView('activity');
-      setMobileView('activity');
-    }
-  }, [loadedSid, pendingReply, snapQ.isFetchedAfterMount, snapQ.isError, kiosk, setWorkspaceView, setMobileView]);
   const delivery = useMemo(
     () => latestConversationDelivery(activityEvents),
     [activityEvents],
@@ -566,12 +553,16 @@ export default function App() {
       const deletedSid = manageTargetSid;
       const deleted = await manageActions.deleteProject.mutateAsync();
       setDaemonManageOpen(false);
+      setSidebarOpen(false);
       setManageTargetSid(null);
       const refreshed = await projectsQ.refetch();
       if (deletedSid === activeSid) {
         const next = rankProjects(refreshed.data?.projects ?? [])[0];
         if (next) selectProject(next.id, 'replace');
-        else clearProjectSelection('replace');
+        else {
+          setComposerFocus(0);
+          clearProjectSelection('replace');
+        }
       }
       notify('success', t('project.trashed'), undefined, {
         label: t('project.undoDelete'),
@@ -591,7 +582,7 @@ export default function App() {
       notify('error', errorText(error), error);
       return false;
     }
-  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, projectsQ.refetch, selectProject, setDaemonManageOpen, setManageTargetSid, t]);
+  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, projectsQ.refetch, selectProject, setDaemonManageOpen, setManageTargetSid, setSidebarOpen, t]);
 
   const requestManageSession = useCallback((projectId: string) => {
     setManageTargetSid(projectId);
@@ -677,7 +668,6 @@ export default function App() {
     setLocalConversationEvents((current) => [
       ...(sameConversation ? current : []),
       optimisticOperatorEvent(requestSid, serverRequestId, text, Date.now(), attachmentRefs),
-      optimisticManagerEvent(requestSid, serverRequestId),
     ]);
 
     const dispatchTask = (result: Record<string, unknown>) => {
@@ -728,7 +718,7 @@ export default function App() {
             onDelta: (reply) => {
               if (!isCurrent()) return;
               gotDelta = true;
-              setLocalConversationEvents((current) => mergeOptimisticManagerReply(current, serverRequestId, reply));
+              setLocalConversationEvents((current) => mergeManagerReply(current, serverRequestId, reply));
             },
             onDone: (result) => {
               if (!isCurrent()) return;
@@ -759,10 +749,6 @@ export default function App() {
           observe?.({ type: 'settled', outcome: 'error' });
         }
       } finally {
-        // Whatever ended the turn, nothing in it is live any more.
-        setLocalConversationEvents((current) => settleOptimisticManagerTurn(
-          current, serverRequestId, streamErr && !controller.signal.aborted ? 'failed' : 'stopped',
-        ));
         if (controller.signal.aborted) observe?.({ type: 'settled', outcome: 'cancelled' });
         resetCurrentRequest();
       }
@@ -937,6 +923,7 @@ export default function App() {
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
           onRetry={() => void projectsQ.refetch()}
           mobileOpen={sidebarOpen}
+          onCloseMobile={() => setSidebarOpen(false)}
           collapsed={!sidebarShown}
           onToggleCollapse={toggleSidebar}
           themeMode={themeMode}
@@ -958,7 +945,9 @@ export default function App() {
       {/* Both conversations (activity and the map's) show this project's files. */}
       <SessionIdContext.Provider value={snap?.session.id ?? null}>
       <WorkspaceRootsContext.Provider value={workspaceRoots}>
-      <main className="flex min-w-0 flex-1 overflow-x-hidden">
+      <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
+        <ActionNotice notice={notice} onClose={dismissNotice} />
+        <div className="flex min-h-0 flex-1">
         {showProject ? (
           <>
             <section className={`${!snap || mobileView === 'activity' ? 'flex' : 'hidden'} ${workspaceView === 'map' && !kiosk ? 'mobile-scroll-region' : ''} glass-panel glass-panel--main h-full min-w-0 flex-1 flex-col min-[1200px]:flex`}>
@@ -981,9 +970,9 @@ export default function App() {
               </WorkspaceHeader>}
               <nav aria-label={t('mobile.views')} className="hidden h-11 shrink-0 items-center gap-3 border-b border-line/60 px-5 lg:flex">
                 <div className="workspace-tabs">
-                  <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" data-selected={workspaceView === 'activity'}>{t('mobile.activity')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" data-selected={workspaceView === 'map'}>{t('mobile.map')}</button>
-                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" data-selected={workspaceView === 'workbench'}>{t('mobile.workbench')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('activity')} className="workspace-tab" aria-current={workspaceView === 'activity' ? 'page' : undefined}>{t('mobile.activity')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('map')} className="workspace-tab" aria-current={workspaceView === 'map' ? 'page' : undefined}>{t('mobile.map')}</button>
+                  <button type="button" onClick={() => setWorkspaceView('workbench')} className="workspace-tab" aria-current={workspaceView === 'workbench' ? 'page' : undefined}>{t('mobile.workbench')}</button>
                 </div>
                 <button type="button" className="ml-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 text-sm text-ink-dim hover:text-ink"
                   onClick={() => setOverlay('palette')} title={t('topbar.commandsHint', { keys: shortcut('K') })}>
@@ -1153,6 +1142,8 @@ export default function App() {
               void projectsQ.refetch();
               if (activeSid) void snapQ.refetch();
             }}
+            focusSignal={composerFocus}
+            onFocusComposer={() => setComposerFocus(value => value + 1)}
             onNew={startNewSession}
             onSubmit={async (text, files, workdir) => {
               if (homeRequest.current) return false;
@@ -1170,6 +1161,7 @@ export default function App() {
             workdirs={[...new Set(projects.map(project => project.workdir).filter((path): path is string => Boolean(path)))]}
           />
         )}
+        </div>
       </main>
       </WorkspaceRootsContext.Provider>
       </SessionIdContext.Provider>
@@ -1243,7 +1235,6 @@ export default function App() {
           }}
         />
       ) : null}
-      <ActionNotice notice={notice} onClose={dismissNotice} />
       {showProject && !kiosk ? (
         <MobileTabBar
           active={mobileView === 'preview' ? 'preview' : workspaceView}

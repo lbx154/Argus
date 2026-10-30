@@ -36,14 +36,10 @@ export function RunControl({ snapshot, pending = false, busy = false, onStop, on
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const [asking, setAsking] = useState(false);
-  if (!snapshot.daemon.alive && !pending) {
-    return snapshot.daemon.resumable ? <button type="button" data-resume-work disabled={busy} onClick={onResume} className={resumeClassName}
-      title={t('topbar.continueRunHint')}>
-      <FontAwesomeIcon icon={faPlay} className="h-3 w-3" /><span>{t('topbar.continueRun')}</span>
-    </button> : null;
-  }
+  const running = snapshot.daemon.alive || pending;
+  if (!running && !snapshot.daemon.resumable) return null;
   const title = (id: string) => snapshot.backlog.find(item => item.id === id)?.title || id;
-  const active = snapshot.roles.filter(role => role.active);
+  const active = running ? snapshot.roles.filter(role => role.active) : [];
   const affected = [
     ...pending || active.some(role => role.role === 'manager') ? [zh ? '经理正在写的回复' : 'The reply the Manager is writing'] : [],
     ...active.filter(role => role.role !== 'manager').flatMap(({ role, tasks = [] }) => {
@@ -54,9 +50,14 @@ export function RunControl({ snapshot, pending = false, busy = false, onStop, on
     }),
   ];
   return <>
-    <button type="button" data-stop-work disabled={busy} onClick={() => setAsking(true)} className={className}
-      aria-label={zh ? '停止' : 'Stop'} title={zh ? '停止现在的工作' : 'Stop the work under way'}>
-      <FontAwesomeIcon icon={faStop} className="h-3 w-3" /><span>{zh ? '停止' : 'Stop'}</span>
+    <button type="button" data-stop-work={running || undefined} data-resume-work={!running || undefined}
+      aria-disabled={busy || undefined} onClick={() => {
+        if (busy) return;
+        if (running) setAsking(true);
+        else onResume();
+      }} className={running ? className : resumeClassName}
+      title={running ? zh ? '停止现在的工作' : 'Stop the work under way' : t('topbar.continueRunHint')}>
+      <FontAwesomeIcon icon={running ? faStop : faPlay} className="h-3 w-3" /><span>{running ? zh ? '停止' : 'Stop' : t('topbar.continueRun')}</span>
     </button>
     <Modal open={asking} onClose={() => setAsking(false)} label={zh ? '停止现在的工作' : 'Stop the work under way'} width="max-w-md" align="bottom">
       <div className="modal-header"><h2>{zh ? '停止现在的工作？' : 'Stop the work under way?'}</h2></div>

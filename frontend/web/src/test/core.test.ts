@@ -31,7 +31,6 @@ import {
 import { MarkdownContent } from '../components/MarkdownContent';
 import { Sidebar } from '../components/Sidebar';
 import { BackendHandshake } from '../components/BackendHandshake';
-import { motionDistance, motionDuration, motionQueries } from '../lib/motion';
 import { activeProviderRequest } from '../components/EventStream';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { formatStructuredData, parseDelimited } from '../components/DataPreview';
@@ -292,7 +291,7 @@ describe('shared frontend core', () => {
     expect(light).not.toContain('>light<');
   });
 
-  it('renders a readable backend handshake before GSAP loads', () => {
+  it('renders a readable backend handshake', () => {
     const html = renderToStaticMarkup(createElement(BackendHandshake));
     expect(html).toContain('Getting Argus ready');
     expect(html).toContain('Service');
@@ -301,17 +300,6 @@ describe('shared frontend core', () => {
     expect(html).toContain('Reopening your workspace');
     expect(html).toContain('aria-label="Getting Argus ready"');
     expect(html).not.toContain('Protocol');
-    expect(motionQueries).toEqual({
-      all: '(min-width: 0px)',
-      reduceMotion: '(prefers-reduced-motion: reduce)',
-    });
-  });
-
-  it('keeps workbench motion bounded and accessible', () => {
-    expect(motionDuration.fast).toBeGreaterThanOrEqual(0.18);
-    expect(motionDuration.normal).toBeLessThanOrEqual(0.32);
-    expect(motionDistance.magnetic).toBeLessThanOrEqual(6);
-    expect(motionQueries.reduceMotion).toBe('(prefers-reduced-motion: reduce)');
   });
 
   it('surfaces persisted event validation failures instead of hiding them', () => {
@@ -528,7 +516,6 @@ describe('shared frontend core', () => {
     expect(css).toContain('scrollbar-gutter: stable');
     expect(html.match(/rel="preload"/g)).toHaveLength(2);
     expect(canvas).not.toContain('key={showLiveProgress');
-    expect(canvas).not.toContain('gsap.fromTo');
   });
 
   it('favicon uses monochrome Rounded 02 geometry', () => {

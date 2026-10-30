@@ -395,7 +395,7 @@ function TaskPanel({ item, page, pageSize, width }: { item: BacklogItem; page: n
   const lines = [
     `status      ${item.status}`,
     `priority    p${item.priority}`,
-    ...(item.pending_question ? ['', 'WAITING ON YOU', ...wrapDetail(item.pending_question, width)] : []),
+    ...(item.status === 'blocked' ? ['', 'WAITING ON YOU'] : []),
     '',
     'OBJECTIVE',
     ...wrapDetail(item.objective || '(none)', width),

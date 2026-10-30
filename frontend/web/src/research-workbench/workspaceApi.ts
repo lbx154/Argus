@@ -18,8 +18,6 @@ export interface WorkspaceProfileIndex {
 export interface WorkspaceEntry {
   path: string;
   type: 'file' | 'directory' | 'symlink';
-  size: number;
-  mtime: number;
 }
 
 export interface WorkspaceTree {
@@ -29,13 +27,7 @@ export interface WorkspaceTree {
 }
 
 export interface WorkspaceFile {
-  root: string;
-  workspace_id: string;
-  path: string;
   content: string;
-  size: number;
-  mtime: number;
-  extension: string;
 }
 
 export interface WorkspaceGit {

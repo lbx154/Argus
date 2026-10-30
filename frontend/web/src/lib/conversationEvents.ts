@@ -22,18 +22,13 @@ export function optimisticOperatorEvent(
   };
 }
 
-export function optimisticManagerEvent(sid: string, requestId: string, nowMs = Date.now()): EventMsg {
-  return { type: 'ui.argus', agent_layer: 'manager', text: '', ts: nowMs / 1000,
-    event_id: `local-${sid}-${requestId}-argus`, message_id: `local-${requestId}-argus`, request_id: requestId, live: true, status: 'waiting' };
-}
-
 /** The transcript id of a sent message; a page-local placeholder is not one. */
 export function durableMessageId(event: EventMsg): string | undefined {
   const id = event.message_id;
   return typeof id === 'string' && id && id !== localOperatorId(String(event.request_id)) ? id : undefined;
 }
 
-export function mergeOptimisticManagerReply(localEvents: EventMsg[], requestId: string, reply: EventMsg): EventMsg[] {
+export function mergeManagerReply(localEvents: EventMsg[], requestId: string, reply: EventMsg): EventMsg[] {
   const asked = String(reply.message_id).replace(/-argus$/, '-operator');
   return [
     ...localEvents.flatMap(event => event.request_id !== requestId ? [event] : event.type === 'ui.operator' ? [{ ...event, message_id: asked }] : []),
@@ -41,9 +36,12 @@ export function mergeOptimisticManagerReply(localEvents: EventMsg[], requestId: 
   ];
 }
 
-export function settleOptimisticManagerTurn(localEvents: EventMsg[], requestId: string, status: 'stopped' | 'failed'): EventMsg[] {
-  return localEvents.map(event => event.type === 'ui.argus' && event.request_id === requestId && event.live === true
-    ? { ...event, live: false, status } : event);
+/** Request messages keep their identity when a local send becomes a recorded row.
+ * Questions and tasks retain their own persistent identity within that request. */
+export function conversationEventKey(event: EventMsg): string {
+  return (event.type === 'ui.operator' || event.type === 'ui.argus') && event.request_id
+    ? `${event.type}:${event.request_id}`
+    : String(event.row_id ?? event.message_id ?? event.event_id);
 }
 
 /** The server owns order and state once the recorded request row arrives. */

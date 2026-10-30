@@ -102,9 +102,9 @@ describe('A3 snapshot-only session context', () => {
   it('renders the server-provided path-only tree without a second visibility control', () => {
     client.setQueryData(['workspace-profiles', props.sid], { profiles: [{ id: 'w', label: 'Fixture', path: '/fixture' }], default_id: 'w' });
     client.setQueryData(['workspace-tree', props.sid, 'w'], { root: '/fixture', entries: [
-      { path: 'reports', type: 'directory', size: 0, mtime: 0 },
-      { path: 'summary.md', type: 'file', size: 10, mtime: 0 },
-      { path: '.server-visible', type: 'file', size: 10, mtime: 0 },
+      { path: 'reports', type: 'directory' },
+      { path: 'summary.md', type: 'file' },
+      { path: '.server-visible', type: 'file' },
     ], truncated: false });
     for (const locale of ['en', 'zh-CN'] as const) {
       const html = markup(<IdePage {...props} />, locale);

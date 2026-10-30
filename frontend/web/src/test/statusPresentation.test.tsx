@@ -55,6 +55,10 @@ it.each<Locale>(['en', 'zh-CN'])('replays the same waiting, stopped and closed m
       const snap = snapshot(store, work, idle);
       const top = renderToStaticMarkup(<I18nProvider><TopBar snap={snap} streamOk onStart={vi.fn()} onStop={vi.fn()} onManage={vi.fn()} busy={false} /></I18nProvider>);
       expect(top).toContain(words);
+      expect(top).toMatch(/<h1[^>]*>[^<]+<\/h1>/);
+      const status = top.match(/<span role="status"[^>]*>([^<]+)<\/span>/);
+      expect(status?.[1]).toContain(words);
+      expect(top.indexOf('<time')).toBeGreaterThan(top.indexOf(status![0]) + status![0].length);
       if (phase === 'stopped') expect(top).toContain(locale === 'en' ? 'Resume' : '继续运行');
     }
   }
@@ -67,4 +71,16 @@ it('keeps management to run details, naming and deletion, with running controlle
   expect(html).toContain('Display name');
   expect(html).toContain('Delete');
   for (const text of ['Background work', 'Resume', 'Stopped', 'manage.executor']) expect(html).not.toContain(text);
+});
+
+
+it.each([true, false])('keeps one work-status region even when the map hides the status row (%s)', showStatus => {
+  const snap = snapshot(store, original, idle);
+  const top = renderToStaticMarkup(<TopBar snap={snap} showStatus={showStatus} streamOk onStart={vi.fn()} onStop={vi.fn()} onManage={vi.fn()} busy={false} />);
+  expect(top.match(/role="status"/g)).toHaveLength(1);
+  if (!showStatus) {
+    expect(top).not.toContain('<time');
+    expect(top).not.toContain('session-workdir');
+    expect(top).toMatch(/class="sr-only"[^>]*><span role="status"/);
+  }
 });

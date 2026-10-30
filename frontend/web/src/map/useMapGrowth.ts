@@ -1,17 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { emptyGrowth, GrowthLedger, type GrowthScene } from './growth';
 
-export function useMapGrowth(scene: GrowthScene, historyLoading = false) {
+export function useMapGrowth(scene: GrowthScene) {
   const ledger = useRef(new GrowthLedger());
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   const [batch, setBatch] = useState(emptyGrowth);
   useEffect(() => {
-    const next = ledger.current.observe(scene, historyLoading);
-    if (historyLoading) {
-      timers.current.forEach(clearTimeout);
-      timers.current.clear();
-      setBatch(emptyGrowth());
-    } else if (next) {
+    const next = ledger.current.observe(scene);
+    if (next) {
       // A second update must not cut short an earlier entrance. Each batch
       // retires separately, so off-screen cards cannot replay indefinitely.
       setBatch((current) => ({ revision: next.revision,
@@ -29,7 +25,7 @@ export function useMapGrowth(scene: GrowthScene, historyLoading = false) {
       }, 2000);
       timers.current.add(timer);
     }
-  }, [scene, historyLoading]);
+  }, [scene]);
   useEffect(() => () => {
     timers.current.forEach(clearTimeout);
     timers.current.clear();

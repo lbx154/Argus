@@ -41,6 +41,7 @@ describe('MobileTabBar', () => {
     for (const label of ['Projects', 'Map', 'Conversation', 'Workbench', 'Results &amp; files']) {
       expect(html).toContain(`>${label}<`);
     }
+    expect(html).not.toContain('aria-label="Open projects"');
     expect(html).not.toContain('>Mission<');
     expect(html).not.toContain('>More<');
   });

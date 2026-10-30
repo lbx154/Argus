@@ -59,7 +59,7 @@ test('map polling reads only appended bytes while task state and each reader’s
   project.questions = [{ role: 'reviewer', task: 't1', question: '现在交付？' }];
   const asking = progressMap(store, project, 3, []).tasks[0]!;
   assert.equal(asking.status, 'blocked');
-  assert.equal(asking.pending_question, '现在交付？');
+  assert.equal('pending_question' in asking, false);
   project.questions = [];
   project.tasks = [{ ...task, holder: 'reviewer', status: 'closed' }];
   fs.appendFileSync(path, JSON.stringify({ ts, type: 'handoff', task: 't1', role: 'reviewer', to: 'manager', letter: 'Accepted.', open: ['report.md'] }) + '\n' + JSON.stringify({ ts, type: 'task.closed', task: 't1' }) + '\n');
@@ -120,7 +120,8 @@ test('each message the Manager takes up is a question and its answer on the map,
   assert.deepEqual(map.tasks.map(card => card.title), said.map(event => event.text.split('\n')[0]));
   // Its answer is the letter, where the map's reader of a question and its answer finds it.
   assert.deepEqual(map.events.map(letter => [letter.id, letter.item_id, letter.type]), [['e22', 'q0', 'turn.replied'], ['e44', 'q23', 'turn.replied'], ['e51', 'q45', 'turn.replied']]);
-  assert.equal(map.tasks[2]!.latest_action?.text, map.events[2]!.text);
+  assert.ok(map.tasks[2]!.latest_action!.text.length <= 160);
+  assert.ok(String(map.events[2]!.text).startsWith(map.tasks[2]!.latest_action!.text.replace(/…$/, '')));
 });
 
 test("the tasks a message's answer opens follow it; a result handed over from the team's work is no card of its own", () => {
@@ -131,7 +132,7 @@ test("the tasks a message's answer opens follow it; a result handed over from th
   assert.ok(!map.events.some(letter => letter.item_id === 'q0' && letter.id === 'e102'));
 });
 
-test('recorded Manager supplement is both a task letter and a reply, and its map card completes when the work rests', t => {
+test('recorded Manager supplement stays a task letter, and its request completes when the work rests', t => {
   const record = fs.readFileSync(new URL('./fixtures/manager-task-update/events.jsonl', import.meta.url), 'utf8').trim().split('\n')
     .map(line => JSON.parse(line) as Recorded);
   const added = record.find(event => event.type === 'task.added');
@@ -173,7 +174,7 @@ test('recorded Manager supplement is both a task letter and a reply, and its map
     // A brief to the team is the task's to show, not the message's.
     working: ['in_progress', null, undefined],
     idle: ['done', true, undefined],
-    incoming: [['t1', 'handoff', 'manager', 'engineer'], [question.id, 'turn.replied', 'manager', 'engineer']],
+    incoming: [['t1', 'handoff', 'manager', 'engineer']],
   });
   // The page merges history by event id: neither projection may overwrite the other.
   assert.equal(new Set(before.events.map(letter => letter.id)).size, before.events.length);
@@ -251,7 +252,7 @@ test('the original request survives Manager clarification, with the answer and r
     ['q0', firstLine(original.text), []], ['t1', added.task.title, ['q0']],
   ]);
   assert.ok(after.events.some(letter => letter.item_id === 'q0' && letter.type === 'turn.asked' && letter.text === answer.text));
-  assert.ok(after.events.some(letter => letter.item_id === 'q0' && letter.type === 'turn.replied' && letter.to === 'engineer'));
+  assert.ok(!after.events.some(letter => letter.item_id === 'q0' && letter.type === 'turn.replied' && letter.to === 'engineer'));
   assert.ok(!after.tasks.some(card => card.title === firstLine(answer.text)));
   assert.equal(new Set(after.tasks.map(card => card.id)).size, after.tasks.length);
   assert.deepEqual(progressMap(store, { ...project, status: 'stopped' }, 0, []).tasks[0]!.title, firstLine(project.request));

@@ -228,7 +228,7 @@ export function ChatBox({
         onCompositionStart: () => setComposing(true),
         onCompositionEnd: (event) => { setComposing(false); readCursor(event.currentTarget.value, true); },
         'aria-autocomplete': completion ? 'both' : 'list',
-        'aria-controls': completionOpen ? PROMPT_COMPLETION_LISTBOX_ID : undefined, 'aria-expanded': completionOpen,
+        'aria-controls': completionOpen ? PROMPT_COMPLETION_LISTBOX_ID : undefined,
         'aria-activedescendant': activeCompletion ? promptCompletionOptionId(activeCompletion.id) : undefined,
         placeholder: answeringRole ? (zh ? `回答${roleLabel(answeringRole, t)}…` : `Reply to the ${roleLabel(answeringRole, t)}…`)
           : disabled ? t('chat.selectSession') : t('chat.placeholder'),

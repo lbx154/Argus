@@ -13,8 +13,8 @@ vi.mock("@xyflow/react", async (original) => ({
 
 const task: MapTask = { id: "mission", title: "Study", status: "running", deps: [] };
 const events: MapEvent[] = Array.from({ length: 36 }, (_, i) => ({
-  id: `review-${i}`, item_id: task.id, ts: i + 1, round_index: i + 1,
-  type: "round.review.completed", text: `Review ${i + 1}`, status: "done",
+  id: `review-${i}`, item_id: task.id, ts: i + 1,
+  type: "handoff", role: "reviewer", to: "engineer", text: `Review ${i + 1}`,
 }));
 
 it("keeps one overview card while paging every recorded step inside its details", () => {

@@ -71,6 +71,24 @@ it('formats the live task trace at the task reader’s actual display entry', ()
   client.clear();
 });
 
+it.each([[true, false], [false, false], [true, true]])('shows full latest words once with a recorded letter (%s) and trace error (%s)', (recordedInTrace, traceError) => {
+  const source = recorded.tasks[2];
+  const progress = source.note.text;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, retryOnMount: false, gcTime: Infinity, staleTime: Infinity } } });
+  client.setQueryData(['task-trace', recorded.id, source.id], { task_id: source.id, groups: recordedInTrace ? [
+    { call_id: 'reviewer-1', role: 'reviewer', entries: [{ kind: 'message', text: progress }] },
+  ] : [] });
+  if (traceError) client.getQueryCache().find({ queryKey: ['task-trace', recorded.id, source.id] })!.setState({ status: 'error', error: new Error('Trace read failed') });
+  act(() => { renderer = create(<QueryClientProvider client={client}>
+    <MapReaderContent cardKey={source.id} taskId={source.id} sessionId={recorded.id} originalDetail={source.objective}
+      task={{ id: source.id, title: source.title, status: 'done', latest_action: { role: 'reviewer', text: progress, ts: 1 } }} />
+  </QueryClientProvider>); });
+  const copies = renderer!.root.findAll(node => node.type === 'p' && node.children.join('') === progress);
+  expect(copies).toHaveLength(1);
+  act(() => renderer!.unmount()); renderer = undefined;
+  client.clear();
+});
+
 it('reads the selected historical step from its own record', () => {
   const value = props();
   act(() => { renderer = create(<MacroTaskNode {...value} />); });
@@ -109,7 +127,7 @@ it.each([true, false])('shows the card’s own record without writing, failure o
 it('leaves a pending question in conversation instead of copying it into the task reader', () => {
   const question = 'Please choose the input to compare.';
   act(() => { renderer = create(<MapReaderContent cardKey={task.id} taskId={task.id}
-    task={{ ...task, pending_question: question }} originalDetail="Useful task objective" />); });
+    task={{ ...task, status: "blocked" }} originalDetail="Useful task objective" />); });
   expect(JSON.stringify(renderer!.toJSON())).not.toContain(question);
 });
 
@@ -129,11 +147,13 @@ it('loads the full recorded brief only when its task reader opens', async () => 
   expect(request).toHaveBeenCalledWith(recorded.id, source.id, expect.any(AbortSignal));
   expect(renderer!.root.findByProps({ role: 'status' }).children.join('')).toContain('正在读取');
   await act(async () => {
-    resolve({ ...summary, objective: source.objective, priority: 1 });
+    resolve({ ...summary, objective: source.objective, latest_action: { role: 'reviewer', text: source.note.text, ts: 1 }, priority: 1 });
     await new Promise(done => setTimeout(done, 10));
   });
   expect(renderer!.root.findAllByType(MarkdownContent).map(node => node.props.children)).toContain(source.objective);
   expect(renderer!.root.findByType(MapReaderContent).props.task).not.toHaveProperty('objective');
+  expect(renderer!.root.findByProps({ className: 'task-trace-conclusion mb-3 font-medium' }).children.join('')).toBe(source.note.text);
+  expect(renderer!.root.findByType(MapReaderContent).props.task.latest_action.text).toBe(source.note.text);
   act(() => renderer!.unmount()); renderer = undefined;
   client.clear();
 });
@@ -145,11 +165,11 @@ it('opens the root task reader when the goal step is selected', () => {
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, task.id);
 });
 
-it.each(['in_progress', 'done', 'failed'])('reads the selected task %s step from its own full progress', status => {
+it.each(['in_progress', 'done', 'failed'])('reads the selected task %s letter in full', status => {
   const progress = recorded.tasks[2].note.text;
   const current = { ...task, status, latest_action: { role: 'reviewer', text: progress, ts: 1 } };
-  const value = props({ task: current, layout: layoutSubmap(current, [], false) });
-  const stepId = `${task.id}:${status === 'in_progress' ? 'active' : 'outcome'}`;
+  const value = props({ task: current, layout: layoutSubmap(current, [{ id: 'full-letter', item_id: current.id, type: 'handoff', role: 'reviewer', to: 'manager', text: progress, ts: 1 }], false) });
+  const stepId = 'full-letter';
   act(() => { renderer = create(<MacroTaskNode {...value} />); });
   act(() => renderer!.root.findByProps({ 'data-step-id': stepId }).props.onClick());
   expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, stepId);
@@ -161,9 +181,18 @@ it.each(['in_progress', 'done', 'failed'])('reads the selected task %s step from
 it('reads a request answer step from its own answer', () => {
   const answer = 'The recorded answer belongs to this step, separate from the original question.';
   const current = { ...task, turn_kind: 'qa' as const, latest_action: { role: 'manager', text: answer, ts: 1 } };
+  const value = props({ task: current, layout: layoutSubmap(current, [{ id: 'answer-letter', item_id: current.id, type: 'turn.replied', text: answer, ts: 1 }], false) });
+  act(() => { renderer = create(<MacroTaskNode {...value} />); });
+  act(() => renderer!.root.findByProps({ 'data-step-id': 'answer-letter' }).props.onClick());
+  expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, 'answer-letter');
+  expect(renderer!.root.findByProps({ 'data-testid': 'map-reader' }).findByType(MarkdownContent).props.children).toBe(answer);
+});
+
+it.each(['in_progress', 'done', 'failed'])('opens on-demand full task progress from a synthetic %s step', status => {
+  const current = { ...task, status, latest_action: { role: 'engineer', text: 'Short map excerpt…', ts: 1 } };
   const value = props({ task: current, layout: layoutSubmap(current, [], false) });
   act(() => { renderer = create(<MacroTaskNode {...value} />); });
-  act(() => renderer!.root.findByProps({ 'data-step-id': `${task.id}:answer` }).props.onClick());
-  expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, `${task.id}:answer`);
-  expect(renderer!.root.findByProps({ 'data-testid': 'map-reader' }).findByType(MarkdownContent).props.children).toBe(answer);
+  act(() => renderer!.root.findByProps({ 'data-step-id': `${task.id}:${status === 'in_progress' ? 'active' : 'outcome'}` }).props.onClick());
+  expect(value.data.readCopy).toHaveBeenLastCalledWith(value.id, task.id);
+  expect(renderer!.root.findAllByProps({ 'data-testid': 'map-reader' })).toHaveLength(0);
 });

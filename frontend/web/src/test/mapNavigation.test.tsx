@@ -55,10 +55,10 @@ const data: Dataset = {
   tasks: [
     { id: "parent", title: "Route data", status: "done", deps: [], ts: 1 },
     { id: "failed", title: "Route algorithm", status: "failed", deps: ["parent"], ts: 2 },
-    { id: "question", title: "Route interface", status: "blocked", deps: ["failed"], pending_question: "Which bridge?", ts: 3 },
+    { id: "question", title: "Route interface", status: "blocked", deps: ["failed"], ts: 3 },
     { id: "unrelated", title: "Documentation", status: "pending", deps: [], ts: 4 },
   ],
-  events: [{ id: "failure", item_id: "failed", ts: 1, type: "life.mission.failed", text: "The path is disconnected." }],
+  events: [{ id: "failure", item_id: "failed", ts: 1, type: "handoff", role: "engineer", to: "manager", text: "The path is disconnected." }],
 };
 const props: ComponentProps<typeof MapCanvas> = {
   data, zh: false, sessionId: "navigation", viewKey: "navigation", readOnly: true,
@@ -153,19 +153,6 @@ it("keeps the task reader open when background focus changes and reads the real 
   expect(reader().findByType(TaskTrace).props.taskId).toBe('failed');
   act(() => renderer.root.findAllByType(Modal).find(modal => modal.props.label === 'Task explanation')!.props.onClose());
   expect(renderer.root.findAllByProps({ 'data-testid': 'map-task-reading' })).toHaveLength(0);
-});
-
-it("does not count a partial research execution as a completed overall goal", () => {
-  const partial = { ...data, kind: "live" as const, tasks: [data.tasks[0]], events: [{
-    id: "ended", item_id: "parent", type: "life.mission.completed", ts: 5, text: "",
-    success: true, overall_complete: false, campaign_continues: true,
-  }] };
-  act(() => renderer.update(
-    <QueryClientProvider client={client}><MapCanvas {...props} data={partial} /></QueryClientProvider>,
-  ));
-  expect(renderer.root.findAllByProps({ className: "map-progress-strip" })).toHaveLength(0);
-  expect(nodes()[0].data.task.status).toBe("done");
-  expect(nodes()[0].data.completionScope).toContain("further work remained");
 });
 
 it.each([

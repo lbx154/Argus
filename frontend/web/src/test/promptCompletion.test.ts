@@ -6,7 +6,7 @@ import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
 
 const t = (key: string) => key;
 const entry = (path: string, type: WorkspaceEntry['type'] = 'file'): WorkspaceEntry => ({
-  path, type, size: 0, mtime: 0,
+  path, type,
 });
 const task = (id: string, title: string, status = 'done'): BacklogSummary => ({ id, title, status, priority: 0, deps: [] });
 const files = [

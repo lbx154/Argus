@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, readFile, rm, truncate, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -50,6 +50,32 @@ function unzip(zip: Buffer): Record<string, string> {
   return files;
 }
 
+test('workspace trees use directory entries and never follow links; text opens only inside the workspace', async t => {
+  const { project, call, get } = await setup(t, { 'src/main.txt': 'inside\n' });
+  const outside = join(project.workdir, '..', 'outside.txt');
+  await writeFile(outside, 'outside\n');
+  await symlink('src/main.txt', join(project.workdir, 'inside-link'));
+  await symlink('src', join(project.workdir, 'dir-link'));
+  await symlink(outside, join(project.workdir, 'outside-link'));
+  await symlink('missing', join(project.workdir, 'broken-link'));
+  const base = `/api/v2/workspace/`;
+  const query = `?sid=${project.id}&workspace_id=project:${project.id}`;
+  const stats = t.mock.method(fs, 'lstatSync');
+  syncBuiltinESMExports();
+  t.after(() => { stats.mock.restore(); syncBuiltinESMExports(); });
+  const tree = await get<{ entries: { path: string; type: string }[] }>(base + 'tree' + query);
+  assert.equal(stats.mock.callCount(), 0);
+  assert.deepEqual(tree.entries, [
+    { path: 'broken-link', type: 'symlink' }, { path: 'dir-link', type: 'symlink' },
+    { path: 'inside-link', type: 'symlink' }, { path: 'outside-link', type: 'symlink' },
+    { path: 'src', type: 'directory' }, { path: 'src/main.txt', type: 'file' },
+  ]);
+  assert.deepEqual(await get(base + 'file' + query + '&path=inside-link'), { content: 'inside\n' });
+  for (const path of ['outside-link', 'broken-link', 'dir-link']) {
+    assert.equal((await call(base + 'file' + query + '&path=' + path)).status, 404);
+  }
+});
+
 test('the code workspace is the workdir: its tree, a file as text or bytes, and what git says', async t => {
   const { store, project, call, get } = await setup(t, {
     'src/main.py': 'print(1)\n', 'Makefile': 'all:\n', 'plot.png': 'png', 'blob.bin': 'a\0b', '.env': 'KEY=1', '.argus/team/log.json': '{}', 'node_modules/x/index.js': '',
@@ -67,10 +93,10 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
     ['directory src', 'file Makefile', 'file blob.bin', 'file plot.png', 'file src/main.py']);
   assert.equal(tree.truncated, false);
   for (const entry of tree.entries) {
-    assert.deepEqual(Object.keys(entry).sort(), ['mtime', 'path', 'size', 'type']);
+    assert.deepEqual(Object.keys(entry).sort(), ['path', 'type']);
   }
 
-  assert.equal((await get<{ content: string }>(W('file', { path: 'src/main.py' }))).content, 'print(1)\n');
+  assert.deepEqual(await get(W('file', { path: 'src/main.py' })), { content: 'print(1)\n' });
   assert.equal((await get<{ content: string }>(W('file', { path: 'Makefile' }))).content, 'all:\n');
   assert.equal((await call(W('file', { path: 'blob.bin' }))).status, 415);
   for (const path of ['.env', '../work/.env', join(store.dir(sid), 'project.json'), 'missing.txt']) {
@@ -409,7 +435,7 @@ test('a task in full and a search of every project\'s record', async t => {
   assert.equal(done.notes, 'Engineer to the Reviewer:\nchart.png drawn from sales.csv\n\nReviewer to the Manager:\nThe chart matches the data.');
   assert.equal(done.last_error, '');
   const { item: asking } = await get<{ item: BacklogItem }>(`${P}/backlog/t2`);
-  assert.deepEqual([asking.status, asking.pending_question, asking.last_error, asking.finished_ts], ['blocked', 'Which years?', 'codex exited with code 1', null]);
+  assert.deepEqual([asking.status, 'pending_question' in asking, asking.last_error, asking.finished_ts], ['blocked', false, 'codex exited with code 1', null]);
   assert.equal((await call(`${P}/backlog/t9`)).status, 404);
 
   assert.equal((await call(`${P}/work-log/download?role=engineer&task_id=t1`)).status, 404);

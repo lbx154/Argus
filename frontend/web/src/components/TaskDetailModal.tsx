@@ -61,7 +61,7 @@ export function TaskDetailModal({
         ) : null}
         {item ? (
           <div className="space-y-4">
-            {item.pending_question ? (
+            {item.status === 'blocked' ? (
               <div className="rounded-lg border border-warn/40 bg-warn/5 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-warn">{t('task.waitingOnYou')}</div>
               </div>

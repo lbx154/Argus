@@ -42,7 +42,6 @@ export function MobileTabBar({
         <button
           type="button"
           onClick={onOpenSessions}
-          aria-label={t('topbar.openSessions')}
           className="flex min-h-[3.25rem] flex-1 flex-col items-center justify-center gap-0.5 text-ink-faint active:bg-panel-raised"
         >
           <FontAwesomeIcon icon={faBars} className="h-4 w-4" />

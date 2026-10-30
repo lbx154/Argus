@@ -1,11 +1,30 @@
 import type { EventMsg } from '../api';
 import type { RenderedLine } from '../../../core/src/eventRender';
 import type { Locale } from '../i18n';
-import { readableRecord } from '../map/submap';
+import { visibleAgentText } from '../../../core/src/events';
 import { plainDetail, type PlainDetail } from './plainStatus';
 import { splitHarnessRecord } from './harnessNotes';
 import { STATUS_TAIL } from '../../../core/src/plainWords';
 import { errorText } from './format';
+
+/** Keep scientific prose visible while hiding the runner's control footer. */
+function readableRecord(value: string | undefined | null): string {
+  return visibleAgentText(value)
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        // A line that is one JSON object is an instruction to the harness
+        // ({"wait_for": "subagent", ...}), not something said to a reader.
+        !/^\{\s*"[\w-]+"\s*:.*\}$/.test(line.trim()),
+    )
+    .map((line) =>
+      line
+        .replace(/^\s*(?:RESULT|SUMMARY)\s*=\s*/i, "")
+        .replace(/^\s*NEXT_ACTION\s*=\s*/i, ""),
+    )
+    .join("\n")
+    .trim();
+}
 
 /**
  * The project work progress feed in the words of the person who asked for the

@@ -5,7 +5,7 @@ import { splitMessageAttachments } from '../lib/attachments';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import type { UploadedAttachment } from '../api';
 import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { useGsapMotion } from '../lib/motion';
+import { conversationEventKey } from '../lib/conversationEvents';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
 import type { DeliveryReceipt } from '../../../core/src/types';
@@ -327,30 +327,13 @@ const ConversationRow = memo(function ConversationRow({
   // A question's numbered options become buttons; typing a free answer still works.
   const asked = !operator ? splitReplyOptions(reportText) : null;
   const rewriteLabel = locale === 'zh-CN' ? '编辑后重发' : 'Edit and resend';
-  const rowRef = useRef<HTMLElement>(null);
-  useGsapMotion(rowRef, (gsap, reduceMotion) => {
-    if (!rowRef.current) return;
-    if (reduceMotion) return;
-    gsap.fromTo(
-      rowRef.current,
-      { autoAlpha: 0, x: operator ? 12 : 0, y: operator ? 0 : 8 },
-      {
-        autoAlpha: 1,
-        x: 0,
-        y: 0,
-        duration: 0.28,
-        ease: 'power2.out',
-        clearProps: 'transform,opacity,visibility',
-      },
-    );
-  });
   if (!operator && ev.status === 'replaced') return (
-    <article ref={rowRef} data-conversation-ts={ev.ts} className="conversation-row mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
-      <p role="status" className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
+    <article tabIndex={-1} data-operator={operator} data-conversation-ts={ev.ts} className="conversation-row mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
+      <p className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
     </article>
   );
   return (
-    <article ref={rowRef} data-conversation-ts={ev.ts}
+    <article tabIndex={-1} data-operator={operator} data-conversation-ts={ev.ts}
       className="conversation-row group mx-auto w-full max-w-full px-4 py-4 sm:px-6 lg:max-w-[808px]">
       {operator ? (
         <div className="flex items-end justify-end gap-2">
@@ -377,10 +360,10 @@ const ConversationRow = memo(function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
-            {ev.status === 'running' ? <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim" role="status" data-manager-reply="running">
+            {ev.status === 'running' ? <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim" data-manager-reply="running">
               <span className="status-dot" data-tone="running" aria-hidden="true" />
               <span className="min-w-0 truncate" title={liveMessage || undefined}>{liveMessage || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
-            </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" role="status" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
+            </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
               : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
               : ev.status === 'failed' ? <p className="whitespace-pre-wrap break-words text-sm text-err">{locale === 'zh-CN' ? '回复中断：' : 'Reply interrupted: '}{reportText}</p>
               : reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
@@ -847,6 +830,7 @@ export function EventStream({
         if (brief) brief.open = true;
         target.dataset.searchHit = 'true';
         target.scrollIntoView({ block: 'center' });
+        target.focus({ preventScroll: true });
         follow = false;
       } else {
         try {
@@ -986,7 +970,7 @@ export function EventStream({
         ) : (
           <>
             {deferredEvents.map(event => {
-              const key = String(event.row_id ?? event.message_id ?? event.event_id);
+              const key = conversationEventKey(event);
               if (event.type === 'ui.task') return <TaskWorkCard key={key} event={event} onOpenArtifact={onOpenArtifact} onInspect={setInspectingTask} />;
               if (event.type === 'ui.question') return <section key={key} data-conversation-question={String(event.question_id)} className="mx-auto w-full px-6 py-3 lg:max-w-[808px]">
                 <MarkdownContent>{questionSentence(roleLabel(String(event.agent_layer), t), taskTitle(eventTaskId(event)) || undefined, String(event.text), locale === 'zh-CN')}</MarkdownContent>

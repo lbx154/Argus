@@ -13,8 +13,8 @@ const events = (count: number): MapEvent[] =>
   Array.from({ length: count }, (_, i) => ({
     id: `event-${i}`,
     item_id: task.id,
-    type: "life.mission.started",
-    text: `Observed attempt ${i + 1}`,
+    type: "handoff", role: "engineer", to: "reviewer",
+    text: `Recorded letter ${i + 1}`,
     ts: i + 2,
   }));
 

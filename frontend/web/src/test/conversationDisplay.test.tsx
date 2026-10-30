@@ -5,7 +5,6 @@ import { EventStream } from './serverSnapshot';
 import { MarkdownContent } from '../components/MarkdownContent';
 import { api } from '../api';
 
-vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 it('shows operator Markdown literally without image or link nodes', () => {
@@ -45,10 +44,18 @@ it('adds a local calendar date only to messages outside today', () => {
   expect(html).toContain('<time>10:11:12</time>');
 });
 
-it('renders a replaced reply as an unsigned status line', () => {
+it('renders a replaced reply as an unsigned line without a second work-status announcement', () => {
   const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.argus', status: 'replaced', ts: 1 }]} connected showReasoning={false} />);
-  expect(html).toContain('role="status"');
+  expect(html).not.toContain('role="status"');
   expect(html).toContain('Your later message took its place.');
   expect(html).not.toContain('argus-reply-name');
   expect(html).not.toContain('conversation-tools');
+});
+
+
+it.each(['running', 'waiting'] as const)('keeps %s replies and team briefs outside live regions', status => {
+  const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.argus', status, text: 'Internal team brief', ts: 1 }]} connected showReasoning={false} />);
+  expect(html).toContain(`data-manager-reply="${status}"`);
+  expect(html).not.toContain('role="status"');
+  expect(html).not.toContain('aria-live');
 });

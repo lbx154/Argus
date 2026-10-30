@@ -153,7 +153,7 @@ export function ArtifactModal({
         <div className="delivery-heading"><span className="delivery-mark"><PackageCheck size={22} /></span><div>
           {!isStagePackage(delivery) && <p>{zh ? '交付成果' : 'Your results'}</p>}
           <h2>{deliveryTitle || t(deliveryHeadingKey(delivery))}</h2>
-        </div><button type="button" onClick={onClose} className="delivery-return" aria-label={zh ? '关闭交付弹窗' : 'Close delivery'}>{zh ? '返回工作' : 'Back to work'} ×</button></div>
+        </div><button type="button" onClick={onClose} className="delivery-return">{zh ? '返回工作' : 'Back to work'} ×</button></div>
         {deliveries.length > 1 ? <select aria-label={zh ? '选择交付任务' : 'Choose delivery'} className="delivery-task-select" value={delivery.delivery_id} onChange={(e) => { const receipt = deliveries.find((item) => item.delivery_id === e.target.value); if (receipt) onSelectDelivery?.(receipt); }}>
           {deliveries.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{deliveryOptionLabel(receipt, zh)}</option>)}
         </select> : null}
@@ -243,7 +243,7 @@ export function ArtifactModal({
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50">
-            <img src={previewUrl} alt={info.name} className="max-h-[62vh] max-w-full object-contain" />
+            <img src={previewUrl} alt={info.name} className="max-h-full max-w-full object-contain" />
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (
@@ -261,7 +261,7 @@ export function ArtifactModal({
         ) : null}
         {info?.kind === 'video' && previewUrl ? (
           <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-black">
-            <video controls playsInline preload="metadata" src={previewUrl} className="max-h-[62vh] max-w-full" />
+            <video controls playsInline preload="metadata" src={previewUrl} className="max-h-full max-w-full" />
           </div>
         ) : null}
         {info && ['image', 'pdf', 'audio', 'video'].includes(info.kind) && !previewUrl && !previewError ? (

@@ -11,8 +11,6 @@ import { preferredPreviewWidth, PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from 
 
 type WorkspaceView = 'activity' | 'workbench' | 'map';
 const WORKSPACE_VIEWS: readonly WorkspaceView[] = ['activity', 'workbench', 'map'];
-// Start with the conversation and results; keep explicitly chosen views.
-const WORKSPACE_VIEW_KEY = 'argus.workspace.view.v3';
 const MAP_FULL_KEY = 'argus.map.fullscreen.v1';
 
 function isWorkspaceView(value: string | null): value is WorkspaceView {
@@ -27,18 +25,15 @@ function storedBoolean(key: string, fallback: boolean): boolean {
 export function useWorkbenchLayout() {
   const params = new URLSearchParams(window.location.search);
   const kiosk = params.get('kiosk') === '1';
-  const [workspaceView, setWorkspaceViewState] = useState<WorkspaceView>(() => {
-    const requested = params.get('view');
-    if (requested === 'mission') return 'activity';
-    if (isWorkspaceView(requested)) return requested;
-    const stored = readLocalStorage(WORKSPACE_VIEW_KEY);
-    return isWorkspaceView(stored) ? stored : params.get('kiosk') === '1' ? 'map' : 'activity';
-  });
-  const setWorkspaceView = useCallback((view: WorkspaceView) => {
-    writeLocalStorage(WORKSPACE_VIEW_KEY, view);
-    setWorkspaceViewState(view);
-  }, []);
+  const project = params.get('project');
+  const requested = params.get('view');
+  const openingView = isWorkspaceView(requested) ? requested : 'activity';
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>(openingView);
   const [mobileView, setMobileView] = useState<'activity' | 'preview'>('activity');
+  useEffect(() => {
+    setWorkspaceView(openingView);
+    setMobileView('activity');
+  }, [project, openingView]);
   const [rightPanelOpen, setRightPanelOpen] = useState(() => storedBoolean('argus.preview.expanded.v6', false));
   const [narrow, setNarrow] = useState(() => window.innerWidth < 1200);
   // The saved desktop preference does not open the narrow reading view.

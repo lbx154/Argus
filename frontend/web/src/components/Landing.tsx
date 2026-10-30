@@ -24,6 +24,8 @@ export function Landing({
   workdirs = [],
   createError,
   onWorkdirChange,
+  focusSignal = 0,
+  onFocusComposer,
 }: {
   loading: boolean;
   hasProjects: boolean;
@@ -39,10 +41,11 @@ export function Landing({
   workdirs?: string[];
   createError?: unknown;
   onWorkdirChange?: () => void;
+  focusSignal?: number;
+  onFocusComposer?: () => void;
 }) {
   const { t, locale } = useI18n();
   const { draft, setText, setAttachments, drop } = useSessionComposer('home');
-  const [focus, setFocus] = useState(0);
   const [completionSelection, setCompletionSelection] = useState(0);
   const [workdir, setWorkdir] = useState('');
   // A new form starts with an empty directory; errors from the previous form expire with it.
@@ -74,7 +77,7 @@ export function Landing({
             const accepted = await onSubmit(text, files, workdir.trim());
             if (accepted) drop('home');
             return accepted;
-          }} disabled={creating} pending={false} focusSignal={focus}
+          }} disabled={creating} pending={false} focusSignal={focusSignal}
           completionSelection={completionSelection} onCompletionSelectionChange={setCompletionSelection} />
         <p className="landing-caption">{locale === 'zh-CN'
           ? '发送后自动建立项目；团队干活时也可以随时说话。'
@@ -103,11 +106,11 @@ export function Landing({
       )}
       {!loading && !error && canCreate && <section className="landing-starters">
         <h2>{locale === 'zh-CN' ? '看看它能做什么：这些任务都实际跑过' : 'See what it can do: each of these was run end to end'}</h2>
-        <ShowcasePrompts onPick={onSubmit ? text => { setText(text); setFocus(value => value + 1); } : onNew} disabled={creating} />
+        <ShowcasePrompts onPick={onSubmit ? text => { setText(text); onFocusComposer?.(); } : onNew} disabled={creating} />
       </section>}
       {!loading && !error && !hasProjects && canCreate && <section className="landing-starters">
         <h2>{locale === 'zh-CN' ? '也可以从这里开始' : 'Or start with an idea'}</h2>
-        <StartPrompts onPick={onSubmit ? text => { setText(text); setFocus(value => value + 1); } : onNew} disabled={creating} />
+        <StartPrompts onPick={onSubmit ? text => { setText(text); onFocusComposer?.(); } : onNew} disabled={creating} />
       </section>}
     </div>
   );

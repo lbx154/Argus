@@ -247,11 +247,14 @@ export interface Reading {
   /** The results the Manager handed over, by delivery (`d` and its line), each with its files as delivered. */
   delivered: Map<string, Extract<Recorded, { type: 'handoff' }>>;
   map: MapReading;
+  errors: Map<string, string>;
+  trace: { ended: Map<string, Omit<TraceGroup, 'entries'>>; tasks: Map<string, TraceGroup[]> };
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
   end: 0, usage: { end: 0, rows: [] }, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
   roleEvents: [], round: 0, activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
+  errors: new Map(), trace: { ended: new Map(), tasks: new Map() },
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
     answered: null, briefed: null, worked: new Set(), follows: new Map() },
 }): Reading {
@@ -260,6 +263,11 @@ export function projectRecord(events: Recorded[], reading: Reading = {
     const ts = seconds(event.ts);
     const converted = webEvents([event], reading.fold);
     foldMap(reading.map, event, line);
+    foldTrace(reading.trace, event);
+    if (event.type === 'call.end' && event.task) {
+      if (event.error) reading.errors.set(event.task, event.error);
+      else reading.errors.delete(event.task);
+    }
     if (event.type !== 'step') reading.stateLine = line;
     const put = (row: EventMsg, id: string, order = line) => reading.rows.set(id, { ...row, row_id: id, order });
     if (event.type === 'message') {
@@ -521,23 +529,22 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       if (event.to !== 'operator' || event.open?.length) worked.add(card.id);
       // The reply is the message's progress; a brief to the team is not: its tasks show theirs.
       if (replied) actions.set(card.id, { role: event.role, text: event.letter, ts, line });
-      letters.push({ line, letter: { id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
+      if (replied) letters.push({ line, letter: { id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter } });
     }
   }
 }
 
 /** Dialogue and map share the task's visible progress and closing files. */
-function taskPresentation(reading: MapReading, project: Project, id: string) {
+export function taskPresentation(reading: MapReading, project: Project, id: string) {
   const question = asked(project, id);
   const action = question ? undefined : reading.actions.get(id);
   return {
     latest_action: action ? { role: action.role, text: action.text, ts: action.ts } : undefined,
     result_paths: reading.closed.has(id) ? reading.opened.get(id) ?? [] : [],
-    ...(question ? { pending_question: question.question } : {}),
   };
 }
 
-function mapProjection(record: Reading, project: Project, after: number, calls: Live['calls']) {
+export function mapProjection(record: Reading, project: Project, after: number, calls: Live['calls']) {
   const { added, closed, letters, qa, worked, follows } = record.map;
   // An answered message stays if it is the original request, the latest one, or set work going; one
   // still to be answered while the team answers, and the original request even while it is stopped.
@@ -568,38 +575,49 @@ function mapProjection(record: Reading, project: Project, after: number, calls: 
       ...taskPresentation(record.map, project, item.id),
     };
   })].sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
+  // Only the card's one-line excerpt travels on refresh; dialogue and details keep the original.
+  for (const task of tasks) if (task.latest_action) {
+    const text = firstLine(task.latest_action.text);
+    task.latest_action = { ...task.latest_action, text: text.length > 160 ? `${text.slice(0, 159).trimEnd()}…` : text };
+  }
   return { id: `live:${project.id}`, title: project.id, kind: 'live', description: '', read_only: false, tasks,
     events: letters.flatMap(({ line, letter }) => line >= after ? [letter] : []), cursor: String(record.fold.line) };
 }
 
-type CallEnd = Extract<Recorded, { type: 'call.end' }>;
+interface TraceGroup {
+  call_id: string;
+  role: Role;
+  started_ts: number;
+  ended_ts: number;
+  entries: { kind: string; text: string }[];
+}
+
+/** Retain the call facts needed by traces in the shared fold. Incoming letters belong to the
+ * last completed call in their author's scope; one Planner call may open several tasks. */
+function foldTrace(trace: Reading['trace'], event: Recorded): void {
+  const include = (task: string, call: Omit<TraceGroup, 'entries'>): TraceGroup => {
+    let groups = trace.tasks.get(task);
+    if (!groups) trace.tasks.set(task, groups = []);
+    let found = groups.find(group => group.call_id === call.call_id);
+    if (!found) groups.push(found = { ...call, entries: [] });
+    return found;
+  };
+  if (event.type === 'call.end') {
+    const call = { call_id: event.callId, role: event.role, started_ts: seconds(event.ts) - event.ms / 1000, ended_ts: seconds(event.ts) };
+    trace.ended.set(`${event.role}.${event.task ?? ''}`, call);
+    if (event.task) include(event.task, call);
+  } else if (event.type === 'handoff' && event.task) {
+    const scope = event.role === 'engineer' || event.role === 'reviewer' ? event.task : '';
+    const call = trace.ended.get(`${event.role}.${scope}`);
+    if (call) include(event.task, call).entries.push({ kind: 'message', text: event.letter });
+  } else if (event.type === 'task.added') {
+    const call = trace.ended.get(`${event.task.from}.`);
+    if (call) include(event.task.id, call).entries.push({ kind: 'message', text: event.task.objective });
+  }
+}
 
 /** A task's calls and incoming letters, grouped by the call that wrote them.
  * The call whose letter opened the task comes first. */
 export function taskTrace(store: Store, project: Project, task: string) {
-  const group = (call: CallEnd) => ({
-    call_id: call.callId, role: call.role, started_ts: seconds(call.ts) - call.ms / 1000, ended_ts: seconds(call.ts),
-    entries: [] as { kind: string; text: string }[],
-  });
-  const groups: ReturnType<typeof group>[] = [];
-  const ended = new Map<string, CallEnd>();
-  const include = (call: CallEnd) => {
-    let found = groups.find(group => group.call_id === call.callId);
-    if (!found) groups.push(found = group(call));
-    return found;
-  };
-  for (const event of readEvents(store, project.id)) {
-    if (event.type === 'call.end') {
-      ended.set(`${event.role}.${event.task ?? ''}`, event);
-      if (event.task === task) include(event);
-    } else if (event.type === 'handoff' && event.task === task) {
-      const scope = event.role === 'engineer' || event.role === 'reviewer' ? task : '';
-      const call = ended.get(`${event.role}.${scope}`);
-      if (call) include(call).entries.push({ kind: 'message', text: event.letter });
-    } else if (event.type === 'task.added' && event.task.id === task) {
-      const call = ended.get(`${event.task.from}.`);
-      if (call) include(call).entries.push({ kind: 'message', text: event.task.objective });
-    }
-  }
-  return { task_id: task, groups };
+  return { task_id: task, groups: readRecord(store, project.id).trace.tasks.get(task) ?? [] };
 }

@@ -3,12 +3,12 @@ import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
 import { Modal } from './Modal';
 import { registerModal } from './modalStack';
 
-vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
 vi.mock('../i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 
 class FocusNode {
   isConnected = true;
   domOrder = 0;
+  hiddenByDetails = false;
   nodes: FocusNode[] = [];
   constructor(readonly name: string) {}
   focus() { activeElement = this; }
@@ -22,6 +22,7 @@ class FocusNode {
   querySelector(selector: string) { return selector === '[data-autofocus]' ? null : this.nodes[0] ?? null; }
   querySelectorAll() { return this.nodes; }
   getAttribute() { return null; }
+  closest() { return this.hiddenByDetails ? this : null; }
   getClientRects() { return [{}]; }
 }
 let activeElement: FocusNode;
@@ -216,4 +217,23 @@ it('keeps a visually higher sibling in control when an earlier DOM modal opens l
   expect(activeElement.name).toBe('lower-first');
   view.lower = false; render();
   expect(activeElement.name).toBe(origin.name);
+});
+
+it('wraps a project drawer at More instead of buttons in its closed appearance details', () => {
+  const drawer = new FocusNode('projects');
+  const close = new FocusNode('close-projects');
+  const more = new FocusNode('more-summary');
+  const hiddenTheme = new FocusNode('theme-in-closed-details');
+  // Chromium gives these hidden details descendants client rects and visibility: visible.
+  hiddenTheme.hiddenByDetails = true;
+  drawer.nodes = [close, more, hiddenTheme];
+  const remove = registerModal(drawer as unknown as HTMLElement, vi.fn());
+  flushFrames();
+  expect(activeElement).toBe(close);
+  expect(key('Tab', true).defaultPrevented).toBe(true);
+  expect(activeElement).toBe(more);
+  expect(key('Tab').defaultPrevented).toBe(true);
+  expect(activeElement).toBe(close);
+  remove();
+  expect(activeElement).toBe(origin);
 });

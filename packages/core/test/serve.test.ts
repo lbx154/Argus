@@ -299,7 +299,7 @@ test('a refused form goes back to the Manager within the same message', async t 
   assert.deepEqual(reply.at(-1), { type: 'done', result: { kind: 'chat', reply: 'Hello.' } });
 });
 
-interface MapTask { id: string; title: string; status: string; role: string; ts: number; finished_ts: number | null; pending_question?: string;
+interface MapTask { id: string; title: string; status: string; role: string; ts: number; finished_ts: number | null;
   latest_action?: import('@argus/contracts').BacklogItem['latest_action']; result_paths: string[] }
 interface MapLetter { id: string; item_id: string; type: string; role: string; to: string; text: string }
 interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string }
@@ -379,13 +379,12 @@ test('the map shows each task and the letters written about it, and a task its c
 
   const first = await get<ProgressMap>(`${P}/map`);
   assert.equal(first.id, `live:${sid}`);
-  assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, task.pending_question]), [
-    // Handed to the team, the message is answered once the work it set going is done.
-    ['q0', 'Total the columns of data.csv', 'in_progress', 'manager', undefined],
-    ['t1', 'Summarize the CSV.', 'blocked', 'reviewer', 'Ship it as is?'],
+  assert.deepEqual(first.tasks.map(task => [task.id, task.title, task.status, task.role, "pending_question" in task]), [
+    // A request delegated to the team completes once the work it set going is done.
+    ['q0', 'Total the columns of data.csv', 'in_progress', 'manager', false],
+    ['t1', 'Summarize the CSV.', 'blocked', 'reviewer', false],
   ]);
   assert.deepEqual(first.events.map(letter => [letter.item_id, letter.type, letter.role, letter.to, letter.text]), [
-    ['q0', 'turn.replied', 'manager', 'planner', 'Total the columns, in steps.'],
     ['t1', 'handoff', 'engineer', 'reviewer', 'report.md written'],
     ['t1', 'handoff', 'reviewer', 'operator', 'Ship it as is?'],
   ]);
@@ -398,7 +397,7 @@ test('the map shows each task and the letters written about it, and a task its c
   assert.deepEqual(later.events.map(letter => [letter.role, letter.to, letter.text]),
     [['operator', 'reviewer', 'Add the units first.'], ['reviewer', 'engineer', 'Add the units.'], ['engineer', 'reviewer', 'Units added.'], ['reviewer', 'planner', 'Accepted.']]);
   const task = later.tasks.find(card => card.id === 't1');
-  assert.deepEqual([task!.status, task!.pending_question], ['done', undefined]);
+  assert.deepEqual([task!.status, 'pending_question' in task!], ['done', false]);
   assert.equal(later.tasks.find(card => card.id === 'q0')!.status, 'done');
   assert.ok(task!.ts < task!.finished_ts!);
   assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${later.cursor}`)).events, []);
@@ -1407,4 +1406,29 @@ test('map and task detail use the same live request cards and snapshot request m
       assert.equal(requests.length, 1);
     }
   }
+});
+
+test('map excerpts leave the conversation and on-demand task detail in full', async t => {
+  const { store, get } = await setup(t, []);
+  const project = store.create({ workdir: '', request: 'Check the source', backend: 'codex', model: null });
+  const added = JSON.parse(await readFile(new URL('./fixtures/operator-task/events.jsonl', import.meta.url), 'utf8')) as Extract<Recorded, { type: 'task.added' }>;
+  project.tasks = [added.task];
+  project.status = 'stopped';
+  store.save(project);
+  store.append(project.id, added);
+  const text = 'Measured the implementation and verified the requested behavior. '.repeat(40) + 'FULL_ACTION_END';
+  store.append(project.id, { type: 'step', role: 'engineer', task: added.task.id, kind: 'message', text });
+  const P = `/api/projects/${project.id}`;
+  const map = await get<{ tasks: Array<{ id: string; latest_action: { text: string } }> }>(`${P}/map`);
+  const card = map.tasks.find(task => task.id === added.task.id)!;
+  assert.ok(card.latest_action.text.length <= 160);
+  assert.ok(!card.latest_action.text.includes('FULL_ACTION_END'));
+  const detail = await get<{ item: { latest_action: { text: string }; objective: string } }>(`${P}/backlog/${added.task.id}`);
+  assert.equal(detail.item.latest_action.text, text);
+  assert.equal(detail.item.objective, added.task.objective);
+  const conversation = await get<ConversationPage>(`${P}/conversation`);
+  assert.equal(conversation.rows.find(row => row.type === 'ui.task')?.progress, text);
+  // Reading a map never mutates the shared full-text projection.
+  const again = await get<{ item: { latest_action: { text: string } } }>(`${P}/backlog/${added.task.id}`);
+  assert.equal(again.item.latest_action.text, text);
 });

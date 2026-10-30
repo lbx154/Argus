@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/r
 import { newestPerRole, type ConversationPage } from '@argus/contracts';
 import { api, openConversation, type EventMsg } from './api';
 import { roleLogKey, type RoleLog } from './useRoleLog';
+import { mapRefresher } from './map/refresh';
 import { mergeConversationEvents } from './lib/conversationEvents';
 
 export type ConversationHistoryStatus = 'loading' | 'error' | 'ready';
@@ -41,6 +42,7 @@ export function useConversationHistory(
     const data = client.getQueryData<InfiniteData<ConversationPage>>(['conversation', sid])!;
     let cursor = Math.max(...data.pages.map(page => page.cursor));
     let closed = false;
+    const refreshMap = mapRefresher(client, sid);
     setConnection({ sid, connected: false });
     const close = openConversation(sid, cursor, frame => {
       if (closed) return;
@@ -58,7 +60,7 @@ export function useConversationHistory(
         events: newestPerRole([...new Map([...(current?.events ?? []).filter(row => Number(row.event_id) >= Number(frame.round)),
           ...roleEvents].map(row => [row.event_id, row])).values()].sort((a, b) => Number(a.event_id) - Number(b.event_id))),
       }));
-      if (updates.length) void client.invalidateQueries({ queryKey: ['map-live', sid], exact: true });
+      if (updates.length) void refreshMap();
       const fresh = [...updates, ...roleEvents].filter(event => Number(event.event_id) > cursor);
       if (fresh.some(event => event.delivery || event.type === 'provider.request.completed')) {
         void client.invalidateQueries({ queryKey: ['artifacts', sid], exact: true });

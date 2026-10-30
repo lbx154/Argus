@@ -2,31 +2,35 @@ import replay from '../../../../packages/core/test/fixtures/conversation-fixes/a
 import { webEvents, type Recorded } from '../../../../packages/core/src/serve/views';
 import { describe, expect, it } from 'vitest';
 import type { EventMsg } from '../api';
-import { durableMessageId, mergeConversationEvents, mergeOptimisticManagerReply, optimisticOperatorEvent, optimisticManagerEvent, settleOptimisticManagerTurn } from '../lib/conversationEvents';
+import { conversationEventKey, durableMessageId, mergeConversationEvents, mergeManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
 
 const asked: EventMsg = { type: 'ui.operator', agent_layer: 'operator', text: '分三个任务做', ts: 10, event_id: 4, message_id: 'm4-operator', request_id: 'r1' };
 const brief: EventMsg = { type: 'ui.argus', agent_layer: 'manager', to: 'planner', text: '# 三个任务\n请规划。', ts: 20, event_id: 7, message_id: 'm4-argus', request_id: 'r1' };
 
 describe('recorded requests replace optimistic conversation rows', () => {
-  it('creates both waiting rows before any network response', () => {
+  it('creates only the operator row before any network response', () => {
     expect(optimisticOperatorEvent('s', 'r1', '你好', 1000)).toMatchObject({ type: 'ui.operator', text: '你好', request_id: 'r1' });
-    expect(optimisticManagerEvent('s', 'r1', 1000)).toMatchObject({ type: 'ui.argus', live: true, request_id: 'r1' });
   });
   it('uses the transcript id for revisions once the answer arrives', () => {
     const operator = optimisticOperatorEvent('s', 'r1', '分三个任务做');
     expect(durableMessageId(operator)).toBeUndefined();
-    expect(durableMessageId(mergeOptimisticManagerReply([operator], 'r1', brief)[0])).toBe('m4-operator');
+    expect(durableMessageId(mergeManagerReply([operator], 'r1', brief)[0])).toBe('m4-operator');
   });
-  it('keeps the stopped reply until its corresponding record row arrives', () => {
-    const waiting = [optimisticOperatorEvent('s', 'r1', '分三个任务做'), optimisticManagerEvent('s', 'r1')];
-    const stopped = settleOptimisticManagerTurn(waiting, 'r1', 'stopped');
-    expect(stopped[1]).toMatchObject({ live: false, status: 'stopped' });
-    const recordedStop = { ...brief, text: '', status: 'stopped' };
-    expect(mergeConversationEvents([asked, recordedStop], stopped)).toEqual([asked, recordedStop]);
-    expect(mergeConversationEvents([asked, brief], stopped)).toEqual([asked, brief]);
+  it('keeps one identity from local send through server acceptance and final reply', () => {
+    const operator = optimisticOperatorEvent('s', 'r1', '分三个任务做');
+    expect(conversationEventKey(operator)).toBe(conversationEventKey(asked));
+    expect(conversationEventKey(asked)).not.toBe(conversationEventKey(brief));
+    expect(conversationEventKey({ ...brief, status: 'running' })).toBe(conversationEventKey(brief));
   });
-  it('does not turn a final answer into a stopped reply', () => {
-    expect(settleOptimisticManagerTurn([brief], 'r1', 'stopped')).toEqual([brief]);
+  it('keeps persistent identities for distinct tasks and questions on one request', () => {
+    const rows = [
+      { ...brief, type: 'ui.question', row_id: 'question:q1' },
+      { ...brief, type: 'ui.question', row_id: 'question:q2' },
+      { ...brief, type: 'ui.task', row_id: 'task:t1' },
+      { ...brief, type: 'ui.task', row_id: 'task:t2' },
+      { ...brief, request_id: undefined, row_id: 'message:old' },
+    ];
+    expect(rows.map(conversationEventKey)).toEqual(['question:q1', 'question:q2', 'task:t1', 'task:t2', 'message:old']);
   });
   it('does not confuse repeated messages, even with equal text and timestamps', () => {
     const repeated = optimisticOperatorEvent('s', 'r2', asked.text as string, 10000);

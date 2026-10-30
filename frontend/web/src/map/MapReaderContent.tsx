@@ -33,13 +33,14 @@ export function MapReaderContent({ cardKey, taskId, task, originalDetail, artifa
   </div>;
 }
 
-/** Until a task delivers, its status is its conclusion, said plainly. */
+/** The task's full latest words, or its status before progress has arrived. */
 function plainConclusion(task: MapTask, zh: boolean): string {
+  if (task.latest_action) return task.latest_action.text;
   if (ACTIVE.has(task.status)) return zh ? '还在进行中。' : 'Still in progress.';
   return task.title;
 }
 
-/** The map carries a summary; opening its reader asks for the original brief. */
+/** The map carries an excerpt; its reader asks for the original brief and progress. */
 export function MapTaskReader({ task, sessionId, answer, artifacts, onOpenArtifact, workspace, zh = true }: {
   task: MapTask; sessionId: string; answer?: string; artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void; workspace?: string; zh?: boolean;
@@ -51,7 +52,7 @@ export function MapTaskReader({ task, sessionId, answer, artifacts, onOpenArtifa
     <div className="px-6">
       {detail.isPending ? <p role="status">{zh ? '正在读取任务说明…' : 'Reading the task brief…'}</p>
         : detail.isError ? <p role="alert"><ErrorMessage error={detail.error} locale={zh ? 'zh-CN' : 'en'} /></p>
-        : <MapReaderContent cardKey={task.id} taskId={task.id} task={task} sessionId={sessionId}
+        : <MapReaderContent cardKey={task.id} taskId={task.id} task={{ ...task, latest_action: detail.data.latest_action }} sessionId={sessionId}
           originalDetail={task.turn_kind === 'qa' ? answer || '' : detail.data.objective || ''}
           artifacts={artifacts} onOpenArtifact={onOpenArtifact} workspace={workspace} zh={zh} />}
     </div>

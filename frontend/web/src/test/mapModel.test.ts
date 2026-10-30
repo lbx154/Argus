@@ -11,8 +11,8 @@ describe("progress map data semantics", () => {
   it("orders actionable questions before failures without duplicating or mutating tasks", () => {
     const rows = [
       task("failed", [], "failed"),
-      { ...task("question", [], "failed"), pending_question: "Choose a route" },
-      { ...task("finished", [], "done"), pending_question: "Old question" },
+      task("question", [], "blocked"),
+      task("finished", [], "done"),
       task("running", [], "running"),
     ];
     expect(attentionTasks(rows).map((row) => row.id)).toEqual(["question", "failed"]);
@@ -32,7 +32,7 @@ describe("progress map data semantics", () => {
     // The frontier failure still needs the reader, and so does any open question.
     const frontier = task("latest", [], "failed", 400);
     expect(attentionTasks([...rows, frontier]).map((row) => row.id)).toEqual(["latest"]);
-    const asked = { ...stale, pending_question: "Which venue?" };
+    const asked = { ...stale, status: "blocked" };
     expect(attentionTasks([asked, rows[1], rows[2]]).map((row) => row.id)).toEqual(["first"]);
     // Without timestamps nothing is known to be later, so the failure stays visible.
     expect(attentionTasks([task("f", [], "failed"), task("d", [], "done")]).map((row) => row.id)).toEqual(["f"]);
@@ -104,8 +104,7 @@ describe("progress map data semantics", () => {
   it("preserves a replaced branch and highlights pending questions separately", () => {
     const old = task("old", [], "superseded");
     const question = {
-      ...task("new", [], "failed"),
-      pending_question: "Choose a route",
+      ...task("new", [], "blocked"),
     };
     expect(buildMap([old, question]).tasks).toHaveLength(2);
     expect(statusKey(question)).toBe("question");

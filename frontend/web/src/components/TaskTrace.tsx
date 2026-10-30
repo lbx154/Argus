@@ -112,7 +112,8 @@ export function TaskTrace({ sessionId, taskId, zh, conclusion, running = false, 
   const trace = useTaskTrace(sessionId, taskId, running);
   const line = trace.data?.conclusion || conclusion;
   return <div className="task-trace" data-task-trace={taskId}>
-    {line ? <p className="task-trace-conclusion mb-3 font-medium">{relativizeWorkspacePaths(line, workspace)}</p> : null}
+    {line && (trace.isError || !trace.data?.groups.some(group => group.entries.some(entry => entry.kind === 'message' && entry.text === line)))
+      ? <p className="task-trace-conclusion mb-3 font-medium">{relativizeWorkspacePaths(line, workspace)}</p> : null}
     {trace.isLoading ? <p className="text-xs text-ink-dim">{zh ? '正在读取过程记录…' : 'Reading the record…'}</p>
       : trace.isError ? <p className="text-xs text-ink-dim">{zh ? '过程记录暂时读不到。' : 'The record could not be read.'}</p>
       : !trace.data?.groups.length ? <p className="text-xs text-ink-dim">{zh ? '还没有过程记录。' : 'No recorded process yet.'}</p>

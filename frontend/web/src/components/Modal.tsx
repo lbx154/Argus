@@ -1,5 +1,4 @@
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
-import { useGsapMotion } from '../lib/motion';
 import { useI18n } from '../i18n';
 import { registerModal } from './modalStack';
 
@@ -32,36 +31,8 @@ export function Modal({
 }) {
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const backdropRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  useGsapMotion(dialogRef, (gsap, reduceMotion) => {
-    if (!open || !dialogRef.current || !backdropRef.current) return;
-    if (reduceMotion) {
-      gsap.set([backdropRef.current, dialogRef.current], { clearProps: 'all' });
-      return;
-    }
-    gsap.timeline({ defaults: { overwrite: 'auto' } })
-      .fromTo(
-        backdropRef.current,
-        { autoAlpha: 0 },
-        { autoAlpha: 1, duration: 0.14, ease: 'power1.out' },
-        0,
-      )
-      .fromTo(
-        dialogRef.current,
-        { opacity: 0, y: align === 'top' ? -6 : align === 'bottom' ? 14 : 8, scale: align === 'bottom' ? 1 : 0.992 },
-        {
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          duration: 0.2,
-          ease: 'power3.out',
-          clearProps: 'transform,opacity,visibility',
-        },
-        0.03,
-      );
-  }, [open, align]);
   useEffect(() => {
     if (!open || !dialogRef.current) return;
     return registerModal(dialogRef.current, () => closeRef.current());
@@ -73,9 +44,10 @@ export function Modal({
       className={`fixed inset-0 z-50 flex ${align === 'top' ? 'items-start pt-3 sm:pt-14' : align === 'bottom' ? 'items-end sm:items-center' : 'items-center'} justify-center ${viewport ? 'p-0' : align === 'bottom' ? 'p-0 sm:p-4' : 'p-3 sm:p-4'}`}
       onPointerDown={onClose}
     >
-      <div ref={backdropRef} className="modal-scrim absolute inset-0" />
+      <div className="modal-scrim absolute inset-0" />
       <div
         ref={dialogRef}
+        data-modal-align={align}
         role="dialog"
         aria-modal="true"
         aria-label={label}

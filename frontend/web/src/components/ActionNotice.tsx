@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { ErrorDetails } from './ErrorMessage';
 
@@ -13,8 +13,7 @@ export interface UiNotice {
   action?: NoticeAction;
 }
 
-/** Short, accessible feedback for actions that otherwise change state silently; below the
- * header, never over the composer and its buttons. */
+/** Feedback occupies its own row so project tools remain reachable. */
 export function ActionNotice({
   notice,
   onClose,
@@ -24,10 +23,15 @@ export function ActionNotice({
 }) {
   const { locale } = useI18n();
   const [pending, setPending] = useState(false);
+  const actionRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     setPending(false);
     if (!notice) return;
-    if (notice.tone === 'error' || notice.action) return;
+    if (notice.action) {
+      actionRef.current?.focus();
+      return;
+    }
+    if (notice.tone === 'error') return;
     const timeout = window.setTimeout(onClose, 5_000);
     return () => window.clearTimeout(timeout);
   }, [notice, onClose]);
@@ -42,7 +46,7 @@ export function ActionNotice({
     <div
       role={notice.tone === 'error' ? 'alert' : 'status'}
       aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
-      className={`fixed left-4 right-4 top-[108px] z-[70] flex items-start gap-2 rounded-md border bg-panel px-3 py-2.5 shadow-glow sm:left-auto sm:max-w-md ${colors}`}
+      className={`flex shrink-0 items-start gap-2 border-b bg-panel px-3 py-2.5 ${colors}`}
     >
       <span aria-hidden="true" className="mt-px shrink-0">
         {notice.tone === 'error' ? '!' : notice.tone === 'success' ? '✓' : 'i'}
@@ -51,7 +55,7 @@ export function ActionNotice({
         {notice.message}
         {notice.details ? <ErrorDetails error={notice.details} /> : null}
       </div>
-      {notice.action && <button type="button" disabled={pending} className="shrink-0 text-xs underline disabled:opacity-50"
+      {notice.action && <button ref={actionRef} type="button" disabled={pending} className="shrink-0 text-xs underline disabled:opacity-50"
         onClick={() => { setPending(true); void notice.action!.onClick(); }}>{notice.action.label}</button>}
       <button
         type="button"

@@ -627,8 +627,13 @@ test('searchable event and full task panels stay useful at 60 columns', async ()
   assert.match(task, /Run five seeds/);
   assert.match(task, /Five seeds checked/);
   assert.match(task, /codex exited with code 1/);
+  assert.doesNotMatch(task, /WAITING ON YOU/);
   assert.doesNotMatch(task, /iteration|outcome/);
   assert.ok(task.split('\n').every((line) => Array.from(line).length <= 60));
+
+  const waiting = await renderPanel({ kind: 'task', data: { ...item, status: 'blocked' } }, 60);
+  assert.match(waiting, /WAITING ON YOU/);
+  assert.match(waiting, /Run five seeds/);
 
   const snap = {
     session: { id: 's', display_name: '', objective: '', last_active: 0, workdir: '' },

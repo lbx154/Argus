@@ -17,8 +17,7 @@ export class GrowthLedger {
   private initialized = false;
   private seen = new Set<string>();
   private revision = 0;
-  private loadingHistory = false;
-  observe(scene: GrowthScene, historical = false): GrowthBatch | null {
+  observe(scene: GrowthScene): GrowthBatch | null {
     const batch = emptyGrowth();
     let cardIndex = 0;
     for (const card of scene.cards) {
@@ -41,8 +40,7 @@ export class GrowthLedger {
       if (!this.seen.has(`outer:${link.id}`)) batch.links[link.id] = 0;
       this.seen.add(`outer:${link.id}`);
     }
-    const silent = !this.initialized || historical || this.loadingHistory;
-    this.loadingHistory = historical;
+    const silent = !this.initialized;
     this.initialized = true;
     if (silent || ![batch.cards, batch.steps, batch.links].some((items) => Object.keys(items).length)) return null;
     return { ...batch, revision: ++this.revision };

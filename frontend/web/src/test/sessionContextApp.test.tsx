@@ -95,6 +95,7 @@ beforeEach(async () => {
   fixture.artifacts = [];
   fixture.index.isError = false;
   fixture.index.isSuccess = true;
+  fixture.index.isFetchedAfterMount = true;
   fixture.idle.refetch.mockReset().mockResolvedValue({});
   for (const mutation of Object.values(fixture.actions)) mutation.mutateAsync.mockReset();
   fixture.snapshots.clear();
@@ -125,9 +126,9 @@ afterEach(() => {
 });
 
 describe('App session composer ownership', () => {
-  it('opens the conversation when a cached project refreshes with a question and preserves a later map choice', () => {
+  it('opens each project in the conversation and preserves a later map choice', () => {
     const view = () => renderer.root.findAll(node => node.props.className === 'workspace-tab')
-      .find(node => node.props['data-selected'])!.children.join('');
+      .find(node => node.props['aria-current'] === 'page')!.children.join('');
     const map = () => act(() => renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props.onClick());
     const cached = snapshot('s-A');
     const asked = { ...cached, pending_questions: [{ id: pendingAnswer.task.id, operator_decision: {
@@ -138,7 +139,7 @@ describe('App session composer ownership', () => {
     select('s-B');
     fixture.snapshots.set('s-A', { ...fixture.idle, data: cached, isFetching: true, isFetchedAfterMount: false });
     select('s-A');
-    expect(view()).toBe('Map');
+    expect(view()).toBe('Conversation');
     fixture.snapshots.set('s-A', { ...fixture.idle, data: asked });
     refresh();
     expect(view()).toBe('Conversation');
@@ -151,6 +152,20 @@ describe('App session composer ownership', () => {
     select('s-B');
     select('s-A');
     expect(view()).toBe('Conversation');
+  });
+
+  it('waits for the mounted project list before reconciling a link outside the cached list', () => {
+    act(() => renderer.unmount());
+    window.location.search = '?project=s-B';
+    fixture.index.isFetchedAfterMount = false;
+    fixture.index.data.projects = fixture.index.data.projects.filter(row => (row as { id: string }).id === 's-A');
+    act(() => { renderer = create(mountedApp()); });
+    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-B');
+    fixture.index.data.projects = [...fixture.index.data.projects, { id: 's-B', label: 's-B', last_active: 1 }];
+    fixture.index.isFetchedAfterMount = true;
+    refresh();
+    expect(renderer.root.findByType(TopBar).props.snap.session.id).toBe('s-B');
+    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-B');
   });
 
   it('does not replace a map choice with a question that arrives after the opening refresh', () => {
@@ -166,7 +181,23 @@ describe('App session composer ownership', () => {
     } }] };
     fixture.snapshots.set('s-A', { ...fixture.idle, data: asked });
     refresh();
-    expect(renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props['data-selected']).toBe(true);
+    expect(renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props['aria-current']).toBe('page');
+  });
+
+  it('does not replay a composer focus request when switching projects', () => {
+    act(() => renderer.root.findByType(EventStream).props.onCompose('Focus this draft'));
+    expect(props().focusSignal).toBe(1);
+    select('s-B');
+    expect(props().focusSignal).toBe(0);
+    act(() => renderer.root.findByType(Sidebar).props.onNew());
+    expect(renderer.root.findByType(Landing).props.focusSignal).toBe(1);
+  });
+
+  it('requests composer focus on every New activation, including while already on the start page', () => {
+    for (const signal of [1, 2, 3]) {
+      act(() => renderer.root.findByType(Sidebar).props.onNew());
+      expect(renderer.root.findByType(Landing).props.focusSignal).toBe(signal);
+    }
   });
 
   it('keeps project chrome and conversation loading when selecting an uncached project', () => {
@@ -234,6 +265,7 @@ describe('App session composer ownership', () => {
     expect(JSON.stringify(renderer.toJSON())).not.toMatch(/Keep going|continuous campaign|持续推进/);
   });
   it.each(['trash/s-A-20261029000000', 'trash\\s-A-20261029000000'])('offers Undo without server paths after deletion and restores the project (%s)', async trash_path => {
+    act(() => renderer.root.findByType(EventStream).props.onCompose('Focus this draft'));
     fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, trash_path, workdir_preserved: true, workdir: '/private/server/workspaces/s-A' });
     const restore = vi.spyOn(api, 'restoreTrash').mockResolvedValue({ ok: true, sid: 's-A' });
     act(() => renderer.root.findByType(Sidebar).props.onManage('s-A'));
@@ -242,6 +274,8 @@ describe('App session composer ownership', () => {
     expect(notice.message).toBe('Project moved to the trash.');
     expect(notice.message).not.toContain('/');
     expect(notice.action.label).toBe('Undo');
+    expect(renderer.root.findByType(Sidebar).props.mobileOpen).toBe(false);
+    expect(renderer.root.findByType(Landing).props.focusSignal).toBe(0);
     await act(async () => notice.action.onClick());
     expect(restore).toHaveBeenCalledExactlyOnceWith('s-A-20261029000000');
     expect(new URLSearchParams(window.location.search).get('project')).toBe('s-A');

@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { syncBuiltinESMExports } from 'node:module';
 import type { Snapshot } from '@argus/contracts';
 import { firstLine } from '../src/flow.js';
 import { Store, type Project } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
-import { conversationRows, projectRecord, progressMap, type Recorded } from '../src/serve/views.js';
+import { conversationRows, projectRecord, progressMap, readRecord, taskTrace, type Recorded } from '../src/serve/views.js';
 
 const fixture = new URL('../../../frontend/web/src/test/fixtures/home/projects/p-c855623c/', import.meta.url);
 const source = JSON.parse(readFileSync(new URL('project.json', fixture), 'utf8')) as Project;
@@ -73,7 +74,8 @@ test('recorded task: dialogue and map share hidden progress while asking, closin
     assert.equal(row.ts, ts);
     assert.equal(map!.ts, ts);
     assert.equal(map!.started_ts, ts);
-    assert.equal(row.progress, map!.latest_action ? firstLine(map!.latest_action.text) : '');
+    if (map!.latest_action) assert.ok(String(row.progress).startsWith(firstLine(map!.latest_action.text).replace(/…$/, '')));
+    else assert.equal(row.progress, '');
     assert.deepEqual(row.result_paths, map!.result_paths);
     assert.deepEqual(row.result_paths, work.tasks[2]!.status === 'closed' ? ['result.md'] : []);
     // Controlled pending state over the real record: the question itself owns the card.
@@ -82,7 +84,8 @@ test('recorded task: dialogue and map share hidden progress while asking, closin
     const card = progressMap(store, work, 0, []).tasks.find(task => task.id === 't3')!;
     assert.equal(asking.progress, '');
     assert.equal(card.latest_action, undefined);
-    assert.equal(card.pending_question, work.questions[0]!.question);
+    assert.equal(card.status, work.tasks[2]!.status === 'closed' ? 'done' : 'blocked');
+    assert.equal('pending_question' in card, false);
     assert.deepEqual(asking.result_paths, card.result_paths);
     work.questions = [];
   }
@@ -109,4 +112,58 @@ test('read-only git returns only workspace consumers; trash uses the project nam
   assert.equal((await fetch(`${server.url}/api/projects/${work.id}`, { method: 'DELETE' })).status, 200);
   const trash = await (await fetch(`${server.url}/api/trash`)).json();
   assert.equal(trash.entries[0].label, 'Saved request title');
+});
+
+test('real task record: details and traces share the incremental reading and clear errors on the next successful call', async t => {
+  const home = mkdtempSync(join(tmpdir(), 'argus-shared-reading-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const work = store.create({ request: source.request, workdir: home, backend: 'codex', model: null });
+  work.tasks = source.tasks;
+  work.status = 'stopped';
+  store.save(work);
+  const path = join(store.dir(work.id), 'events.jsonl');
+  writeFileSync(path, readFileSync(new URL('events.jsonl', fixture)));
+  const server = await serve({ store, callAgent: async () => { throw new Error('read-only replay'); }, backend: 'codex', model: null, port: 0, web: home });
+  t.after(() => server.close());
+  const get = async (tail: string) => {
+    const response = await fetch(`${server.url}/api/projects/${work.id}/${tail}`);
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const reading = readRecord(store, work.id);
+  const expectedTrace = taskTrace(store, work, 't3');
+  const reads = t.mock.method(fs, 'readSync');
+  syncBuiltinESMExports();
+  t.after(() => { reads.mock.restore(); syncBuiltinESMExports(); });
+  const detail = await get('backlog/t3');
+  const request = await get('backlog/q0');
+  assert.equal(detail.item.objective, source.tasks[2]!.objective);
+  assert.equal(request.item.objective, source.request);
+  assert.ok(detail.item.notes.includes('result.md'));
+  const closing = record.find(event => event.type === 'handoff' && event.role === 'reviewer' && event.task === 't3');
+  assert.ok(closing?.type === 'handoff');
+  assert.equal(detail.item.latest_action.text, closing.letter);
+  assert.equal(request.item.notes, '');
+  assert.deepEqual(await get('map-trace?task=t3'), expectedTrace);
+  assert.ok(reads.mock.calls.every(call => call.arguments[1].byteLength === 0), 'warm requests read no old event bytes');
+  // A modern delivery joins its original request by answers. Full progress must not
+  // replace the request card's delivered paths with a team task's closing paths.
+  store.append(work.id, { type: 'handoff', role: 'manager', to: 'operator', answers: 'r0',
+    letter: 'Complete delivery\nThe final delivery sentence.', open: ['result.md'] });
+  const delivered = (await get('backlog/q0')).item;
+  assert.deepEqual(delivered.result_paths, ['result.md']);
+  assert.equal(delivered.latest_action.text, 'Complete delivery\nThe final delivery sentence.');
+  const end = record.find(event => event.type === 'call.end' && event.task === 't3')!;
+  assert.equal(end.type, 'call.end');
+  if (end.type !== 'call.end') return;
+  for (const [task, error] of [['t3', 'first error'], ['t2', 'other task error'], ['t3', null]] as const) {
+    const event: Recorded = { ...end, task, callId: `increment-${task}-${error}`, completed: !error, error };
+    writeFileSync(path, JSON.stringify(event) + '\n', { flag: 'a' });
+    const item = (await get(`backlog/${task}`)).item;
+    assert.equal(item.last_error, error ?? '');
+    assert.equal(readRecord(store, work.id), reading);
+    assert.equal((await get(`map-trace?task=${task}`)).groups.at(-1).call_id, event.callId);
+  }
+  assert.equal((await get('backlog/t2')).item.last_error, 'other task error');
 });

@@ -24,9 +24,10 @@ it('reads the original request, Manager clarification and operator answer on the
     expect(scene.cards.map(card => card.id)).toEqual(['q0', 't1']);
     const steps = scene.layouts.q0.steps;
     expect(steps.map(step => step.detail)).toEqual(expect.arrayContaining([
-      original.text, '这三个骰子分别用几面？', '都用 6 面。', added.task.objective,
+      original.text, '这三个骰子分别用几面？', '都用 6 面。',
     ]));
     expect(steps.find(step => step.detail === '都用 6 面。')?.title).toBe('你补充的说明');
+    expect(steps.some(step => step.detail === added.task.objective)).toBe(false);
     expect(scene.links).toContainEqual(expect.objectContaining({ source: 'q0', target: 't1' }));
   } finally { rmSync(home, { recursive: true, force: true }); }
 });

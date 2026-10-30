@@ -3,8 +3,8 @@
 // file inside the workdir that is not hidden (`under`), as a result's path does.
 
 import { execFile } from 'node:child_process';
-import { existsSync, lstatSync, readdirSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Project } from '../store.js';
 import { GIT_ENV, rawHeaders, SAFE_GIT, sendFile, textOf, under } from './files.js';
@@ -28,7 +28,7 @@ export function workspace(project: (id: string) => Project): [string, RegExp, Ha
     const work = named(url);
     const found = under(work.workdir, url.searchParams.get('path') ?? '');
     if (!found) throw new HttpError(404, 'no such file');
-    return { work, found };
+    return { found };
   };
   return [
     ['GET', /^\/api\/v2\/workspaces$/, ({ url }) => {
@@ -38,14 +38,11 @@ export function workspace(project: (id: string) => Project): [string, RegExp, Ha
     }],
     ['GET', /^\/api\/v2\/workspace\/tree$/, ({ url }) => tree(named(url).workdir)],
     ['GET', /^\/api\/v2\/workspace\/file$/, ({ url }) => {
-      const { work, found } = file(url);
+      const { found } = file(url);
       if (found.stat.size > TEXT_BYTES) throw new HttpError(413, `file exceeds the ${TEXT_BYTES} byte preview limit`, 'preview_too_large');
       const content = textOf(found.file);
       if (content === null) throw new HttpError(415, 'binary file preview is blocked', 'preview_binary');
-      return {
-        root: work.workdir, workspace_id: `project:${work.id}`, path: found.path, content,
-        size: found.stat.size, mtime: found.stat.mtimeMs / 1000, extension: extname(found.path).toLowerCase(),
-      };
+      return { content };
     }],
     // A file's bytes, as a result's are sent: shown as an image or a PDF, or downloaded.
     ['GET', /^\/api\/v2\/workspace\/(raw|download)$/, ({ params: [how], url, request, response }) => {
@@ -72,13 +69,10 @@ function tree(root: string) {
       if (entries.length >= ENTRIES) return;
       if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === '__pycache__') continue;
       const path = dir ? `${dir}/${entry.name}` : entry.name;
-      const stat = lstatSync(join(root, path), { throwIfNoEntry: false });
       // A link is listed and not followed: it opens only if it leads to a file inside.
       const type = entry.isSymbolicLink() ? 'symlink' : entry.isDirectory() ? 'directory' : entry.isFile() ? 'file' : null;
-      if (!stat || !type) continue;
-      entries.push({
-        path, type, size: type === 'directory' ? 0 : stat.size, mtime: stat.mtimeMs / 1000,
-      });
+      if (!type) continue;
+      entries.push({ path, type });
       if (type === 'directory') walk(path);
     }
   };

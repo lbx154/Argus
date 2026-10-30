@@ -629,7 +629,7 @@
 .argus-map .macro-summary .map-card { padding: 18px 20px 14px; }
 .argus-map .macro-summary .map-card,
 .argus-map .macro-summary .map-card:hover,
-.argus-map .macro-summary .map-card:active { border: 0; outline: 0; box-shadow: none !important; background: transparent; transform: none; }
+.argus-map .macro-summary .map-card:active { border: 0; box-shadow: none !important; background: transparent; transform: none; }
 .argus-map .macro-summary .map-card .map-card-top { padding: 0 0 10px; gap: 10px; justify-content: flex-start; }
 .argus-map .macro-summary .map-card .map-card-kind { letter-spacing: .04em; color: rgb(var(--ink-faint)); }
 .argus-map .macro-summary .map-status {

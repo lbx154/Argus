@@ -12,7 +12,7 @@ describe('prompt completion menu', () => {
         completionSelection={0} onCompletionSelectionChange={() => undefined} />,
     );
     expect(html).not.toContain('role="listbox"');
-    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toMatch(/<textarea[^>]*aria-expanded/);
   });
 
   it('keeps the file picker when no completion is active', () => {

@@ -8,7 +8,7 @@ import { referenceText, splitDraft, type CardReference } from '../map/presentati
 import type { WorkspaceEntry } from '../research-workbench/workspaceApi';
 
 const entry = (path: string, type: WorkspaceEntry['type'] = 'file'): WorkspaceEntry => ({
-  path, type, size: 0, mtime: 0,
+  path, type,
 });
 const ref: CardReference = { source: 'map', task_id: 'other', task_title: 'Other study', event_ids: [] };
 

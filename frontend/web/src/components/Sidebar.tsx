@@ -5,6 +5,7 @@ import { WorkspaceSidePanel } from './WorkspaceShell';
 import { AppearanceControls } from './AppearanceControls';
 import { Wordmark } from './Wordmark';
 import { StatusDot } from './primitives';
+import { registerModal } from './modalStack';
 import { errorText, shortcut } from '../lib/format';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
@@ -76,6 +77,7 @@ export function Sidebar({
   error,
   onRetry,
   mobileOpen = false,
+  onCloseMobile,
   collapsed = false,
   onToggleCollapse,
   themeMode,
@@ -101,6 +103,7 @@ export function Sidebar({
   error?: string;
   onRetry?: () => void;
   mobileOpen?: boolean;
+  onCloseMobile?: () => void;
   collapsed?: boolean;
   onToggleCollapse: () => void;
   themeMode: ThemeMode;
@@ -114,6 +117,19 @@ export function Sidebar({
   const [organization, setOrganization] = useState(readOrganization);
   const [projectFilter, setProjectFilter] = useState<'active' | 'followup' | 'archived'>('active');
   const [organizing, setOrganizing] = useState<string | null>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeMobileRef = useRef(onCloseMobile);
+  closeMobileRef.current = onCloseMobile;
+  useEffect(() => {
+    if (!mobileOpen) { setOrganizing(null); return; }
+    if (!sidebarRef.current) return;
+    return registerModal(sidebarRef.current, () => closeMobileRef.current?.());
+  }, [mobileOpen]);
+  useEffect(() => {
+    if (!organizing || !menuRef.current) return;
+    return registerModal(menuRef.current, () => setOrganizing(null));
+  }, [organizing]);
   const [organizationNotice, setOrganizationNotice] = useState('');
   const [syncingOrganization, setSyncingOrganization] = useState(true);
   const [syncAttempt, setSyncAttempt] = useState(0);
@@ -215,14 +231,16 @@ export function Sidebar({
   const groupIsCollapsed = (path: string) => collapsedGroups.has(path) && !query.trim();
 
   return (
-    <WorkspaceSidePanel mobileOpen={mobileOpen} collapsed={collapsed}>
+    <WorkspaceSidePanel ref={sidebarRef} mobileOpen={mobileOpen} collapsed={collapsed}
+      role={mobileOpen ? "dialog" : "complementary"} aria-modal={mobileOpen ? true : undefined}
+      aria-label={mobileOpen ? t('mobile.sessions') : undefined} tabIndex={mobileOpen ? -1 : undefined}>
       <div className={`chrome-seam-surface flex h-12 shrink-0 items-center border-b border-line/50 ${slim ? 'justify-center' : 'justify-between px-4'}`}>
         {slim ? (
           <Wordmark size={22} compact />
         ) : (
           <>
             <Wordmark size={24} />
-            <button type="button" onClick={onToggleCollapse} aria-label={t('sidebar.collapse')} title={`${t('sidebar.collapse')} · ${shortcut('B')}`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
+            <button type="button" onClick={mobileOpen ? onCloseMobile : onToggleCollapse} aria-label={t(mobileOpen ? 'common.closeSessions' : 'sidebar.collapse')} title={`${t('sidebar.collapse')} · ${shortcut('B')}`} className="icon-control flex h-8 w-8 shrink-0 items-center justify-center">
               <PanelLeftClose size={16} />
             </button>
           </>
@@ -274,7 +292,6 @@ export function Sidebar({
               type="button"
               onClick={onNew}
               disabled={creating}
-              aria-label={t('sidebar.create')}
               title={t('sidebar.create')}
               className="ml-auto flex h-8 items-center justify-center rounded-md px-2 text-xs text-ink-dim hover:bg-bg disabled:opacity-40"
             >
@@ -385,7 +402,6 @@ export function Sidebar({
                           <StatusDot
                             ok={project.daemon_alive}
                             pulse={work ? ['running', 'waiting'].includes(work.state) : false}
-                            title={workLabel}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                           {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
@@ -411,7 +427,8 @@ export function Sidebar({
                       >
                         <MoreHorizontal size={18} />
                       </button>
-                      {organizing === project.id && <div className="project-organization-menu">
+                      {organizing === project.id && <div ref={menuRef} role="dialog" aria-modal="true"
+                        aria-label={zh ? `管理 ${name}` : `Manage ${name}`} tabIndex={-1} className="project-organization-menu">
                         <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'pinned')}><Pin size={13} />{preference(project.id).pinned ? zh ? '取消置顶' : 'Unpin' : zh ? '置顶项目' : 'Pin project'}</button>
                         <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'followup')}><Flag size={13} />{preference(project.id).followup ? zh ? '取消待跟进' : 'Clear follow-up' : zh ? '标记待跟进' : 'Mark for follow-up'}</button>
                         <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'archived')}><Archive size={13} />{preference(project.id).archived ? zh ? '移出归档' : 'Restore to recent' : zh ? '归档项目' : 'Archive project'}</button>

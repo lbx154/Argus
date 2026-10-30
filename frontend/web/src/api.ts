@@ -698,14 +698,9 @@ export const api = {
   /** What `content` changes in the text result `source` as it is now, as a unified diff. */
   editionDiff: (sid: string, source: string, content: string) =>
     postJson<{ diff: string; truncated: boolean }>(P(sid, '/editions/artifact/diff'), { source, content }),
-  liveMap: (sid: string, signal?: AbortSignal, after?: string, selection?: import('./map/incremental').MapSelection) => {
+  liveMap: (sid: string, signal?: AbortSignal, after?: string) => {
     const params = new URLSearchParams();
     if (after) params.set('after', after);
-    if (selection?.mode === 'current') {
-      params.set('since', String(selection.since));
-      params.set('event_since', String(selection.eventSince));
-      if (selection.taskId) params.set('start_task', selection.taskId);
-    }
     return getJson<import('./map/model').Dataset>(P(sid, '/map') + (params.size ? `?${params}` : ''), signal);
   },
   /** One task's recorded trajectory: what each role thought, said, ran and changed. */

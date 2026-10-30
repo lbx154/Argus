@@ -72,22 +72,22 @@ export function TopBar({
 
   return (
     <WorkspaceHeader className="project-header">
-      <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 tracking-[-0.005em] text-ink" title={title}>
+      <h1 className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 tracking-[-0.005em] text-ink" title={title}>
         {title}
-      </div>
-      {showStatus && <div className="topbar-status min-w-0 items-center text-xs text-ink-faint">
-        <span
+      </h1>
+      <div className={showStatus ? "topbar-status min-w-0 items-center text-xs text-ink-faint" : "sr-only"} title={focus ? `${statusWords} · ${focus}` : statusWords}>
+        {showStatus && <span
           className="status-dot"
           data-tone={!streamOk || snapshotStale ? 'idle' : PHASE_TONE[phase]}
           data-role-dot={roleActive ? roleName : undefined}
           aria-label={roleActive ? t('topbar.roleActive', { role: roleLabel(roleName, t) }) : undefined}
           aria-hidden={roleActive ? undefined : true}
-        />
-        <span className="topbar-work-status text-ink-dim" title={focus ? `${statusWords} · ${focus}` : statusWords}>{statusWords}</span>
-        {activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{formatRelativeTime(activityAt, locale)}</time></> : null}
-        {spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
-        <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>
-      </div>}
+        />}
+        <span role="status" className="topbar-work-status text-ink-dim">{statusWords}</span>
+        {showStatus && activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{formatRelativeTime(activityAt, locale)}</time></> : null}
+        {showStatus && spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
+        {showStatus && <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>}
+      </div>
       <div className="topbar-actions flex shrink-0 items-center gap-2 sm:gap-3">
         {onOpenSessions ? (
           <button type="button" onClick={onOpenSessions} aria-label={t('topbar.openSessions')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">

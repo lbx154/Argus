@@ -63,7 +63,7 @@ describe('the task holder, the latest thing said and results on the map card', (
     const said = tree!.root.findByProps({ 'data-testid': 'map-card-action' });
     expect(said.props.title).toBe('Total the **columns**.');
     expect(said.findByType('strong').children).toEqual(['columns']);
-    const next = mergeMapProgress(first, { ...first, incremental: true, tasks: [{ ...task, role: 'reviewer',
+    const next = mergeMapProgress(first, { ...first, tasks: [{ ...task, role: 'reviewer',
       latest_action: { role: 'reviewer', text: '正在核对总数。', ts: 2 } }] });
     act(() => tree!.update(<MacroTaskNode {...card(next.tasks[0])} />));
     // Who said it is who holds it: the holder is not named twice.
@@ -76,7 +76,7 @@ describe('the task holder, the latest thing said and results on the map card', (
   it('opens every file from the closing handoff with the existing preview callback, in order', () => {
     const open = vi.fn();
     const first: Dataset = { id: 'live:p', kind: 'live', title: '', description: '', read_only: false, tasks: [task], events: [] };
-    const next = mergeMapProgress(first, { ...first, incremental: true, tasks: [{ ...task, status: 'done', result_paths: ['report.md', 'data.csv'] }] });
+    const next = mergeMapProgress(first, { ...first, tasks: [{ ...task, status: 'done', result_paths: ['report.md', 'data.csv'] }] });
     const shown = (value: MapTask) => <MapArtifactContext.Provider value={{ onOpenArtifact: open }}><MacroTaskNode {...card(value)} /></MapArtifactContext.Provider>;
     act(() => { tree = create(shown(first.tasks[0])); });
     expect(tree!.root.findAllByProps({ title: 'report.md' })).toHaveLength(0);
@@ -92,10 +92,10 @@ describe('the task holder, the latest thing said and results on the map card', (
   });
 
   it('keeps waiting status without copying the question, and distinguishes waiting for an answer from stopping', () => {
-    const waiting = { ...task, pending_question: '请问输出用中文还是英文？' };
+    const waiting = { ...task, status: 'blocked' };
     const props = card(waiting);
     act(() => { tree = create(<MacroTaskNode {...props} />); });
-    expect(JSON.stringify(tree!.toJSON())).not.toContain(waiting.pending_question);
+    expect(JSON.stringify(tree!.toJSON())).not.toContain('请问输出用中文还是英文？');
     expect(tree!.root.findByProps({ className: 'map-status' }).children).toContain('等你回答');
     expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-live' })).toHaveLength(0);
     const workStatus = { state: 'paused', reason: 'operator_input' } as NonNullable<MacroData['workStatus']>;

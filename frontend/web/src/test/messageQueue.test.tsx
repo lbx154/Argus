@@ -8,10 +8,9 @@ import { Store } from '../../../../packages/core/src/store';
 import { conversationRows, projectRecord, type Live, type Recorded } from '../../../../packages/core/src/serve/views';
 import record from '../../../../packages/core/test/fixtures/message-queue/record.json';
 import { ChatBox } from '../components/ChatBox';
-import { mergeConversationEvents, optimisticManagerEvent, optimisticOperatorEvent } from '../lib/conversationEvents';
+import { mergeConversationEvents, optimisticOperatorEvent } from '../lib/conversationEvents';
 import { EventStream, roleSnapshot } from './serverSnapshot';
 
-vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
 afterEach(() => vi.unstubAllGlobals());
 
 it('renders local placeholders and refreshed rows through waiting, running and completion', () => {
@@ -23,7 +22,6 @@ it('renders local placeholders and refreshed rows through waiting, running and c
     const snapshot = roleSnapshot([], { session: { id: project.id, display_name: '', objective: '', workdir: '', last_active: 1 }, work_status: undefined });
     const local = record.messages.flatMap(({ text, request_id }, index) => [
       optimisticOperatorEvent(project.id, request_id, text, 1000 + index),
-      optimisticManagerEvent(project.id, request_id, 1000 + index),
     ]);
     const replay = record.events as Recorded[];
     const events = replay.slice(0, 3);
@@ -31,12 +29,16 @@ it('renders local placeholders and refreshed rows through waiting, running and c
     const render = (rows = conversationRows(projectRecord(events), project, live)) => renderToStaticMarkup(
       <EventStream events={mergeConversationEvents(rows, local)} snapshot={snapshot} connected showReasoning={false} embedded />,
     );
-    // Before the network accepts either message, neither placeholder claims a running call.
+    // Manager status appears only after the server accepts the messages.
     const initial = render([]);
-    expect(initial.match(/data-manager-reply="waiting"/g)).toHaveLength(2);
+    expect(initial).not.toContain('data-manager-reply=');
     expect(initial).not.toContain('data-tone="running"');
-    // A real first row and a local second row, then both recorded rows after refresh.
-    for (const html of [render(conversationRows(projectRecord(events.slice(0, 1)), project, live)), render()]) {
+    // A recorded first request does not invent a status for the second local send.
+    const partial = render(conversationRows(projectRecord(events.slice(0, 1)), project, live));
+    expect(partial.match(/data-manager-reply="running"/g)).toHaveLength(1);
+    expect(partial).not.toContain('data-manager-reply="waiting"');
+    // Once both requests are recorded, the actual queue has one waiting row.
+    for (const html of [render()]) {
       expect(html.match(/data-manager-reply="running"/g)).toHaveLength(1);
       expect(html.match(/data-manager-reply="waiting"/g)).toHaveLength(1);
       expect(html.match(/Waiting to be processed/g)).toHaveLength(1);

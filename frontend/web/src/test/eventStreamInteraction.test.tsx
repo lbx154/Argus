@@ -16,7 +16,6 @@ vi.mock('react', async importOriginal => {
     return (delayed.events ?? current) as T;
   } };
 });
-vi.mock('../lib/motion', () => ({ useGsapMotion: () => {} }));
 vi.mock('../components/MarkdownContent', () => ({
   MarkdownContent: ({ children }: { children: ReactNode }) => <div data-markdown>{children}</div>,
 }));
@@ -375,7 +374,7 @@ it('restores an opted-in conversation reading position without jumping to the la
 it('waits for ready history before choosing search over the saved position, then keeps it through updates', () => {
   const { snapshot } = runtimeFixture(false);
   vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ top: 140, following: false }), setItem: vi.fn() });
-  const target = { dataset: {} as Record<string, string>, closest: () => null,
+  const target = { dataset: {} as Record<string, string>, closest: () => null, focus: vi.fn(),
     scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
   content = { querySelector: () => target, querySelectorAll: () => [] };
   const events: EventMsg[] = [{ type: 'ui.argus', text: 'Search hit', ts: 1 }];
@@ -390,6 +389,8 @@ it('waits for ready history before choosing search over the saved position, then
   expect(target.scrollIntoView).toHaveBeenCalledOnce();
   expect(outer.scrollTop).toBe(260);
   expect(target.dataset.searchHit).toBe('true');
+  expect(target.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true });
+  expect(target.scrollIntoView.mock.invocationCallOrder[0]).toBeLessThan(target.focus.mock.invocationCallOrder[0]);
   outer.scrollHeight = 1200;
   act(() => renderer!.update(show(true, [...events, { type: 'ui.argus', text: 'New content', ts: 2 }])));
   resize(content); paint();
@@ -398,7 +399,7 @@ it('waits for ready history before choosing search over the saved position, then
 });
 
 it('clears a consumed search without restoring again, and can locate the same row on a later search', () => {
-  const target = { dataset: {}, closest: () => null, scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
+  const target = { dataset: {}, closest: () => null, focus: vi.fn(), scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
   content = { querySelector: () => target, querySelectorAll: () => [] };
   const located = vi.fn();
   const show = (requestedMessageTs?: number) => <EventStream events={[]} connected showReasoning={false}
@@ -418,7 +419,7 @@ it('clears a consumed search without restoring again, and can locate the same ro
 it('loads older conversation pages until the requested visible row exists and opens a folded brief', () => {
   const load = vi.fn();
   const brief = { open: false };
-  const target = { dataset: {}, closest: () => brief, scrollIntoView: vi.fn() };
+  const target = { dataset: {}, closest: () => brief, focus: vi.fn(), scrollIntoView: vi.fn() };
   let found = false;
   content = { querySelector: () => found ? target : null, querySelectorAll: () => [] };
   const show = (loadingOlder: boolean) => <EventStream events={[]} connected showReasoning={false}
@@ -637,4 +638,12 @@ it('keeps raw commands out of a running role header and its task headings until 
   expect(JSON.stringify(renderer!.toJSON())).not.toContain(command);
   act(() => roleGroup().findByProps({ 'data-command-toggle': true }).props.onClick());
   expect(visibleText(roleGroup())).toContain(command);
+});
+
+it('keeps the mounted operator message when its recorded row arrives', () => {
+  const local = optimisticOperatorEvent('session', 'send-r1', 'One message');
+  mount([local]);
+  const row = renderer!.root.findByType('article');
+  update([{ ...local, row_id: 'operator:m15', message_id: 'm15-operator', event_id: 15 }]);
+  expect(renderer!.root.findByType('article')).toBe(row);
 });

@@ -5,7 +5,7 @@ import { Store } from '../../../../packages/core/src/store';
 import { readEvents, snapshot, projectRecord, conversationRows, conversationPage, type Reading } from '../../../../packages/core/src/serve/views';
 import type { EventMsg } from '../api';
 import { EventStream } from './serverSnapshot';
-import { mergeConversationEvents, mergeOptimisticManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
+import { mergeConversationEvents, mergeManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
 
 // Real records: the Manager doing small work itself, and a brief it handed the Planner for three tasks.
 // Each message is named, and the Manager's turn and letter on it name it, as the record now holds them.
@@ -32,7 +32,7 @@ describe('one record, one conversation', () => {
       const streamed = conversationRows(reading, store.load(id), { since: null, calls: [], requests: [] });
       for (const row of streamed) {
         if (waiting && !row.live && row.type === 'ui.argus' && row.message_id === waiting.reply) {
-          local = mergeOptimisticManagerReply(local, waiting.request, row);
+          local = mergeManagerReply(local, waiting.request, row);
           waiting = null;
         }
       }
@@ -47,7 +47,7 @@ describe('one record, one conversation', () => {
     const brief = rows.find(row => row.type === 'ui.argus' && row.to === 'planner')!;
     expect(brief.message_id).toBe('m0-argus');
     const sent = optimisticOperatorEvent('p-c855623c', 'r1', String(rows[0]!.text), Number(rows[0]!.ts) * 1_000 - 1_000);
-    const live = mergeOptimisticManagerReply([sent], 'r1', brief);
+    const live = mergeManagerReply([sent], 'r1', brief);
     for (const events of [mergeConversationEvents([], live), mergeConversationEvents(rows, [])]) {
       expect(renderToStaticMarkup(<EventStream events={events} connected showReasoning={false} embedded />))
         .toContain('data-testid="conversation-brief"');
