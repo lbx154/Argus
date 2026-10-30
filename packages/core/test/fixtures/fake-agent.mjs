@@ -187,9 +187,9 @@ if (cli === 'codex') {
         emit({ type: 'result', sessionId: thread, exitCode: 1 });
         process.exit(1);
       }
-      const message = (content, toolRequests = []) => ({ type: 'assistant.message', data: { model: 'copilot-test', content, toolRequests } });
+      const message = (content, toolRequests = [], more = {}) => ({ type: 'assistant.message', data: { model: 'copilot-test', content, toolRequests, ...more } });
       emit(message('Working on it.', [{ name: 'bash', arguments: { command: 'npm test' } }, { name: 'view', arguments: { path: 'README.md' } },
-        { name: 'edit', arguments: { path: 'parser.js' } }]));
+        { name: 'edit', arguments: { path: 'parser.js' } }], { reasoningText: '**Reading the parser**' }));
       emit(called ? message('', [{ toolCallId: 'call_1', name: 'hand_off', arguments: called, type: 'function' }]) : message(answer));
       // A background subagent reports after the turn's last message.
       emit({ ...message('Background check done.'), agentId: 'sub-1' });
@@ -198,7 +198,7 @@ if (cli === 'codex') {
       const usage = { input: 20, output: 40, cacheRead: 300, cacheWrite: 50, reasoning: 5, cost: { total: 0.0042 } };
       const message = (content, more = {}) => ({ type: 'message_end',
         message: { role: 'assistant', provider: 'anthropic', model: 'claude-test', stopReason: 'stop', content, usage, ...more } });
-      emit(message([{ type: 'text', text: 'Working on it.' }, { type: 'toolCall', name: 'bash', arguments: { command: 'npm test' } },
+      emit(message([{ type: 'thinking', thinking: '**Reading the parser**' }, { type: 'text', text: 'Working on it.' }, { type: 'toolCall', name: 'bash', arguments: { command: 'npm test' } },
         { type: 'toolCall', name: 'read', arguments: { path: 'README.md' } }, { type: 'toolCall', name: 'edit', arguments: { path: 'parser.js' } }]));
       // Pi settles and exits 0 after a failed request too.
       emit(scenario.fail ? message([], { stopReason: 'error', errorMessage: scenario.fail })

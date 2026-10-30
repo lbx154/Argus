@@ -12,7 +12,7 @@ import { count, type Step, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
 import { privatePath } from './sandbox.js';
-import { said, used } from './steps.js';
+import { said, thought, used } from './steps.js';
 
 export const copilot: StartBackend = (request, { confined, schema, stem }) => {
   const tool = handOffTool(schema);
@@ -46,7 +46,8 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
     if (event.type === 'assistant.message') {
       last = data;
       const calls = Array.isArray(data.toolRequests) ? data.toolRequests.filter(isJsonObject) : [];
-      return [said(data.content), ...calls.map(call => used(call.name, call.arguments))];
+      // What it thought first, as copilot sums it up, then what it says and runs.
+      return [thought([data.reasoningText]), said(data.content), ...calls.map(call => used(call.name, call.arguments))];
     } else if (event.type === 'session.error' && typeof data.message === 'string') error = data.message;
     else if (event.type === 'result') {
       if (typeof event.sessionId === 'string') threadId = event.sessionId;

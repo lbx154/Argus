@@ -7,7 +7,7 @@ import { isJsonObject } from '@argus/contracts';
 import { count, type Step, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
-import { said, used } from './steps.js';
+import { said, thought, used } from './steps.js';
 
 export const pi: StartBackend = (request, { schema, stem }) => {
   const tool = handOffTool(schema);
@@ -45,7 +45,8 @@ export const pi: StartBackend = (request, { schema, stem }) => {
       usage.reasoning_output_tokens += count(row.reasoning);
       usage.cost_usd = typeof cost !== 'number' || usage.cost_usd === null ? null : usage.cost_usd + cost;
       const content = Array.isArray(message.content) ? message.content.filter(isJsonObject) : [];
-      return content.map(part => part.type === 'text' ? said(part.text) : part.type === 'toolCall' ? used(part.name, part.arguments) : null);
+      return content.map(part => part.type === 'text' ? said(part.text) : part.type === 'thinking' ? thought([part.thinking])
+        : part.type === 'toolCall' ? used(part.name, part.arguments) : null);
     }
     return [];
   };
