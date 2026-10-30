@@ -52,7 +52,10 @@ export function requireProjectList(value: unknown): ProjectList {
   for (const row of value.projects) {
     if (!isJsonObject(row) || !validProjectId(row.id) || typeof row.label !== 'string'
       || typeof row.workdir !== 'string' || !finite(row.last_active)
-      || typeof row.daemon_alive !== 'boolean' || !nullableNumber(row.daemon_pid)) throw new Error('invalid project row');
+      || typeof row.daemon_alive !== 'boolean' || !nullableNumber(row.daemon_pid)
+      || (row.last_message !== undefined && typeof row.last_message !== 'string')
+      || (row.spend_usd !== undefined && !nullableNumber(row.spend_usd))
+      || (row.spend_status !== undefined && typeof row.spend_status !== 'string')) throw new Error('invalid project row');
   }
   return value as unknown as ProjectList;
 }

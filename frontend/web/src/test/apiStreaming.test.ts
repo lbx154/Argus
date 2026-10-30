@@ -145,3 +145,9 @@ it.each([401, 503])('does not confirm acceptance or retry when HTTP refuses the 
   expect(onAccepted).not.toHaveBeenCalled();
   expect(fetch).toHaveBeenCalledOnce();
 });
+
+it('passes the persisted draft identity through the follow-up entry point', async () => {
+  await serve(response => { response.writeHead(200, {'Content-Type':'application/json'});response.end(JSON.stringify({ok:true,queued:true})); });
+  await api.queueFollowup('p-receipt','unchanged','auto','same-request');
+  expect(requests[0].body).toEqual({text:'unchanged',route_override:'auto',request_id:'same-request'});
+});

@@ -21,8 +21,7 @@ export function MapReaderContent({ cardKey, taskId, task, eventId, originalDetai
     </div>;
   }
   if (sessionId && task && task.turn_kind !== 'qa' && task.id === taskId) {
-    // A team task reads as what it came to, then how: each role's reasoning,
-    // words, file changes and tool calls, with commands folded.
+    // Read the task's brief followed by the team's recorded letters.
     return <div className="font-sans" data-reader-card={cardKey} data-reader-task-id={taskId}>
       <div className="macro-reader-markdown mb-4"><MarkdownContent artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shown(originalDetail)}</MarkdownContent></div>
       <TaskTrace sessionId={sessionId} taskId={taskId} zh={zh} running={ACTIVE.has(task.status)}

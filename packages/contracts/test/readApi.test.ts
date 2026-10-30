@@ -37,3 +37,14 @@ test('project identifiers are direct-child names with a bounded Unicode length',
   for (const value of ['', '.', '..', 'a/b', 'a\\b', '\0', '\ud800', 'x'.repeat(256)]) assert.equal(validProjectId(value), false, value);
   for (const value of ['s-fixture', '研究 🌍', '🌍'.repeat(255)]) assert.equal(validProjectId(value), true, value);
 });
+
+test('project list carries the operator preview and nullable recorded-call spend', () => {
+  const original = fixtures.projects as { projects: object[]; local_cwd: string };
+  const fields = { last_message: 'Excel or CSV?', spend_usd: null, spend_status: 'unpriced' };
+  const list = { ...original, projects: [{ ...original.projects[0], ...fields }] };
+  const row = requireProjectList(JSON.parse(JSON.stringify(list))).projects[0]!;
+  assert.deepEqual([row.last_message, row.spend_usd, row.spend_status], ['Excel or CSV?', null, 'unpriced']);
+  for (const invalid of [{ last_message: {} }, { spend_usd: NaN }, { spend_status: 1 }]) {
+    assert.throws(() => requireProjectList({ ...list, projects: [{ ...list.projects[0], ...invalid }] }), /invalid project row/);
+  }
+});

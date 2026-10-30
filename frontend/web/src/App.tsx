@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { ApiError } from '../../core/src/http';
 import type { MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useProjects, useSnapshot, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
@@ -51,7 +52,7 @@ import type { SearchResult } from './api';
 import { useDesktopDeliveryNavigation } from './useDesktopDeliveryNavigation';
 import { useWorkbenchLayout } from './useWorkbenchLayout';
 import { PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
-import { useI18n } from './i18n';
+import { translate, useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { addComposerFiles, MESSAGE_TEXT_MAX_CHARS } from './lib/attachments';
 import './components/customerExperience.css';
@@ -69,11 +70,11 @@ import {
 type Overlay = 'none' | 'palette' | 'help' | 'config' | 'inspector' | 'learning';
 interface ActiveMessageRequest {
   id: number;
-  serverRequestId: string;
   sid: string;
   controller: AbortController;
   recovered?: boolean;
   uploading?: boolean;
+
 }
 let noticeSequence = 0;
 
@@ -152,6 +153,10 @@ export default function App() {
   // Share the visible-height decision with the reading card and composer.
   const compactViewport = useVisualViewport();
   const [composerFocus, setComposerFocus] = useState(0);
+  const focusComposer = useCallback(() => {
+    setWorkspaceView('activity'); setMobileView('activity');
+    setComposerFocus(value => value + 1);
+  }, [setWorkspaceView, setMobileView]);
   const [completionSelection, setCompletionSelection] = useState(0);
   // The project whose composer caret is in an @ word, so its workspace listing is wanted.
   const [treeSid, setTreeSid] = useState<string | null>(null);
@@ -179,8 +184,13 @@ export default function App() {
   const cancelDeliveryNavigationRef = useRef<() => void>(() => undefined);
   const [notice, setNotice] = useState<UiNotice | null>(null);
   const dismissNotice = useCallback(() => setNotice(null), []);
+  const dismissUnconfirmedNotice = useCallback(() => setNotice(current =>
+    current?.message === translate('error.message_failed', {}, 'en')
+      || current?.message === translate('error.message_failed', {}, 'zh-CN') ? null : current), []);
   const notify = useCallback((tone: NoticeTone, message: string, details?: unknown, action?: NoticeAction) => {
-    setNotice({ id: ++noticeSequence, tone, message, details, action });
+    const id = ++noticeSequence;
+    setNotice({ id, tone, message, details, action });
+    return id;
   }, []);
 
   const cancelActiveMessage = useCallback(() => {
@@ -216,13 +226,14 @@ export default function App() {
     setTaskItemId,
   });
   const {
-    draft: { text: composerDraft, attachments: composerAttachments, missingAttachments = [], uploaded: composerUploaded = [] },
+    draft: { text: composerDraft, requestId: composerRequestId, attachments: composerAttachments, missingAttachments = [], uploaded: composerUploaded = [] },
     storageError: draftStorageError, seed: seedDraft, dismissMissingAttachments,
     rewriting, undoRewrite, setText: setComposerDraft, setAttachments: setComposerAttachments,
-    capture: captureDraft, consume: consumeDraft, restore: restoreDraft,
+    capture: captureDraft, consume: consumeDraft,
     beginRewrite, finishRewrite, drop: dropSessionDraft,
     rememberUploaded, removeUploaded,
   } = useSessionComposer(selectedSid);
+  useEffect(dismissUnconfirmedNotice, [composerRequestId, selectedSid, dismissUnconfirmedNotice]);
   // Chosen files upload at once, one after another; sending waits only for
   // what is still on its way. Removing a file cancels or deletes it.
   const draftUploadCallbacks = useRef({ rememberUploaded, captureDraft });
@@ -351,7 +362,7 @@ export default function App() {
   }, [activeSid]);
   const artifactsQ = useArtifacts(loadedSid, true);
   const { query: transcriptQ, events: activityEvents, connected, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
-    loadedSid, true, localConversationEvents, localConversationSid.current,
+    activeSid, true, localConversationEvents, localConversationSid.current,
   );
   const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
   const promptHistoryList = useMemo(() => promptHistory(activityEvents), [activityEvents]);
@@ -375,7 +386,6 @@ export default function App() {
       if (!current) {
         messageRequestRef.current = {
           id: ++messageEpochRef.current,
-          serverRequestId: activeManagerRequestId,
           sid: loadedSid,
           controller: new AbortController(),
           recovered: true,
@@ -384,7 +394,6 @@ export default function App() {
       }
       return;
     }
-    // Its reply is already on the page: the stream brought its row.
     if (current?.recovered && current.sid === loadedSid) {
       messageRequestRef.current = null;
       setChatPending(false);
@@ -549,20 +558,20 @@ export default function App() {
   const manageDeleteProject = useCallback(async (): Promise<boolean> => {
     if (!manageTargetSid) return false;
     try {
-      // The project shown is left first: its deletion is then no news to this page.
-      if (manageTargetSid === activeSid) {
-        const next = rankProjects(projects.filter(project => project.id !== manageTargetSid))[0];
+      const deletedSid = manageTargetSid;
+      const deleted = await manageActions.deleteProject.mutateAsync();
+      setDaemonManageOpen(false);
+      setSidebarOpen(false);
+      setManageTargetSid(null);
+      const refreshed = await projectsQ.refetch();
+      if (deletedSid === activeSid) {
+        const next = rankProjects(refreshed.data?.projects ?? [])[0];
         if (next) selectProject(next.id, 'replace');
         else {
           setComposerFocus(0);
           clearProjectSelection('replace');
         }
       }
-      const deleted = await manageActions.deleteProject.mutateAsync();
-      setDaemonManageOpen(false);
-      setSidebarOpen(false);
-      setManageTargetSid(null);
-      await projectsQ.refetch();
       notify('success', t('project.trashed'), undefined, {
         label: t('project.undoDelete'),
         onClick: async () => {
@@ -581,7 +590,7 @@ export default function App() {
       notify('error', errorText(error), error);
       return false;
     }
-  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, projects, projectsQ.refetch, selectProject, setDaemonManageOpen, setManageTargetSid, setSidebarOpen, t]);
+  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, projectsQ.refetch, selectProject, setDaemonManageOpen, setManageTargetSid, setSidebarOpen, t]);
 
   const requestManageSession = useCallback((projectId: string) => {
     setManageTargetSid(projectId);
@@ -617,34 +626,21 @@ export default function App() {
     } finally { setWaitingForUploads(false); }
   };
 
-  const sendMessage = async (text: string, attachments: File[] = [], onRejected?: () => void, uploadOptions?: AttachmentUploadOptions): Promise<boolean> => {
+  const sendMessage = async (text: string, attachments: File[] = [], uploadOptions?: AttachmentUploadOptions, draft?: DraftSnapshot): Promise<boolean> => {
     const requestSid = activeSid;
-    if (rewriting || !requestSid || requestSid !== sidRef.current || messageRequestRef.current) return false;
-
+    if (rewriting || !requestSid || requestSid !== sidRef.current || messageRequestRef.current || draft && !draft.requestId) return false;
     const requestId = ++messageEpochRef.current;
-    const serverRequestId = newRequestId();
+    const serverRequestId = draft?.requestId || newRequestId();
     const controller = new AbortController();
-    messageRequestRef.current = { id: requestId, serverRequestId, sid: requestSid, controller };
-
-    const isCurrent = () => {
-      const request = messageRequestRef.current;
-      return Boolean(
-        request
-        && request.id === requestId
-        && request.sid === requestSid
-        && sidRef.current === requestSid
-        && !controller.signal.aborted
-      );
+    messageRequestRef.current = { id: requestId, sid: requestSid, controller };
+    const isCurrent = () => messageRequestRef.current?.id === requestId
+      && sidRef.current === requestSid && !controller.signal.aborted;
+    const reset = () => {
+      if (messageRequestRef.current?.id !== requestId) return;
+      messageRequestRef.current = null;
+      setChatPending(false);
+      setWaitingForUploads(false);
     };
-    const resetCurrentRequest = () => {
-      if (messageRequestRef.current?.id === requestId) {
-        messageRequestRef.current = null;
-        setChatPending(false);
-        setWaitingForUploads(false);
-
-      }
-    };
-
     setChatPending(true);
     let attachmentRefs: UploadedAttachment[] = [];
     if (attachments.length || uploadOptions?.ready?.length) {
@@ -653,87 +649,64 @@ export default function App() {
         attachmentRefs = await prepareMessageAttachments(requestSid, attachments, uploadOptions, controller.signal);
         if (!isCurrent()) return false;
         if (messageRequestRef.current) messageRequestRef.current.uploading = false;
-        setWaitingForUploads(false);
       } catch (error) {
-        if (isCurrent()) {
-          notify('error', t('chat.attachmentUploadFailed', { error: errorText(error) }));
-          resetCurrentRequest();
-        }
+        if (isCurrent()) { notify('error', t('chat.attachmentUploadFailed', { error: errorText(error) })); reset(); }
         return false;
       }
     }
-    const sameConversation = localConversationSid.current === requestSid;
-    localConversationSid.current = requestSid;
-    setLocalConversationEvents((current) => [
-      ...(sameConversation ? current : []),
-      optimisticOperatorEvent(requestSid, serverRequestId, text, Date.now(), attachmentRefs),
-    ]);
-
-    // Dispatch the streaming work fire-and-forget so the draft clears immediately.
-    // The phase frame confirms the server took the request. Later failures belong
-    // to its recorded reply, not to the send or the draft that was already cleared.
+    // The draft and its request identity remain until the server confirms receipt.
+    // A user retry sends that same identity; the server alone prevents duplicate work.
     void (async () => {
       let accepted = false;
-      let streamErr: Error | null = null;
-      // A project's first message names it and starts its work: the list and the project are
-      // read again once the server has it.
+      let error: Error | null = null;
       let named = Boolean(snap?.session.objective);
+      const accept = () => {
+        if (accepted) return;
+        accepted = true;
+        if (!isCurrent()) return;
+        const same = localConversationSid.current === requestSid;
+        localConversationSid.current = requestSid;
+        setLocalConversationEvents(current => [
+          ...(same ? current.filter(event => event.request_id !== serverRequestId) : []),
+          optimisticOperatorEvent(requestSid, serverRequestId, text, Date.now(), attachmentRefs),
+        ]);
+        if (draft) { consumeDraft(draft, attachments); draftUploads.forget(attachments); }
+        dismissUnconfirmedNotice();
+        if (!named) {
+          named = true;
+          void projectsQ.refetch();
+          void queryClient.invalidateQueries({ queryKey: ['snapshot', requestSid] });
+        }
+      };
       try {
         try {
           await api.messageStream(requestSid, text, {
-            onAccepted: () => {
-              accepted = true;
-              if (!isCurrent() || named) return;
-              named = true;
-              void projectsQ.refetch();
-              void queryClient.invalidateQueries({ queryKey: ['snapshot', requestSid] });
+            onAccepted: accept,
+            onDelta: reply => {
+              accept();
+              if (isCurrent()) setLocalConversationEvents(current => mergeManagerReply(current, serverRequestId, reply));
             },
-            onDelta: (reply) => {
-              if (!isCurrent()) return;
-              setLocalConversationEvents((current) => mergeManagerReply(current, serverRequestId, reply));
-            },
-            onDone: (result) => {
-              if (!isCurrent()) return;
+            onDone: result => {
+              accept();
+              if (!isCurrent() || result.kind === 'received') return;
               setRouteOverride('auto');
               void queryClient.invalidateQueries({ queryKey: ['artifacts', requestSid] });
-              if (result.kind === 'task' && result.reply && !onRejected) notify('success', result.reply);
-              // The reply has ended: its row and the project's state are read once. A page whose
-              // stream a proxy holds back (a Cloudflare quick tunnel passes none) learns it no other way.
-              void transcriptQ.refetch();
-              void snapQ.refetch();
+              if (result.kind === 'task') {
+                if (result.reply && !draft) notify('success', result.reply);
+                void snapQ.refetch();
+              }
             },
-            onError: (err) => {
-              if (isCurrent()) streamErr = err;
-            },
-          }, {
-            signal: controller.signal,
-            attachments: attachmentRefs,
-            routeOverride,
-            requestId: serverRequestId,
-          });
-        } catch (error) {
-          if (isCurrent()) streamErr = error as Error;
-        }
-
-        if (!isCurrent()) return;
-
-        if (streamErr) {
+            onError: reason => { error = reason; },
+          }, { signal: controller.signal, attachments: attachmentRefs, routeOverride, requestId: serverRequestId });
+        } catch (reason) { error = reason as Error; }
+        if (isCurrent() && error) {
           if (!accepted) {
-            setLocalConversationEvents(current => current.filter(event => event.request_id !== serverRequestId));
-            notify('error', errorText(streamErr), streamErr);
-            onRejected?.();
+            notify('error', error instanceof ApiError && error.status ? errorText(error) : t('error.message_failed'), error);
           }
-          // Once taken, what became of it is its row: read once, as when it ends. A lost
-          // stream never retries the POST or discards a partial reply.
-          void transcriptQ.refetch();
-          void snapQ.refetch();
         }
-      } finally {
-        resetCurrentRequest();
-      }
+      } finally { reset(); }
     })();
-
-    return true; // draft clears immediately on dispatch, not when stream finishes
+    return true;
   };
 
   const sendMessageRef = useRef(sendMessage);
@@ -741,10 +714,13 @@ export default function App() {
 
   const workspaceRoots = useMemo(() => [snap?.session.workdir].filter((root): root is string => Boolean(root)), [snap?.session.workdir]);
   const replyChoice = useCallback((choice: string) => { void sendMessageRef.current(choice); }, []);
-  const sendComposerMessage = async (text: string, files: File[] = [], options?: MapSendOptions): Promise<boolean> => {
+  const sendComposerMessage = async (_text: string, _files: File[] = [], options?: MapSendOptions): Promise<boolean> => {
     if (rewriting) return false;
     const draft = captureDraft(sidRef.current);
-    if (!draft) return false;
+    if (!draft || !draft.requestId || draft.sid !== activeSid) return false;
+    const text = draft.text.trim();
+    const files = draft.attachments;
+    if (!text) return false;
     if (draft.missingAttachments?.length) {
       notify('error', locale === 'zh-CN' ? '刷新前的附件尚未上传。请重新选择，或在对话中移除提醒后再发送。' : 'Files selected before reloading were not uploaded. Select them again or discard their reminder in the conversation before sending.');
       return false;
@@ -754,6 +730,7 @@ export default function App() {
       completed: new Map(draft.uploaded?.flatMap(item => item.file ? [[item.file, item.attachment] as const] : [])),
       onUploaded: (file, attachment) => rememberUploaded(draft, file, attachment),
     };
+    if (draft.sid !== sidRef.current) return false;
     if (pendingReply) {
       const accepted = await answerPendingReply(text, () => prepareMessageAttachments(draft.sid, files, uploadOptions));
       if (accepted) {
@@ -769,25 +746,16 @@ export default function App() {
       }
       // The running reply keeps its own request; this message is answered as the next turn.
       try {
-        await api.queueFollowup(draft.sid, text, routeOverride);
+        await api.queueFollowup(draft.sid, text, routeOverride, draft.requestId);
       } catch (error) {
-        notify('error', errorText(error));
+        if (draft.sid === sidRef.current) notify('error', error instanceof ApiError && error.status ? errorText(error) : t('error.message_failed'), error);
         return false;
       }
+      if (draft.sid === sidRef.current) dismissUnconfirmedNotice();
       consumeDraft(draft, files);
       return true;
     }
-    let cleared: DraftSnapshot | null = null;
-    let rejected = false;
-    const dispatched = await sendMessage(text, files, () => {
-      rejected = true;
-      if (cleared) restoreDraft(cleared, draft);
-    }, uploadOptions);
-    if (dispatched && !rejected) {
-      cleared = consumeDraft(draft, files);
-      draftUploads.forget(files);
-    }
-    return dispatched;
+    return sendMessage(text, files, uploadOptions, draft);
   };
   const composerSendRef = useRef(sendComposerMessage);
   composerSendRef.current = sendComposerMessage;
@@ -923,7 +891,7 @@ export default function App() {
       <SessionIdContext.Provider value={snap?.session.id ?? null}>
       <WorkspaceRootsContext.Provider value={workspaceRoots}>
       <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
-        <ActionNotice notice={notice} onClose={dismissNotice} />
+        <ActionNotice notice={daemonManageOpen ? null : notice} onClose={dismissNotice} />
         <div className="flex min-h-0 flex-1">
         {showProject ? (
           <>
@@ -931,7 +899,7 @@ export default function App() {
               {snap ? <TopBar
                 snap={snap}
                 streamOk={connected}
-                onStart={requestStartDaemon}
+                onStart={requestStartDaemon} onFocusComposer={focusComposer}
                 onStop={stopWork}
                 pending={messagePending}
                 showRunControl={workspaceView !== 'map'}
@@ -967,7 +935,7 @@ export default function App() {
               {snap ? <>
               {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel requestedTaskId={searchTarget?.sid === loadedSid ? searchTarget.task_id : undefined} onTaskLocated={() => setSearchTarget(null)} key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} pending={messagePending} readOnly={kiosk}
-                onStopWork={stopWork} onResumeTeam={requestStartDaemon} teamBusy={daemonBusy}
+                onStopWork={stopWork} onResumeTeam={requestStartDaemon} onFocusComposer={focusComposer} teamBusy={daemonBusy}
                 conversationEvents={activityEvents} conversationPagination={conversationPagination} connected={connected} artifacts={artifactsQ.data ?? []}
                 deliveryCount={deliveryCount} onOpenDelivery={() => {
                   const selection = defaultDeliverySelection(deliveryHistory);
@@ -1032,8 +1000,8 @@ export default function App() {
                       pendingNote={waitingForUploads ? (locale === 'zh-CN' ? '附件还在上传，传完后自动发送' : 'Waiting for uploads; sends automatically when they finish') : undefined}
                       footer={activeSid ? <ComposerRuntime sid={snap.session.id} roles={snap.roles} running={snap.daemon.alive || Boolean(snap.manager_requests?.length)} lastCall={snap.last_call} onOpenSettings={openSettings} /> : undefined}
                     />
-                    {(missingAttachments.length > 0 || (draftStorageError && composerDraft)) && <div className="draft-status" role="status">
-                      {draftStorageError && composerDraft ? <span>{locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'}</span> : null}
+                    {(missingAttachments.length > 0 || draftStorageError) && <div className="draft-status" role="status">
+                      {draftStorageError ? <span>{locale === 'zh-CN' ? '浏览器未能保存草稿，请在离开前复制内容。' : 'This browser could not save the draft. Copy it before leaving.'}</span> : null}
                       {missingAttachments.length > 0 && <><span className="text-warn">{locale === 'zh-CN' ? '刷新前的附件尚未上传，请重新选择：' : 'Unuploaded files must be selected again: '}{missingAttachments.join('、')}</span><button type="button" onClick={dismissMissingAttachments}>{locale === 'zh-CN' ? '不再使用这些附件' : 'Discard missing attachments'}</button></>}
                     </div>}
                     </div>
@@ -1071,7 +1039,7 @@ export default function App() {
                 <TopBar
                   snap={snap}
                   streamOk={connected}
-                  onStart={requestStartDaemon}
+                  onStart={requestStartDaemon} onFocusComposer={focusComposer}
                   onStop={stopWork}
                   pending={messagePending}
                   onManage={() => activeSid && requestManageSession(activeSid)}
@@ -1190,6 +1158,7 @@ export default function App() {
       {manageTargetSid ? (
         <DaemonManageModal
           open={daemonManageOpen}
+          feedback={daemonManageOpen ? <ActionNotice notice={notice} onClose={dismissNotice} /> : null}
           sid={manageTargetSid}
           name={manageSnapQ.data?.session.display_name
             || projects.find((project) => project.id === manageTargetSid)?.display_name

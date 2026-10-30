@@ -24,7 +24,6 @@ const STATUS_KEYS: Record<string, string> = {
   rejected: 'label.status.needsChanges',
   continue: 'label.status.needsChanges',
   skipped: 'label.status.skipped',
-  superseded: 'label.status.superseded',
   stopped: 'label.status.paused',
   cancelled: 'label.status.cancelled',
   aborted: 'label.status.cancelled',

@@ -678,7 +678,7 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
       <span className="status-dot" data-tone={TASK_TONE[state]} aria-hidden="true" />
       <button type="button" className="min-w-0 flex-1 break-words text-left text-ink-dim hover:text-ink" onClick={() => onInspect(String(event.item_id))}>{label}{locale === 'zh-CN' ? '：' : ': '}{title}</button>
     </div>
-    {progress && <p data-task-progress className="mt-1 break-words pl-4 text-xs leading-relaxed text-ink-dim">{progress}</p>}
+    {state !== 'done' && progress && <p data-task-progress className="mt-1 break-words pl-4 text-xs leading-relaxed text-ink-dim">{progress}</p>}
     {paths?.length ? <div className="mt-1 flex flex-wrap gap-2 pl-4">{paths.map(path => <button key={path} type="button"
       className="max-w-full break-all text-left text-xs text-blue hover:underline" onClick={() => onOpenArtifact?.(path)}>{path}</button>)}</div> : null}
   </section>;

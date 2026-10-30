@@ -240,6 +240,8 @@ export interface Reading {
   roleEvents: EventMsg[];
   round: number;
   activityAt: number | null;
+  /** First line of the last Manager letter addressed to the operator. */
+  lastReply: string;
   stateLine: number;
   calls: Set<string>;
   tasks: Map<string, { title: string; line: number }>;
@@ -252,7 +254,7 @@ export interface Reading {
 
 export function projectRecord(events: Recorded[], reading: Reading = {
   end: 0, usage: { end: 0, rows: [] }, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
-  roleEvents: [], round: 0, activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
+  roleEvents: [], round: 0, activityAt: null, lastReply: '', stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
   trace: { ended: new Map(), tasks: new Map() },
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
     answered: null, briefed: null, reported: null, worked: new Set(), follows: new Map() },
@@ -288,6 +290,7 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       put(row, `q${line}`);
       reading.questions.set(asker({ role: event.role, task: event.task ?? null }), reading.rows.get(`q${line}`)!);
     } else if (event.type === 'handoff' && event.role === 'manager') {
+      if (event.to === 'operator') reading.lastReply = firstLine(event.letter);
       const row = converted[0]!;
       put(row, String(row.message_id));
       const operatorId = String(row.message_id).replace(/-argus$/, '-operator');
@@ -373,7 +376,7 @@ export function conversationPage(rows: EventMsg[], cursor: number, limit: number
   return { rows: earlier.slice(start), before: start ? Number(earlier[start]!.order) : null, cursor };
 }
 
-/** The project's one status, and for its snapshot when anything last happened in it: the list reads no record. */
+/** The project's one status, and when anything last happened in it. */
 function projectStatus(project: Project, live: Live, activityAt: number | null = null): ProjectWorkStatus {
   const roles = [...new Set(live.calls.map(call => call.role))];
   const task = openTasks(project).length === 1 ? openTasks(project)[0] : undefined;
@@ -435,12 +438,16 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
 
 export function projectRow(store: Store, project: Project, live: Live): ProjectRow {
   const { since } = live;
+  const reading = readRecord(store, project.id);
+  const summary = usage(reading.usage.rows);
   return {
     // A label other than the id is the name the operator gave it.
     id: project.id, label: project.name || project.id, display_name: named(project),
     workdir: project.workdir, last_active: lastActive(store, project.id),
     daemon_alive: since !== null, daemon_pid: since === null ? null : process.pid,
-    work_status: projectStatus(project, live),
+    work_status: projectStatus(project, live, reading.activityAt),
+    last_message: project.status === 'failed' ? project.error ?? '' : reading.lastReply,
+    spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>,
   };
 }
 

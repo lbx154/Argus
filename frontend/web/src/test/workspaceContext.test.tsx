@@ -34,7 +34,7 @@ function topbar(snapshot = snap) {
 }
 
 describe('A3 snapshot-only session context', () => {
-  it('dates the recorded activity and shows ledger spend directly in the status row', () => {
+  it('shows an absolute activity time and ledger spend directly in the status row', () => {
     // Recorded through the isolated built Argus HTTP service during t3's browser reproduction.
     const recorded = stoppedSnapshot as Snapshot;
     vi.stubEnv('TZ', 'UTC');
@@ -44,8 +44,8 @@ describe('A3 snapshot-only session context', () => {
       const html = markup(topbar(recorded), locale);
       const status = html.match(/class="topbar-status[^>]*>([\s\S]*?)<div class="hidden sm:block"/)?.[1];
       expect(status).toContain(locale === 'zh-CN' ? '已停止' : 'Stopped');
-      // A clock time, which is still true however long the page stays open.
-      expect(status).toContain('>13:25</time>');
+      expect(status).toContain('<time dateTime="2026-10-29T13:25:26.648Z">13:25:26</time>');
+      expect(status).not.toMatch(/小时前|ago/);
       expect(status).toContain(locale === 'zh-CN' ? '估算 ≈$94.5（按 API 价）' : 'Est. ≈$94.5 (API prices)');
       expect(status).not.toContain('truncate');
     }

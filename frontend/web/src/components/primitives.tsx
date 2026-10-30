@@ -6,7 +6,9 @@ export function StatusDot({ ok, title }: { ok: boolean; title?: string }) {
   return (
     <span
       title={title}
-      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${ok ? 'bg-status-running' : 'bg-status-idle'}`}
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+        ok ? 'bg-status-running' : 'bg-status-idle'
+      }`}
     />
   );
 }

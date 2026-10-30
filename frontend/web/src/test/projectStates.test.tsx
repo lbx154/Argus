@@ -2,118 +2,100 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import { api, type ProjectIndex, type ProjectRow, type ProjectState, type Snapshot } from '../api';
-import { applyProjectState, useSnapshot } from '../hooks';
-import { Capabilities, POLL_CAPABILITY } from '../lib/capabilities';
+import { useProjects, useSnapshot } from '../hooks';
 import { useConversationHistory } from '../useConversationHistory';
+import { Capabilities, POLL_CAPABILITY } from '../lib/capabilities';
+import { SNAPSHOT_SCHEMA_VERSION } from '../../../core/src/protocol';
 
-const streams = vi.hoisted(() => ({ projects: 0, open: new Set<string>() }));
-vi.mock('../api', async importOriginal => ({
-  ...await importOriginal<typeof import('../api')>(),
-  openProjectStates: () => {
-    streams.projects += 1;
-    streams.open.add('projects');
-    return () => { streams.open.delete('projects'); };
-  },
-  openConversation: (sid: string) => {
-    streams.open.add(sid);
-    return () => { streams.open.delete(sid); };
-  },
-}));
+const stream = vi.hoisted(() => ({ active: 0, paths: [] as (string | null)[], push: undefined as undefined | ((state: ProjectState) => void) }));
+vi.mock('../api', async importOriginal => {
+  const open = (sid: string | null, onState: (state: ProjectState) => void) => {
+    stream.active += 1;
+    stream.paths.push(sid);
+    stream.push = onState;
+    return () => { stream.active -= 1; stream.push = undefined; };
+  };
+  return {
+    ...await importOriginal<typeof import('../api')>(),
+    openProjectStates: (onState: (state: ProjectState) => void) => open(null, onState),
+    openConversation: (sid: string, _after: number, _onFrame: unknown, opts: { onState: (state: ProjectState) => void }) => open(sid, opts.onState),
+  };
+});
 
 let renderer: ReactTestRenderer | undefined;
 let client: QueryClient | undefined;
 afterEach(() => {
-  act(() => renderer?.unmount());
-  renderer = undefined;
-  client?.clear();
-  streams.projects = 0;
-  streams.open.clear();
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  act(() => renderer?.unmount()); renderer = undefined; client?.clear();
+  expect(stream.active).toBe(0); stream.paths = []; vi.restoreAllMocks(); vi.unstubAllGlobals();
 });
 
 const row = (id: string) => ({ id, label: id, objective: '', last_active: 1 }) as unknown as ProjectRow;
 const ids = () => client!.getQueryData<ProjectIndex>(['projects'])?.projects.map(project => project.id);
-const read = (read_at: number) => ({ session: { id: 'p-a' }, daemon: {}, read_at }) as Snapshot;
-const push = (state: ProjectState) => act(() => applyProjectState(client!, state));
-
-function Snapshots() {
-  useSnapshot('p-a');
-  return null;
-}
-
 function Page({ sid }: { sid: string | null }) {
+  useProjects();
+  useSnapshot(sid);
   useConversationHistory(sid, true, [], null);
   return null;
 }
-
-const wrap = (element: JSX.Element, capabilities: string[]) =>
-  <QueryClientProvider client={client!}><Capabilities.Provider value={capabilities}>{element}</Capabilities.Provider></QueryClientProvider>;
-
-async function mount(element: JSX.Element, capabilities: string[] = ['manager.sse.v1']) {
-  vi.stubGlobal('window', new EventTarget());
+const read = (read_at: number) => ({ schema_version: SNAPSHOT_SCHEMA_VERSION, session: { id: 'p-a', display_name: '', objective: '', last_active: 1, workdir: '' }, daemon: { alive: false, pid: null, uptime_seconds: null, backend: null },
+  spend_usd: 0, spend_status: 'empty', usage_summary: {}, roles: [], backlog: [], read_at }) as unknown as Snapshot;
+const tree = (sid: string | null, capabilities = ['manager.sse.v1']) =>
+  <QueryClientProvider client={client!}><Capabilities.Provider value={capabilities}><Page sid={sid} /></Capabilities.Provider></QueryClientProvider>;
+async function mount(sid: string | null, capabilities?: string[]) {
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
   vi.spyOn(api, 'snapshot').mockResolvedValue(read(1));
+  vi.spyOn(api, 'conversation').mockResolvedValue({ rows: [], cursor: -1, before: null });
+  vi.spyOn(api, 'projectIndex').mockResolvedValue({ projects: [row('p-a')], local_cwd: '/synthetic' });
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData<ProjectIndex>(['projects'], { projects: [row('p-a')], local_cwd: '/synthetic' });
-  await act(async () => { renderer = create(wrap(element, capabilities)); });
+  await act(async () => { renderer = create(tree(sid, capabilities)); });
   await act(() => new Promise(resolve => setTimeout(resolve, 10)));
 }
 
-it('keeps the project list as the stream sends it, and the snapshot of the project shown', async () => {
-  await mount(<Snapshots />);
-  const snapshot = { session: { id: 'p-b' } } as Snapshot;
-  push({ type: 'project', id: 'p-b', row: row('p-b'), snapshot });
+it('follows list rows at home, then replaces that stream when selecting, switching and leaving a project', async () => {
+  await mount(null);
+  expect(stream.paths).toEqual([null]);
+  act(() => stream.push!({ type: 'project', id: 'p-b', row: row('p-b') }));
   expect(ids()).toEqual(['p-a', 'p-b']);
-  expect(client!.getQueryData(['snapshot', 'p-b'])).toBe(snapshot);
-  // Another project's change comes as its row alone: the snapshot held of it is stale, not replaced.
-  push({ type: 'project', id: 'p-b', row: row('p-b') });
-  expect(client!.getQueryData(['snapshot', 'p-b'])).toBe(snapshot);
-  expect(client!.getQueryState(['snapshot', 'p-b'])?.isInvalidated).toBe(true);
-  push({ type: 'project', id: 'p-a', row: null, snapshot: null });
-  expect(ids()).toEqual(['p-b']);
-  // Connected again, the list it sends replaces the one the page had.
-  push({ type: 'projects', projects: [row('p-c')], local_cwd: '/synthetic' });
-  expect(ids()).toEqual(['p-c']);
-});
-
-it('follows one stream: the projects’ while no project is shown, the project’s once one is', async () => {
-  vi.spyOn(api, 'conversation').mockResolvedValue({ rows: [], before: null, cursor: 3 });
-  await mount(<Page sid={null} />);
-  expect([...streams.open]).toEqual(['projects']);
-  await act(async () => renderer!.update(wrap(<Page sid="p-a" />, ['manager.sse.v1'])));
+  expect(client!.getQueryData(['snapshot', 'p-b'])).toBeUndefined();
+  await act(async () => { renderer!.update(tree('p-a')); });
   await act(() => new Promise(resolve => setTimeout(resolve, 10)));
-  expect([...streams.open]).toEqual(['p-a']);
+  expect(stream.paths).toEqual([null, 'p-a']);
+  expect(stream.active).toBe(1);
+  act(() => stream.push!({ type: 'snapshot', id: 'p-a', snapshot: read(3) }));
+  expect(client!.getQueryData(['snapshot', 'p-a'])).toEqual(read(3));
+  act(() => stream.push!({ type: 'project', id: 'p-a', row: null }));
+  expect(ids()).toEqual(['p-b']);
+  await act(async () => { renderer!.update(tree('p-b')); });
+  await act(() => new Promise(resolve => setTimeout(resolve, 10)));
+  expect(stream.paths).toEqual([null, 'p-a', 'p-b']);
+  expect(stream.active).toBe(1);
+  act(() => renderer!.update(tree(null)));
+  expect(stream.paths).toEqual([null, 'p-a', 'p-b', null]);
+  expect(stream.active).toBe(1);
+  // Reconnection replaces the list without re-reading snapshots.
+  const reads = vi.mocked(api.snapshot).mock.calls.length;
+  act(() => stream.push!({ type: 'projects', projects: [row('p-c')], local_cwd: '/synthetic' }));
+  expect(ids()).toEqual(['p-c']);
+  expect(api.snapshot).toHaveBeenCalledTimes(reads);
 });
 
-it('follows no projects stream on a server that is polled', async () => {
-  await mount(<Page sid={null} />, ['manager.sse.v1', POLL_CAPABILITY]);
-  expect(streams.projects).toBe(0);
+it('polls a server that declares it, without following its home state', async () => {
+  await mount(null, ['manager.sse.v1', POLL_CAPABILITY]);
+  expect(stream.paths).toEqual([]);
+  expect(ids()).toEqual(['p-a']);
 });
 
 it('keeps a pushed snapshot over an older read that arrives after it', async () => {
-  await mount(<Snapshots />);
+  await mount('p-a');
+  expect(stream.paths).toEqual(['p-a']);
   expect(client!.getQueryData(['snapshot', 'p-a'])).toEqual(read(1));
   let reply: (snapshot: Snapshot) => void = () => {};
   vi.mocked(api.snapshot).mockReturnValueOnce(new Promise(resolve => { reply = resolve; }));
-  // Read again: the server reads it, then a change is pushed, then the reply arrives.
   void act(() => client!.invalidateQueries({ queryKey: ['snapshot', 'p-a'] }));
-  push({ type: 'project', id: 'p-a', row: row('p-a'), snapshot: read(3) });
+  act(() => stream.push!({ type: 'snapshot', id: 'p-a', snapshot: read(3) }));
   await act(async () => reply(read(2)));
   expect(client!.getQueryData(['snapshot', 'p-a'])).toEqual(read(3));
-  // A later read replaces it.
   vi.mocked(api.snapshot).mockResolvedValueOnce(read(4));
   await act(() => client!.invalidateQueries({ queryKey: ['snapshot', 'p-a'] }));
   expect(client!.getQueryData(['snapshot', 'p-a'])).toEqual(read(4));
-});
-
-it('reloads a page the server no longer sends, as the stream connects', async () => {
-  await mount(<Snapshots />);
-  const reload = vi.fn();
-  vi.stubGlobal('document', { querySelector: () => ({ src: 'http://127.0.0.1:8798/assets/index-Old1.js' }) });
-  vi.stubGlobal('window', Object.assign(new EventTarget(), { location: { reload } }));
-  push({ type: 'projects', build: 'assets/index-Old1.js', projects: [row('p-a')], local_cwd: '/synthetic' });
-  expect(reload).not.toHaveBeenCalled();
-  push({ type: 'projects', build: 'assets/index-New2.js', projects: [row('p-z')], local_cwd: '/synthetic' });
-  expect(reload).toHaveBeenCalledOnce();
-  expect(ids()).toEqual(['p-a']);
 });

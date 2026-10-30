@@ -1,7 +1,7 @@
 import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { adoptTokenFromUrl, api, isAuthenticationError } from './api';
+import { adoptTokenFromUrl, api, isAuthenticationError, setStreamEntry } from './api';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
 import { errorText } from './lib/format';
 import { Capabilities } from './lib/capabilities';
@@ -20,6 +20,8 @@ const App = lazy(() => import('./App'));
 // This build: the entry chunk's own address, fingerprinted by what the build made.
 const build = import.meta.url;
 
+if (import.meta.env.PROD) setStreamEntry(build);
+
 // Runs before the first request so a QR-paired phone is authenticated for
 // every later load, not just the one carrying `?token=`.
 adoptTokenFromUrl();
@@ -31,10 +33,8 @@ const queryClient = new QueryClient({
   defaultOptions: {
     // Keep a project's views while the operator works elsewhere, so coming
     // back draws the last known content at once and refreshes it behind.
-    queries: { staleTime: 3_000, gcTime: 30 * 60_000, retry: queryRetryPolicy, refetchOnWindowFocus: false },
-    // A stop, a resume or a deletion is done now or fails now, as a message is: never held while
-    // the browser is offline and carried out when it is back.
     mutations: { networkMode: 'always' },
+    queries: { staleTime: 3_000, gcTime: 30 * 60_000, retry: queryRetryPolicy, refetchOnWindowFocus: false },
   },
 });
 // A reload in this tab starts from the views it last showed.

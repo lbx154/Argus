@@ -204,7 +204,7 @@ export function MarkdownContent({
       const path = block ? null : artifactPathFromHref(String(value), live.current.artifacts, live.current.basePath);
       if (path && live.current.onOpenArtifact) {
         return <button type="button" data-artifact-path={path} onClick={() => live.current.onOpenArtifact?.(path)}
-          className="cursor-pointer break-all rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
+          className="cursor-pointer break-words rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-blue underline decoration-blue/35 underline-offset-2 hover:decoration-blue">
           {value}
         </button>;
       }
@@ -213,7 +213,7 @@ export function MarkdownContent({
           {...props}
           className={block
             ? `block min-w-0 whitespace-pre-wrap break-words font-mono text-xs text-ink ${className ?? ''}`
-            : 'break-all rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-ink'}
+            : 'break-words rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-ink'}
         >
           {value}
         </code>

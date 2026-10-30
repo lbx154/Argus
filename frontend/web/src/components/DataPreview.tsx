@@ -65,13 +65,13 @@ export function TablePreview({
   const rows = parseDelimited(value, delimiter).slice(0, 200);
   const header = rows[0] ?? [];
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4 scroll-thin">
+    <div className="min-h-0 flex-1 overflow-auto scroll-thin">
       {rows.length ? (
-        <table className="w-full border-collapse text-left text-xs">
+        <table className="w-full border-separate border-spacing-0 text-left text-xs">
           <thead>
             <tr>
               {header.slice(0, 40).map((cell, index) => (
-                <th key={index} className="border border-line/60 bg-surface px-2 py-1.5 font-semibold text-ink">{cell}</th>
+                <th key={index} className="sticky top-0 z-10 first:left-0 first:z-20 border border-line/60 bg-surface px-2 py-1.5 font-semibold text-ink">{cell}</th>
               ))}
             </tr>
           </thead>
@@ -79,7 +79,7 @@ export function TablePreview({
             {rows.slice(1).map((cells, rowIndex) => (
               <tr key={rowIndex}>
                 {header.slice(0, 40).map((_, columnIndex) => (
-                  <td key={columnIndex} className="border border-line/50 px-2 py-1.5 align-top text-ink-dim">
+                  <td key={columnIndex} className="first:sticky first:left-0 first:z-[1] first:bg-bg border border-line/50 px-2 py-1.5 align-top text-ink-dim">
                     {cells[columnIndex] ?? ''}
                   </td>
                 ))}

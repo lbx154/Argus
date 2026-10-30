@@ -40,11 +40,10 @@
 button.composer-model:hover, .composer-rewrite:hover:not(:disabled) { border-color: rgb(var(--line)); background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 :is(.composer-model, .composer-rewrite):focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 1px; }
 .composer-model-dot { flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%; background: rgb(var(--ink-faint) / 50%); }
-.composer-model-dot[data-running] { background: rgb(var(--ok)); animation: pulse 2s ease-in-out infinite; }
+.composer-model-dot[data-running] { background: rgb(var(--ok)); }
 .composer-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .composer-model-meta { color: rgb(var(--ink-faint)); }
 .composer-model-next { color: rgb(var(--gold)); }
-@media (prefers-reduced-motion: reduce) { .composer-model-dot[data-running] { animation: none; } }
 .composer-rewrite { margin-left: auto; }
 .composer-rewrite:disabled { opacity: .5; }
 .composer-controls :is(button, select) { min-height: 28px; border-radius: 8px; padding: 4px 8px; background: transparent; }

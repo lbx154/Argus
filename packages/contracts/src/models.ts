@@ -187,6 +187,11 @@ export interface ConversationPage {
 
 export interface ProjectRow {
   work_status?: ProjectWorkStatus;
+  /** First line of the Manager's last letter to the operator, or the project's failure reason. */
+  last_message?: string;
+  /** Same recorded-call summary as the snapshot; excludes calls still running. */
+  spend_usd?: number | null;
+  spend_status?: Snapshot['spend_status'];
   id: string;
   label: string;
   display_name?: string;

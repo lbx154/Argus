@@ -100,7 +100,6 @@ const MINIMAP_STATUS: Record<string, string> = {
   review_unavailable: "#cdbba3",
   held: "#cdbba3",
   paused: "#cdbba3",
-  superseded: "#c5bdcd",
   aborted: "#c6c8cb",
   skipped: "#c6c8cb",
   missing: "#c6c8cb",
@@ -143,6 +142,8 @@ export function MapCanvas({
   const [nodes, setNodes, onNodesChange] = useNodesState<MacroNode>([]);
   const canvasRef = useRef<HTMLDivElement>(null);
   const camera = useSemanticCamera(canvasRef);
+  const focusSearch = useCallback(() => canvasRef.current
+    ?.querySelector<HTMLInputElement>('.map-search input')?.focus(), []);
   const nodesReady = useNodesInitialized();
   const initialFit = useRef(false);
   // Gates the canvas fade-in: the first frames render at an arbitrary
@@ -269,7 +270,8 @@ export function MapCanvas({
       camera.fit(new Set([id, ...upstream.map((task) => task.id), ...downstream.map((task) => task.id)]));
     } else camera.fit();
   }, [camera.fit, graph]);
-  const openCard = useCallback((id: string) => {
+  const openCard = useCallback((id: string, keyboard = false) => {
+    if (keyboard) focusSearch();
     const part = sceneCache.current?.allCards.find(card => card.id === id);
     if (part) {
       setSelectedParts(current => new Map([...current, [part.task.id, part.part]]));
@@ -278,7 +280,7 @@ export function MapCanvas({
     }
     if (tracedTask) traceTask(id === tracedTask.id ? null : id);
     else camera.enter(id);
-  }, [camera.enter, tracedTask, traceTask]);
+  }, [camera.enter, tracedTask, traceTask, focusSearch]);
   useEffect(() => {
     if (!pendingCard || !nodes.some((node) => node.id === pendingCard)) return;
     camera.enter(pendingCard);
@@ -585,9 +587,7 @@ export function MapCanvas({
       if (target?.closest('input, textarea, select, [contenteditable], [role="dialog"]')) return;
       if (e.key === "/") {
         e.preventDefault();
-        canvasRef.current
-          ?.querySelector<HTMLInputElement>(".map-search input")
-          ?.focus();
+        focusSearch();
       } else if (e.key === "f" || e.key === "F") {
         showOverview();
       } else if (
@@ -607,7 +607,7 @@ export function MapCanvas({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showOverview, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds]);
+  }, [showOverview, camera.enter, camera.detailed, camera.focusId, scene.cards, visibleIds, focusSearch]);
   const artifactScope = useMemo(
     () => ({ sessionId, artifacts: actions.artifacts, onOpenArtifact: actions.onOpenArtifact,
       workspace: snapshot.session.workdir }),
@@ -1028,10 +1028,12 @@ export const MapPanel = memo(function MapPanel({
   deliveries,
   onStopWork,
   onResumeTeam,
+  onFocusComposer,
   teamBusy,
 }: {
   onStopWork?: () => void;
   onResumeTeam?: () => void;
+  onFocusComposer?: () => void;
   teamBusy?: boolean;
   snapshot: Snapshot;
   pending: boolean;
@@ -1069,8 +1071,8 @@ export const MapPanel = memo(function MapPanel({
   // The team line lives at the top of the canvas, beside the overview.
   const teamStatus = useMemo(() => <WorkStatusBar snapshot={snapshot} connected={connected !== false} compact
     managerMessage={managerMessage}
-    pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} teamBusy={teamBusy} />,
-  [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, teamBusy, managerMessage]);
+    pending={pending} onStopWork={readOnly ? undefined : onStopWork} onResumeTeam={readOnly ? undefined : onResumeTeam} onFocusComposer={onFocusComposer} teamBusy={teamBusy} />,
+  [snapshot, connected, readOnly, pending, onStopWork, onResumeTeam, onFocusComposer, teamBusy, managerMessage]);
   const actions = useMemo<MapWorkspaceActions>(
     () => ({ conversationEvents, conversationPagination, connected, artifacts, deliveryCount,
              onOpenDelivery, onOpenReceipt, onOpenArtifact, deliveries,

@@ -110,7 +110,6 @@ export function statusKey(task: MapTask): string {
     "failed",
     "aborted",
     "skipped",
-    "superseded",
     "pending",
     "missing",
   ].includes(task.status)

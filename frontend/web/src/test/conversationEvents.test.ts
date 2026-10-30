@@ -2,19 +2,19 @@ import replay from '../../../../packages/core/test/fixtures/conversation-fixes/a
 import { webEvents, type Recorded } from '../../../../packages/core/src/serve/views';
 import { describe, expect, it } from 'vitest';
 import type { EventMsg } from '../api';
-import { conversationEventKey, durableMessageId, mergeConversationEvents, mergeManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
+import { conversationEventKey, mergeConversationEvents, mergeManagerReply, optimisticOperatorEvent } from '../lib/conversationEvents';
 
 const asked: EventMsg = { type: 'ui.operator', agent_layer: 'operator', text: '分三个任务做', ts: 10, event_id: 4, message_id: 'm4-operator', request_id: 'r1' };
 const brief: EventMsg = { type: 'ui.argus', agent_layer: 'manager', to: 'planner', text: '# 三个任务\n请规划。', ts: 20, event_id: 7, message_id: 'm4-argus', request_id: 'r1' };
 
 describe('recorded requests replace optimistic conversation rows', () => {
-  it('creates only the operator row before any network response', () => {
+  it('creates only the operator placeholder while its recorded row is on its way', () => {
     expect(optimisticOperatorEvent('s', 'r1', '你好', 1000)).toMatchObject({ type: 'ui.operator', text: '你好', request_id: 'r1' });
   });
   it('uses the transcript id for revisions once the answer arrives', () => {
     const operator = optimisticOperatorEvent('s', 'r1', '分三个任务做');
-    expect(durableMessageId(operator)).toBeUndefined();
-    expect(durableMessageId(mergeManagerReply([operator], 'r1', brief)[0])).toBe('m4-operator');
+    expect(operator.message_id).toBe('local-r1-operator');
+    expect(mergeManagerReply([operator], 'r1', brief)[0].message_id).toBe('m4-operator');
   });
   it('keeps one identity from local send through server acceptance and final reply', () => {
     const operator = optimisticOperatorEvent('s', 'r1', '分三个任务做');

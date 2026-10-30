@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
 import type { Snapshot } from '../../../core/src/types';
@@ -29,15 +29,27 @@ export const PHASE_TONE: Record<TeamPhase, string> = {
  * first what it interrupts and what it keeps; Resume shows when the server says there is work to
  * take up.
  */
-export function RunControl({ snapshot, pending = false, busy = false, onStop, onResume, className = '', resumeClassName = className }: {
+export function RunControl({ snapshot, pending = false, busy = false, onStop, onResume, onFocusComposer, className = '', resumeClassName = className }: {
   snapshot: Snapshot; pending?: boolean; busy?: boolean; onStop: () => void; onResume: () => void;
-  className?: string; resumeClassName?: string;
+  className?: string; resumeClassName?: string; onFocusComposer?: () => void;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
   const [asking, setAsking] = useState(false);
   const running = snapshot.daemon.alive || pending;
-  if (!running && !snapshot.daemon.resumable) return null;
+  const visible = running || Boolean(snapshot.daemon.resumable);
+  const visibleRef = useRef(visible);
+  const focusComposer = useRef(onFocusComposer);
+  const control = useRef<HTMLButtonElement | null>(null);
+  visibleRef.current = visible;
+  focusComposer.current = onFocusComposer;
+  const controlRef = useCallback((node: HTMLButtonElement | null) => {
+    // React detaches the ref before removing the focused control. Only its
+    // completion moves focus; leaving the panel keeps the reader's navigation.
+    if (!node && !visibleRef.current && control.current && control.current === document.activeElement) focusComposer.current?.();
+    control.current = node;
+  }, []);
+  if (!visible) return null;
   const title = (id: string) => snapshot.backlog.find(item => item.id === id)?.title || id;
   const active = running ? snapshot.roles.filter(role => role.active) : [];
   const affected = [
@@ -50,7 +62,7 @@ export function RunControl({ snapshot, pending = false, busy = false, onStop, on
     }),
   ];
   return <>
-    <button type="button" data-stop-work={running || undefined} data-resume-work={!running || undefined}
+    <button ref={controlRef} type="button" data-stop-work={running || undefined} data-resume-work={!running || undefined}
       aria-disabled={busy || undefined} onClick={() => {
         if (busy) return;
         if (running) setAsking(true);

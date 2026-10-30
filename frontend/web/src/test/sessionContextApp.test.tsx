@@ -20,7 +20,6 @@ import { EventStream } from '../components/EventStream';
 import { Capabilities } from '../lib/capabilities';
 import pendingAnswer from '../../../../packages/core/test/fixtures/pending-answer/record.json';
 import { mergeConversationEvents } from '../lib/conversationEvents';
-import failureRecord from '../../../../packages/core/test/fixtures/message-failure/record.json';
 
 const fixture = vi.hoisted(() => {
   const idle = { data: undefined as unknown, isPending: false, isLoading: false, isError: false, isSuccess: true, isFetching: false, isFetchedAfterMount: true, refetch: vi.fn(async () => ({})) };
@@ -117,6 +116,7 @@ beforeEach(async () => {
   vi.stubGlobal('document', Object.assign(new EventTarget(), { referrer: 'http://tauri.localhost/', body: { style: {} } }));
   // Fail closed: no unmocked test request can reach a user backend or provider.
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected request outside the synthetic fixture'); }));
+  vi.spyOn(api, 'conversation').mockResolvedValue({ rows: [], before: null, cursor: -1 });
   vi.spyOn(api, 'projectIndex').mockImplementation(async () => fixture.index.data as Awaited<ReturnType<typeof api.projectIndex>>);
   vi.spyOn(api, 'artifact').mockImplementation(async (sid, path) => ({ path, name: 'report.md', kind: 'markdown', mime: 'text/markdown', size: 1, mtime: 1, preview: `${sid} ONLY` }));
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
@@ -157,6 +157,42 @@ describe('App session composer ownership', () => {
     select('s-B');
     select('s-A');
     expect(view()).toBe('Conversation');
+  });
+
+  it('recovers when another device deletes the selected project after initial resolution', () => {
+    type('unsent in A');
+    fixture.index.data.projects = fixture.index.data.projects.filter(row => (row as { id: string }).id !== 's-A');
+    refresh();
+    expect(new URL(window.location.href).searchParams.get('project')).toBe('s-B');
+    expect(props().value).toBe('');
+    expect(renderer.root.findByType(ActionNotice).props.notice.message).toContain('Switched to s-B');
+    expect(localStorage.getItem('argus.composer.draft.v1:s-A')).toContain('unsent in A');
+    fixture.index.data.projects = [];
+    refresh();
+    expect(renderer.root.findByType(Landing)).toBeDefined();
+    expect(new URL(window.location.href).searchParams.get('project')).toBeNull();
+  });
+
+  it('shows a rejected management action inside its open dialog, with no background duplicate', async () => {
+    const update = fixture.actions.updateProject as { mutateAsync: ReturnType<typeof vi.fn> };
+    update.mutateAsync.mockRejectedValueOnce(new Error('Failed to fetch'));
+    act(() => renderer.root.findByType(TopBar).props.onManage());
+    await act(async () => { expect(await renderer.root.findByType(DaemonManageModal).props.onRename('offline name')).toBe(false); });
+    const feedback = renderer.root.findByType(DaemonManageModal).props.feedback;
+    expect(feedback.type).toBe(ActionNotice);
+    expect(feedback.props.notice.tone).toBe('error');
+    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
+  });
+
+  it('finishes a reply initiated elsewhere from the row stream without rereading the conversation', () => {
+    const remote = { ...snapshot('s-A'), manager_requests: [{ request_id: 'remote-request', status: 'running' }] };
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: remote });
+    refresh();
+    fixture.idle.refetch.mockClear();
+    fixture.snapshots.set('s-A', { ...fixture.idle, data: snapshot('s-A') });
+    refresh();
+    expect(fixture.idle.refetch).not.toHaveBeenCalled();
+    expect(props().pending).toBe(false);
   });
 
   it('waits for the mounted project list before reconciling a link outside the cached list', () => {
@@ -259,7 +295,10 @@ describe('App session composer ownership', () => {
     await act(async () => { expect(await props().onSend('Use UTF-8')).toBe(false); });
     expect(props().value).toBe('Use UTF-8');
     expect(renderer.root.findByType(ActionNotice).props.notice.tone).toBe('error');
-    await act(async () => { expect(await props().onSend('Use UTF-8', [new File(['data'], 'data.txt')])).toBe(false); });
+    const file = new File(['data'], 'data.txt');
+    vi.spyOn(api, 'uploadAttachments').mockRejectedValue(new Error('Upload unavailable'));
+    await act(async () => props().onAttachmentsChange([file]));
+    await act(async () => { expect(await props().onSend('Use UTF-8', [file])).toBe(false); });
     expect(answer).toHaveBeenCalledOnce();
     expect(stream).not.toHaveBeenCalled();
     expect(props().value).toBe('Use UTF-8');
@@ -280,18 +319,11 @@ describe('App session composer ownership', () => {
     expect(notice.message).not.toContain('/');
     expect(notice.action.label).toBe('Undo');
     expect(renderer.root.findByType(Sidebar).props.mobileOpen).toBe(false);
-    // The page left the project before deleting it: the next one is shown.
-    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-B');
+    expect(renderer.root.findByType(Landing).props.focusSignal).toBe(0);
     await act(async () => notice.action.onClick());
     expect(restore).toHaveBeenCalledExactlyOnceWith('s-A-20261029000000');
     expect(new URLSearchParams(window.location.search).get('project')).toBe('s-A');
     expect(renderer.root.findByType(ActionNotice).props.notice.message).toBe('Project restored.');
-  });
-  it('leaves the project shown when it is deleted on another device, for the next one, and says so', () => {
-    fixture.index.data = { ...fixture.index.data, projects: fixture.index.data.projects.filter(row => (row as { id: string }).id !== 's-A') };
-    refresh();
-    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-B');
-    expect(renderer.root.findByType(ActionNotice).props.notice.message).toContain('s-A');
   });
   it('reports a failed restore without showing a successful restoration', async () => {
     fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, trash_path: 'trash/s-A-20261029000000' });
@@ -357,7 +389,7 @@ describe('App session composer ownership', () => {
     vi.spyOn(api, 'editions').mockResolvedValue({ original: '', versions: [] });
     const save = vi.spyOn(api, 'saveEdition').mockResolvedValue({ version: 1, content: 'Revised answer' });
     const stream = vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
-      handlers.onDone?.({ kind: 'message', reply: 'Revised answer' });
+      handlers.onAccepted?.();handlers.onDone?.({ kind: 'message', reply: 'Revised answer' });
     });
     const target = 'Original question';
     await act(async () => { renderer.root.findByType(EventStream).props.onConversationAction(target); });
@@ -395,7 +427,10 @@ describe('App session composer ownership', () => {
     expect(landing().props.createError).toBeNull();
     await act(async () => { await landing().props.onSubmit('Keep this draft', [], '/denied'); });
     expect(landing().props.createError).toBe(failure);
-    create.mockResolvedValue({ sid: 's-N' } as Awaited<ReturnType<typeof api.createDaemon>>);
+    create.mockImplementation(async () => {
+      fixture.index.data.projects = [...fixture.index.data.projects, { id: 's-N', label: 'New project', last_active: 2 }];
+      return { sid: 's-N' } as Awaited<ReturnType<typeof api.createDaemon>>;
+    });
     await act(async () => { expect(await landing().props.onSubmit('Keep this draft', [], '/writable')).toBe(true); });
     expect(renderer.root.findAllByType(Landing).every(node => !node.props.createError)).toBe(true);
     expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
@@ -428,6 +463,7 @@ describe('App session composer ownership', () => {
       await new Promise(() => {});
     });
     fixture.idle.refetch.mockClear();
+    type('Total the columns of data.csv');
     await act(async () => { expect(await props().onSend('Total the columns of data.csv')).toBe(true); });
     expect(fixture.idle.refetch).toHaveBeenCalled();
   });
@@ -582,105 +618,93 @@ describe('App session composer ownership', () => {
     select('s-A'); expect(props().value).toBe('');
   });
 
-  it('does not restore a broken-stream draft over new input or automatically resend after acceptance', async () => {
-    const stream = deferred<void>();
-    const send = vi.spyOn(api, 'messageStream').mockReturnValue(stream.promise);
-    type('send once');
-    await act(async () => { expect(await props().onSend('send once')).toBe(true); });
-    type('next input'); type('');
-    await act(async () => stream.reject(new Error('SSE disconnected after server acceptance')));
+  it('keeps unconfirmed text only in the composer until the server acknowledges it', async () => {
+    const stream=deferred<void>();const send=vi.spyOn(api,'messageStream').mockReturnValue(stream.promise);
+    type('waiting for receipt');await act(async () => {await props().onSend('waiting for receipt');});
+    expect(props().value).toBe('waiting for receipt');
+    expect(renderer.root.findByType(EventStream).props.events.some((event:EventMsg)=>event.type==='ui.operator')).toBe(false);
+    await act(async () => {send.mock.calls[0][2].onAccepted?.();stream.resolve();});
     expect(props().value).toBe('');
-    expect(send).toHaveBeenCalledTimes(1);
+    expect(renderer.root.findByType(EventStream).props.events.filter((event:EventMsg)=>event.type==='ui.operator')).toHaveLength(1);
   });
 
-  it.each(['error frame', 'disconnected stream'])('keeps an accepted message sent after %s, without a second failure notice', async ending => {
-    const stream = deferred<void>();
-    const send = vi.spyOn(api, 'messageStream').mockImplementation((_sid, _text, handlers) => {
-      handlers.onAccepted?.();
-      return stream.promise;
-    });
-    type('帮我写一句问候语');
-    await act(async () => { expect(await props().onSend('帮我写一句问候语')).toBe(true); });
-    expect(props().value).toBe('');
-    const handlers = send.mock.calls[0][2];
-    await act(async () => {
-      const error = failureRecord.project.failures[0].error;
-      if (ending === 'error frame') handlers.onError?.(new Error(error));
-      if (ending === 'disconnected stream') stream.reject(new Error('connection lost'));
-      else stream.resolve();
-    });
-    expect(props().value).toBe('');
-    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
-    expect(fixture.idle.refetch).toHaveBeenCalled();
-    expect(send).toHaveBeenCalledTimes(1);
+  it('keeps an unconfirmed draft and request identity across navigation, then resends that identity', async () => {
+    const send = vi.spyOn(api,'messageStream').mockRejectedValue(new TypeError('Confirmation lost'));
+    type('same draft');const original=JSON.parse(localStorage.getItem('argus.composer.draft.v1:s-A')!).request_id;
+    await act(async () => {await props().onSend('same draft');});
+    expect(props().value).toBe('same draft');select('s-B');select('s-A');
+    expect(props().value).toBe('same draft');
+    send.mockImplementation(async (_sid,_text,handlers) => {handlers.onAccepted?.();handlers.onDone?.({kind:'received',status:'replied'});});
+    await act(async () => {await props().onSend('same draft');});
+    expect(send.mock.calls.map(call => (call[3] as {requestId:string}).requestId)).toEqual([original,original]);
+    expect(props().value).toBe('');expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
+    expect(api.conversation).not.toHaveBeenCalled();
   });
 
-  it.each([new Error('connection lost'), new ApiError('Unauthorized', 401, 'POST', '/message/stream')])('restores a message refused before acceptance (%s) and removes its unsent conversation row', async error => {
-    const stream = deferred<void>();
-    const send = vi.spyOn(api, 'messageStream').mockReturnValue(stream.promise);
-    type('原文保留');
-    await act(async () => { expect(await props().onSend('原文保留')).toBe(true); });
-    expect(props().value).toBe('');
-    expect(renderer.root.findByType(EventStream).props.events).toContainEqual(expect.objectContaining({ type: 'ui.operator', text: '原文保留' }));
-    await act(async () => stream.reject(error));
-    expect(props().value).toBe('原文保留');
-    expect(renderer.root.findByType(EventStream).props.events).not.toContainEqual(expect.objectContaining({ type: 'ui.operator', text: '原文保留' }));
-    expect(renderer.root.findByType(ActionNotice).props.notice.tone).toBe('error');
-    expect(send).toHaveBeenCalledTimes(1);
+  it.each(['edited',''])('keeps newer text when an old send is confirmed: %s', async edited => {
+    const stream=deferred<void>();const send=vi.spyOn(api,'messageStream').mockReturnValue(stream.promise);
+    type('original');const original=JSON.parse(localStorage.getItem('argus.composer.draft.v1:s-A')!).request_id;
+    await act(async () => {await props().onSend('original');});
+    expect(props().value).toBe('original');type(edited);
+    const current=JSON.parse(localStorage.getItem('argus.composer.draft.v1:s-A')||'null');
+    if(current)expect(current.request_id).not.toBe(original);
+    await act(async () => {send.mock.calls[0][2].onAccepted?.();stream.resolve();});
+    expect(props().value).toBe(edited);
   });
 
-  it('keeps a partial reply after an accepted stream breaks, without restoring or resending its request', async () => {
-    const stream = deferred<void>();
-    const send = vi.spyOn(api, 'messageStream').mockImplementation((_sid, _text, handlers) => {
-      handlers.onAccepted?.();
-      handlers.onDelta?.({ type: 'ui.argus', message_id: 'm0-argus', text: '已经写出的部分回复', ts: 1 });
-      return stream.promise;
-    });
-    type('只发一次');
-    await act(async () => { await props().onSend('只发一次'); });
-    await act(async () => stream.reject(new Error('connection lost')));
-    expect(props().value).toBe('');
-    expect(renderer.root.findByType(EventStream).props.events).toContainEqual(expect.objectContaining({ type: 'ui.argus', text: '已经写出的部分回复' }));
-    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
-    expect(send).toHaveBeenCalledTimes(1);
+  it('allows a new draft after an unconfirmed send with a new identity', async () => {
+    const send=vi.spyOn(api,'messageStream').mockRejectedValueOnce(new TypeError('Lost'));
+    type('first');await act(async () => {await props().onSend('first');});
+    type('new intent');send.mockImplementation(async (_sid,_text,handlers)=>{handlers.onAccepted?.();});
+    await act(async () => {await props().onSend('new intent');});
+    expect((send.mock.calls[1][3] as {requestId:string}).requestId).not.toBe((send.mock.calls[0][3] as {requestId:string}).requestId);
+    expect(props().value).toBe('');expect(api.conversation).not.toHaveBeenCalled();
   });
 
-  it('clears the route override and reads the task state after an accepted Manager handoff', async () => {
-    const stream = deferred<void>();
-    const send = vi.spyOn(api, 'messageStream').mockImplementation((_sid, _text, handlers) => {
-      handlers.onAccepted?.();
-      return stream.promise;
-    });
-    act(() => props().onRouteOverrideChange!('task'));
-    type('日报工具与测试');
-    await act(async () => { await props().onSend('日报工具与测试'); });
-    await act(async () => {
-      send.mock.calls[0][2].onDone?.({ kind: 'task', reply: '已交给规划者。' });
-      stream.resolve();
-    });
-    expect(props().value).toBe('');
-    expect(props().routeOverride).toBe('auto');
-    expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
-    expect(fixture.idle.refetch).toHaveBeenCalled();
-    expect(send).toHaveBeenCalledOnce();
+  it('clears the old notice when another tab confirms and removes the shared draft', async () => {
+    vi.spyOn(api,'messageStream').mockRejectedValue(new TypeError('Lost'));
+    type('shared draft');await act(async () => {await props().onSend('shared draft');});
+    expect(renderer.root.findByType(ActionNotice).props.notice).not.toBeNull();
+    act(() => {localStorage.removeItem('argus.composer.draft.v1:s-A');window.dispatchEvent(Object.assign(new Event('storage'),{key:'argus.composer.draft.v1:s-A'}));});
+    expect(props().value).toBe('');expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();
   });
 
-  it('stops the reply it waits on with the one stop, and never automatically replays a broken stream', async () => {
-    const stream = deferred<void>();
-    const send = vi.spyOn(api, 'messageStream').mockReturnValue(stream.promise);
-    type('send once');
-    await act(async () => { expect(await props().onSend('send once')).toBe(true); });
+  it('sends the canonical text and identity together when a tab notification has not redrawn the input yet', async () => {
+    const send=vi.spyOn(api,'messageStream').mockRejectedValueOnce(new TypeError('Lost'));
+    type('old draft');await act(async () => {await props().onSend('old draft');});
+    localStorage.setItem('argus.composer.draft.v1:s-A',JSON.stringify({text:'from another tab',request_id:'other-tab-identity',attachments:[]}));
+    send.mockImplementation(async (_sid,_text,handlers)=>{handlers.onAccepted?.();});
+    await act(async () => {await props().onSend('old draft');});
+    expect(send.mock.calls[1][1]).toBe('from another tab');
+    expect((send.mock.calls[1][3] as {requestId:string}).requestId).toBe('other-tab-identity');
     expect(props().value).toBe('');
-    const options = send.mock.calls[0][3] as { requestId: string; signal: AbortSignal };
-    expect(options.requestId).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
-    const { stopDaemon } = fixture.actions as Record<string, { mutate: ReturnType<typeof vi.fn> }>;
-    stopDaemon!.mutate.mockClear();
-    act(() => renderer.root.findByType(TopBar).props.onStop());
-    expect(stopDaemon!.mutate).toHaveBeenCalledOnce();
-    expect(stopDaemon!.mutate.mock.calls[0][1]).not.toHaveProperty('onSuccess');
-    await act(async () => stream.reject(new Error('SSE disconnected after acceptance')));
-    expect(send).toHaveBeenCalledTimes(1);
   });
+
+  it('uses the same draft identity for a follow-up retry while the original reply runs', async () => {
+    const send=vi.spyOn(api,'messageStream').mockRejectedValueOnce(new TypeError('Lost'));
+    const queued=vi.spyOn(api,'queueFollowup').mockResolvedValue({ok:true,queued:true,message_id:'existing'});
+    type('same draft');await act(async () => {await props().onSend('same draft');});
+    const requestId=(send.mock.calls[0][3] as {requestId:string}).requestId;
+    await act(async () => {await props().onSend('same draft',[],{whileRunning:true});});
+    expect(queued).toHaveBeenCalledExactlyOnceWith('s-A','same draft','auto',requestId);
+    expect(props().value).toBe('');
+  });
+
+  it('shows an unconfirmed send only in the composer, with no receipt probe or automatic POST replay', async () => {
+    const send=vi.spyOn(api,'messageStream').mockRejectedValue(new TypeError('Offline'));
+    type('not yet confirmed');await act(async () => {await props().onSend('not yet confirmed');});
+    expect(props().value).toBe('not yet confirmed');expect(send).toHaveBeenCalledOnce();expect(api.conversation).not.toHaveBeenCalled();
+    expect(renderer.root.findByType(EventStream).props.events.some((event:EventMsg)=>event.type==='ui.operator')).toBe(false);
+    expect(renderer.root.findByType(ActionNotice).props.notice.message).toContain('did not confirm receipt');
+  });
+
+  it.each(['error frame','lost connection'])('leaves an accepted failure to its original conversation row: %s', async ending => {
+    const stream=deferred<void>();const send=vi.spyOn(api,'messageStream').mockImplementation((_sid,_text,handlers)=>{handlers.onAccepted?.();return stream.promise;});
+    type('one request');await act(async () => {await props().onSend('one request');});expect(props().value).toBe('');
+    await act(async () => {if(ending==='error frame'){send.mock.calls[0][2].onError?.(new Error('Manager failed'));stream.resolve();}else stream.reject(new Error('Lost'));});
+    expect(props().value).toBe('');expect(renderer.root.findByType(ActionNotice).props.notice).toBeNull();expect(send).toHaveBeenCalledOnce();
+  });
+
 });
 
 describe('App desktop delivery session navigation', () => {

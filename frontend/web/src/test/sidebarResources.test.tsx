@@ -22,6 +22,8 @@ describe('top resource navigation', () => {
     const html = markup();
     expect(html.indexOf('data-sidebar-resources')).toBeGreaterThan(0);
     expect(html).toContain('data-sidebar-results');
+    expect(html).toContain('This project’s results');
+    expect(html).not.toContain('>2</span>');
     expect(html.indexOf('data-sidebar-results')).toBeLessThan(html.indexOf('id="daemon-search"'));
     expect(html).toContain('aria-expanded="false"');
     for (const label of ['aria-label="Plugins"', 'aria-label="Skill library"']) {
@@ -47,7 +49,7 @@ describe('top resource navigation', () => {
   it('keeps a compact entry rail with Results and skills', () => {
     const html = markup(true);
     expect(html).toContain('aria-label="Expand projects"');
-    const labels = ['aria-label="Results"', 'aria-label="Skill library"'];
+    const labels = ['aria-label="This project’s results"', 'aria-label="Skill library"'];
     for (const label of labels) expect(html).toContain(label);
     expect(labels.map(label => html.indexOf(label))).toEqual(labels.map(label => html.indexOf(label)).sort((a, b) => a - b));
     expect(html).not.toContain('id="daemon-search"');

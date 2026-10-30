@@ -7,10 +7,10 @@ import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { roleActionLabel } from '../lib/taskLanguage';
 
 /** Shared, factual status for the conversation and its progress panel. */
-export function WorkStatusBar({ snapshot, connected, compact = false, pending, onStopWork, onResumeTeam, teamBusy, managerMessage }: {
+export function WorkStatusBar({ snapshot, connected, compact = false, pending, onStopWork, onResumeTeam, onFocusComposer, teamBusy, managerMessage }: {
   snapshot?: Snapshot; connected: boolean; compact?: boolean;
   /** A message sent is waiting for its reply. */
-  pending?: boolean; onStopWork?: () => void; onResumeTeam?: () => void; teamBusy?: boolean;
+  pending?: boolean; onStopWork?: () => void; onResumeTeam?: () => void; onFocusComposer?: () => void; teamBusy?: boolean;
   managerMessage?: string;
 }) {
   const { locale } = useI18n();
@@ -42,7 +42,7 @@ export function WorkStatusBar({ snapshot, connected, compact = false, pending, o
         {label}
       </span>
       {age ? <time className="text-ink-faint" dateTime={status.activityAt ? new Date(status.activityAt * 1000).toISOString() : undefined}>{age}</time> : null}
-      {snapshot && onStopWork && onResumeTeam ? <RunControl snapshot={snapshot} pending={pending} onStop={onStopWork} onResume={onResumeTeam} busy={teamBusy}
+      {snapshot && onStopWork && onResumeTeam ? <RunControl snapshot={snapshot} pending={pending} onStop={onStopWork} onResume={onResumeTeam} onFocusComposer={onFocusComposer} busy={teamBusy}
         className="ml-auto flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-ink-dim hover:bg-sunken hover:text-ink disabled:opacity-50" /> : null}
     </div>
     {!connected ? <p className="mt-1 pl-[15px] leading-5 text-ink-faint">{zh ? '连接恢复后继续更新。' : 'Updates resume when the connection returns.'}</p>

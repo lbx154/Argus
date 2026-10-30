@@ -22,12 +22,6 @@ export function optimisticOperatorEvent(
   };
 }
 
-/** The transcript id of a sent message; a page-local placeholder is not one. */
-export function durableMessageId(event: EventMsg): string | undefined {
-  const id = event.message_id;
-  return typeof id === 'string' && id && id !== localOperatorId(String(event.request_id)) ? id : undefined;
-}
-
 export function mergeManagerReply(localEvents: EventMsg[], requestId: string, reply: EventMsg): EventMsg[] {
   const asked = String(reply.message_id).replace(/-argus$/, '-operator');
   return [

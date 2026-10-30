@@ -8,6 +8,9 @@ import type { Project } from '../../../../packages/core/src/store';
 import { useArtifacts } from '../hooks';
 import { useConversationHistory } from '../useConversationHistory';
 import { useRoleLog } from '../useRoleLog';
+import stoppedSnapshot from './fixtures/conversation-shell-stopped.json';
+import { Capabilities } from '../lib/capabilities';
+import { SNAPSHOT_SCHEMA_VERSION } from '../../../core/src/protocol';
 
 // Captured real project: the first frame includes saved role steps and a delivered result.
 const record = readFileSync(new URL('./fixtures/home/projects/p-c855623c/events.jsonl', import.meta.url), 'utf8')
@@ -68,7 +71,7 @@ afterEach(() => {
 });
 it('keeps file reads through edits and commands, refreshing only on call completion and delivery', async () => {
   act(() => { view = create(tree('a')); }); await flush();
-  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}&once=1`]);
+  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}`]);
   expect(latest.connected).toBe(true);
   expect(savedRows.some(row => row.delivery)).toBe(true);
   send(connections[0], frame(cursor, [], reading.roleEvents)); await flush();
@@ -109,9 +112,9 @@ it('counts a new event between REST and the first frame, and resumes a reconnect
   act(() => { view = create(tree('a')); }); await flush();
   send(connections[0], frame(cursor + 1, [], [...reading.roleEvents, { type: 'provider.request.completed', event_id: cursor + 1 }])); await flush();
   expect(api.artifacts).toHaveBeenCalledTimes(2);
-  // The answer ends; the page asks again at once and stays connected.
   connections[0].body.close(); await flush();
-  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  expect(latest.connected).toBe(false);
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   expect(latest.connected).toBe(true);
   expect(connections[1].headers).toEqual({ 'Last-Event-ID': String(cursor + 1) });
   send(connections[1], frame(cursor + 1, [], [...reading.roleEvents, { type: 'provider.request.completed', event_id: cursor + 1 }])); await flush();
@@ -135,7 +138,7 @@ it('isolates switched projects and uses the held cursor on a revisit', async () 
   client.setQueryDefaults(['conversation'], { staleTime: 0 });
   act(() => view!.update(tree('a'))); await flush();
   expect(connections[1].signal.aborted).toBe(true);
-  expect(connections[2].path).toBe(`/api/projects/a/stream?view=rows&after=${cursor + 1}&once=1`);
+  expect(connections[2].path).toBe(`/api/projects/a/stream?view=rows&after=${cursor + 1}`);
   send(connections[2], frame(cursor + 1, [], [...reading.roleEvents, { type: 'provider.request.completed', event_id: cursor + 1 }])); await flush();
   expect(api.artifacts).toHaveBeenCalledTimes(3);
   expect(count('a')).toEqual([2, 2, 2, 1]);
@@ -160,7 +163,7 @@ it('waits for the opening refresh of stale cached history before following its c
   expect(api.artifacts).toHaveBeenCalledTimes(1);
   expect(connections).toHaveLength(0);
   await act(async () => { finish({ rows: savedRows, cursor, before: null }); await vi.advanceTimersByTimeAsync(10); });
-  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}&once=1`]);
+  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}`]);
   send(connections[0], frame(cursor, [], reading.roleEvents)); await flush();
   expect(api.artifacts).toHaveBeenCalledTimes(1);
   expect(count('a')).toEqual([1, 1, 1, 1]);
@@ -220,4 +223,85 @@ it('preserves both cache objects and observers across an advancing empty frame',
   connections[0].body.close(); await flush();
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   expect(connections[1].headers).toEqual({ 'Last-Event-ID': String(cursor + 1) });
+});
+
+it('receives captured conversation rows, the selected snapshot and other projects through one stream', async () => {
+  act(() => { view = create(tree('a')); }); await flush();
+  const snapshot = { ...stoppedSnapshot, schema_version: SNAPSHOT_SCHEMA_VERSION, usage_summary: {}, session: { ...stoppedSnapshot.session, id: 'a' } };
+  send(connections[0], { type: 'projects', projects: [], local_cwd: '/recorded' });
+  send(connections[0], { type: 'snapshot', id: 'a', snapshot });
+  send(connections[0], frame(cursor, savedRows, reading.roleEvents));
+  send(connections[0], { type: 'project', id: 'b', row: { id: 'b', display_name: 'Other project' } });
+  await flush();
+  expect(connections).toHaveLength(1);
+  expect(client.getQueryData(['snapshot', 'a'])).toEqual(snapshot);
+  expect(client.getQueryData(['snapshot', 'b'])).toBeUndefined();
+  expect(client.getQueryData(['projects'])).toEqual({ projects: [{ id: 'b', display_name: 'Other project' }], local_cwd: '/recorded' });
+  expect(latest.events).toEqual([...savedRows].sort((a, b) => Number(a.order) - Number(b.order)));
+  expect(api.conversation).toHaveBeenCalledOnce();
+});
+
+it('restores the list stream when a disconnected project was deleted before its reconnect, and closes it on selection', async () => {
+  const projects = { projects: [{ id: 'a', display_name: 'Selected' }, { id: 'b', display_name: 'Other' }], local_cwd: '/recorded' };
+  client.setQueryData(['projects'], projects);
+  const pushed = (sid: string) => <Capabilities.Provider value={['manager.sse.v1']}>{tree(sid)}</Capabilities.Provider>;
+  act(() => { view = create(pushed('a')); }); await flush();
+  send(connections[0], frame(cursor)); await flush();
+  expect(latest.connected).toBe(true);
+  // The old reader is gone before another device deletes a. Its reconnect gets the real 404.
+  connections[0].body.close(); await flush();
+  vi.mocked(fetch).mockResolvedValueOnce(new Response('unknown project', { status: 404 }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(vi.mocked(fetch).mock.calls.map(([path]) => path)).toEqual([
+    `/api/projects/a/stream?view=rows&after=${cursor}`,
+    `/api/projects/a/stream?view=rows&after=${cursor}`,
+    '/api/projects/stream',
+  ]);
+  expect(connections).toHaveLength(2);
+  expect(latest.connected).toBe(false);
+  // This authoritative list delivers the missing project to the existing selection path.
+  send(connections[1], { type: 'projects', projects: [projects.projects[1]], local_cwd: '/recorded' }); await flush();
+  expect(client.getQueryData(['projects'])).toEqual({ projects: [projects.projects[1]], local_cwd: '/recorded' });
+  // State keeps arriving even if selection has not changed yet.
+  send(connections[1], { type: 'project', id: 'b', row: { id: 'b', display_name: 'Renamed elsewhere' } }); await flush();
+  expect(client.getQueryData(['projects'])).toEqual({ projects: [{ id: 'b', display_name: 'Renamed elsewhere' }], local_cwd: '/recorded' });
+  act(() => view!.update(pushed('b'))); await flush();
+  expect(connections[1].signal.aborted).toBe(true);
+  expect(connections[2].path).toContain('/projects/b/stream');
+  expect(connections.filter(connection => !connection.signal.aborted && connection !== connections[0])).toHaveLength(1);
+  const attempts = vi.mocked(fetch).mock.calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+  expect(fetch).toHaveBeenCalledTimes(attempts);
+});
+
+it('keeps the authoritative list after the opening conversation and its retry fail before any row stream exists', async () => {
+  client.setQueryDefaults(['conversation'], { retry: 1, retryDelay: 1000 });
+  client.setQueryData(['projects'], { projects: [{ id: 'a', display_name: 'Selected' }, { id: 'b', display_name: 'Other' }], local_cwd: '/recorded' });
+  client.setQueryData(['snapshot', 'a'], { ...stoppedSnapshot, session: { ...stoppedSnapshot.session, id: 'a' } });
+  let rejectOpening!: (error: Error) => void;
+  vi.mocked(api.conversation).mockReturnValueOnce(new Promise((_, reject) => { rejectOpening = reject; }))
+    .mockRejectedValue(new Error('GET conversation: 404 unknown project'));
+  const pushed = (sid: string) => <Capabilities.Provider value={['manager.sse.v1']}>{tree(sid)}</Capabilities.Provider>;
+  act(() => { view = create(pushed('a')); }); await flush();
+  expect(latest.status).toBe('loading');
+  expect(connections).toHaveLength(0);
+  expect(client.getQueryData(['snapshot', 'a'])).toBeDefined();
+  // The snapshot is already available, but a was deleted while this first GET was held.
+  await act(async () => { rejectOpening(new Error('GET conversation: 404 unknown project')); await vi.advanceTimersByTimeAsync(10); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); }); await flush();
+  expect(api.conversation).toHaveBeenCalledTimes(2);
+  expect(latest.status).toBe('error');
+  expect(connections.map(connection => connection.path)).toEqual(['/api/projects/stream']);
+  send(connections[0], { type: 'projects', projects: [{ id: 'b', display_name: 'Other' }], local_cwd: '/recorded' }); await flush();
+  send(connections[0], { type: 'project', id: 'b', row: { id: 'b', display_name: 'Renamed elsewhere' } }); await flush();
+  expect(client.getQueryData(['projects'])).toEqual({ projects: [{ id: 'b', display_name: 'Renamed elsewhere' }], local_cwd: '/recorded' });
+  await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+  expect(connections).toHaveLength(1);
+  expect(connections[0].signal.aborted).toBe(false);
+  // Selection can now follow the surviving project. Close the list before following its rows.
+  vi.mocked(api.conversation).mockResolvedValue({ rows: savedRows, cursor, before: null });
+  act(() => view!.update(pushed('b'))); await flush();
+  expect(connections[0].signal.aborted).toBe(true);
+  expect(connections[1].path).toBe(`/api/projects/b/stream?view=rows&after=${cursor}`);
+  expect(latest.connected).toBe(true);
 });

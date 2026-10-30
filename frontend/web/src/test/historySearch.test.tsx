@@ -29,3 +29,32 @@ it('clears both the input and debounced search on close, including closing befor
   expect(search).toHaveBeenCalledTimes(1);
   client.clear();
 });
+
+it('moves through search results with arrows and opens the focused result', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('window', { setTimeout, clearTimeout });
+  const doc = { activeElement: null as unknown };
+  vi.stubGlobal('document', doc);
+  const results = [1, 2].map(n => ({ sid: 'project', title: 'Project', kind: 'conversation' as const, line: n, snippet: `Message ${n}`, text: `Message ${n}` }));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  vi.spyOn(api, 'searchHistory').mockResolvedValue({ results, partial: false, errors: [] });
+  const choose = vi.fn(), close = vi.fn();
+  const nodes: { focus: () => void }[] = [];
+  act(() => { renderer = create(<QueryClientProvider client={client}><HistorySearch open onClose={close} onChoose={choose} /></QueryClientProvider>, {
+    createNodeMock: element => {
+      if (element.type !== 'button') return null;
+      const node = { focus: () => { doc.activeElement = node; } }; nodes.push(node); return node;
+    },
+  }); });
+  act(() => renderer.root.findByType('input').props.onChange({ target: { value: 'Message' } }));
+  await act(async () => { await vi.advanceTimersByTimeAsync(310); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(10); });
+  const key = (key: string) => act(() => renderer.root.findByProps({ className: 'experience-panel search-body' }).props.onKeyDown({ key, nativeEvent: {}, preventDefault: vi.fn() }));
+  key('ArrowDown'); expect(doc.activeElement).toBe(nodes[0]);
+  key('ArrowDown'); expect(doc.activeElement).toBe(nodes[1]);
+  key('ArrowUp'); expect(doc.activeElement).toBe(nodes[0]);
+  key('ArrowUp'); expect(doc.activeElement).toBe(nodes[1]);
+  act(() => renderer.root.findAllByType('button')[1].props.onClick());
+  expect(choose).toHaveBeenCalledWith(results[1]); expect(close).toHaveBeenCalledOnce();
+  act(() => renderer.unmount()); client.clear();
+});

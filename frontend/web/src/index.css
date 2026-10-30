@@ -793,7 +793,7 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-:where(button, a, input, textarea, select, summary, [role="separator"]):focus-visible {
+:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible {
   outline: 2px solid rgb(var(--accent-ink));
   outline-offset: 2px;
 }
@@ -905,7 +905,6 @@ button {
 .status-dot[data-tone='waiting'] { background: rgb(var(--status-waiting)); box-shadow: 0 0 0 2px rgb(var(--panel)), 0 0 0 3px rgb(var(--status-waiting) / .7); }
 .status-dot[data-tone='done'] { background: rgb(var(--status-done)); }
 .status-dot[data-tone='failed'] { background: rgb(var(--status-failed)); }
-@media (prefers-reduced-motion: reduce) { .status-dot[data-tone='running'] { animation: none; } }
 
 .workspace-header { background: rgb(var(--panel)); border-bottom: 0; }
 .project-header {

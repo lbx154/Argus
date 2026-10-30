@@ -135,7 +135,6 @@
 .map-search input {
   background: transparent;
   border: 0;
-  outline: none;
   min-width: 0;
   width: 100%;
   font-size: 12px;
@@ -261,9 +260,6 @@
 .map-state-held,
 .map-state-review_unavailable {
   --state: #a58a56;
-}
-.map-state-superseded {
-  --state: #9588a8;
 }
 .map-state-aborted,
 .map-state-skipped,
@@ -533,8 +529,9 @@
   }
   .map-canvas-toolbar > button { flex-shrink: 0; min-width: 44px; min-height: 44px; }
   /* Inside a card the row keeps the pager and the way back; the search and
-   * the whole-map fit wait until the reader is back on the overview. */
-  .map-canvas-wrap[data-detailed="true"] .map-search,
+   * the whole-map fit wait until the reader is back on the overview. A
+   * keyboard zoom keeps its search field visible while it holds focus. */
+  .map-canvas-wrap[data-detailed="true"] .map-search:not(:focus-within),
   .map-canvas-wrap[data-detailed="true"] .map-fit-button {
     display: none;
   }
@@ -629,18 +626,10 @@
     opacity: 0.7;
   }
 }
-/* Failed and questioned work must pop; replaced work must recede. */
+/* Failed and questioned work must pop. */
 .map-macro.map-state-failed .map-card,
 .map-macro.map-state-question .map-card {
   border-color: color-mix(in srgb, var(--state) 42%, rgb(var(--line)));
-}
-.map-macro.map-state-superseded .map-card {
-  opacity: 0.72;
-  filter: saturate(0.72);
-}
-.map-macro.map-state-superseded .map-card:hover {
-  opacity: 0.95;
-  filter: none;
 }
 /* --- Frame-rate work: cull invisible paint, animate on the compositor. --- */
 /* An unfocused card's inner submap is opacity:0 by design, yet its whole

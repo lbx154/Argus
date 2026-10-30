@@ -43,6 +43,16 @@ export function resolveProjectSelection(
   };
 }
 
+/** Only initial selection or a removed project may choose a default; keep the start page open. */
+export function reconcileProjectSelection(
+  projects: ProjectRow[],
+  current: string | null,
+  initialized: boolean,
+): ProjectSelection {
+  if (initialized && !current?.trim()) return { id: null, requested: null, recovered: false };
+  return resolveProjectSelection(projects, current);
+}
+
 /** Multi-term project lookup shared by Web and Ink navigation surfaces. */
 export function projectMatchesQuery(project: ProjectRow, query: string): boolean {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);

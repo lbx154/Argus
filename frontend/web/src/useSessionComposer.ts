@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, type SetStateAction } from 'react';
-import type { UploadedAttachment } from './api';
+import { newRequestId, type UploadedAttachment } from './api';
 
 interface CompletedFile {
   file?: File;
@@ -8,6 +8,7 @@ interface CompletedFile {
 
 export interface SessionDraft {
   text: string;
+  requestId: string;
   attachments: File[];
   revision: number;
   missingAttachments?: string[];
@@ -15,10 +16,11 @@ export interface SessionDraft {
 }
 export interface DraftSnapshot extends SessionDraft { sid: string }
 interface RewriteOperation extends DraftSnapshot { request: number }
-const EMPTY: SessionDraft = { text: '', attachments: [], revision: 0 };
+const EMPTY: SessionDraft = { text: '', requestId: '', attachments: [], revision: 0 };
 
-const DRAFT_KEY = 'argus.composer.draft.v1:';
-const draftKey = (sid: string) => `${DRAFT_KEY}${sid}`;
+const DRAFT_PREFIX = 'argus.composer.draft.v1:';
+const draftKey = (sid: string) => `${DRAFT_PREFIX}${sid}`;
+type FileDraft = Pick<SessionDraft, 'attachments' | 'uploaded' | 'revision'>;
 
 function isUploadedAttachment(value: unknown): value is UploadedAttachment {
   return Boolean(value && typeof value === 'object'
@@ -29,7 +31,7 @@ function isUploadedAttachment(value: unknown): value is UploadedAttachment {
 
 /** File bytes stay in memory; only completed references survive reloads. */
 export function useSessionComposer(sid: string | null) {
-  const drafts = useRef(new Map<string, SessionDraft>());
+  const files = useRef(new Map<string, FileDraft>());
   const rewrites = useRef(new Map<string, RewriteOperation>());
   /** Each session's text before its last rewrite, and the rewrite: undone while the draft is still the rewrite. */
   const rewritten = useRef(new Map<string, { before: string; after: string }>());
@@ -37,14 +39,19 @@ export function useSessionComposer(sid: string | null) {
   const mounted = useRef(true);
   const storageErrors = useRef(new Map<string, boolean>());
   const [, redraw] = useReducer((value: number) => value + 1, 0);
-  const read = (id: string): SessionDraft => {
-    const cached = drafts.current.get(id);
-    if (cached) return cached;
+  const read = useCallback((id: string): SessionDraft => {
+    let local = files.current.get(id);
+    if (!local) {
+      local = { attachments: [], uploaded: [], revision: ++sequence.current };
+      files.current.set(id, local);
+    }
     let text = '';
+    let requestId = '';
     let missingAttachments: string[] = [];
     let uploaded: CompletedFile[] = [];
     try {
-      const raw = globalThis.localStorage?.getItem(draftKey(id));
+      if (!globalThis.localStorage) throw new Error('Browser storage unavailable');
+      const raw = localStorage.getItem(draftKey(id));
       if (raw) {
         const saved: unknown = JSON.parse(raw);
         if (!saved || typeof saved !== 'object' || !('text' in saved) || typeof saved.text !== 'string'
@@ -54,36 +61,53 @@ export function useSessionComposer(sid: string | null) {
         missingAttachments = saved.attachments;
         if ('uploaded' in saved) {
           if (!Array.isArray(saved.uploaded) || !saved.uploaded.every(isUploadedAttachment)) throw new Error('Invalid uploaded references');
-          uploaded = saved.uploaded.map(attachment => ({ attachment }));
+          uploaded = saved.uploaded.map(attachment => ({ attachment,
+            file: local.uploaded?.find(item => item.attachment.attachment_id === attachment.attachment_id)?.file,
+          }));
+        }
+        if ('request_id' in saved && typeof saved.request_id === 'string' && saved.request_id) requestId = saved.request_id;
+        else {
+          const generated = newRequestId();
+          localStorage.setItem(draftKey(id), JSON.stringify({ ...saved, request_id: generated }));
+          requestId = generated;
         }
       }
     } catch {
       storageErrors.current.set(id, true);
     }
-    const value = { text, missingAttachments, uploaded, attachments: [], revision: ++sequence.current };
-    drafts.current.set(id, value);
-    return value;
-  };
+    return { text, requestId, uploaded, attachments: local.attachments, revision: local.revision,
+      missingAttachments: missingAttachments.filter(name => !local.attachments.some(file => file.name === name)),
+    };
+  }, []);
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-  // Every tab of this browser writes a project's draft to the one stored copy: another tab's edit
-  // shows here too, rather than the last tab to write replacing it. Files chosen here stay.
-  useEffect(() => {
-    const follow = (event: StorageEvent) => {
-      if (!event.key?.startsWith(DRAFT_KEY)) return;
-      const id = event.key.slice(DRAFT_KEY.length);
-      const held = drafts.current.get(id);
-      if (!held) return;
-      drafts.current.delete(id);
-      drafts.current.set(id, { ...read(id), attachments: held.attachments });
-      if (mounted.current) redraw();
+    const onStorage = (event: StorageEvent) => {
+      if (event.storageArea && event.storageArea !== globalThis.localStorage) return;
+      const ids = event.key === null ? [...files.current.keys()]
+        : event.key.startsWith(DRAFT_PREFIX) ? [event.key.slice(DRAFT_PREFIX.length)] : [];
+      for (const id of ids) {
+        const current = read(id);
+        // Another tab can share names and uploaded references, but never File bytes.
+        const names: string[] = [];
+        try {
+          const raw = localStorage.getItem(draftKey(id));
+          if (raw) names.push(...JSON.parse(raw).attachments);
+        } catch { /* read already reports invalid storage */ }
+        files.current.set(id, { revision: ++sequence.current,
+          attachments: current.attachments.filter(file => names.includes(file.name)
+            || current.uploaded?.some(item => item.file === file)),
+          uploaded: current.uploaded,
+        });
+        rewritten.current.delete(id);
+      }
+      if (ids.length) redraw();
     };
-    const page = globalThis.window;
-    page?.addEventListener('storage', follow);
-    return () => page?.removeEventListener('storage', follow);
-  }, []);
+    if (typeof window !== 'undefined') window.addEventListener?.('storage', onStorage);
+    return () => {
+      mounted.current = false;
+      if (typeof window !== 'undefined') window.removeEventListener?.('storage', onStorage);
+    };
+  }, [read]);
 
   const persist = useCallback((id: string, draft: SessionDraft) => {
     try {
@@ -92,7 +116,7 @@ export function useSessionComposer(sid: string | null) {
       const attachments = [...(draft.missingAttachments ?? []), ...draft.attachments
         .filter(file => !uploaded.some(item => item.file === file)).map(file => file.name)];
       if (draft.text || attachments.length || uploaded.length) localStorage.setItem(draftKey(id), JSON.stringify({
-        text: draft.text, attachments,
+        text: draft.text, request_id: draft.requestId, attachments,
         ...(uploaded.length ? { uploaded: uploaded.map(item => item.attachment) } : {}),
       }));
       else localStorage.removeItem(draftKey(id));
@@ -101,67 +125,60 @@ export function useSessionComposer(sid: string | null) {
       storageErrors.current.set(id, true);
     }
   }, []);
-  const put = useCallback((id: string, value: Pick<SessionDraft, 'text' | 'attachments' | 'missingAttachments' | 'uploaded'>): DraftSnapshot => {
-    const next = { text: value.text, attachments: [...value.attachments], revision: ++sequence.current };
-    const draft = { ...next, missingAttachments: value.missingAttachments ?? [],
+  const put = useCallback((id: string, value: Pick<SessionDraft, 'text' | 'attachments' | 'missingAttachments' | 'uploaded'>, revision = ++sequence.current): DraftSnapshot => {
+    const current = read(id);
+    const requestId = current.text === value.text && current.requestId ? current.requestId : newRequestId();
+    const draft = { ...value, requestId, attachments: [...value.attachments], revision,
+      missingAttachments: value.missingAttachments ?? [],
       uploaded: (value.uploaded ?? []).filter(item => !item.file || value.attachments.includes(item.file)) };
-    drafts.current.set(id, draft);
+    files.current.set(id, { attachments: draft.attachments, uploaded: draft.uploaded, revision });
     persist(id, draft);
     if (mounted.current) redraw();
-    return { sid: id, ...draft };
-  }, [persist]);
+    return { sid: id, ...read(id) };
+  }, [persist, read]);
   const rememberUploaded = useCallback((operation: DraftSnapshot, file: File, attachment: UploadedAttachment) => {
     const item = { file, attachment };
     operation.uploaded = [...(operation.uploaded ?? []).filter(row => row.file !== file), item];
-    const current = drafts.current.get(operation.sid);
+    const current = read(operation.sid);
     if (!current?.attachments.includes(file)) return;
     const draft = { ...current, uploaded: [...(current.uploaded ?? []).filter(row => row.file !== file), item] };
     // Receipt bookkeeping is not a user edit; do not invalidate the send revision.
-    drafts.current.set(operation.sid, draft);
-    persist(operation.sid, draft);
-    if (mounted.current) redraw();
-  }, [persist]);
+    put(operation.sid, draft, current.revision);
+  }, [put, read]);
   const removeUploaded = useCallback((attachmentId: string) => {
     if (!sid) return;
-    const current = drafts.current.get(sid);
+    const current = read(sid);
     if (current) put(sid, { ...current, uploaded: current.uploaded?.filter(item => item.attachment.attachment_id !== attachmentId) });
-  }, [put, sid]);
+  }, [put, read, sid]);
   const setText = useCallback((value: SetStateAction<string>) => {
     if (!sid) return;
-    const current = drafts.current.get(sid) ?? EMPTY;
+    const current = read(sid);
     put(sid, { ...current, text: typeof value === 'function' ? value(current.text) : value });
-  }, [put, sid]);
+  }, [put, read, sid]);
   const setAttachments = useCallback((value: SetStateAction<File[]>) => {
     if (!sid) return;
-    const current = drafts.current.get(sid) ?? EMPTY;
+    const current = read(sid);
     const attachments = typeof value === 'function' ? value(current.attachments) : value;
     put(sid, { ...current, attachments, missingAttachments: current.missingAttachments?.filter(name => !attachments.some(file => file.name === name)) });
-  }, [put, sid]);
+  }, [put, read, sid]);
   const capture = useCallback((id: string | null): DraftSnapshot | null => {
     if (!id) return null;
-    // Materialize even an empty slot so dropping it invalidates captured work.
-    let current = drafts.current.get(id);
-    if (!current) {
-      current = { ...EMPTY, attachments: [], revision: ++sequence.current };
-      drafts.current.set(id, current);
-    }
+    const current = read(id);
     return { sid: id, ...current, attachments: [...current.attachments] };
-  }, []);
-  const isCurrent = useCallback((operation: DraftSnapshot) => mounted.current
-    && drafts.current.get(operation.sid)?.revision === operation.revision, []);
+  }, [read]);
+  const isCurrent = useCallback((operation: DraftSnapshot) => {
+    const current = read(operation.sid);
+    return mounted.current && current.revision === operation.revision && current.text === operation.text;
+  }, [read]);
   const consume = useCallback((operation: DraftSnapshot, sent: File[]): DraftSnapshot | null => {
-    if (!isCurrent(operation)) return null;
+    const current = read(operation.sid);
+    if (!mounted.current || !operation.requestId || current.requestId !== operation.requestId) return null;
     return put(operation.sid, {
-      text: '', attachments: operation.attachments.filter(file => !sent.includes(file)),
-      missingAttachments: operation.missingAttachments,
-      uploaded: operation.uploaded?.filter(item => item.file && !sent.includes(item.file)),
+      text: '', attachments: current.attachments.filter(file => !sent.includes(file)),
+      missingAttachments: current.missingAttachments,
+      uploaded: current.uploaded?.filter(item => item.file && !sent.includes(item.file)),
     });
-  }, [isCurrent, put]);
-  const restore = useCallback((cleared: DraftSnapshot, original: DraftSnapshot) => {
-    if (cleared.sid !== original.sid || !isCurrent(cleared)) return false;
-    put(original.sid, original);
-    return true;
-  }, [isCurrent, put]);
+  }, [put, read]);
 
   const beginRewrite = useCallback((id: string | null) => {
     if (!id || rewrites.current.has(id)) return null;
@@ -182,17 +199,11 @@ export function useSessionComposer(sid: string | null) {
     return current;
   }, [isCurrent, put]);
   const drop = useCallback((id: string) => {
-    drafts.current.set(id, { ...EMPTY, attachments: [], revision: ++sequence.current });
+    put(id, EMPTY);
     rewrites.current.delete(id);
     rewritten.current.delete(id);
-    try {
-      if (!globalThis.localStorage) throw new Error('Browser storage unavailable');
-      localStorage.removeItem(draftKey(id));
-      storageErrors.current.delete(id);
-    } catch { storageErrors.current.set(id, true); }
     // Do not reset sequence: a recreated slot must never match a deleted one.
-    if (mounted.current) redraw();
-  }, []);
+  }, [put]);
 
   const draft = sid ? read(sid) : EMPTY;
   const rewrite = sid ? rewritten.current.get(sid) : undefined;
@@ -201,7 +212,7 @@ export function useSessionComposer(sid: string | null) {
     storageError: Boolean(sid && storageErrors.current.get(sid)),
     seed: (id: string, text: string, attachments: File[] = []) => put(id, { text, attachments }),
     dismissMissingAttachments: () => {
-      if (sid) put(sid, { ...(drafts.current.get(sid) ?? EMPTY), missingAttachments: [] });
+      if (sid) put(sid, { ...read(sid), missingAttachments: [] });
     },
     rewriting: Boolean(sid && rewrites.current.has(sid)),
     /** Puts back the text as it was before the rewrite; offered until the rewrite is edited. */
@@ -209,6 +220,6 @@ export function useSessionComposer(sid: string | null) {
       rewritten.current.delete(sid!);
       setText(rewrite.before);
     } : undefined,
-    setText, setAttachments, capture, consume, restore, beginRewrite, finishRewrite, drop, rememberUploaded, removeUploaded,
+    setText, setAttachments, capture, consume, beginRewrite, finishRewrite, drop, rememberUploaded, removeUploaded,
   };
 }

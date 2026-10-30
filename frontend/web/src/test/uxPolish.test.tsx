@@ -108,3 +108,20 @@ describe('questions, paths and header', async () => {
       .toBe('在 demo/c1-review 的 moneyfmt 中，见 [README](demo/c1-review/README.md)');
   });
 });
+
+it('returns a disappearing focused run control to the composer without taking focus from elsewhere', () => {
+  const node = {};
+  const doc = { activeElement: node };
+  vi.stubGlobal('document', doc);
+  const focusComposer = vi.fn();
+  let renderer: ReactTestRenderer;
+  const show = (alive: boolean) => <RunControl snapshot={{ ...snap(alive), roles: [] }} onStop={() => {}} onResume={() => {}} onFocusComposer={focusComposer} />;
+  act(() => { renderer = create(show(true), { createNodeMock: element => element.type === 'button' ? node : null }); });
+  act(() => renderer!.update(show(false)));
+  expect(focusComposer).toHaveBeenCalledOnce();
+  act(() => renderer!.update(show(true)));
+  doc.activeElement = {};
+  act(() => renderer!.update(show(false)));
+  expect(focusComposer).toHaveBeenCalledOnce();
+  act(() => renderer!.unmount()); vi.unstubAllGlobals();
+});

@@ -200,7 +200,7 @@ test('a project is named by the operator, marked in the sidebar, and restored fr
   assert.equal((await send('POST', `/api/trash/${sid}-copy/restore`)).status, 409);
 });
 
-test('spend lives in each snapshot, without a separate cost feed or list fields', async t => {
+test('list rows and snapshots share ledger spend, without a separate cost feed', async t => {
   const { home, get, create, call } = await setup(t);
   assert.equal((await get<{ capabilities: string[] }>('/api/meta')).capabilities.includes('project.cost-feed.v1'), false);
   const spent = await create();
@@ -210,7 +210,11 @@ test('spend lives in each snapshot, without a separate cost feed or list fields'
   assert.equal(snapshot.spend_status, 'priced');
   assert.equal((await call('/api/projects/costs')).status, 404);
   const rows = await get<{ projects: Record<string, unknown>[] }>('/api/projects');
-  assert.equal(Object.hasOwn(rows.projects[0]!, 'spend_usd'), false);
+  const row = rows.projects.find(row => row.id === spent)!;
+  assert.equal(row.spend_usd, 0.75);
+  assert.equal(row.spend_status, 'priced');
+  assert.equal(row.spend_usd, snapshot.spend_usd);
+  assert.equal(row.spend_status, snapshot.spend_status);
 });
 
 test('the manifest that makes the cockpit installable is the built one, and needs no token', async t => {

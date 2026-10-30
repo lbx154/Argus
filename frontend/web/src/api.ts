@@ -159,13 +159,11 @@ export interface ProjectIndex {
   projects: ProjectRow[];
   local_cwd: string;
 }
-/** What a server without POLL_CAPABILITY pushes: the project list as the page connects, then each
- * project's state as it changes; a deleted project's is null. */
-/** What a page's stream says of the projects: the list as it connects, with the page the server
- * sends (`build`); then a project's row as it changes, with its snapshot to the page showing it. */
+/** The list on connection, list rows as they change, and snapshots only for the selected project. */
 export type ProjectState =
-  | ({ type: 'projects'; build?: string } & ProjectIndex)
-  | { type: 'project'; id: string; row: ProjectRow | null; snapshot?: Snapshot | null };
+  | ({ type: 'projects' } & ProjectIndex)
+  | { type: 'project'; id: string; row: ProjectRow | null }
+  | { type: 'snapshot'; id: string; snapshot: Snapshot };
 /** A Manager-authored restatement of an operator draft (see the rewrite button). */
 export interface PromptRewrite {
   original: string;
@@ -410,7 +408,7 @@ async function postResponse(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const r = await fetchArgus(path, {
+  const r = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -515,7 +513,7 @@ async function mutationJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const r = await fetchArgus(path, {
+  const r = await fetch(path, {
     method,
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -525,7 +523,7 @@ async function mutationJson<T>(
 }
 
 async function getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
-  const r = await fetchArgus(path, { headers: authHeaders(), signal });
+  const r = await fetch(path, { headers: authHeaders(), signal });
   await ensureResponseOk(r, 'GET', path);
   return r.blob();
 }
@@ -641,15 +639,12 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
 }
 
 /** Share Manager/map framing and wait for a terminal result, never a heartbeat. */
-/** The frames of a response; one that must end in `done` or `error` fails without it, while a page's
- * stream (`ends` false) may simply end. */
 async function readSSE(
   response: Response,
   label: string,
   onFrame?: (frame: SSEFrame) => void,
   signal?: AbortSignal,
-  ends = true,
-): Promise<SSEFrame | undefined> {
+): Promise<SSEFrame> {
   if (!response.body) throw new Error(`${label} returned no response body`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -670,7 +665,7 @@ async function readSSE(
         if (frame.type === 'done' || frame.type === 'error') terminal = frame;
       }
       if (done) {
-        if (!terminal && ends) throw new Error(`${label} ended before a terminal event`);
+        if (!terminal) throw new Error(`${label} ended before a terminal event`);
         return terminal;
       }
     }
@@ -731,7 +726,7 @@ export const api = {
       command_id: commandId(),
       expected_revision: expectedRevision,
     };
-    const response = await fetchArgus(path, {
+    const response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
@@ -1006,8 +1001,8 @@ export const api = {
     await readSSE(res, 'Manager stream', dispatch, signal);
   },
   /** A message typed while a Manager reply runs: shown now, answered as the next turn. */
-  queueFollowup: (sid: string, text: string, routeOverride: MessageRouteOverride = 'auto') =>
-    postJson<{ ok: boolean; queued: boolean; message_id: string }>(P(sid, '/message/followup'), { text, route_override: routeOverride }),
+  queueFollowup: (sid: string, text: string, routeOverride: MessageRouteOverride = 'auto', requestId?: string) =>
+    postJson<{ ok: boolean; queued: boolean; message_id: string }>(P(sid, '/message/followup'), { text, route_override: routeOverride, ...(requestId ? { request_id: requestId } : {}) }),
   /**
    * Ask the Manager to restate a short draft as an executable brief. Preview
    * only — nothing is queued; the operator edits/sends the result themselves.
@@ -1051,27 +1046,28 @@ export type StreamCloseInfo = {
 
 const NON_RETRYABLE_STREAM_STATUSES = new Set([401, 404]);
 
-type StreamOptions = { onOpen?: () => void; onClose?: (info: StreamCloseInfo) => void };
+type StreamOptions = { onOpen?: () => void; onClose?: (info: StreamCloseInfo) => void; onState?: (state: ProjectState) => void };
 
-/** A page's one stream while it shows a project: its rows, in the projection of a fresh conversation
- * page, and the projects' states (ProjectState). A browser gives a page few connections to a server. */
+let streamEntry: string | undefined;
+/** The entry's own import.meta.url, supplied by main before any stream opens. */
+export function setStreamEntry(url: string): void { streamEntry = url; }
+
+/** One selected project's rows and snapshot, together with changes to the project list. */
 export const openConversation = (
   sid: string, after: number, onFrame: (frame: EventMsg) => void, opts: StreamOptions = {},
-): (() => void) => follow(P(sid, `/stream?view=rows&after=${after}&once=1`), 'Conversation stream', onFrame, opts);
+): (() => void) => follow(P(sid, `/stream?view=rows&after=${after}`), 'Conversation stream', onFrame, opts);
 
-/** A page's one stream while it shows no project: the projects' states. Returns a close() fn. */
+/** The project list, then each project's state as it changes, from a server without POLL_CAPABILITY. Returns a close() fn. */
 export const openProjectStates = (onState: (state: ProjectState) => void, opts: StreamOptions = {}): (() => void) =>
-  follow('/api/projects/stream?once=1', 'Project stream', (frame) => onState(frame as ProjectState), opts);
+  follow('/api/projects/stream', 'Project stream', (frame) => onState(frame as ProjectState), opts);
 
-/** Follow server-sent events. The server says what is new and ends (`once`): the page asks again at
- * once, telling it the last event it has (Last-Event-ID), so a proxy that holds a response until it
- * ends still passes each change. A lost connection is tried again a second later, then twice as long
- * after each further failure, up to ten seconds. */
+/** Follow server-sent events with exponential reconnect delays up to 30 seconds; a record's
+ * stream is told the last event the page has (Last-Event-ID) and goes on after it. */
 function follow(path: string, label: string, onFrame: (frame: EventMsg) => void, opts: StreamOptions): () => void {
   const controller = new AbortController();
   let retry: ReturnType<typeof setTimeout> | undefined;
   let last: unknown;
-  let wait = 1000;
+  let delay = 1000;
   const connect = async () => {
     let info: StreamCloseInfo;
     try {
@@ -1080,23 +1076,38 @@ function follow(path: string, label: string, onFrame: (frame: EventMsg) => void,
       if (!response.ok) {
         info = { code: response.status, reason: response.statusText, retryable: !NON_RETRYABLE_STREAM_STATUSES.has(response.status) };
       } else {
+        delay = 1000;
         opts.onOpen?.();
-        wait = 1000;
         await readSSE(response, label, (frame) => {
+          if (frame.type === 'connected') {
+            if (streamEntry && typeof frame.entry === 'string'
+              && new URL(frame.entry, window.location.href).pathname !== new URL(streamEntry).pathname) {
+              window.location.reload();
+              controller.abort();
+              return;
+            }
+            requireCompatibleApiMeta(frame.meta);
+            return;
+          }
+          if (frame.type === 'projects' || frame.type === 'project' || frame.type === 'snapshot') {
+            if (opts.onState) opts.onState(frame as ProjectState);
+            else onFrame(frame as EventMsg);
+            return;
+          }
           if (frame.event_id !== undefined) last = frame.event_id;
           onFrame(frame as EventMsg);
-        }, controller.signal, false);
-        retry = setTimeout(connect, 0);
-        return;
+        }, controller.signal);
+        info = { code: 0, reason: '', retryable: true };
       }
     } catch (error) {
       if (controller.signal.aborted) return;
       info = { code: 0, reason: error instanceof Error ? error.message : String(error), retryable: true };
     }
+    if (controller.signal.aborted) return;
     opts.onClose?.(info);
     if (info.retryable) {
-      retry = setTimeout(connect, wait);
-      wait = Math.min(wait * 2, 10_000);
+      retry = setTimeout(connect, delay);
+      delay = Math.min(delay * 2, 30_000);
     }
   };
   void connect();

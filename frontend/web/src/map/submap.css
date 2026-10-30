@@ -765,10 +765,6 @@
 .submap-step[data-status="running"] .submap-step-meta small {
   color: color-mix(in srgb, #4a86c5 82%, rgb(var(--ink)));
 }
-.submap-step[data-status="superseded"] {
-  opacity: 0.6;
-  filter: grayscale(0.3);
-}
 .submap-step.is-selected {
   outline: 2px solid color-mix(in srgb, var(--step-color) 80%, rgb(var(--ink)));
   outline-offset: 2px;

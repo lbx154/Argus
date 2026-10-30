@@ -160,7 +160,6 @@ const STATUSES: Record<string, Pair> = {
   stopped: ['已停止', 'Stopped'],
   cancelled: ['已停止', 'Stopped'],
   aborted: ['已停止', 'Stopped'],
-  superseded: ['已由新方案替代', 'Replaced by a newer plan'],
 };
 
 /** Why a round produced no judgment or a task stopped, by the backend's cause code. */

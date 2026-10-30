@@ -75,6 +75,14 @@ describe('session rename', () => {
     expect(markup).toContain('type="submit"');
   });
 
+  it('renders action feedback inside the management dialog before its editable controls', () => {
+    const markup = renderToStaticMarkup(<DaemonManageModal open sid={sid} name="Original name" alive={false}
+      busy={false} onClose={() => undefined} onRename={async () => false} onDelete={async () => false}
+      feedback={<div role="alert">Could not reach Argus</div>} />);
+    expect(markup.indexOf('role="dialog"')).toBeLessThan(markup.indexOf('role="alert"'));
+    expect(markup.indexOf('role="alert"')).toBeLessThan(markup.indexOf('<form'));
+  });
+
   it('says calls were unpriced or not billed instead of "no spend"', () => {
     const render = (spend_status: string) => renderToStaticMarkup(
       <DaemonManageModal open sid={sid} name="Original name" alive={false} busy={false}

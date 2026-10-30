@@ -31,14 +31,12 @@ export function TaskDetailModal({
   const { t } = useI18n();
   const query = useBacklogItem(sid, itemId);
   const item = query.data;
-  // A task a newer plan replaced came to that; its last attempt's pause and error are not its result.
-  const replaced = item?.status === 'superseded';
   const objective = <div className="mt-1 rounded-lg border border-line bg-bg/50 p-3 text-sm leading-relaxed text-ink-dim">
     <MarkdownContent sid={sid}>{item?.objective || t('task.noObjective')}</MarkdownContent>
   </div>;
   return (
-    <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl" showClose={false}>
-      <div className="flex items-start gap-3 border-b border-line px-4 py-3 sm:px-5">
+    <Modal open={Boolean(itemId)} onClose={onClose} label={t('task.details')} width="max-w-3xl" showClose={false} style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="flex shrink-0 items-start gap-3 border-b border-line px-4 py-3 sm:px-5">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="min-w-0 break-words text-sm font-semibold text-ink">{item?.title || t('task.details')}</h2>
@@ -52,7 +50,7 @@ export function TaskDetailModal({
           className="rounded-md px-2 py-1 text-lg leading-none text-ink-faint hover:bg-surface hover:text-ink"
         >×</button>
       </div>
-      <div className="max-h-[70vh] overflow-y-auto p-4 scroll-thin sm:p-5">
+      <div data-autofocus tabIndex={0} role="region" aria-label={t('task.details')} className="min-h-0 max-h-[70dvh] overflow-y-auto p-4 scroll-thin sm:p-5">
         {query.isLoading ? <div className="flex justify-center py-12"><Spinner /></div> : null}
         {query.isError ? (
           <div className="rounded-md border border-err/40 bg-err/5 p-3 text-xs text-err">
@@ -74,7 +72,7 @@ export function TaskDetailModal({
               <Metric label={t('task.started')} value={when(item.started_ts)} />
               <Metric label={t('task.finished')} value={when(item.finished_ts)} />
             </div>
-            {item.last_error && !replaced ? (
+            {item.last_error ? (
               <section className="rounded-lg border border-err/30 bg-err/5 p-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-err">{t('task.lastError')}</div>
                 <div className="mt-1 text-xs leading-relaxed text-ink-dim"><ErrorMessage error={item.last_error} code="agent_failed" /></div>

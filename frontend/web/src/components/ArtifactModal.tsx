@@ -140,6 +140,7 @@ export function ArtifactModal({
   return (
     <Modal
       open={Boolean(path || delivery)}
+      className={delivery ? 'delivery-modal' : undefined}
       // Esc, or the scrim, takes a full-screen preview back to the dialog first.
       onClose={expanded ? () => setExpanded(false) : onClose}
       label={delivery ? (zh ? '交付成果' : 'Delivery') : t('artifact.preview')}
@@ -159,8 +160,7 @@ export function ArtifactModal({
           {fileVersions.map((receipt) => <option key={receipt.delivery_id} value={receipt.delivery_id}>{[deliveryNumberLabel(deliveryFiles(receipt).find(file => file.path === path)!, zh), deliveryTimeLabel(receipt, zh)].filter(Boolean).join(' · ')}</option>)}
         </select> : null}
         {files.length > 1 && sid ? <div className="delivery-facts"><button type="button" className="delivery-download-all" disabled={bundling} onClick={() => void downloadAll()}>{bundling ? (zh ? '正在打包…' : 'Packing…') : zh ? '下载全部（zip）' : 'Download all (zip)'}</button></div> : null}
-        {/* With a file open the summary folds above it; with none it is the page. */}
-        {delivery.summary && path && <details className="delivery-summary" open><summary>{zh ? '查看成果说明' : 'Result summary'}</summary><div className="delivery-summary-body"><MarkdownContent delivery={deliveryId} sid={sid} artifacts={linked} onOpenArtifact={onSelectPath}>{delivery.summary}</MarkdownContent></div></details>}
+
       </header>}
       {!expanded && !!files.length && <nav className="delivery-files" aria-label={zh ? '交付文件' : 'Delivery files'}>{files.map((file) => <button type="button" key={file.path} aria-pressed={path === file.path} onClick={() => onSelectPath?.(file.path)} title={file.path}><span>{file.path.split('/').at(-1)}</span>{delivery?.primary_target?.path === file.path && <small>{zh ? '主要成果' : 'Main result'}</small>}</button>)}</nav>}
       {/* On a phone the file's tools wrap onto their own rows under its name. */}
@@ -243,8 +243,8 @@ export function ArtifactModal({
           </div>
         ) : null}
         {info?.kind === 'image' && previewUrl ? (
-          <div className="flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50">
-            <img src={previewUrl} alt={info.name} className="max-h-full max-w-full object-contain" />
+          <div className={expanded ? "min-h-0 flex-1 overflow-auto rounded border border-line bg-bg/50" : "flex min-h-64 flex-1 items-center justify-center rounded border border-line bg-bg/50"}>
+            <img src={previewUrl} alt={info.name} className={expanded ? "max-w-none" : "max-h-full max-w-full object-contain"} />
           </div>
         ) : null}
         {info?.kind === 'pdf' && previewUrl ? (

@@ -10,6 +10,7 @@ import {
   authoritativeSpend,
   computeSpend,
   defaultProject,
+  reconcileProjectSelection,
   EVENT_TYPES,
   eventKey,
   eventMatchesView,
@@ -353,6 +354,22 @@ describe('shared frontend core', () => {
     });
   });
 
+  it('keeps the selection until removed and keeps an explicitly opened start page', () => {
+    const current = { workdir: '/work',
+      id: 'mine', label: 'Mine', last_active: 1,
+      daemon_alive: false, daemon_pid: null,
+    };
+    const other = { workdir: '/work',
+      id: 'other', label: 'Other live session', last_active: 2,
+      daemon_alive: true, daemon_pid: 42,
+    };
+    expect(reconcileProjectSelection([current], null, false).id).toBe('mine');
+    expect(reconcileProjectSelection([other, current], 'mine', true).id).toBe('mine');
+    expect(reconcileProjectSelection([other], 'mine', true)).toEqual({ id: 'other', requested: 'mine', recovered: true });
+    expect(reconcileProjectSelection([], 'mine', true)).toEqual({ id: null, requested: 'mine', recovered: true });
+    expect(reconcileProjectSelection([other], null, true).id).toBeNull();
+  });
+
   it('uses only the authoritative project ledger total', () => {
     const spend = computeSpend([
       { type: 'life.planner.verdict', cost_usd: 0.2 },
@@ -598,10 +615,9 @@ describe('shared frontend core', () => {
     const items = [
       { id: 'run', title: 'running', objective: '', status: 'running', priority: 1 },
       { id: 'done', title: 'done', objective: '', status: 'done', priority: 2 },
-      { id: 'replaced', title: 'replaced', objective: '', status: 'superseded', priority: 3 },
     ];
     expect(visibleBacklogItems(items, false).map((item) => item.id)).toEqual(['run']);
-    expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done', 'replaced']);
+    expect(visibleBacklogItems(items, true).map((item) => item.id)).toEqual(['done']);
   });
 
 

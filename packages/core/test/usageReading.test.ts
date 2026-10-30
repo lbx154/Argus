@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Store } from '../src/store.js';
-import { readRecord, snapshot, type Recorded } from '../src/serve/views.js';
+import { projectRow, readRecord, snapshot, type Recorded } from '../src/serve/views.js';
 
 const record = fs.readFileSync(new URL('./fixtures/conversation-task/events.jsonl', import.meta.url), 'utf8')
   .trim().split('\n').map(line => JSON.parse(line) as Recorded);
@@ -111,4 +111,44 @@ test('unpriced-only usage keeps the unknown cost and zero-cost calls remain pric
   fs.appendFileSync(path, '{"cost_usd":0}\n');
   const result = take();
   assert.deepEqual([result.spend_status, result.spend_usd, result.usage_summary!.priced_calls], ['unpriced', null, 1]);
+  assert.deepEqual([projectRow(store, project, { since: null, calls: [], requests: [] }).spend_status,
+    projectRow(store, project, { since: null, calls: [], requests: [] }).spend_usd], ['unpriced', null]);
+});
+
+test('the project list shares its first record fold and usage with snapshots and ignores internal letters', t => {
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-list-reading-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+  // Real multi-task delivery record, also used by the browser replay tests.
+  const events = fs.readFileSync(new URL('../../../frontend/web/src/test/fixtures/home/projects/p-c855623c/events.jsonl', import.meta.url), 'utf8');
+  fs.writeFileSync(join(store.dir(project.id), 'events.jsonl'), events);
+  const usageLines = '{"cost_usd":0.125}\n{"cost_usd":null}\n';
+  fs.writeFileSync(join(store.dir(project.id), 'usage.jsonl'), usageLines);
+  const reads = t.mock.method(fs, 'readSync');
+  syncBuiltinESMExports();
+  t.after(() => { reads.mock.restore(); syncBuiltinESMExports(); });
+  const idle = { since: null, calls: [], requests: [] };
+  const row = projectRow(store, project, idle);
+  assert.equal(row.last_message, '计算结果：result.md');
+  assert.equal(row.spend_usd, 0.125);
+  assert.equal(row.spend_status, 'unpriced');
+  assert.deepEqual(reads.mock.calls.map(call => Array.from(call.arguments)[4]), [0, 0]);
+  assert.deepEqual(reads.mock.calls.map(call => Array.from(call.arguments)[3]), [Buffer.byteLength(events), Buffer.byteLength(usageLines)]);
+  reads.mock.resetCalls();
+  const snap = snapshot(store, project, idle);
+  assert.deepEqual([snap.spend_usd, snap.spend_status], [row.spend_usd, row.spend_status]);
+  assert.ok(reads.mock.calls.every(call => Array.from(call.arguments)[3] === 0));
+  store.append(project.id, { type: 'handoff', role: 'manager', to: 'planner', letter: 'Internal next work' });
+  store.append(project.id, { type: 'handoff', role: 'reviewer', to: 'operator', letter: 'A task question', task: 't1' });
+  assert.equal(projectRow(store, project, idle).last_message, row.last_message);
+  store.append(project.id, { type: 'handoff', role: 'manager', to: 'operator', letter: '\n# Excel 还是 CSV？\nThe full question stays in the conversation.' });
+  assert.equal(projectRow(store, project, idle).last_message, 'Excel 还是 CSV？');
+  assert.equal(readRecord(store, project.id).lastReply, 'Excel 还是 CSV？');
+  project.status = 'failed';
+  project.error = 'Model gpt-bogus-9 is not available.';
+  assert.equal(projectRow(store, project, idle).last_message, project.error);
+  project.status = 'stopped';
+  project.error = null;
+  assert.equal(projectRow(store, project, idle).last_message, 'Excel 还是 CSV？');
 });

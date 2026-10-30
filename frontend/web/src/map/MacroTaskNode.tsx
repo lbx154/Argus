@@ -37,7 +37,7 @@ export type MacroData = MapCard & {
   layout: SubmapLayout;
   frame: { width: number; height: number; scale: number };
   canvasSize?: { width: number; height: number };
-  open: (id: string) => void;
+  open: (id: string, keyboard?: boolean) => void;
   focused: boolean;
   detailed: boolean;
   readCopy?: (nodeId: string, key: string | null) => void;
@@ -98,7 +98,6 @@ const STATES: Record<string, [string, string]> = {
   aborted: ["已结束", "Ended"],
   cancelled: ["已结束", "Ended"],
   skipped: ["已跳过", "Skipped"],
-  superseded: ["已被新计划替代", "Replaced by a new plan"],
   question: ["等你回答", "Waiting for your answer"],
   paused: ["已停止", "Stopped"],
   missing: ["记录中缺失", "Not in this record"],
@@ -188,14 +187,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const detail = layout.steps.find((s) => s.id === detailId);
   const detailTs = detail?.ts;
   const isLastPart = data.part === data.partCount;
-  const card = useRef<HTMLElement>(null);
-  // Opened from its summary, which turns inert, the task takes the focus to its first action.
-  useEffect(() => {
-    const page = card.current?.ownerDocument;
-    const active = page?.activeElement;
-    if (!page || !detailed || !isLastPart || active && active !== page.body && !active.closest('[inert]')) return;
-    card.current!.querySelector<HTMLElement>('[data-testid="map-task-read"]')?.focus({ preventScroll: true });
-  }, [detailed, isLastPart]);
   const state = (detailed && !isLastPart)
     ? "recorded"
     : task.status === "missing"
@@ -281,7 +272,6 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     : stateLabel(state);
   return (
     <article
-      ref={card}
       className={`map-macro map-state-${state}`}
       data-testid="map-macro"
       data-task-id={task.id}
@@ -335,7 +325,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
           data-card-id={id}
           data-part={data.part}
           tabIndex={detailed ? -1 : 0}
-          onClick={() => task.turn_kind === 'qa' && data.readCopy ? data.readCopy(id, task.id) : data.open(id)}
+          onClick={(event) => task.turn_kind === 'qa' && data.readCopy ? data.readCopy(id, task.id) : data.open(id, event.detail === 0)}
         >
           <div className="map-card-top">
             <span className="map-card-kind">

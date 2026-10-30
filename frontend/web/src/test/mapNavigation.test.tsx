@@ -15,6 +15,7 @@ const fitCamera = vi.hoisted(() => vi.fn<(ids?: ReadonlySet<string>) => void>())
 const initialization = vi.hoisted(() => ({ ready: false }));
 const memory = vi.hoisted(() => ({ camera: undefined as CameraMemory | undefined }));
 const restoreCamera = vi.hoisted(() => vi.fn());
+const focusSearch = vi.hoisted(() => vi.fn());
 
 vi.mock("@xyflow/react", async (original) => {
   const react = await import("react");
@@ -86,11 +87,12 @@ beforeEach(() => {
   initialization.ready = false;
   memory.camera = undefined;
   restoreCamera.mockClear();
+  focusSearch.mockClear();
   vi.stubGlobal("window", { location: { search: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   act(() => { renderer = create(<QueryClientProvider client={client}><MapCanvas {...props} /></QueryClientProvider>, {
     createNodeMock: (element) => element.props.className?.split(" ").includes("map-canvas-wrap")
-      ? { clientWidth: 1440 } : null,
+      ? { clientWidth: 1440, querySelector: () => ({ focus: focusSearch }) } : null,
   }); });
 });
 afterEach(() => {
@@ -324,4 +326,13 @@ it("opens the minimap only on request and offers no map input path", () => {
   expect(renderer.root.findAllByProps({ "data-testid": "minimap" })).toHaveLength(0);
   expect(renderer.root.findAllByType("textarea")).toHaveLength(0);
   expect(nodes().every(node => !('quote' in node.data) && !('menu' in node.data))).toBe(true);
+});
+
+it('hands keyboard zoom to map search while pointer zoom keeps map navigation', () => {
+  act(() => nodes().find(node => node.id === 'failed')!.data.open('failed', true));
+  expect(focused()).toBe('failed');
+  expect(focusSearch).toHaveBeenCalledOnce();
+  act(() => nodes().find(node => node.id === 'parent')!.data.open('parent', false));
+  expect(focused()).toBe('parent');
+  expect(focusSearch).toHaveBeenCalledOnce();
 });

@@ -90,17 +90,23 @@ describe("macro card copy", () => {
     })} />);
     expect(markup).toContain("Waiting for your answer");
   });
-  it("says under the title only who holds the task and what was last said, not its objective or a step's summary", () => {
+  it("keeps closing letters off ended summaries, while open tasks show the latest action", () => {
     const completed = { ...task, status: "done", objective: "Build a reusable date workflow",
       latest_action: { role: "reviewer", text: "Accepted the workflow.", ts: 1 } };
     const markup = renderToStaticMarkup(<MacroTaskNode {...propsFor([
       step("last-edit", { summary: "Removed a fingerprint from one footnote" }),
     ], { task: completed, part: 2, partCount: 2, live: false })} />);
     const summary = markup.slice(0, markup.indexOf('class="macro-detail'));
-    expect(summary).toContain("Accepted the workflow.");
+    expect(summary).toContain("Research portfolio");
+    expect(summary).toContain("Ended");
+    expect(summary).not.toContain("Accepted the workflow.");
     expect(summary).not.toContain("Build a reusable date workflow");
     expect(summary).not.toContain("Removed a fingerprint from one footnote");
     expect(markup).toContain("Removed a fingerprint from one footnote"); // retained inside execution history
+    const ongoing = renderToStaticMarkup(<MacroTaskNode {...propsFor([], {
+      task: { ...completed, status: "running" }, live: false,
+    })} />);
+    expect(ongoing).toContain("Accepted the workflow.");
   });
   it("keeps an explanation that may claim too much off an ended card, and says the state once", () => {
     const ended = { ...task, status: "done", objective: "Implement and execute downstream long-context evaluation" };

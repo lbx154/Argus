@@ -32,6 +32,7 @@ export function LiveLine({ role, since, zh }: { role?: string; since?: number | 
  * that is someone else. */
 export function CardNow({ task, zh }: { task: MapTask; zh: boolean }) {
   const { t } = useI18n();
+  if (task.status === 'done' && task.turn_kind !== 'qa') return null;
   const said = task.latest_action;
   const holder = task.status === 'done' || task.role === said?.role ? undefined : task.role;
   if (!holder && !said) return null;

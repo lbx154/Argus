@@ -1,12 +1,21 @@
 import { act, create } from "react-test-renderer";
 import { describe, expect, it } from "vitest";
-import { LiveLine } from "../map/LiveLine";
+import { CardNow, LiveLine } from "../map/LiveLine";
+import { renderToStaticMarkup } from 'react-dom/server';
 import { latestManagerMessage, roleActionLabel } from '../lib/taskLanguage';
 
 const text = (root: ReturnType<typeof create>) =>
   root.root.findAllByType("span").map((s) => s.children.join("")).join(" ");
 
 describe("the living status line", () => {
+  it('keeps closing verdicts out of ended task summaries and preserves request answers and running progress', () => {
+    const task = { id: 't1', title: 'Compute results', role: 'reviewer', status: 'done',
+      latest_action: { role: 'reviewer', text: 'Accepted, ready for the operator.', ts: 1 } };
+    expect(renderToStaticMarkup(<CardNow task={task} zh />)).toBe('');
+    expect(renderToStaticMarkup(<CardNow task={{ ...task, status: 'in_progress' }} zh />)).toContain(task.latest_action.text);
+    expect(renderToStaticMarkup(<CardNow task={{ ...task, turn_kind: 'qa' }} zh />)).toContain(task.latest_action.text);
+    expect(task.latest_action.text).toBe('Accepted, ready for the operator.');
+  });
   it("names the role at work and how long it has been at it", () => {
     const since = Date.now() / 1000 - 12 * 60 - 3;
     let root!: ReturnType<typeof create>;

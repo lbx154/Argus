@@ -13,6 +13,7 @@ import { useI18n } from '../i18n';
 import { Archive, ChevronDown, ChevronRight, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
+import { projectSpendTotal, SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
 
 const ADVANCED_KEY = 'argus.sidebar.advanced.v1';
 
@@ -142,9 +143,11 @@ export function Sidebar({
   const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
   const toggleAdvanced = () => setAdvancedOpen((open) => { writeLocalStorage(ADVANCED_KEY, open ? 'closed' : 'open'); return !open; });
   const openKnowledge = onOpenLearning ? () => onOpenLearning('global') : undefined;
-  const resultsLabel = zh ? '成果' : 'Results';
+  const resultsLabel = zh ? '本项目成果' : 'This project’s results';
+  const spendHint = `${SPEND_ESTIMATE_HINT[zh ? 'zh' : 'en']} ${zh ? '不含进行中的调用。' : 'Excludes calls in progress.'}`;
+  const totalSpend = spendEstimateLabel(projectSpendTotal(projects), zh, true) || '—';
   const resultsTitle = !activeId ? (zh ? '先选择一个项目' : 'Select a project first')
-    : resultsCount ? (zh ? `查看这个项目的 ${resultsCount} 份成果` : `Open this project's ${resultsCount} result(s)`)
+    : resultsCount ? (zh ? '查看本项目已交付的成果' : 'Open results delivered in this project')
       : (zh ? '这个项目还没有交付成果' : 'No results delivered in this project yet');
   const preference = (id: string) => organization.values[id] ?? DEFAULT_PREFERENCE;
   useEffect(() => {
@@ -270,7 +273,6 @@ export function Sidebar({
             {onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} title={resultsTitle} data-sidebar-results
               className="mx-2 my-1 flex h-9 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-ink-dim transition-colors hover:bg-bg hover:text-ink disabled:opacity-50 disabled:hover:bg-transparent">
               <PackageCheck size={17} strokeWidth={1.5} /><span>{resultsLabel}</span>
-              {resultsCount ? <span className="ml-auto text-xs tabular-nums text-ink-faint">{resultsCount}</span> : null}
             </button> : null}
             <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
               title={zh ? '技能库、插件' : 'Skills and plugins'}
@@ -288,6 +290,8 @@ export function Sidebar({
           </button>}
           <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
             <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
+            <span data-project-spend-total className="text-[11px] tabular-nums text-ink-faint" title={spendHint}
+              aria-label={`${zh ? '全部项目合计' : 'All projects total'} ${totalSpend}`}>{totalSpend}</span>
             {localProjects.length > 0 && localProjects.length < projects.length ? <select aria-label={locale === 'zh-CN' ? '项目范围' : 'Project scope'} value={scope} onChange={event => setScope(event.target.value as Scope)} className="min-w-0 bg-transparent text-xs text-ink-faint">
               <option value="local">{t('common.local')}</option><option value="all">{t('common.all')}</option>
             </select> : null}
@@ -301,6 +305,7 @@ export function Sidebar({
               {creating ? '…' : locale === 'zh-CN' ? '+ 新建' : '+ New'}
             </button>
           </div>
+          <p className="px-4 text-[10px] leading-4 text-ink-faint">{zh ? '全部项目合计 · 不含进行中的调用' : 'All projects · excludes calls in progress'}</p>
 
           <div className="px-3 py-2">
             <label className="sr-only" htmlFor="daemon-search">{zh ? '筛选项目名称' : 'Filter project names'}</label>
@@ -378,6 +383,8 @@ export function Sidebar({
                   const active = project.id === activeId;
                   const work = project.work_status;
                   const workLabel = work?.label[locale === 'zh-CN' ? 'zh-CN' : 'en'];
+                  const message = project.last_message || workLabel;
+                  const spend = spendEstimateLabel({ spendUsd: project.spend_usd ?? null, spendStatus: project.spend_status }, zh, true) || '—';
                   const name = project.display_name?.trim() || t('sidebar.unnamedSession');
                   return (
                     <div
@@ -386,7 +393,7 @@ export function Sidebar({
                       onPointerEnter={() => {
                         if (!active) onPrefetch?.(project.id);
                       }}
-                      className={`session-card group relative mb-0.5 ${organizing === project.id ? '' : 'h-14'} w-full rounded-md transition-colors duration-150 ease-panel ${
+                      className={`session-card group relative mb-0.5 w-full rounded-md transition-colors duration-150 ease-panel ${
                         active ? 'text-ink' : 'text-ink-dim hover:text-ink'
                       }`}
                     >
@@ -399,19 +406,21 @@ export function Sidebar({
                         }}
                         aria-current={active ? 'page' : undefined}
                         title={project.display_name?.trim() ? name : `${name} · ${project.id}`}
-                        className="flex h-14 w-full min-w-0 flex-col justify-center px-2.5 pr-10 text-left"
+                        className="flex min-h-14 w-full min-w-0 flex-col justify-center px-2.5 py-2 pr-10 text-left"
                       >
                         <div className="flex min-w-0 items-center gap-2">
-                          <StatusDot ok={project.daemon_alive} />
+                          <StatusDot
+                            ok={project.daemon_alive}
+                          />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                           {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
                         </div>
-                        <div className={`mt-1 flex min-w-0 items-center gap-1.5 pl-3.5 text-[11px] ${active ? 'text-ink-dim' : 'text-ink-faint'}`}>
-                          <span className="min-w-0 truncate" title={workLabel}
+                        <div className={`mt-1 flex min-w-0 items-start gap-1.5 pl-3.5 text-[11px] leading-4 ${active ? 'text-ink-dim' : 'text-ink-faint'}`}>
+                          <span className="min-w-0 flex-1 line-clamp-2 break-words" title={message}
                             data-session-work-state={work?.state}>
-                            {workLabel}
+                            {message}
                           </span>
-
+                          <span data-project-spend className="shrink-0 tabular-nums" title={spendHint}>{spend}</span>
                         </div>
                       </button>
                       <button

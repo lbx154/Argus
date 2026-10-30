@@ -61,7 +61,7 @@
 .conversation-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .conversation-tools button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 4px 8px; border-radius: var(--radius-control); font-size: 12px; }
 .conversation-tools button:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
-.conversation-meta .conversation-copy { border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+.conversation-meta .conversation-copy { border: 0; background: transparent; backdrop-filter: none; }
 .conversation-row[data-search-hit="true"] { outline: 2px solid rgb(var(--accent)); outline-offset: -3px; border-radius: var(--radius-panel); }
 .conversation-row .conversation-message { max-width: min(82%, 640px); border-radius: var(--radius-overlay); border-bottom-right-radius: var(--radius-sm); background: rgb(var(--conversation-user)); padding: 10px 16px; font-size: 15px; line-height: 1.7; color: rgb(var(--ink)); }
 .conversation-thread { border-bottom-color: transparent; padding-bottom: 12px; }

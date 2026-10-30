@@ -101,15 +101,6 @@ describe("progress map data semantics", () => {
     const rows = [task("a"), task("b", ["a"])];
     expect(buildMap([...rows, ...rows])).toEqual(buildMap(rows));
   });
-  it("preserves a replaced branch and highlights pending questions separately", () => {
-    const old = task("old", [], "superseded");
-    const question = {
-      ...task("new", [], "blocked"),
-    };
-    expect(buildMap([old, question]).tasks).toHaveLength(2);
-    expect(statusKey(question)).toBe("question");
-    expect(statusKey(old)).toBe("superseded");
-  });
   it("supports empty and single-task maps", () => {
     expect(buildMap([]).tasks).toEqual([]);
     expect(buildMap([task("one")]).links).toEqual([]);

@@ -1,6 +1,6 @@
 import { act, create } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSessionComposer, type DraftSnapshot } from '../useSessionComposer';
+import { useSessionComposer } from '../useSessionComposer';
 
 let controller: ReturnType<typeof useSessionComposer>;
 let renderer: ReturnType<typeof create>;
@@ -10,6 +10,7 @@ function select(sid: string | null) { act(() => renderer.update(<Probe sid={sid}
 let saved: Map<string, string>;
 beforeEach(() => {
   saved = new Map();
+  vi.stubGlobal('window', new EventTarget());
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => saved.get(key) ?? null,
     setItem: (key: string, value: string) => saved.set(key, value),
@@ -19,20 +20,81 @@ beforeEach(() => {
 afterEach(() => { act(() => renderer?.unmount()); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('persistent text drafts and in-memory file revisions', () => {
-  it('shows a draft another tab of this browser writes, keeping the files chosen here', () => {
-    const page = new EventTarget();
-    vi.stubGlobal('window', page);
+
+  it('reads external text on storage events and on returning to another project', () => {
     mount();
-    const file = new File(['a'], 'a.txt');
-    act(() => { controller.setText('a long draft written here'); controller.setAttachments([file]); });
-    const before = controller.capture('s-A')!;
-    // The other tab writes the one stored copy, and the browser says so to this one.
-    saved.set('argus.composer.draft.v1:s-A', JSON.stringify({ text: 'and a sentence from there', attachments: [] }));
-    act(() => { page.dispatchEvent(Object.assign(new Event('storage'), { key: 'argus.composer.draft.v1:s-A' })); });
-    expect(controller.draft.text).toBe('and a sentence from there');
-    expect(controller.draft.attachments).toEqual([file]);
-    // What was captured before is no longer the draft.
-    expect(controller.draft.revision).not.toBe(before.revision);
+    const update = (id: string, text: string) => {
+      saved.set(`argus.composer.draft.v1:${id}`, JSON.stringify({ text, attachments: [] }));
+      window.dispatchEvent(Object.assign(new Event('storage'), { key: `argus.composer.draft.v1:${id}` }));
+    };
+    act(() => controller.setText('A long draft'));
+    act(() => update('s-A', 'A long draft, continued in B'));
+    expect(controller.draft.text).toBe('A long draft, continued in B');
+    act(() => update('s-B', 'other project'));
+    expect(controller.draft.text).toBe('A long draft, continued in B');
+    select('s-B');
+    expect(controller.draft.text).toBe('other project');
+    act(() => { saved.clear(); window.dispatchEvent(Object.assign(new Event('storage'), { key: null })); });
+    expect(controller.draft.text).toBe('');
+    select('s-A');
+    expect(controller.draft.text).toBe('');
+  });
+
+  it('fences remote edits during sending and rewriting, including same-text ABA edits', () => {
+    mount();
+    act(() => controller.setText('original'));
+    const original = controller.capture('s-A')!;
+    act(() => { controller.consume(original, []); });
+    act(() => {
+      saved.set('argus.composer.draft.v1:s-A', JSON.stringify({ text: 'remote input', attachments: [] }));
+      window.dispatchEvent(Object.assign(new Event('storage'), { key: 'argus.composer.draft.v1:s-A' }));
+    });
+    act(() => expect(controller.consume(original, [])).toBeNull());
+    let rewrite!: NonNullable<ReturnType<typeof controller.beginRewrite>>;
+    act(() => { rewrite = controller.beginRewrite('s-A')!; });
+    act(() => {
+      window.dispatchEvent(Object.assign(new Event('storage'), { key: 'argus.composer.draft.v1:s-A' }));
+    });
+    act(() => expect(controller.finishRewrite(rewrite, 'stale rewrite')).toBe(false));
+    expect(controller.draft.text).toBe('remote input');
+    act(() => expect(controller.consume(original, [])).toBeNull());
+  });
+
+  it('shares uploaded references while preserving only local File bytes and dropping remotely removed files', () => {
+    mount();
+    const file = new File(['bytes'], 'shared.txt');
+    act(() => { controller.setText('draft'); controller.setAttachments([file]); });
+    const operation = controller.capture('s-A')!;
+    const attachment = { attachment_id: 'att-123456789abc', original_name: 'shared.txt',
+      stored_name: 'shared.txt', relative_path: 'registered/shared.txt', mime: 'text/plain', size_bytes: 5 };
+    act(() => controller.rememberUploaded(operation, file, attachment));
+    act(() => {
+      saved.set('argus.composer.draft.v1:s-A', JSON.stringify({ text: 'edited elsewhere', attachments: [], uploaded: [attachment] }));
+      window.dispatchEvent(Object.assign(new Event('storage'), { key: 'argus.composer.draft.v1:s-A' }));
+    });
+    expect(controller.draft.text).toBe('edited elsewhere');
+    expect(controller.draft.attachments[0]).toBe(file);
+    expect(controller.draft.uploaded?.[0].file).toBe(file);
+    act(() => {
+      saved.delete('argus.composer.draft.v1:s-A');
+      window.dispatchEvent(Object.assign(new Event('storage'), { key: 'argus.composer.draft.v1:s-A' }));
+    });
+    expect(controller.draft.attachments).toEqual([]);
+    act(() => controller.rememberUploaded(operation, file, attachment));
+    expect(controller.draft.uploaded).toEqual([]);
+  });
+
+  it('changes the persisted identity only when text changes, including rewrite and undo', () => {
+    mount();act(() => controller.setText('first'));const first=controller.draft.requestId;
+    expect(first).toBeTruthy();expect(JSON.parse(saved.get('argus.composer.draft.v1:s-A')!).request_id).toBe(first);
+    act(() => controller.setText('first'));expect(controller.draft.requestId).toBe(first);
+    act(() => controller.setAttachments([new File(['a'],'a.txt')]));expect(controller.draft.requestId).toBe(first);
+    act(() => controller.setText('second'));const second=controller.draft.requestId;expect(second).not.toBe(first);
+    act(() => controller.setText('first'));expect(controller.draft.requestId).not.toBe(first);expect(controller.draft.requestId).not.toBe(second);
+    const before=controller.draft.requestId;let rewrite!: NonNullable<ReturnType<typeof controller.beginRewrite>>;
+    act(() => {rewrite=controller.beginRewrite('s-A')!;controller.finishRewrite(rewrite,'rewritten');});
+    const rewritten=controller.draft.requestId;expect(rewritten).not.toBe(before);
+    act(() => controller.undoRewrite!());expect(controller.draft.text).toBe('first');expect(controller.draft.requestId).not.toBe(rewritten);
   });
 
   it('persists completed references, retains unfinished reminders and fences removed files', () => {
@@ -60,22 +122,19 @@ describe('persistent text drafts and in-memory file revisions', () => {
     expect(controller.draft.uploaded).toEqual([]);
   });
 
-  it('restores completed references after a failed dispatch without overwriting a newer draft', () => {
-    mount();
-    const file = new File(['a'], 'a.txt');
-    act(() => { controller.setText('original'); controller.setAttachments([file]); });
+  it('keeps unconfirmed text, identity and completed references across project changes and reloads', () => {
+    mount();const file = new File(['a'], 'a.txt');
+    act(() => { controller.setText('unconfirmed');controller.setAttachments([file]); });
     const original = controller.capture('s-A')!;
-    const attachment = { attachment_id: 'att-123456789abc', original_name: 'a.txt',
-      stored_name: 'a.txt', relative_path: 'registered/a.txt', mime: 'text/plain', size_bytes: 1 };
+    const attachment = { attachment_id: 'att-123456789abc', original_name: 'a.txt', stored_name: 'a.txt', relative_path: 'registered/a.txt', mime: 'text/plain', size_bytes: 1 };
     act(() => controller.rememberUploaded(original, file, attachment));
-    let cleared!: DraftSnapshot;
-    act(() => { cleared = controller.consume(original, [file])!; });
-    expect(controller.draft.uploaded).toEqual([]);
-    act(() => { expect(controller.restore(cleared, original)).toBe(true); });
+    select('s-B');select('s-A');
+    expect(controller.capture('s-A')!.requestId).toBe(original.requestId);
+    act(() => renderer.unmount());mount();
+    expect(controller.draft.text).toBe('unconfirmed');
+    expect(controller.draft.requestId).toBe(original.requestId);
     expect(controller.draft.uploaded?.[0].attachment).toEqual(attachment);
-    act(() => controller.setText('newer'));
-    act(() => { expect(controller.restore(cleared, original)).toBe(false); });
-    expect(controller.draft.text).toBe('newer');
+    expect(controller.draft.attachments).toEqual([]);
   });
   it('restores project text after remount but never serializes or restores File bytes', () => {
     mount();
@@ -84,7 +143,7 @@ describe('persistent text drafts and in-memory file revisions', () => {
     select('s-B'); expect(controller.draft.text).toBe(''); expect(controller.draft.attachments).toEqual([]);
     select('s-A'); expect(controller.draft.text).toBe('A draft'); expect(controller.draft.attachments[0]).toBe(file);
     select(null); select('s-A'); expect(controller.draft.text).toBe('A draft');
-    expect(saved.get('argus.composer.draft.v1:s-A')).toBe(JSON.stringify({ text: 'A draft', attachments: ['report.md'] }));
+    expect(JSON.parse(saved.get('argus.composer.draft.v1:s-A')!)).toEqual({ text: 'A draft', attachments: ['report.md'], request_id: controller.draft.requestId });
     act(() => renderer.unmount()); mount('s-A');
     expect(controller.draft.text).toBe('A draft');
     expect(controller.draft.attachments).toEqual([]);
@@ -106,20 +165,19 @@ describe('persistent text drafts and in-memory file revisions', () => {
     expect(saved.get('argus.composer.draft.v1:s-A')).not.toContain('input.csv');
   });
 
-  it('clears a sent draft durably and restores it after a failed send', () => {
-    mount(); act(() => controller.setText('send'));
+  it('clears only an acknowledged identity and retains unconfirmed drafts without restoration', () => {
+    mount();act(() => controller.setText('send'));
     const original = controller.capture('s-A')!;
-    let cleared!: DraftSnapshot;
-    act(() => { cleared = controller.consume(original, [])!; });
+    act(() => renderer.unmount());mount();
+    expect(controller.draft.text).toBe('send');expect(controller.draft.requestId).toBe(original.requestId);
+    act(() => { controller.consume(controller.capture('s-A')!, []); });
     expect(saved.has('argus.composer.draft.v1:s-A')).toBe(false);
-    act(() => { controller.restore(cleared, original); });
-    act(() => renderer.unmount()); mount();
-    expect(controller.draft.text).toBe('send');
-    act(() => controller.drop('s-A'));
-    expect(saved.has('argus.composer.draft.v1:s-A')).toBe(false);
+    act(() => controller.setText('send'));
+    expect(controller.draft.requestId).not.toBe(original.requestId);
+    act(() => expect(controller.consume(original, [])).toBeNull());
   });
 
-  it('surfaces storage failures without losing the in-memory draft', () => {
+  it('reports storage failure without keeping a second text source', () => {
     vi.stubGlobal('localStorage', {
       getItem: () => { throw new Error('blocked'); },
       setItem: () => { throw new Error('quota'); },
@@ -128,7 +186,7 @@ describe('persistent text drafts and in-memory file revisions', () => {
     mount();
     expect(controller.storageError).toBe(true);
     act(() => controller.setText('copy before leaving'));
-    expect(controller.draft.text).toBe('copy before leaving');
+    expect(controller.draft.text).toBe('');
     expect(controller.storageError).toBe(true);
   });
 
@@ -160,31 +218,19 @@ describe('persistent text drafts and in-memory file revisions', () => {
     expect(controller.draft.text).toBe('same'); expect(controller.draft.attachments[0]).toBe(fresh);
   });
 
-  it('clears only sent File references, and restores only its own untouched clearance', () => {
-    mount();
-    const old = new File(['old'], 'report.md');
-    const other = new File(['other'], 'report.md');
-    act(() => { controller.setText('send'); controller.setAttachments([old, other]); });
-    const original = controller.capture('s-A')!;
-    let cleared!: DraftSnapshot;
-    act(() => { cleared = controller.consume(original, [old])!; });
-    expect(controller.draft.attachments).toEqual([other]);
-    expect(controller.draft.attachments[0]).toBe(other);
-    select('s-B'); act(() => controller.setText('B'));
-    act(() => expect(controller.restore(cleared, original)).toBe(true));
-    expect(controller.draft.text).toBe('B');
-    select('s-A'); expect(controller.draft.text).toBe('send');
-    act(() => expect(controller.restore(cleared, original)).toBe(false)); // A repeated callback cannot replay restoration.
+  it('clears only sent File references when its identity is confirmed', () => {
+    mount();const sent = new File(['a'], 'a.txt'), remaining = new File(['b'], 'b.txt');
+    act(() => {controller.setText('send');controller.setAttachments([sent,remaining]);});
+    const original=controller.capture('s-A')!;
+    act(() => {controller.consume(original,[sent]);});
+    expect(controller.draft.text).toBe('');expect(controller.draft.attachments).toEqual([remaining]);
+    act(() => expect(controller.consume(original,[sent])).toBeNull());
   });
 
-  it('does not restore over a deliberately empty newer draft', () => {
-    mount(); act(() => controller.setText('send'));
-    const original = controller.capture('s-A')!;
-    let cleared!: DraftSnapshot;
-    act(() => { cleared = controller.consume(original, [])!; });
-    act(() => { controller.setText('next'); controller.setText(''); });
-    act(() => expect(controller.restore(cleared, original)).toBe(false));
-    expect(controller.draft.text).toBe('');
+  it('does not clear edited or deliberately emptied text on an old acknowledgement', () => {
+    mount();act(() => controller.setText('original'));const original=controller.capture('s-A')!;
+    act(() => {controller.setText('next');controller.setText('');});
+    act(() => expect(controller.consume(original,[])).toBeNull());expect(controller.draft.text).toBe('');
   });
 
   it('puts the text before a rewrite back, until the rewrite is edited', () => {

@@ -24,6 +24,15 @@ describe('status dot tone', () => {
     roles, backlog: [{ id: 't1', title: 'Write timer.html', status: alive ? 'in_progress' : 'done', priority: 0 }], }) as Snapshot;
 
 
+  it('shows the same absolute clock as conversation rows', () => {
+    const done = project(false);
+    const html = renderToStaticMarkup(<TopBar snap={done} streamOk onStart={() => {}} onStop={() => {}} onManage={() => {}} busy={false} />);
+    const date = new Date(done.session.last_active * 1000);
+    const expected = [date.getHours(), date.getMinutes(), date.getSeconds()].map(value => String(value).padStart(2, '0')).join(':');
+    expect(html).toContain(`>${expected}</time>`);
+    expect(html).not.toContain('ago');
+  });
+
   it('says where the work stands in one phrase, the same at the top and above the map', () => {
     const done = project(false);
     const bar = renderToStaticMarkup(<WorkStatusBar snapshot={done} connected compact />);

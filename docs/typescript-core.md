@@ -156,6 +156,13 @@ work stops, since the calls under way work in them. The sidebar's pins, archive
 and follow-up marks are kept in `$ARGUS_HOME/browser-state.json`, and `/api/projects/costs` gives
 each project's spend from the same figures as the project list.
 
+The project list previews the first line of the Manager's last letter addressed to the operator,
+or the project's recorded error when it failed. It shares the snapshot's incremental record
+reading and recorded-call usage summary: a first list read folds each project's history once;
+later reads take appended bytes only. Per-project spend and the list's total exclude calls still
+running, and an unknown price keeps the total incomplete. Ended task summaries keep their title
+and files; their original progress and closing letters stay available in the task reader.
+
 The code workspace is the workdir, read-only: its tree, which the composer's `@` completion lists
 too, a file's text or bytes, and what the system `git` says of it when the workdir is a
 repository of its own. A path there passes the check a result's does: inside the workdir, not

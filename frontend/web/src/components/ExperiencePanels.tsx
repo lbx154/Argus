@@ -19,6 +19,7 @@ export function HistorySearch({ open, onClose, onChoose }: {
   const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const [input, setInput] = useState('');
+  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [query, setQuery] = useState('');
   useEffect(() => {
     if (!open) { setInput(''); setQuery(''); }
@@ -34,14 +35,15 @@ export function HistorySearch({ open, onClose, onChoose }: {
   return <Modal open={open} onClose={onClose} label={zh ? '搜索历史与成果' : 'Search history and results'} width="max-w-4xl" align="top">
     <div className="experience-shell history-search">
       <ModalHeader title={zh ? '搜索历史与成果' : 'Search history and results'} sub={zh ? '在项目、对话与成果中查找' : 'Find content across projects, conversations and results'} />
-      {/* ↑ and ↓ go between the box and the results, as Tab does. */}
       <div className="experience-panel search-body" onKeyDown={event => {
-        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-        const stops = [...event.currentTarget.querySelectorAll<HTMLElement>('input, .search-result-list button')];
-        const next = stops[stops.indexOf(document.activeElement as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
-        if (!next) return;
+        if (event.nativeEvent.isComposing || !['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+        const count = results.data?.results.length ?? 0;
+        if (!count) return;
+        const index = resultRefs.current.indexOf(document.activeElement as HTMLButtonElement);
+        const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : count - 1)
+          : (index + (event.key === 'ArrowDown' ? 1 : -1) + count) % count;
         event.preventDefault();
-        next.focus();
+        resultRefs.current[next]?.focus();
       }}>
       <input data-autofocus type="search" aria-label={zh ? '搜索历史内容' : 'Search history content'} className="experience-input"
         placeholder={zh ? '搜索消息、结论、成果正文或修改稿…' : 'Search messages, conclusions, results or editions…'}
@@ -64,7 +66,7 @@ export function HistorySearch({ open, onClose, onChoose }: {
         {results.data?.results.map((result, index, all) => <Fragment
           key={`${result.sid}:${result.kind}:${result.line ?? result.path ?? index}:${result.version ?? ''}`}>
           {result.sid !== all[index - 1]?.sid && <h3 className="search-project">{result.title}</h3>}
-          <button type="button" onClick={() => { onChoose(result); onClose(); }}>
+          <button ref={node => { resultRefs.current[index] = node; }} type="button" onClick={() => { onChoose(result); onClose(); }}>
             <small>{result.role ? roleLabel(result.role, t)
               : result.kind === 'conversation' ? zh ? '对话记录' : 'Conversation'
               : result.kind === 'edition' ? zh ? `修改稿 v${result.version}` : `Edition v${result.version}`

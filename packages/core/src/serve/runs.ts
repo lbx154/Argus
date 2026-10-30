@@ -72,14 +72,36 @@ export class Runs {
   /** The operator's message. Its frames follow the Manager's turn and end with the reply; the
    * team's work it starts, or that was under way, goes on after the stream has ended. */
   async message(id: string, text: string, request: string, send: (frame: Frame) => void, attachments: UploadedAttachment[] = []): Promise<Frame> {
+    const acknowledge = (): Frame | null => {
+      const rows = conversationRows(readRecord(this.store, id), this.store.load(id), this.live(id));
+      if (!rows.some(row => row.type === 'ui.operator' && row.request_id === request)) return null;
+      const reply = rows.find(row => row.type === 'ui.argus' && row.request_id === request);
+      const status = reply?.status ?? 'replied';
+      send({ type: 'phase', role: 'manager', label: 'Manager', accepted: true, request_id: request, status });
+      return { type: 'done', result: { kind: 'received', accepted: true, request_id: request, status, reply: '已收下' } };
+    };
+    const existing = acknowledge();
+    if (existing) return existing;
     const requests = this.requests.get(id) ?? new Set<string>();
     this.requests.set(id, requests);
-    if (requests.has(request)) return { type: 'error', error: 'This request is already under way.' };
-    requests.add(request);
-    this.changed(id);
-    send({ type: 'phase', role: 'manager', label: 'Manager' });
+    let ownsRequest = false;
+    let received: Frame | null = null;
     try {
-      const handoff = await this.start(id, flow => flow.say(id, text, { request_id: request, ...(attachments.length ? { attachments } : {}) }));
+      const handoff = await this.start(id, flow => {
+        // This check and Flow.say's durable append run without an await between them.
+        // It also runs after any stopped flow has settled, so concurrent retries agree.
+        received = acknowledge();
+        if (received) return null;
+        ownsRequest = true;
+        requests.add(request);
+        this.changed(id);
+        const reply = flow.say(id, text, { request_id: request, ...(attachments.length ? { attachments } : {}) });
+        const status = this.store.load(id).status === 'stopped' ? 'stopped'
+          : this.live(id).calls.some(call => call.answers === request) ? 'running' : 'waiting';
+        send({ type: 'phase', role: 'manager', label: 'Manager', accepted: true, request_id: request, status });
+        return reply;
+      });
+      if (received) return received;
       // A Manager turn that failed says why; one a stop cut off ends, its message waiting for Resume.
       if (!handoff) {
         const failed = this.store.load(id).failures?.filter(failure => failure.role === 'manager').at(-1);
@@ -92,8 +114,7 @@ export class Runs {
     } catch (error) {
       return { type: 'error', error: error instanceof Error ? error.message : String(error) };
     } finally {
-      requests.delete(request);
-      this.changed(id);
+      if (ownsRequest) { requests.delete(request); this.changed(id); }
     }
   }
 

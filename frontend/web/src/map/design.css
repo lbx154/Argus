@@ -285,7 +285,6 @@
   --pig-vermilion: rgb(var(--err));
   --pig-gamboge: rgb(var(--warn));
   --pig-ochre: #977650; /* 赭石 paused */
-  --pig-lotus: #867a93; /* 藕荷 superseded */
   --map-serif: "Geist Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
   /* Lines are ink. The order of work is the body of the drawing, a dependency
    * is pressed harder, an association is a dry, broken stroke. */
@@ -316,7 +315,6 @@
 .argus-map .map-state-paused { --state: var(--pig-ochre); }
 .argus-map .map-state-review_unavailable { --state: var(--pig-ochre); }
 .argus-map .map-state-held { --state: var(--pig-ochre); }
-.argus-map .map-state-superseded { --state: var(--pig-lotus); }
 .argus-map .map-state-recorded,
 .argus-map .map-state-aborted,
 .argus-map .map-state-skipped,
@@ -607,7 +605,7 @@
 .argus-map.argus-map .map-state-review_unavailable { --state: var(--map-status-waiting); }
 .argus-map.argus-map .map-state-done { --state: var(--map-status-done); }
 .argus-map.argus-map .map-state-failed { --state: var(--map-status-failed); }
-.argus-map.argus-map :is(.map-state-paused, .map-state-held, .map-state-superseded, .map-state-recorded,
+.argus-map.argus-map :is(.map-state-paused, .map-state-held, .map-state-recorded,
   .map-state-aborted, .map-state-skipped, .map-state-missing, .map-state-pending, .map-state-unknown) { --state: var(--map-status-idle); }
 .argus-map .map-macro,
 [data-theme="dark"] .argus-map .map-macro {

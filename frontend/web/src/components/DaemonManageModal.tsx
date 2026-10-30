@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Modal } from './Modal';
 import { useI18n } from '../i18n';
 import type { Snapshot } from '../api';
@@ -14,6 +14,7 @@ export function DaemonManageModal({
   onRename,
   onDelete,
   snapshot,
+  feedback,
 }: {
   open: boolean;
   sid: string;
@@ -25,6 +26,8 @@ export function DaemonManageModal({
   onDelete: () => Promise<boolean>;
   /** The project's current cost and call count. */
   snapshot?: Snapshot | null;
+  /** Action feedback stays readable and reachable while the dialog is open. */
+  feedback?: ReactNode;
 }) {
   const { t, locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -46,6 +49,7 @@ export function DaemonManageModal({
       <div className="modal-header">
         <h2>{t('topbar.manageSession')}</h2>
       </div>
+      {feedback}
       {snapshot ? <div className="border-t border-line px-6 py-4" data-testid="manage-run-info">
         <div className="text-xs font-medium text-ink-faint">{zh ? '运行信息' : 'Run details'}</div>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-ink-dim">

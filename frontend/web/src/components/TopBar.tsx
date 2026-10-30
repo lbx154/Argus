@@ -6,7 +6,7 @@ import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { formatCalendarTime } from '../lib/format';
+import { clockOf } from '../lib/format';
 import { SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
 
 export type ThemeMode = 'light' | 'dark';
@@ -19,6 +19,7 @@ export function TopBar({
   snap,
   streamOk,
   onStart,
+  onFocusComposer,
   onStop,
   pending = false,
   showRunControl = true,
@@ -34,6 +35,7 @@ export function TopBar({
   snap: Snapshot;
   streamOk: boolean;
   onStart: () => void;
+  onFocusComposer?: () => void;
   /** Stops the work under way at once; the control says first what that interrupts. */
   onStop: () => void;
   /** A message sent is waiting for its reply. */
@@ -84,7 +86,7 @@ export function TopBar({
           aria-hidden={roleActive ? undefined : true}
         />}
         <span role="status" className="topbar-work-status text-ink-dim">{statusWords}</span>
-        {showStatus && activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{formatCalendarTime(activityAt, locale)}</time></> : null}
+        {showStatus && activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{clockOf({ ts: activityAt })}</time></> : null}
         {showStatus && spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
         {showStatus && <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>}
       </div>
@@ -119,7 +121,7 @@ export function TopBar({
         ) : null}
         {!readOnly ? (
           <>
-            {showRunControl && <RunControl snapshot={snap} pending={pending} busy={busy} onStop={onStop} onResume={onStart}
+            {showRunControl && <RunControl snapshot={snap} pending={pending} busy={busy} onStop={onStop} onResume={onStart} onFocusComposer={onFocusComposer}
               className="compact-control flex h-8 shrink-0 items-center gap-1 px-2 text-err disabled:opacity-40"
               resumeClassName="brand-button brand-button-primary flex h-8 shrink-0 items-center gap-1.5 px-3 disabled:opacity-40" />}
             <button

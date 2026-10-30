@@ -65,7 +65,7 @@ async function setup(t: TestContext, steps: Step[], token?: string) {
   t.after(() => rm(home, { recursive: true, force: true }));
   const web = join(home, 'web');
   await mkdir(join(web, 'assets'), { recursive: true });
-  await writeFile(join(web, 'index.html'), '<!doctype html><title>Argus</title>');
+  await writeFile(join(web, 'index.html'), '<!doctype html><title>Argus</title><script type="module" crossorigin src="/assets/app-1.js"></script>');
   await writeFile(join(web, 'assets', 'app-1.js'), 'export {};');
   const store = new Store(home);
   const { callAgent, requests, closed } = agent(steps);
@@ -85,12 +85,6 @@ async function setup(t: TestContext, steps: Step[], token?: string) {
 
 /** Every `data:` frame of a server-sent event stream, a record's naming its line as its id;
  * `until` stops reading an endless one. */
-/** A rows stream's projections, without the project states the page's one stream also carries. */
-async function rowFrames(response: Response, until?: (frame: EventMsg) => boolean): Promise<EventMsg[]> {
-  return (await frames(response, frame => frame.type === 'ui.projection' && Boolean(until?.(frame))))
-    .filter(frame => frame.type === 'ui.projection');
-}
-
 async function frames(response: Response, until?: (frame: EventMsg) => boolean): Promise<EventMsg[]> {
   const read: EventMsg[] = [];
   const decoder = new TextDecoder();
@@ -120,6 +114,47 @@ async function eventually<T>(read: () => Promise<T>, done: (value: T) => boolean
 }
 
 const brief = 'Summarize the CSV.\nreport.md gives the column totals.';
+
+test('a recorded request is accepted again without another message or Manager call, running and after restart', async t => {
+  const original=JSON.parse(await readFile(new URL('./fixtures/message-identity.jsonl',import.meta.url),'utf8')) as {text:string;request_id:string};
+  const requestId=original.request_id;
+  let finish!: () => void;const until=new Promise<void>(resolve => {finish=resolve;});
+  const {store,post,get,requests}=await setup(t,[{role:'manager',to:'operator',letter:'Done once.',until}]);
+  t.after(()=>finish());const work=store.create({request:'',workdir:'',backend:'codex',model:null});
+  const path=`/api/projects/${work.id}/message/stream`;
+  const first=frames(await post(path,{text:original.text,request_id:requestId}));
+  await eventually(async()=>requests.length,number=>number===1);
+  const duplicate=await frames(await post(path,{text:original.text,request_id:requestId}));
+  assert.ok(duplicate.some(frame=>frame.type==='phase'&&frame.accepted===true));
+  assert.deepEqual(duplicate.at(-1)!.result,{kind:'received',accepted:true,request_id:requestId,status:'running',reply:'已收下'});
+  const queuedDuplicate=await (await post(`/api/projects/${work.id}/message/followup`,{text:original.text,request_id:requestId})).json() as {accepted:boolean;status:string};
+  assert.equal(queuedDuplicate.accepted,true);assert.equal(queuedDuplicate.status,'running');
+  assert.equal(requests.length,1);
+  finish();await first;
+  const repeated=await frames(await post(path,{text:'A different body cannot change an existing identity',request_id:requestId}));
+  assert.equal((repeated.at(-1)!.result as {status:string}).status,'replied');
+  const messages=readEvents(store,work.id).filter(event=>event.type==='message'&&event.request_id===requestId);
+  assert.equal(messages.length,1);assert.equal(requests.length,1);
+  const restarted=await serve({store,callAgent:async()=>{throw new Error('Duplicate started a Manager');},backend:'codex',model:null,port:0,web:store.home});
+  t.after(()=>restarted.close());
+  const replay=await frames(await fetch(`${restarted.url}${path}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:original.text,request_id:requestId})}));
+  assert.equal((replay.at(-1)!.result as {kind:string}).kind,'received');
+  assert.equal(readEvents(store,work.id).filter(event=>event.type==='message'&&event.request_id===requestId).length,1);
+  assert.equal((await get<ConversationPage>(`/api/projects/${work.id}/conversation`)).rows.filter(row=>row.type==='ui.operator').length,1);
+});
+
+test('simultaneous POSTs with one identity record one message and call the Manager once', async t => {
+  let finish!: () => void;const until=new Promise<void>(resolve=>{finish=resolve;});
+  const {store,post,get,requests}=await setup(t,[{role:'manager',to:'operator',letter:'One reply',until}]);
+  t.after(()=>finish());const work=store.create({request:'',workdir:'',backend:'codex',model:null});
+  const path=`/api/projects/${work.id}/message/stream`,body={text:'Shared draft',request_id:'shared-request'};
+  const responses=await Promise.all([post(path,body),post(path,body)]);
+  for(const response of responses){const accepted=await frames(response,frame=>frame.type==='phase');assert.equal(accepted[0]!.accepted,true);}
+  await eventually(async()=>requests.length,number=>number===1);finish();
+  await eventually(()=>get<Snapshot>(`/api/projects/${work.id}/snapshot`),snap=>!snap.daemon.alive);
+  assert.equal(readEvents(store,work.id).filter(event=>event.type==='message'&&event.request_id===body.request_id).length,1);
+  assert.equal(requests.length,1);
+});
 
 test('a legacy project keeps its original name after resetting the Manager and first delegating a follow-up', async t => {
   const record = JSON.parse(await readFile(new URL('./fixtures/project-name/record.json', import.meta.url), 'utf8')) as {
@@ -751,7 +786,8 @@ test('a message typed while a reply is under way is answered after it', async t 
   const P = `/api/projects/${sid}`;
   const first = frames(await post(`${P}/message/stream`, { text: 'first', request_id: 'r1' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => snapshot.roles[0]!.active);
-  assert.deepEqual(await (await post(`${P}/message/followup`, { text: 'second' })).json(), { ok: true, queued: true });
+  const queued = await (await post(`${P}/message/followup`, { text: 'second' })).json() as { ok: boolean; queued: boolean; accepted: boolean; request_id: string; status: string };
+  assert.equal(queued.ok, true);assert.equal(queued.queued, true);assert.equal(queued.accepted, true);assert.equal(typeof queued.request_id, 'string');assert.equal(queued.status, 'waiting');
   assert.equal((await post(`${P}/message/followup`, { text: ' ' })).status, 400);
   release();
   await first;
@@ -1079,25 +1115,6 @@ test('a reading that goes on where it stopped folds the record as one whole read
   assert.deepEqual(readEvents(store, crashed.id).map(event => event.type === 'status' && event.status), ['idle', 'stopped', 'working']);
 });
 
-test('a page that asks again is sent what is new and the response ends, so a proxy that holds a stream till it ends passes it', { timeout: 20_000 }, async t => {
-  const { call, post } = await setup(t, [{ role: 'manager', to: 'operator', letter: 'Hello.' }]);
-  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
-  const P = `/api/projects/${sid}`;
-  // The first answer: the list, named 0, and the rows past the page's cursor; then it ends.
-  const first = await frames(await call(`${P}/stream?view=rows&after=-1&once=1`));
-  assert.deepEqual(first.map(frame => frame.type), ['projects', 'ui.projection']);
-  assert.equal(first[0]!.event_id, 0);
-  // Asked again after its last event, it waits for something new, says it, and ends.
-  const next = frames(await call(`${P}/stream?view=rows&once=1`, { headers: { 'last-event-id': String(first[1]!.cursor) } }));
-  await frames(await post(`${P}/message/stream`, { text: 'Hi', request_id: 'r1' }));
-  const sent = await next;
-  assert.ok(sent.length >= 1 && !sent.some(frame => frame.type === 'projects'));
-  assert.ok(sent.some(frame => frame.type === 'project' || (frame.rows as EventMsg[] | undefined)?.some(row => row.type === 'ui.operator')));
-  // The page showing no project: the list, then each change, a response each.
-  const list = await frames(await call('/api/projects/stream?once=1'));
-  assert.deepEqual(list.map(frame => [frame.type, frame.event_id]), [['projects', 0]]);
-});
-
 test("the page is sent each project's state as it changes: the question a turn asks with the letter that asks it", { timeout: 20_000 }, async t => {
   const { call, get, post } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: 'Total data.csv' },
@@ -1105,32 +1122,50 @@ test("the page is sent each project's state as it changes: the question a turn a
     { role: 'manager', to: 'engineer', letter: 'Total data2.csv' },
     { role: 'engineer', to: 'operator', letter: 'Which encoding?', says: 'Looking.' },
   ]);
-  type State = { type: string; row?: { id: string; daemon_alive: boolean } | null; snapshot?: Snapshot | null };
   const live = new AbortController();
   t.after(() => live.abort());
-  const others = frames(await call('/api/projects/stream', { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
+  const home = frames(await call('/api/projects/stream', { signal: live.signal }), frame => frame.row === null);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
-  // The page showing the project follows its rows, which carry every project's state and its own snapshot.
-  const sent = frames(await call(`${P}/stream?view=rows`, { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
+  const selected = frames(await call(`${P}/stream?view=rows`, { signal: live.signal }), frame => frame.row === null);
+  const { sid: other } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const elsewhere = frames(await call(`/api/projects/${other}/stream?view=rows`, { signal: live.signal }), frame => frame.row === null);
   await frames(await post(`${P}/message/stream`, { text: 'Total data.csv', request_id: 'r1' }));
   await frames(await post(`${P}/message/stream`, { text: 'Total data2.csv too', request_id: 'r2' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length));
   await post(`${P}/daemon/stop`, {});
   await eventually(() => call(P, { method: 'DELETE' }), response => response.status === 200);
-  const states = (await sent).filter(state => state.type !== 'ui.projection');
-  const elsewhere = await others;
+  const [states, reading, others] = await Promise.all([home, selected, elsewhere]);
   live.abort();
-  assert.deepEqual(elsewhere[0], { type: 'projects', projects: [], local_cwd: process.cwd(), build: '' });
-  // A page showing no project, or another, is sent the row alone.
-  assert.ok(elsewhere.length > 2 && !elsewhere.some(state => 'snapshot' in state));
-  assert.equal(states[0]?.type, 'projects');
-  assert.equal(states[1]?.row?.id, sid);
+  assert.equal(states[0]?.type, 'connected');
+  assert.equal(inspectApiMeta(states[0]?.meta).compatible, true);
+  assert.equal(states[0]?.entry, '/assets/app-1.js');
+  assert.deepEqual(states[1], { type: 'projects', projects: [], local_cwd: process.cwd() });
+  assert.equal((states[2]?.row as { id: string })?.id, sid);
+  assert.ok(states.every(frame => !('snapshot' in frame)), 'the home stream sends only list rows');
+  assert.ok(others.filter(frame => frame.type === 'snapshot').every(frame => frame.id === other), 'another project never receives the selected snapshot');
+  assert.ok(reading.filter(frame => frame.type === 'snapshot').every(frame => frame.id === sid));
   // Nothing is recorded after the letter while the other task works on: the question comes with it.
-  const asked = states.find(state => state.snapshot?.pending_questions?.length);
-  assert.equal(asked?.row?.daemon_alive, true);
-  assert.ok(states.some(state => state.row && !state.row.daemon_alive && state.snapshot?.daemon.alive === false));
-  assert.deepEqual(states.at(-1), { type: 'project', id: sid, row: null, snapshot: null });
+  const asked = reading.find(frame => (frame.snapshot as Snapshot | undefined)?.pending_questions?.length);
+  assert.equal((asked?.snapshot as Snapshot)?.daemon.alive, true);
+  assert.ok(reading.some(frame => frame.snapshot && (frame.snapshot as Snapshot).daemon.alive === false));
+  assert.ok(reading.some(frame => frame.type === 'ui.projection'));
+  assert.ok(reading.some(frame => frame.type === 'project' && frame.id === other), 'new projects reach the selected stream');
+  for (const received of [states, reading, others]) assert.deepEqual(received.at(-1), { type: 'project', id: sid, row: null });
+});
+
+test('home and selected streams name the currently served entry again on reconnection', async t => {
+  const { home, call, post } = await setup(t, []);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  for (const path of ['/api/projects/stream', `/api/projects/${sid}/stream?view=rows`]) {
+    for (const entry of ['app-1.js', 'app-2.js']) {
+      await writeFile(join(home, 'web/index.html'), `<script type="module" crossorigin src="./assets/${entry}"></script>`);
+      const [first] = await frames(await call(path), frame => frame.type === 'connected');
+      assert.equal(first?.entry, `./assets/${entry}`);
+      assert.equal(inspectApiMeta(first?.meta).compatible, true);
+      assert.equal(first?.event_id, undefined, 'the connection frame does not change the row cursor');
+    }
+  }
 });
 
 test("each call's end is paired with its own start, when tasks run side by side", () => {
@@ -1200,8 +1235,8 @@ test('row stream, refreshed conversation and current-round role log share one pr
   const live = new AbortController();
   t.after(() => live.abort());
   let closed = false;
-  const stream = rowFrames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame => {
-    closed ||= (frame.rows as EventMsg[]).some(row => row.type === 'ui.task' && row.state === 'done');
+  const stream = frames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame => {
+    closed ||= (frame.rows as EventMsg[] ?? []).some(row => row.type === 'ui.task' && row.state === 'done');
     // Use this frame's cursor: reading the current project can see a later state.
     return closed && readEvents(store, sid).slice(0, Number(frame.cursor) + 1).filter(event => event.type === 'status').at(-1)?.status === 'idle';
   });
@@ -1214,7 +1249,8 @@ test('row stream, refreshed conversation and current-round role log share one pr
   const rows = new Map<string, EventMsg>();
   let roles: EventMsg[] = [];
   for (const frame of sent) {
-    for (const row of frame.rows as EventMsg[]) rows.set(String(row.row_id), row);
+    for (const row of frame.rows as EventMsg[] ?? []) rows.set(String(row.row_id), row);
+    if (frame.type !== 'ui.projection') continue;
     roles = [...roles.filter(row => Number(row.event_id) >= Number(frame.round)), ...frame.role_events as EventMsg[]];
   }
   const refreshed = await get<{ rows: EventMsg[] }>(`${P}/conversation?limit=120`);
@@ -1228,8 +1264,8 @@ test('row stream, refreshed conversation and current-round role log share one pr
   assert.equal(refreshed.rows[question + 1]!.text, '42');
   assert.equal(refreshed.rows[task]!.state, 'done');
   const ended = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
-  const replay = rowFrames(await call(`${P}/stream?view=rows&after=${Number(sent.at(-1)!.cursor)}`), () => true);
-  const initial = (await replay)[0]!;
+  const replay = frames(await call(`${P}/stream?view=rows&after=${Number(sent.at(-1)!.cursor)}`), frame => frame.type === 'ui.projection');
+  const initial = (await replay).find(frame => frame.type === 'ui.projection')!;
   assert.deepEqual(roles, initial.role_events);
   assert.equal('role_events' in ended, false);
   assert.equal('role_round' in ended, false);
@@ -1262,18 +1298,18 @@ test('answering a question outside the loaded page sends the whole pair and reta
 
   const live = new AbortController();
   t.after(() => live.abort());
-  const stream = rowFrames(await call(`${P}/stream?view=rows&after=${initial.cursor}`, { signal: live.signal }), frame =>
-    (frame.rows as EventMsg[]).some(row => row.text === '424242'));
+  const stream = frames(await call(`${P}/stream?view=rows&after=${initial.cursor}`, { signal: live.signal }), frame =>
+    (frame.rows as EventMsg[] ?? []).some(row => row.text === '424242'));
   await post(`${P}/decisions/${card.id}/resolve`, { note: '424242' });
   const sent = await stream;
   live.abort();
-  const delta = sent.find(frame => (frame.rows as EventMsg[]).some(row => row.text === '424242'))!.rows as EventMsg[];
+  const delta = sent.find(frame => (frame.rows as EventMsg[] ?? []).some(row => row.text === '424242'))!.rows as EventMsg[];
   const changedQuestion = delta.findIndex(row => row.type === 'ui.question');
   assert.ok(changedQuestion >= 0, 'the answer delta must also contain the question absent from the loaded page');
   assert.equal(delta[changedQuestion + 1]?.text, '424242');
 
   const merged = new Map(initial.rows.map(row => [String(row.row_id), row]));
-  for (const frame of sent) for (const row of frame.rows as EventMsg[]) merged.set(String(row.row_id), row);
+  for (const frame of sent) for (const row of frame.rows as EventMsg[] ?? []) merged.set(String(row.row_id), row);
   const shown = [...merged.values()].sort((a, b) => Number(a.order) - Number(b.order));
   const liveQuestion = shown.findIndex(row => row.type === 'ui.question');
   assert.equal(shown[liveQuestion + 1]?.text, '424242');
@@ -1286,9 +1322,9 @@ test('answering a question outside the loaded page sends the whole pair and reta
   assert.equal(refreshed.rows[question + 1]?.text, '424242');
   const reconnect = new AbortController();
   t.after(() => reconnect.abort());
-  const replayed = await rowFrames(await call(`${P}/stream?view=rows`, {
+  const replayed = await frames(await call(`${P}/stream?view=rows`, {
     signal: reconnect.signal, headers: { 'last-event-id': String(initial.cursor) },
-  }), frame => (frame.rows as EventMsg[]).some(row => row.text === '424242'));
+  }), frame => (frame.rows as EventMsg[] ?? []).some(row => row.text === '424242'));
   reconnect.abort();
   const replay = replayed.at(-1)!.rows as EventMsg[];
   const replayQuestion = replay.findIndex(row => row.type === 'ui.question');
@@ -1330,7 +1366,7 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   const reply = frames(await post(`${P}/message/stream`, { text: '现在做到哪', request_id: 'r-live' }));
   await eventually(async () => requests, rows => rows.length === 3);
   const response = await call(`${P}/stream?view=rows`);
-  const streamed = rowFrames(response, frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第二句实时文字。'));
+  const streamed = frames(response, frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第二句实时文字。'));
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第一句实时文字。' });
   await new Promise(resolve => setImmediate(resolve));
   requests[1]!.onStep?.({ kind: 'message', text: '已核对输入，正在检查输出。\n详细记录留在角色日志。' });
@@ -1338,7 +1374,7 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   const received = await streamed;
   const managerStep = received.find(frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第一句实时文字。'))!;
   assert.deepEqual(managerStep.rows, []);
-  const progress = received.flatMap(frame => frame.rows as EventMsg[]).find(row => row.progress === '已核对输入，正在检查输出。')!;
+  const progress = received.flatMap(frame => frame.rows as EventMsg[] ?? []).find(row => row.progress === '已核对输入，正在检查输出。')!;
   assert.equal(progress.title, title);
   const page = await get<ConversationPage>(`${P}/conversation`);
   assert.equal(page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, '');
@@ -1378,22 +1414,17 @@ test('the row stream shows a task asking once it has asked, while another task r
   const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web: home });
   t.after(() => { ended.abort(); return served.close(); });
   const P = `${served.url}/api/projects/${project.id}`;
-  const asks = (frame: EventMsg) => frame.type === 'ui.projection' && (frame.rows as EventMsg[]).some(row => row.row_id === 'task-t1' && row.state === 'asking');
-  const asked = (frame: EventMsg) => (frame.snapshot as Snapshot | undefined)?.pending_questions?.length === 1;
-  const seen = { rows: false, snapshot: false };
-  const stream = frames(await fetch(`${P}/stream?view=rows&after=-1`, { signal: ended.signal }), frame => {
-    seen.rows ||= asks(frame);
-    seen.snapshot ||= asked(frame);
-    return seen.rows && seen.snapshot;
-  });
+  const stream = frames(await fetch(`${P}/stream?view=rows&after=-1`, { signal: ended.signal }), frame =>
+    (frame.rows as EventMsg[] ?? []).some(row => row.row_id === 'task-t1' && row.state === 'asking'));
+  const states = frames(await fetch(`${P}/stream?view=rows`, { signal: ended.signal }), frame =>
+    (frame.snapshot as Snapshot | undefined)?.pending_questions?.length === 1);
   await fetch(`${P}/daemon/start`, { method: 'POST', body: '{}' });
-  const sent = await stream;
-  const rows = sent.filter(frame => frame.type === 'ui.projection');
-  const pushed = sent.find(asked)!.snapshot as Snapshot;
+  const [rows, projects] = await Promise.all([stream, states]);
+  const pushed = projects.at(-1)!.snapshot as Snapshot;
   const fresh = await (await fetch(`${P}/snapshot`)).json() as Snapshot;
   assert.equal(pushed.backlog.find(task => task.id === 't1')?.status, 'blocked');
   assert.deepEqual(pushed.pending_questions, fresh.pending_questions);
-  assert.equal(rows.flatMap(frame => frame.rows as EventMsg[]).filter(row => row.row_id === 'task-t1').at(-1)?.state, 'asking');
+  assert.equal((rows.at(-1)!.rows as EventMsg[]).find(row => row.item_id === 't1')?.state, 'asking');
 });
 
 test('project list and artifact routes expose only the fields their readers use', async t => {

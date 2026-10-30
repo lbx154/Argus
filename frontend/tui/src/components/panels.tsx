@@ -399,8 +399,7 @@ function TaskPanel({ item, page, pageSize, width }: { item: BacklogItem; page: n
     '',
     'OBJECTIVE',
     ...wrapDetail(item.objective || '(none)', width),
-    // A replaced task says so in its status; its last attempt's error is not its own.
-    ...(item.last_error && item.status !== 'superseded' ? ['', 'LAST ERROR', ...wrapDetail(item.last_error, width)] : []),
+    ...(item.last_error ? ['', 'LAST ERROR', ...wrapDetail(item.last_error, width)] : []),
     ...(item.notes ? ['', 'NOTES', ...wrapDetail(item.notes, width)] : []),
     ...(item.deps?.length ? wrapDetail(`depends on   ${item.deps.join(', ')}`, width) : []),
   ];

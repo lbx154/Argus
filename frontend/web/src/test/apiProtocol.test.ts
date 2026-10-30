@@ -53,11 +53,10 @@ describe('web API protocol handshake', () => {
     close();
   });
 
-  it('delivers each event frame and, when the response ends, asks again at once after the last event it had', async () => {
+  it('delivers each event frame and reconnects after the connection ends, from the last event it had', async () => {
     vi.useFakeTimers();
     const body = 'id: 7\ndata: {"type":"ui.argus","text":"hi","event_id":7}\n\n: comment\n\nid: 8\ndata: {"type":"life.planner.task_added","item_id":"t1","event_id":8}\n\n';
-    // The server says what is new and ends; asked again, it has nothing yet and waits.
-    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(fetchMock.mock.calls.length === 1 ? body : new ReadableStream(), { headers: { 'Content-Type': 'text/event-stream' } }));
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
     vi.stubGlobal('fetch', fetchMock);
     const { openConversation } = await import('../api');
     const events: unknown[] = [];
@@ -67,9 +66,9 @@ describe('web API protocol handshake', () => {
 
     await vi.advanceTimersByTimeAsync(0);
     expect(events).toEqual([{ type: 'ui.argus', text: 'hi', event_id: 7 }, { type: 'life.planner.task_added', item_id: 't1', event_id: 8 }]);
-    expect(onOpen).toHaveBeenCalledTimes(2);
-    // An answer that ends is no lost connection: the page stays connected.
-    expect(onClose).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ code: 0, retryable: true }));
+    await vi.advanceTimersByTimeAsync(1_001);
     expect(fetchMock.mock.calls.map(([, init]) => init?.headers)).toEqual([{}, { 'Last-Event-ID': '8' }]);
     close();
   });
@@ -88,6 +87,74 @@ describe('web API protocol handshake', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('doubles failed reconnect intervals to 30 seconds, resets on success, and cancels pending retries', async () => {
+    vi.useFakeTimers();
+    const attempts: number[] = [];
+    let connected = false;
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const fetchMock = vi.fn(async () => {
+      attempts.push(Date.now());
+      if (!connected) throw new TypeError('network down');
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { body = controller; } }),
+        { headers: { 'Content-Type': 'text/event-stream' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { openConversation } = await import('../api');
+    const close = openConversation('s-live', 7, () => undefined);
+    await vi.advanceTimersByTimeAsync(121_000);
+    expect(attempts.map((time, i) => i ? time - attempts[i - 1] : 0)).toEqual([0, 1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000]);
+    connected = true;
+    await vi.advanceTimersByTimeAsync(30_000);
+    connected = false;
+    body.close();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(attempts.at(-1)! - attempts.at(-2)!).toBe(1000);
+    close();
+    const count = attempts.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(attempts).toHaveLength(count);
+  });
+
+  it.each(['conversation', 'home'])('checks the entry on each %s connection and reloads a changed entry without another meta request', async kind => {
+    vi.useFakeTimers();
+    const reload = vi.fn();
+    vi.stubGlobal('window', { location: { search: '', href: 'http://localhost/?project=p-a', reload } });
+    let entry = '/assets/index-old.js';
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(`data: ${JSON.stringify({ type: 'connected', entry, meta: currentMeta })}\n\n`));
+    vi.stubGlobal('fetch', fetchMock);
+    const { openConversation, openProjectStates, setStreamEntry } = await import('../api');
+    setStreamEntry('http://localhost/assets/index-old.js');
+    const onFrame = vi.fn();
+    const close = kind === 'home' ? openProjectStates(onFrame) : openConversation('p-a', 7, onFrame);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reload).not.toHaveBeenCalled();
+    expect(onFrame).not.toHaveBeenCalled();
+    entry = './assets/index-new.js';
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reload).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.every(args => args.length === 2)).toBe(true);
+    close();
+  });
+
+  it('routes list and snapshot frames separately while retaining only the row cursor for reconnection', async () => {
+    vi.useFakeTimers();
+    const updates = [{ type: 'project', id: 'p-b', row: null }, { type: 'snapshot', id: 'p-a', snapshot: currentSnapshot }];
+    const projection = { type: 'ui.projection', event_id: 8, cursor: 8, rows: [], role_events: [] };
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(
+      [...updates, projection].map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('')));
+    vi.stubGlobal('fetch', fetchMock);
+    const { openConversation } = await import('../api');
+    const onState = vi.fn(), onFrame = vi.fn();
+    const close = openConversation('p-a', 7, onFrame, { onState });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onState.mock.calls.map(([state]) => state)).toEqual(updates);
+    expect(onFrame).toHaveBeenCalledExactlyOnceWith(projection);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchMock.mock.calls[1][1]?.headers).toEqual({ 'Last-Event-ID': '8' });
+    close();
+  });
+
   it('keeps the paired token out of stream URLs and sends it as the bearer header', async () => {
     const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response('', { status: 401 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -97,8 +164,8 @@ describe('web API protocol handshake', () => {
     openConversation('s-live', 40, () => undefined)();
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      '/api/projects/s-live/stream?view=rows&after=-1&once=1',
-      '/api/projects/s-live/stream?view=rows&after=40&once=1',
+      '/api/projects/s-live/stream?view=rows&after=-1',
+      '/api/projects/s-live/stream?view=rows&after=40',
     ]);
     for (const [, init] of fetchMock.mock.calls) {
       expect(init?.headers).toEqual({ Authorization: 'Bearer fake-token' });

@@ -17,6 +17,7 @@ export function Modal({
   viewport = false,
   showClose = true,
   style,
+  className = '',
 }: {
   open: boolean;
   onClose: () => void;
@@ -28,6 +29,7 @@ export function Modal({
   viewport?: boolean;
   showClose?: boolean;
   style?: CSSProperties;
+  className?: string;
 }) {
   const { t } = useI18n();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -53,7 +55,7 @@ export function Modal({
         aria-label={label}
         tabIndex={-1}
         style={style}
-        className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full overscroll-contain ${width} scroll-thin ${viewport
+        className={`brand-modal glass-panel glass-panel--raised relative z-10 w-full overscroll-contain ${width} ${className} scroll-thin ${viewport
           ? 'flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden rounded-none'
           : align === 'bottom'
             ? 'max-h-[92dvh] overflow-x-hidden overflow-y-auto rounded-t-2xl sm:max-h-[88dvh] sm:rounded-2xl'

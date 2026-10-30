@@ -4,8 +4,8 @@
 // as a bearer, the preview page alone as a cookie.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,8 +69,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
   const { store, token, host = '127.0.0.1' } = options;
   // Whoever reaches the cockpit can run work on this machine.
   if (!token && !/^(localhost|127(\.\d+){3}|::1)$/.test(host)) throw new Error(`Serving on ${host} needs ARGUS_WEB_TOKEN.`);
-  /** The streams following each project's record; and every page's one stream, by the project it
-   * shows (null: none), which is sent each project's row as it changes and its own project's snapshot. */
+  /** The streams following each project's record, and those following every project's state. */
   const listeners = new Map<string, Set<(moved: boolean) => void>>();
   const watchers = new Map<(frame: Record<string, unknown>) => void, string | null>();
   /** Send each project's changes once the current event has run on to its next wait:
@@ -90,11 +89,18 @@ export async function serve(options: ServeOptions): Promise<Served> {
     setImmediate(() => {
       const changed = due.get(id)!;
       due.delete(id);
-      // States first: a project deleted ends its rows, and its page learns why from the state.
       if (changed.state && watchers.size) {
-        const frame = state(id, [...watchers.values()].includes(id));
-        for (const [send, shown] of watchers) send(shown === id ? frame : { ...frame, snapshot: undefined });
+        const frame = state(id);
+        let selected: Record<string, unknown> | undefined;
+        for (const [send, selectedId] of watchers) {
+          send(frame);
+          if (selectedId === id && frame.row) {
+            selected ??= { type: 'snapshot', id, snapshot: snapshot(store, store.load(id), runs.live(id)) };
+            send(selected);
+          }
+        }
       }
+      // A deletion reaches the list before its record stream ends.
       for (const wake of listeners.get(id) ?? []) wake(changed.moved);
     });
   });
@@ -115,36 +121,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
     projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
     local_cwd: process.cwd(),
   });
-  /** A project's row in the list and, for a page showing it, its snapshot; a deleted one's are null. */
-  const state = (id: string, shown: boolean): Record<string, unknown> => {
+  /** The list change every page needs; only readers of this project receive its snapshot. */
+  const state = (id: string): Record<string, unknown> => {
     let work: Project;
-    try { work = store.load(id); } catch { return { type: 'project', id, row: null, snapshot: null }; }
+    try { work = store.load(id); } catch { return { type: 'project', id, row: null }; }
     const live = runs.live(id);
-    return { type: 'project', id, row: projectRow(store, work, live), snapshot: shown ? snapshot(store, work, live) : undefined };
-  };
-  /** The page this server sends, named by its entry script: a page that was sent another reloads.
-   * A server without built pages names none. */
-  let build = '';
-  try { build = /src="\.\/(assets\/index-[^"]+\.js)"/.exec(readFileSync(join(options.web, 'index.html'), 'utf8'))?.[1] ?? ''; } catch { /* no pages */ }
-  /** A page's one stream: the project list as it connects, then each project's state as it changes.
-   * A page asking again (`once`) is not sent the list again; its list is named 0, to be asked after. */
-  const watch = (send: (frame: Record<string, unknown>) => void, response: ServerResponse, shown: string | null, once: boolean, again: boolean): void => {
-    if (!again) send({ type: 'projects', ...list(), build, ...once ? { event_id: 0 } : {} });
-    watchers.set(send, shown);
-    response.on('close', () => watchers.delete(send));
-  };
-  /** `once`: the stream says what is new and ends, and the page asks again, after the last event it
-   * has (Last-Event-ID). A proxy that holds a response until it ends, as a Cloudflare quick tunnel
-   * holds a stream, then passes each change at once. With nothing new it ends after 50 seconds. */
-  const endsOnce = (send: (frame: Record<string, unknown>) => void, response: ServerResponse) => {
-    const quiet = setTimeout(() => response.end(), 50_000);
-    response.on('close', () => clearTimeout(quiet));
-    let ending = false;
-    return (frame: Record<string, unknown>): void => {
-      send(frame);
-      if (!ending) setImmediate(() => response.end());
-      ending = true;
-    };
+    return { type: 'project', id, row: projectRow(store, work, live) };
   };
   /** The token as the bearer; for the preview page, which a frame loads by URL with no way to send
    * it, a cookie its preview grants, which a browser sends with every project request, so no other
@@ -174,8 +156,16 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // A stream that goes quiet still learns when its reader has gone.
     response.socket?.setKeepAlive(true, 60_000);
     return frame => {
-      if (!response.writableEnded) response.write(`${'event_id' in frame ? `id: ${frame.event_id}\n` : ''}data: ${JSON.stringify(frame)}\n\n`);
+      if (!response.destroyed) response.write(`${'event_id' in frame ? `id: ${frame.event_id}\n` : ''}data: ${JSON.stringify(frame)}\n\n`);
     };
+  };
+  /** Each permanent reader checks the entry the server serves on this connection. */
+  const connected = (send: (frame: Record<string, unknown>) => void): void => {
+    let entry: string | null = null;
+    try {
+      entry = /<script\b[^>]*\btype="module"[^>]*\bsrc="([^"]+)"/.exec(readFileSync(join(options.web, 'index.html'), 'utf8'))?.[1] ?? null;
+    } catch { /* An API-only server has no built entry. */ }
+    send({ type: 'connected', entry, meta: meta(true) });
   };
   /** The operator's answer to one of the open questions, in their own words. */
   const answer = async (id: string, card: string, note: string, files?: unknown): Promise<void> => {
@@ -219,14 +209,15 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // one, the last `replay`.
     ['GET', /^\/api\/projects\/([^/]+)\/stream$/, ({ params: [id], url, request, response }) => {
       const work = project(id!);
+      const send = sse(response);
       if (url.searchParams.get('view') === 'rows') {
-        const once = url.searchParams.get('once') === '1';
-        const again = once && request.headers['last-event-id'] !== undefined;
-        const send = once ? endsOnce(sse(response), response) : sse(response);
-        watch(send, response, work.id, once, again);
+        connected(send);
+        send({ type: 'projects', ...list() });
+        send({ type: 'snapshot', id: work.id, snapshot: snapshot(store, work, runs.live(work.id)) });
+        watchers.set(send, work.id);
         let previous = new Map<string, string>();
         let cursor = Number(request.headers['last-event-id'] ?? url.searchParams.get('after') ?? -1);
-        let roleCursor = again ? cursor : -1;
+        let roleCursor = -1;
         const wake = listeners.get(id!) ?? new Set();
         listeners.set(id!, wake);
         const flush = (moved = true) => {
@@ -242,19 +233,16 @@ export async function serve(options: ServeOptions): Promise<Served> {
           const changed = rows.filter(row => previous.size
             ? previous.get(String(row.row_id)) !== shown.get(String(row.row_id)) : Number(row.event_id) > cursor);
           if (moved) previous = shown;
-          const roleEvents = reading.roleEvents.filter(event => Number(event.event_id) > roleCursor);
-          // A page asking again waits for something new.
-          if (again && !changed.length && !roleEvents.length) return;
           cursor = reading.fold.line - 1;
-          send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round, role_events: roleEvents });
+          send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round,
+            role_events: reading.roleEvents.filter(event => Number(event.event_id) > roleCursor) });
           roleCursor = cursor;
         };
         flush();
         wake.add(flush);
-        response.on('close', () => wake.delete(flush));
+        response.on('close', () => { wake.delete(flush); watchers.delete(send); });
         return;
       }
-      const send = sse(response);
       const read = follow(store, work.id);
       const had = Number(request.headers['last-event-id'] || NaN);
       const replay = Math.min(200, Number(url.searchParams.get('replay') ?? 40));
@@ -265,10 +253,13 @@ export async function serve(options: ServeOptions): Promise<Served> {
       listeners.set(id!, wake.add(flush));
       response.on('close', () => wake.delete(flush));
     }],
-    // A page showing no project follows this; one showing a project, that project's rows, which carry the same.
-    ['GET', /^\/api\/projects\/stream$/, ({ url, request, response }) => {
-      const once = url.searchParams.get('once') === '1';
-      watch(once ? endsOnce(sse(response), response) : sse(response), response, null, once, once && request.headers['last-event-id'] !== undefined);
+    // The project list, then each project's state as it changes: the page asks for none of it again.
+    ['GET', /^\/api\/projects\/stream$/, ({ response }) => {
+      const send = sse(response);
+      connected(send);
+      send({ type: 'projects', ...list() });
+      watchers.set(send, null);
+      response.on('close', () => watchers.delete(send));
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/conversation$/, ({ params: [id], url }) => {
       const work = project(id!);
@@ -289,8 +280,14 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     // A message typed while a reply is under way: answered after it, as any other.
     ['POST', /^\/api\/projects\/([^/]+)\/message\/followup$/, async context => {
-      void (await message(context))(() => {});
-      return { ok: true, queued: true };
+      const reply = await message(context);
+      return new Promise((resolve, reject) => {
+        void reply(frame => {
+          if (frame.type === 'phase') resolve({ ok: true, queued: !['replied', 'failed', 'replaced'].includes(String(frame.status)), accepted: true, request_id: frame.request_id, status: frame.status });
+        }).then(frame => {
+          if (frame.type === 'error') reject(new HttpError(400, String(frame.error), 'message_failed'));
+        }, reject);
+      });
     }],
     // The operator's draft rewritten by the Manager, for the operator to read before sending it: a
     // turn of its own, which the Manager's conversation knows nothing of. A failed one leaves the

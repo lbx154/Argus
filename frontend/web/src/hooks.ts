@@ -1,6 +1,7 @@
 import { queryOptions, replaceEqualDeep, useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { api, isAuthenticationError, type ProjectIndex, type ProjectState, type Snapshot } from './api';
+import { api, isAuthenticationError, type ProjectState, type ProjectIndex, type Snapshot } from './api';
+import { requireSnapshotContract } from '../../core/src/protocol';
 import { POLL_CAPABILITY, useCapability } from './lib/capabilities';
 import { cacheProjectName } from './lib/projectName';
 import { workspaceApi } from './research-workbench/workspaceApi';
@@ -56,8 +57,6 @@ export function snapshotPollInterval(snapshot?: Snapshot): number {
     : SNAPSHOT_POLL_MS;
 }
 
-/** The project list, read as the page opens; a server that pushes state then keeps it on the page's
- * one stream (applyProjectState), a polled one is read again. */
 export function useProjects() {
   const polled = useCapability(POLL_CAPABILITY);
   return useQuery({
@@ -67,34 +66,20 @@ export function useProjects() {
   });
 }
 
-/** The page's entry script, as the server names the page it sends; none in development or a test. */
-const pageBuild = (): string =>
-  /assets\/index-[^/]+\.js$/.exec(globalThis.document?.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src ?? '')?.[0] ?? '';
-
-/** A project state from the page's stream, into the page: the list as it connects, then each row as it
- * changes, and the shown project's snapshot. A server that now sends another page is reloaded from. */
-export function applyProjectState(queryClient: QueryClient, state: ProjectState): void {
+/** Apply list changes and the selected project's snapshot from the page's single stream. */
+export function cacheProjectState(queryClient: QueryClient, state: ProjectState): void {
   if (state.type === 'projects') {
-    const page = pageBuild();
-    if (state.build && page && state.build !== page) {
-      window.location.reload();
-      return;
-    }
     queryClient.setQueryData<ProjectIndex>(['projects'], { projects: state.projects, local_cwd: state.local_cwd });
-    // A snapshot the page holds may be older than the connection: it is read again.
-    void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+  } else if (state.type === 'snapshot') {
+    queryClient.setQueryData(['snapshot', state.id], requireSnapshotContract(state.snapshot));
   } else {
-    const { id, row, snapshot } = state;
+    const { id, row } = state;
     queryClient.setQueryData<ProjectIndex>(['projects'], (index) => index && {
       ...index, projects: [...index.projects.filter((project) => project.id !== id), ...row ? [row] : []],
     });
-    // Another project's change comes as its row: the snapshot held of it is read again when shown.
-    if (snapshot) queryClient.setQueryData(['snapshot', id], snapshot);
-    else void queryClient.invalidateQueries({ queryKey: ['snapshot', id] });
-    if (!row) return;
   }
   // The roles learn in their turns, and a turn's end is a change.
-  void queryClient.invalidateQueries({ queryKey: ['learning-status'] });
+  if (state.type !== 'snapshot') void queryClient.invalidateQueries({ queryKey: ['learning-status'] });
 }
 
 /** A project's snapshot, however it arrives: read, read again, or pushed. A reply read before a
