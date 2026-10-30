@@ -81,7 +81,7 @@ function where(project: Project, store: Store, writes: boolean): string {
 /** The machine the work runs on, as far as Argus knows it. */
 function machine(): string {
   const gpus = process.env.CUDA_VISIBLE_DEVICES;
-  return `The machine: ${cpus().length} CPU cores, ${Math.round(totalmem() / 2 ** 30)} GiB of memory${gpus === undefined ? ''
+  return `The machine: ${cpus().length} logical CPUs, ${Math.round(totalmem() / 2 ** 30)} GiB of memory${gpus === undefined ? ''
     : `, and the GPUs this project may use, CUDA_VISIBLE_DEVICES=${gpus || '(none)'}`}.`;
 }
 

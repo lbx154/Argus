@@ -14,8 +14,8 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   methods and codebases for it, and the numbers they report on the benchmark you will use, from
   papers, model cards and repositories checked today (their release dates too).
 - Build on the official code of the strongest fitting method or framework, and on the strongest
-  current open model the machine can run, unless the question names others. A study of an
-  outdated model, a toy setup, or a benchmark the model already nearly solves (GSM8K for a
+  current open model the machine can run, unless the question names others by version. A study of
+  an outdated model, a toy setup, or a benchmark the model already nearly solves (GSM8K for a
   current 4B model) is a result nobody will use.
 - Use the whole machine. `node <this folder>/machine.mjs` shows the GPUs with their free memory,
   the Python ML stack and the disk; size the model, batch, threads and number of runs to it
@@ -34,7 +34,8 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   question was: write to them with the result that shows it, and keep the earlier results.
 - Only what ran is reported: a mock, a stand-in model or synthetic data where the claim names a
   real system belongs in a test, never in a result. Every number comes from the raw rows a run
-  wrote.
+  wrote; those rows and the scripts that read them are the record: keep no hashes, archives or
+  copies of them.
 - Superiority means beating the strongest same-information baseline under the same protocol, run
   from its official code and landing near its published number.
 - A benchmark carries a claim only if its labels and scoring can: know where each gold label
@@ -45,12 +46,14 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
 - A result far from what the model, method, benchmark or engine is known to do, in accuracy or in
   speed, is a setup defect until shown otherwise. One campaign measured 6.0% on MATH-500 for a model published at 79.7%: its
   token cap and a missing tool execution were the cause, not the model.
-- Look first at the single setting that would produce exactly that number, usually something
-  between the model's output and the score:
+- Look first, for a surprising result as for a wrong one, at the single setting that would produce
+  exactly that number, usually something between the model's output and the score:
   - a generation cap (a cap-hit rate above zero means you measure the cap; in RL a truncated
     rollout scores zero and teaches the model to stop early);
   - the chat template, which must match between training and inference;
   - the scorer's parsing of the answer;
+  - the rule that turns scores into labels: a default threshold after the class balance moved
+    shows as a drop in accuracy that AUC does not show;
   - the protocol behind the published number.
 - Before calling a gap a defect or a finding, measure the same gap between two things it should
   not separate: two seeds, two correct code paths, two graders, two models of the same kind. A gap
