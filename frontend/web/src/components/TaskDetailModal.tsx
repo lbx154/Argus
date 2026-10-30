@@ -5,6 +5,7 @@ import { Modal } from './Modal';
 import { Chip, Spinner } from './primitives';
 import { useI18n } from '../i18n';
 import { statusLabel } from '../lib/enumLabels';
+import { TaskLetters } from './TaskLetters';
 
 const when = (ts: number | null | undefined): string =>
   ts ? new Date(ts * 1000).toLocaleString() : '—';
@@ -23,10 +24,12 @@ export function TaskDetailModal({
   sid,
   itemId,
   onClose,
+  onOpenArtifact,
 }: {
   sid: string | null;
   itemId: string | null;
   onClose: () => void;
+  onOpenArtifact?: (path: string) => void;
 }) {
   const { t } = useI18n();
   const query = useBacklogItem(sid, itemId);
@@ -78,12 +81,7 @@ export function TaskDetailModal({
                 <div className="mt-1 text-xs leading-relaxed text-ink-dim"><ErrorMessage error={item.last_error} code="agent_failed" /></div>
               </section>
             ) : null}
-            {item.notes ? (
-              <section>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">{t('task.notes')}</div>
-                <p className="whitespace-pre-wrap text-xs leading-relaxed text-ink-dim">{item.notes}</p>
-              </section>
-            ) : null}
+            <TaskLetters item={item} sid={sid} onOpenArtifact={onOpenArtifact} />
             {/* Tags are the team's routing marks, never shown to the reader. */}
             {item.deps?.length ? (
               <div className="flex flex-wrap gap-1.5">

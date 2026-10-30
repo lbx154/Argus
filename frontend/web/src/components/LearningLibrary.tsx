@@ -1,13 +1,11 @@
 import { ErrorMessage } from './ErrorMessage';
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
 import { api, type SkillCatalog, type SkillLibraryItem } from '../api';
 import { useI18n, type Locale } from '../i18n';
 import { libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
 import { KnowledgeFeedList, useKnowledgeFeed } from './KnowledgeFeed';
-import { SkillReadingGuide } from './LibraryGuide';
-import { LearningStatus } from './LearningStatus';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 
@@ -18,7 +16,6 @@ const libraryQuery = { staleTime: 10_000, refetchInterval: 15_000 };
 
 /** What was learned lately, or everything the library holds. */
 export type LearningScope = 'feed' | 'global';
-export type LearningSelection = SkillLibraryItem;
 const scopes: LearningScope[] = ['feed', 'global'];
 const learningScopeLabels = {
   'zh-CN': { feed: '学习动态', global: '全局项目' },
@@ -53,18 +50,17 @@ export function LearningLibraryEntry({ onOpen, compact = false }: {
   </section>;
 }
 
-export function LearningLibrary({ sid, initialScope = 'feed', initialSelection = null, projectNames = {}, onUse }: {
-  sid: string | null; initialScope?: LearningScope; initialSelection?: LearningSelection | null;
+export function LearningLibrary({ sid, initialScope = 'feed', projectNames = {}, onUse }: {
+  sid: string | null; initialScope?: LearningScope;
   projectNames?: Record<string, string>;
   onUse?: (title: string, content: string, scope: string) => void;
 }) {
-  const originalSid = useRef(sid);
   return <LearningBrowser key={sid ?? 'no-project'} sid={sid} initialScope={initialScope}
-    initialSelection={originalSid.current === sid ? initialSelection : null} projectNames={projectNames} onUse={onUse} />;
+    projectNames={projectNames} onUse={onUse} />;
 }
 
-function LearningBrowser({ sid, initialScope, initialSelection, projectNames, onUse }: {
-  sid: string | null; initialScope: LearningScope; initialSelection: LearningSelection | null;
+function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
+  sid: string | null; initialScope: LearningScope;
   projectNames: Record<string, string>;
   onUse?: (title: string, content: string, scope: string) => void;
 }) {
@@ -73,8 +69,7 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
   const labels = learningScopeLabels[locale];
   const [scope, setScope] = useState(initialScope);
   const [search, setSearch] = useState('');
-  const [selection, setSelection] = useState<string | null>(() => initialSelection
-    ? `skill/${initialSelection.library}/${initialSelection.path}` : null);
+  const [selection, setSelection] = useState<string | null>(null);
   const skills = useQuery({ ...libraryQuery, queryKey: ['skill-library', sid], queryFn: ({ signal }) => api.skillLibrary(sid, signal) });
   const feed = useKnowledgeFeed(scope === 'feed');
   const all = learningEntries(skills.data, scope, locale);
@@ -93,13 +88,11 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
   const kind = zh ? '技能' : 'Skill';
   const document = skillDocument;
   const body = document.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
-  const guide = skill ? skillPresentation(skill, locale).guide : null;
   const pick = (next: LearningScope) => { setScope(next); setSelection(null); };
 
   return <div className="flex h-[min(780px,84dvh)] min-h-0 flex-col" data-learning-library>
     <ModalHeader title={zh ? '技能库' : 'Skill library'}
       sub={zh ? '浏览可复用的方法和原始技能文档。' : 'Browse reusable methods and original skill documents.'} />
-    <LearningStatus sid={sid} onOpenSkills={() => pick('feed')} />
     <nav aria-label={zh ? '学习资源分类' : 'Learning resource categories'} className="flex shrink-0 overflow-x-auto border-b border-line/60 px-4">
       {scopes.map(value => <button key={value} type="button" aria-pressed={scope === value} onClick={() => pick(value)}
         className={`shrink-0 border-b-2 px-3 py-2.5 text-sm ${scope === value ? 'border-blue text-ink' : 'border-transparent text-ink-faint hover:text-ink'}`}>{labels[value]}</button>)}
@@ -151,12 +144,10 @@ function LearningBrowser({ sid, initialScope, initialSelection, projectNames, on
             <span className="text-xs text-ink-faint">{zh ? '加入附件草稿，发送前可移除。' : 'Adds a draft attachment you can remove before sending.'}
             </span>
           </div>}
-          {skill && guide && <SkillReadingGuide item={skill} guide={guide} />}
           <div className="mt-5 border-t border-line/60 pt-5 text-sm text-ink">
               {document.isPending && <p>{zh ? '正在加载全文…' : 'Loading document…'}</p>}
               {document.isError && <div role="alert" className="text-err"><ErrorMessage error={document.error} /> <button className="underline" onClick={() => void document.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
-              {document.data && (guide ? <details><summary className="cursor-pointer py-2 text-blue">{zh ? '查看原始技能文档' : 'Read the original skill'}</summary>
-                <MarkdownContent>{body ?? ''}</MarkdownContent></details> : <MarkdownContent>{body ?? ''}</MarkdownContent>)}
+              {document.data && <MarkdownContent>{body ?? ''}</MarkdownContent>}
           </div>
         </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择一份资料查看。' : 'Select material to read it.'}</div>}
       </article>

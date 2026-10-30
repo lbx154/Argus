@@ -2,8 +2,7 @@
 
 This document defines the canonical runtime hierarchy and terminology for Argus
 at commit `ae2daa1fbc2c918b4e7126151fe55eb68fd0cb98`
-(`https://github.com/lbx154/Argus.git`). It complements the existing
-`plugins/argus/CONTEXT.md` glossary, which can link here for this runtime model.
+(`https://github.com/lbx154/Argus.git`).
 Chosen model: `Operator -> Projects -> Missions -> Roles -> role/provider sessions or turns`.
 
 For current implementation entry points, state ownership, recovery boundaries,

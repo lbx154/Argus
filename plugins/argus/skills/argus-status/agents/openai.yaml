@@ -1,4 +1,0 @@
-interface:
-  display_name: "Argus Status"
-  short_description: "Inspect and control an Argus project"
-  default_prompt: "Check the current Argus project status and report verified progress."

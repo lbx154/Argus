@@ -1,12 +1,13 @@
 // How an agent CLI starts and what it may see: under bubblewrap, the workdir and the directories
 // its call is given, system software, the CLI itself, and a private home per workdir into which
-// only the CLI's login and settings are brought. Its environment carries no credential but its own.
+// only the CLI's login and settings are brought. The operator may register more environment values.
 
 import { spawnSync } from 'node:child_process';
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { argusHome } from '../store.js';
+import { credentials } from '../credentials.js';
 import type { AgentRequest, Backend } from '../types.js';
 
 
@@ -106,14 +107,14 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
   };
 }
 
-/** The CLI's environment: push-capable and other credentials out, except those the CLI signs in with. */
+/** The CLI's login environment and the operator's registrations; other credentials stay out. */
 export function agentEnv(backend: Backend): Record<string, string> {
   const { signsInWith } = cliSetup(backend);
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && (signsInWith(name) || !/^(GH_|GITHUB_)|^(SSH_AUTH_SOCK|GIT_ASKPASS)$|TOKEN|SECRET|KEY/i.test(name))) kept[name] = value;
   }
-  return kept;
+  return { ...kept, ...credentials() };
 }
 
 /** Where agents working in `cwd` keep `path`, a file of their home or of Argus's. */

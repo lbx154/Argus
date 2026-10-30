@@ -17,7 +17,7 @@ name: extended checks
 #   * macOS + Windows — the portable surface that must work everywhere:
 #                       the chat bridges, the pairing/QR path, and the core
 #                       helpers behind them.
-#   * frontend        — web cockpit typecheck + tests, Ink cockpit tests.
+#   * frontend        — web cockpit typecheck + tests.
 #   * Windows         — the Python runtime's Windows-only helpers and the
 #                       desktop installer's preflight. The desktop itself
 #                       (Tauri host, the Argus it ships, its installers) is
@@ -88,7 +88,6 @@ env:
   # Product paths whose Windows behavior is exercised by the Desktop host.
   WINDOWS_CORE_TESTS: >-
     tests/apps/test_cli_parser.py
-    tests/apps/test_tui_launcher.py
     tests/daemon/test_health.py
     tests/daemon/test_process_workspace.py
     tests/daemon/test_spawn_admission_portable.py
@@ -226,7 +225,7 @@ jobs:
           cat banner.log
 
   frontend:
-    name: frontend · web + cockpit
+    name: frontend · web
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -241,13 +240,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
           npm --prefix frontend/web ci
-          npm --prefix frontend/tui ci
       - name: Typecheck web
         run: npm --prefix frontend/web run typecheck
       - name: Test web
         run: npm --prefix frontend/web test
-      - name: Test cockpit
-        run: npm --prefix frontend/tui test
 
   windows:
     name: windows · runtime helpers and installer preflight

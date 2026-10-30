@@ -20,7 +20,7 @@ from typing import Iterator
 _IS_WINDOWS = os.name == "nt"
 # ``argus-skill`` is the pre-rename command; its launcher is still shipped
 # and must survive an in-place update like the others.
-_LAUNCHER_NAMES = ("argus", "argus-skill", "argus-doctor", "argus-plugin-server")
+_LAUNCHER_NAMES = ("argus", "argus-skill", "argus-doctor")
 
 
 def _invoked_launcher_directory() -> Path | None:

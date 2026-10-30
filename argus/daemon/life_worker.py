@@ -2,7 +2,7 @@
 backlog forever.
 
 This is the substrate behind ``argus --daemon`` and the non-interactive
-executor behind the Ink/Web cockpit. Both build the same
+executor behind the Web cockpit. Both build the same
 :class:`~argus.life.supervisor.LifeSupervisor`
 against the current project's split memory bundle, but the worker has
 no TTY and exits only on SIGTERM /

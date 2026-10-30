@@ -168,7 +168,7 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     if (!child.pid) return;
     if (guardian) {
       // Closing this private pipe means the execution owner cancelled or died.
-      // Closing a browser/TUI connection never closes it in a detached daemon.
+      // Closing a browser connection never closes it in a detached daemon.
       if (!force) { child.stdin.end(); return; }
       if (process.platform === 'win32') { if (!exited) child.kill('SIGKILL'); return; }
     }

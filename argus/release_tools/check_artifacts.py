@@ -12,7 +12,6 @@ from argus.release import source_files
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "argus" / "release_manifest.json"
-TUI_BUNDLE = ROOT / "frontend" / "tui" / "bundle" / "argus.mjs"
 WEB_INDEX = ROOT / "frontend" / "web" / "dist" / "index.html"
 
 
@@ -36,7 +35,6 @@ def check() -> list[str]:
             "release manifest does not match current source; "
             "run python -m argus.release_tools.build_release"
         )
-    _read(TUI_BUNDLE)
     index = _read(WEB_INDEX)
     entry_assets = _web_entry_assets(index)
     if not entry_assets:

@@ -17,7 +17,7 @@ This module adds a conservative, REVERSIBLE garbage collector:
 * Explicit GC can sweep empty-session litter after a grace period. Automatic
   startup GC never does this: multiple independently-run WebAPI instances may
   share one global root, so one developer's startup must not invalidate another
-  developer's still-open idle TUI session.
+  developer's still-open idle web session.
 * Removal is a **move to ``projects_trash/<date>/``**, never an ``rm`` —
   so an over-eager prune is fully recoverable (the operator has been
   bitten by irreversible deletes before).
@@ -137,7 +137,7 @@ def gc_stale_projects(
     A project is pruned when it is not-live (no running daemon) AND either
     (a) untouched for ``retention_days``, or (b) ``sweep_empty`` and it is
     content-less litter older than ``empty_grace_seconds``. The grace period is
-    load-bearing for concurrent Web/TUI startups: a fresh idle session exists
+    load-bearing for concurrent Web startups: a fresh idle session exists
     briefly without a daemon, backlog, transcript, or event.
     Returns the fingerprints pruned (or that WOULD be, when ``dry_run``).
 
@@ -225,7 +225,7 @@ def maybe_gc_stale_projects(
     Startup GC deliberately leaves recent empty-session litter alone. A shared
     ``ARGUS_SKILL_HOME`` can be served by multiple independent WebAPI processes,
     none of which can know whether another process's idle session is still open
-    in a TUI. The explicit ``--gc`` path retains the one-hour empty sweep.
+    in the web cockpit. The explicit ``--gc`` path retains the one-hour empty sweep.
 
     ``exclude`` is forwarded so a startup sweep never trashes the caller's own
     just-resolved (and not-yet-locked) session.

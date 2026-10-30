@@ -1,4 +1,4 @@
-/** Shared wire models consumed by the browser, TUI and Node services. */
+/** Shared wire models consumed by the browser and Node services. */
 
 export type { EventMsg } from './events.js';
 import type { EventMsg } from './events.js';
@@ -54,9 +54,12 @@ export interface BacklogItem extends BacklogSummary {
   finished_ts?: number | null;
   /** The latest message or letter on this task. */
   latest_action?: { role: string; text: string; ts: number };
+  /** Files explicitly selected by a task letter, including a result awaiting review. */
   result_paths?: string[];
   /** Letters and the last call's error, supplied by the detail endpoint. */
   notes?: string;
+  /** Recorded edits in the latest Engineer turn; paths come from edit steps. */
+  changed_files?: string[];
   last_error?: string;
 }
 
@@ -126,6 +129,18 @@ export interface UsageSummary {
   premium_request_cost_usd: number;
 }
 
+export interface UsageGroup extends UsageSummary { key: string | null }
+
+/** All dimensions use the same complete usage lines, with dates in UTC. */
+export interface ProjectUsageSummary extends UsageSummary {
+  by_role: UsageGroup[];
+  by_model: UsageGroup[];
+  by_date: UsageGroup[];
+  /** Union of recorded call intervals. Gaps and calls without durations add no time. */
+  work_duration_ms: number;
+  calls_without_duration: number;
+}
+
 export interface Snapshot {
   schema_version?: number;
   /** When the server read it, in milliseconds; a later read is larger. A page holds the later of two. */
@@ -146,7 +161,7 @@ export interface Snapshot {
   backlog: BacklogSummary[];
   spend_usd?: number | null;
   spend_status?: 'empty' | 'priced' | 'partial' | 'unpriced' | 'not_billed';
-  usage_summary?: UsageSummary;
+  usage_summary?: ProjectUsageSummary;
   pending_questions?: Array<Record<string, unknown>>;
   /** Foreground Manager/SELF requests that remain cancellable across a page reload. */
   manager_requests?: Array<{ request_id: string; status: 'running' | 'waiting' }>;

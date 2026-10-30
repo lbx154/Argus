@@ -150,7 +150,7 @@ for (const backend of BACKENDS) {
     assert.deepEqual({ model: result.model, usage: result.usage }, report);
     const line = readFileSync(usageFile, 'utf8').trim().split('\n').map(row => JSON.parse(row)).find(row => row.callId === result.callId);
     const { cost_usd, ...tokens } = result.usage!;
-    assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, tokens, cost_usd });
+    assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, ms: result.ms, tokens, cost_usd });
     assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"(type|method)":"(turn\/completed|result|agent_settled)"/);
     assert.equal(readFileSync(join(root, 'argus', 'calls', `${result.callId}.prompt.md`), 'utf8'), JSON.stringify({ output: handoff }));
   });

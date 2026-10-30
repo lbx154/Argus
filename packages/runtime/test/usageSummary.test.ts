@@ -8,10 +8,9 @@ const cases = JSON.parse(readFileSync(new URL('../fixtures/usage-summary.json', 
   id: string; records: UsageSummaryRecord[]; expected: UsageSummary;
 }>;
 const base = cases.find(row => row.id === 'one-priced')!.records[0]!;
-const withModel = cases.find(row => row.id === 'model-detail-replaces-aggregate')!.records[0]!;
 
 for (const fixture of cases) {
-  test(`shared Python/TS usage summary: ${fixture.id}`, () => {
+  test(`call usage summary: ${fixture.id}`, () => {
     const actual = summarizeUsage(fixture.records);
     for (const key of Object.keys(fixture.expected) as Array<keyof UsageSummary>) {
       const expected = fixture.expected[key];
@@ -22,22 +21,21 @@ for (const fixture of cases) {
   });
 }
 
-test('summary snapshots and separate projects cannot share mutable totals or identities', () => {
+test('summary snapshots and separate projects cannot share mutable totals', () => {
   const accumulator = new UsageSummaryAccumulator();
-  accumulator.add(withModel);
+  accumulator.add(base);
   const first = accumulator.snapshot();
   first.input_tokens = 999;
-  accumulator.add(withModel);
-  assert.equal(accumulator.snapshot().input_tokens, 80);
+  accumulator.add(base);
+  assert.equal(accumulator.snapshot().input_tokens, 200);
   assert.equal(accumulator.snapshot().call_count, 2);
-  assert.equal(summarizeUsage([withModel]).input_tokens, 80);
+  assert.equal(summarizeUsage([base]).input_tokens, 100);
 });
 
 test('invalid normalized records latch failure instead of yielding partial success', () => {
   for (const invalid of [null, {}, { ...base, cost_usd: -1 }, { ...base, input_tokens: true },
     { ...base, pricing_status: 'unknown' }, { ...base, premium_requests: Infinity },
     { ...base, input_tokens: Number.MAX_SAFE_INTEGER + 1 }, { ...base, output_tokens: 1.5 },
-    { ...withModel, model_usage: [{ ...withModel.model_usage[0], usage_event_id: Number.MAX_SAFE_INTEGER + 1 }] },
   ]) {
     const accumulator = new UsageSummaryAccumulator();
     accumulator.add(base);
@@ -54,14 +52,6 @@ test('token/nano-AIU and cost overflow are explicit errors', () => {
   assert.throws(() => summarizeUsage([{ ...base, cost_usd: 1e308 }, { ...base, cost_usd: 1e308 }]), UsageAccountingError);
 });
 
-test('record and identity bounds do not evict duplicates and silently overcharge', () => {
+test('record bounds fail explicitly', () => {
   assert.throws(() => summarizeUsage([base, base], { maxRecords: 1 }), /record limit/);
-  const accumulator = new UsageSummaryAccumulator({ maxIdentities: 1 });
-  accumulator.add(withModel);
-  accumulator.add(withModel);
-  assert.equal(accumulator.snapshot().known_cost_usd, 0.01);
-  assert.throws(() => accumulator.add({ ...withModel,
-    model_usage: [{ ...withModel.model_usage[0], session_id: 'other' }],
-  }), /identity limit/);
-  assert.throws(() => accumulator.snapshot(), UsageAccountingError);
 });

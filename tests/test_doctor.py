@@ -1,4 +1,4 @@
-"""Tests for the Web/TUI ``/doctor`` diagnostics backend.
+"""Tests for the Web ``/doctor`` diagnostics backend.
 
 The diagnostics are fully fail-soft and network-free by default: every check
 either returns a :class:`Check` or is converted into a failed Check, and the

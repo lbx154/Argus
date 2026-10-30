@@ -38,6 +38,14 @@ export function ResourceStatusView({
       {!status && !error ? <p className="mt-3 text-xs text-ink-faint">{t('resource.loading')}</p> : null}
       {status ? (
         <>
+          {status.disk && <div className="mt-3 rounded border border-line bg-bg p-3" data-workdir-disk>
+            <h4 className="text-xs font-semibold">{zh ? '工作目录所在磁盘' : 'Working directory disk'}</h4>
+            <p className="mt-1 break-all font-mono text-xs text-ink-faint">{status.disk.workdir}</p>
+            {status.disk.available_bytes !== null && status.disk.total_bytes !== null
+              ? <p className="mt-2 text-sm">{zh ? '剩余' : 'Free'} {(status.disk.available_bytes / 2 ** 30).toFixed(1)} GiB / {(status.disk.total_bytes / 2 ** 30).toFixed(1)} GiB</p>
+              : <p className="mt-2 text-xs text-warn">{zh ? '无法读取磁盘空间' : 'Disk space unavailable'} · {status.disk.detail}</p>}
+            {status.disk.low_space && <p role="status" className="mt-2 text-xs text-warn">{zh ? '磁盘空间不足 5 GiB，请留意后续写入。任务继续运行。' : 'Less than 5 GiB free; check space for future writes. Work continues.'}</p>}
+          </div>}
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {status.accelerators.map((accelerator) => (
               <div key={accelerator.kind} className="rounded border border-line bg-bg p-3">

@@ -1,4 +1,4 @@
-/** Small fetch-error normalizer shared by the browser and Ink clients. */
+/** Small fetch-error normalizer for the browser client. */
 
 export interface HttpResponseLike {
   ok: boolean;

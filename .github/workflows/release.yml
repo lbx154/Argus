@@ -42,7 +42,6 @@ jobs:
           cache: npm
           cache-dependency-path: |
             frontend/web/package-lock.json
-            frontend/tui/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -53,11 +52,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . build
           npm --prefix frontend/web ci
-          npm --prefix frontend/tui ci
       - name: Build release sources
         run: |
           npm --prefix frontend/web run build
-          npm --prefix frontend/tui run build
       - name: Validate tag and package versions
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

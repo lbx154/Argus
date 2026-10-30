@@ -22,6 +22,4 @@ it, in a form that can be produced again. Without one it is not ready. Writing n
 outcome when the lesson is already covered, too vague to run, or not worth keeping.
 
 A skill advises the roles without loosening their rules, and the material it was learned from is
-data, not instructions. A skill that serves a page the operator opens, such as a workbench, is a
-plugin: its `plugin.json`, `{ "name", "description", "version", "url" }`, lists it among the web
-cockpit's plugins, which open its url. Whoever installs it starts it.
+data, not instructions.

@@ -1,11 +1,11 @@
 # Unattended daemon operation
 
-The server owns work. A browser, TUI or SSH session is a client of that server;
+The server owns work. A browser or SSH session is a client of that server;
 disconnecting it must not stop an already accepted background task.
 
 ```mermaid
 flowchart LR
-  Client[Web / TUI / SSH client] --> API[Server API]
+  Client[Web / SSH client] --> API[Server API]
   API --> Queue[Persistent project backlog]
   Queue --> Daemon[Independent daemon]
   Daemon --> Run[Task execution owner]
@@ -15,15 +15,14 @@ flowchart LR
 
 Argus's production Python daemon already implements this separation. On POSIX,
 the background launcher double-forks, creates a new session, redirects standard
-streams to logs and ignores SIGHUP. The TUI defaults to `--exit-policy detach`.
-Closing it does not issue a stop command to the current project daemon.
-`stop-api` and `stop-all` are explicit alternate exit policies.
+streams to logs and ignores SIGHUP. Closing the browser does not issue a stop
+command to the current project daemon.
 
 For an existing project, run the commands from its workspace:
 
 ```sh
-argus --daemon --resume PROJECT_ID
-argus --status --resume PROJECT_ID
+python -m argus --daemon --resume PROJECT_ID
+python -m argus --status --resume PROJECT_ID
 ```
 
 `--daemon` drains the backlog in the background. `--continuous` enables generation
@@ -50,7 +49,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/srv/workspaces/my-project
-ExecStart=/srv/Argus/.venv/bin/argus --daemon-fg --resume PROJECT_ID --life-dir /srv/argus-state --resume-continuous
+ExecStart=/srv/Argus/.venv/bin/python -m argus --daemon-fg --resume PROJECT_ID --life-dir /srv/argus-state --resume-continuous
 Restart=on-failure
 RestartSec=5
 KillMode=control-group

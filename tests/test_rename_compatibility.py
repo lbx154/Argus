@@ -107,8 +107,8 @@ def test_python_dash_m_runs_under_either_package_name(module: str, arguments: li
     assert expected in probe.stdout
 
 
-def test_python_dash_m_argus_is_the_cli_not_the_cockpit() -> None:
-    """``python -m argus`` never execs Node; only the ``argus`` console script does."""
+def test_python_dash_m_argus_help_uses_the_python_cli() -> None:
+    """Python entry points share the browser cockpit and administration commands."""
     probe = subprocess.run(
         [sys.executable, "-m", "argus", "--help"], cwd=REPO_ROOT, env=_subprocess_env(),
         capture_output=True, text=True, timeout=180,

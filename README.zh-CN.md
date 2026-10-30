@@ -133,8 +133,8 @@ argus
 | 选项 | |
 |---|---|
 | `--port N` | 换端口（默认 `8799`；`0` 表示自动选一个空闲端口） |
-| `--backend codex\|claude\|copilot\|pi` | 新项目用的后端（默认 `codex`）；每个项目可以在自己的设置里改 |
-| `--model M` | 新项目用的模型，写后端自己的模型名；不指定时用该 CLI 的默认模型 |
+| `--backend codex\|claude\|copilot\|pi` | 首个项目的后端（默认 `codex`）；后续项目继承最近创建的项目 |
+| `--model M` | 首个项目的模型，写后端自己的模型名；不指定时用该 CLI 的默认模型 |
 | `--host H` | 监听其他地址，例如 `0.0.0.0` |
 | `--web DIR` | 使用别处构建的网页，而不是包里自带的 |
 | `ARGUS_WEB_TOKEN` | 访问令牌；不设则首次启动时生成一个，存在状态目录里，重启后不变，开着的页面不用重新登录。打印出的地址里已带上它 |
@@ -144,17 +144,89 @@ argus
 工作，也可以指定一个已有目录。团队干活时你可以继续跟经理说话、看进度地图（每个任务一张卡片，
 上面有关于它的每一封信）、浏览项目文件、打开和下载成果，并在**知识与技能**里看技能库。
 
-工作在 `argus` 进程里运行：关掉浏览器不会停，停掉 `argus`（Ctrl-C）才会停，之后在网页里
-重新启动项目即可。在远程服务器上，在服务器运行 `argus`，再用
+新项目继承最近创建项目的后端、模型和推理强度，包括后端默认值；没有历史项目时才用启动参数。
+设置显示各后端是否安装、命令返回的版本和 bubblewrap 实际运行探测结果。资源面板显示所选项目
+工作目录所在盘的剩余空间；不足 5 GiB 时提示，任务继续运行。
+
+工作在 `argus` 进程里运行：关闭浏览器不会停，进程退出（包括 Ctrl-C）后工作停止。
+下次用同一 `ARGUS_HOME` 启动 Argus，会接着跑退出前正在运行的项目；在网页里主动停止的项目保持停止。在远程服务器上，在服务器运行 `argus`，再用
 `ssh -L 8799:127.0.0.1:8799 user@server` 转发端口。完整的上手流程见
 **[入门指南（英文）](docs/getting-started.md)**。
+
+使用 `argus --host 0.0.0.0` 开放局域网后，在项目的**设置 → 在手机上打开**扫码。
+手机须连接同一网络。二维码包含主机网卡地址、实际监听端口和现有访问令牌；有多个网卡时，
+选择手机能访问的地址。持有该令牌即可访问项目。
+
+### 登录后自动启动
+
+用户服务让 Argus 脱离终端运行。示例在登录时启动，进程退出后不会自动重启。
+用 `command -v node` 和 `command -v argus` 的结果替换绝对路径，使用终端相同的状态目录。
+`PATH` 要包括后端 CLI 所在目录；服务管理器不加载 shell 配置。先停止终端里的实例。
+
+**Linux：systemd 用户服务。** 保存为 `~/.config/systemd/user/argus.service`：
+
+```ini
+[Unit]
+Description=Argus
+
+[Service]
+ExecStart=/absolute/path/to/node /absolute/path/to/argus
+Environment=ARGUS_HOME=%h/.argus
+Environment=PATH=/absolute/path/to/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now argus.service
+journalctl --user -u argus.service   # 查看含令牌的网页地址
+systemctl --user stop argus.service
+systemctl --user start argus.service # 接着跑此前正在运行的项目
+```
+
+服务跟随用户会话。注销后仍运行需要系统允许用户驻留（`loginctl enable-linger "$USER"`），
+机器也须保持唤醒。参见 [systemd 用户管理器](https://www.freedesktop.org/software/systemd/man/latest/systemd.html)
+和[服务配置](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html)。
+
+**macOS：launchd 用户代理。** 保存为 `~/Library/LaunchAgents/cn.argus.agent.plist`，
+替换 `/Users/you` 和可执行文件路径（launchd 不展开 `~` 或 `$HOME`）：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>cn.argus.agent</string>
+  <key>ProgramArguments</key><array>
+    <string>/absolute/path/to/node</string>
+    <string>/absolute/path/to/argus</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>ARGUS_HOME</key><string>/Users/you/.argus</string>
+    <key>PATH</key><string>/absolute/path/to/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/you/Library/Logs/argus.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/Library/Logs/argus-error.log</string>
+</dict></plist>
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cn.argus.agent.plist
+launchctl kickstart gui/$(id -u)/cn.argus.agent  # 进程退出后再次启动
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.argus.agent.plist
+```
+
+代理在登录期间运行。参见 Apple 的
+[launchd 指南](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)。
 
 **桌面版**随包带着 Argus，用本机的 Node.js 22+ 运行它，再打开它服务的网页工作台；见
 **[桌面版文档](docs/windows-desktop.md)** 和 [Releases](https://github.com/lbx154/Argus/releases) 页面。
 
 ## 升级与卸载
 
-先停掉 `argus`；正在进行的工作会被中断，之后在网页里重新启动即可。
+先停掉 `argus`；正在进行的工作会中断，下次使用同一状态目录启动时接着跑。
 
 ```bash
 npm i -g @lbx154/argus@latest      # 源码安装：git pull，再重做一遍上面的源码步骤

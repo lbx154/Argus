@@ -8,7 +8,6 @@ subcommand.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 import pytest
@@ -85,9 +84,11 @@ def test_main_wiki_init(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys)
     assert "wiki ready at" in out
 
 
+@pytest.mark.parametrize("web_arguments", [[], ["--web"]])
 def test_web_uses_documented_flags_and_explicit_life_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    web_arguments: list[str],
 ) -> None:
     captured = {}
 
@@ -98,7 +99,7 @@ def test_web_uses_documented_flags_and_explicit_life_dir(
     monkeypatch.setattr("argus.webapi.server.serve", fake_serve)
 
     assert main([
-        "--web",
+        *web_arguments,
         "--no-open",
         "--host",
         "127.0.0.1",
@@ -191,22 +192,22 @@ def test_main_rejects_continuous_without_objective(capsys: pytest.CaptureFixture
     assert "--continuous requires a non-empty --objective" in err
 
 
-def test_main_forwards_real_process_argv_to_ink(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Console-script calls use ``main()``; argv=None must not erase flags."""
-    captured: dict[str, object] = {}
+def test_python_cli_without_an_action_serves_web(monkeypatch, tmp_path) -> None:
+    captured = {}
+    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
+    monkeypatch.setattr("argus.webapi.server.serve", lambda **kwargs: captured.update(kwargs) or 0)
 
-    monkeypatch.setattr(sys, "argv", ["argus", "--resume", "s-session01"])
+    assert main([]) == 0
+    assert captured == {
+        "host": "127.0.0.1", "port": 8799, "global_root": tmp_path, "auth_token": None,
+    }
 
-    def fake_run_tui(argv):
-        captured["argv"] = argv
-        return 0
 
-    monkeypatch.setattr("argus.apps.tui_launcher.main", fake_run_tui)
-
-    assert main() == 0
-    assert captured["argv"] == ["--resume", "s-session01"]
+@pytest.mark.parametrize("option", ["--no-daemon", "--pair-plan", "--exit-policy", "--once"])
+def test_removed_terminal_options_are_rejected(option) -> None:
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args([option])
+    assert exc.value.code == 2
 
 
 def test_public_help_names_the_browser_cockpit() -> None:
@@ -219,11 +220,15 @@ def test_public_help_names_the_browser_cockpit() -> None:
     help_text = build_parser().format_help()
     assert "argus --web" in help_text
     assert "argus --watch" in help_text
+    assert "browser cockpit on http://127.0.0.1:8799 (default)" in help_text
+    assert "Then type" not in help_text
 
 
+@pytest.mark.parametrize("arguments", [[], ["--web"]])
 def test_a_missing_web_dependency_is_reported_not_raised(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    arguments: list[str],
 ) -> None:
     """The guard must fire before anything claims the server is up.
 
@@ -238,7 +243,7 @@ def test_a_missing_web_dependency_is_reported_not_raised(
         _core, "_missing_web_dependency", lambda: "uvicorn"
     )
 
-    assert main(["--web"]) == 2
+    assert main(arguments) == 2
     err = capsys.readouterr().err
     assert "uvicorn is missing" in err
     assert "Traceback" not in err

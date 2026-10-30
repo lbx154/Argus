@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, statfs, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -487,6 +487,37 @@ test('the resources panel reads the CPUs and memory, and the GPUs nvidia-smi lis
   const [, failed] = await accelerators();
   assert.deepEqual([failed!.kind, failed!.status], ['cuda', 'inaccessible']);
   assert.match(failed!.detail!, /NVIDIA-SMI has failed/);
+});
+
+test('disk resources follow the selected workdir, report available bytes, and never stop work for low space or a read failure', async t => {
+  const { store, project, get, call } = await setup(t);
+  const route = `/api/system/resources?sid=${project.id}`;
+  type Disk = { workdir: string; total_bytes: number | null; available_bytes: number | null; low_space: boolean; detail: string };
+  const initial = await get<{ disk: Disk }>(route);
+  const actual = await statfs(project.workdir);
+  assert.equal(initial.disk.workdir, project.workdir);
+  assert.equal(initial.disk.total_bytes, actual.blocks * actual.bsize);
+  assert.ok(Math.abs(initial.disk.available_bytes! - actual.bavail * actual.bsize) < 16 * 1024 ** 2);
+  assert.equal((await get('/api/system/resources')).disk, undefined);
+  assert.equal((await call('/api/system/resources?sid=p-00000000')).status, 404);
+
+  const original = fs.promises.statfs;
+  t.after(() => { fs.promises.statfs = original; syncBuiltinESMExports(); });
+  const other = store.create({ workdir: join(store.home, 'other'), request: '', backend: 'codex', model: null });
+  store.save({ ...other, status: 'working' });
+  fs.promises.statfs = (async (path: unknown) => {
+    assert.equal(path, other.workdir);
+    return { blocks: 10 * 1024 ** 2, bavail: 1024 ** 2, bsize: 1024 };
+  }) as typeof fs.promises.statfs;
+  syncBuiltinESMExports();
+  const low = await get<{ disk: Disk }>(`/api/system/resources?sid=${other.id}`);
+  assert.deepEqual(low.disk, { workdir: other.workdir, total_bytes: 10 * 1024 ** 3, available_bytes: 1024 ** 3, low_space: true, detail: '' });
+  assert.equal(store.load(other.id).status, 'working');
+  fs.promises.statfs = (async () => { throw new Error('disk inaccessible'); }) as typeof fs.promises.statfs;
+  syncBuiltinESMExports();
+  const failed = await get<{ disk: Disk }>(route);
+  assert.deepEqual(failed.disk, { workdir: project.workdir, total_bytes: null, available_bytes: null, low_space: false, detail: 'disk inaccessible' });
+  assert.equal(store.load(other.id).status, 'working');
 });
 
 // Captured from the served cockpit: the request was returned three times and its path

@@ -35,7 +35,7 @@ export function RuntimeControlPage({
   const [failure, setFailure] = useState<ReturnType<typeof requestFailureText> | null>(null);
   const hasResources = useCapability(RESOURCES_CAPABILITY);
   const resources = useQuery({
-    queryKey: ['runtime-resources'], queryFn: ({ signal }) => api.resources(signal),
+    queryKey: ['runtime-resources', sid, snap.session.workdir], queryFn: ({ signal }) => api.resources(sid, signal),
     enabled: active && hasResources, retry: false,
   });
   useEffect(() => {

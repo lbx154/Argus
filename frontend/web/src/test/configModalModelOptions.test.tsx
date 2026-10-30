@@ -25,6 +25,7 @@ const baseConfig = (): ConfigSnapshot => ({
 async function mount(config: ConfigSnapshot, snapshot?: unknown) {
   vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:8000' } });
   vi.spyOn(api, 'config').mockResolvedValue(config);
+  vi.spyOn(api, 'credentials').mockResolvedValue({ names: [] });
   client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   client.setQueryData(['config', 'one'], config);
   if (snapshot) client.setQueryData(['snapshot', 'one'], snapshot);

@@ -7,7 +7,7 @@ import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { clockOf } from '../lib/format';
-import { SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
+import { SPEND_ESTIMATE_HINT, spendEstimateLabel, workDurationLabel } from '../lib/projectOverview';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -66,6 +66,11 @@ export function TopBar({
   const statusWords = workStatusLabel(work, locale);
   const activityAt = work.activityAt ?? snap.session.last_active;
   const spendLabel = spendEstimateLabel({ spendUsd: snap.spend_usd ?? null, spendStatus: snap.spend_status }, locale === 'zh-CN');
+  const duration = snap.usage_summary && <span data-work-duration title={locale === 'zh-CN'
+    ? '合并有用量记录的调用区间；重叠只计一次，间歇不计；缺失时长的旧调用未计入。'
+    : 'Union of calls with usage records; overlaps count once, gaps and calls without durations add no time.'}>
+    {workDurationLabel(snap.usage_summary.work_duration_ms, locale === 'zh-CN', snap.usage_summary.calls_without_duration > 0)}
+  </span>;
   const healthTitle = snapshotStale
     ? t('common.stale')
     : streamOk
@@ -88,8 +93,10 @@ export function TopBar({
         <span role="status" className="topbar-work-status text-ink-dim">{statusWords}</span>
         {showStatus && activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{clockOf({ ts: activityAt })}</time></> : null}
         {showStatus && spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
+        {showStatus && duration}
         {showStatus && <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>}
       </div>
+      {!showStatus && duration && <div className="topbar-duration text-xs text-ink-faint">{duration}</div>}
       <div className="topbar-actions flex shrink-0 items-center gap-2 sm:gap-3">
         {onOpenSessions ? (
           <button type="button" onClick={onOpenSessions} aria-label={t('topbar.openSessions')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">

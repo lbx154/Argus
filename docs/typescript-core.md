@@ -108,9 +108,7 @@ or approval, and nothing records which skill a project used. Argus's own are `re
 agent can run or recheck, proven on a real case.
 
 The web cockpit shows the library: its skills, and as its learning feed the files of
-`$ARGUS_HOME/skills/`, newest first, so a skill a role writes appears while the work goes on. A
-plugin is a skill whose folder holds `plugin.json` (`{ name, description, version, url }`):
-whoever installs it starts it, and the cockpit lists it among its plugins and opens its url.
+`$ARGUS_HOME/skills/`, newest first, so a skill a role writes appears while the work goes on.
 
 ## The web cockpit
 
@@ -133,9 +131,8 @@ backend reported, whether it ended, was cut off or failed. When `argus` starts, 
 shutdown cut off, still `working`, go on. The live event stream is server-sent events, in both
 runtimes.
 
-The composer's draft is kept in the project's directory, so a reload or another device picks it
-up; a save names the revision it replaces and is refused over one it never saw. Files attached to
-a message are uploaded as they are picked, small ones at once and a large one in parts, into the
+Files attached to a message are uploaded as they are picked, small ones at once and a large one
+in parts, into the
 workdir's `.argus/attachments/<id>/`, out of the results; the message names their paths and the
 Manager reads them, so nothing in Argus reads what they hold. Deleting a project stops its work
 and moves its directory to `$ARGUS_HOME/trash/<id>-<time>`, its workdir left as it is; while the
@@ -153,8 +150,7 @@ backend clears the role sessions, which belong to the directory and the backend 
 and resetting the conversation clears the Manager's. While work is under way, a change is made in
 the record that work holds, for the calls after it; a new workdir or backend is refused until the
 work stops, since the calls under way work in them. The sidebar's pins, archive
-and follow-up marks are kept in `$ARGUS_HOME/browser-state.json`, and `/api/projects/costs` gives
-each project's spend from the same figures as the project list.
+and follow-up marks are kept in `$ARGUS_HOME/browser-state.json`.
 
 The project list previews the first line of the Manager's last letter addressed to the operator,
 or the project's recorded error when it failed. It shares the snapshot's incremental record
@@ -172,7 +168,7 @@ call nothing, this server least of all; the frame, which cannot send the bearer,
 the preview grants, which no other request takes. The page and those files download as they are in
 a zip, and results chosen together in another, each made as it is sent. A task
 opened from the list is its card on the map with every letter written about it and the error of
-its last call; a role's letters download as Markdown; the search reads each project's request,
+its last call; the search reads each project's request,
 conversation and letters as they are, with no index. The machine's CPUs and memory (from Node)
 and NVIDIA GPUs (from `nvidia-smi`) are read when the page asks, never polled.
 
@@ -183,8 +179,16 @@ unified diff of its lines, what changed since.
 
 The page offers only what the server declares in `/api/meta`. The core declares the required
 capabilities, `project.attachments.v1`, `system.resources.v1`, `project.workdir.v1`,
-`project.config.v1`, `project.cost-feed.v1` and `project.editions.v1`; the settings omit the advisor (`advisor.config.v1`) and the light
-model, which the core's settings do not list. The Python server declares every capability.
+`project.config.v1` and `project.editions.v1`; the settings omit the advisor (`advisor.config.v1`)
+and the light model, which the core's settings do not list. The Python server declares every capability.
+
+Browser notifications are off by default. The operator can enable them in settings for that
+browser; only that action requests permission. The open project's pending question or delivery
+receipt supplies the reminder, through the same state stream as the page. The browser remembers
+which questions and deliveries it notified, so reading the same state again does not repeat one.
+Tabs for the same site share the preference and sending records. Native Web Locks claim each
+reminder without waiting for another tab; browsers without them leave notifications unavailable.
+Notifications require the page to remain open and the browser to support and permit them.
 
 The progress map reads the same files: a card per task, its brief the letter that opened it, and
 on it a step per letter written about it, by whom to whom. A task opened in the reader lists its
@@ -236,9 +240,33 @@ Copilot from the session's event log (`session-state/<id>/events.jsonl`, a
 `session.usage_record` per request, subagents' included), its AI credits as the cost ($0.01
 each); Pi from each assistant message's `usage`, with `cost.total` as the cost.
 
+The call ledger, `usage.jsonl`, records each call's end time (`ts`, epoch seconds),
+role, model, token counts, nullable cost and elapsed `ms`. The shared record reader folds
+complete appended lines and retains one summary until more usage arrives. The sidebar's
+project row and the snapshot's `usage_summary` use that same summary. Its `by_role`,
+`by_model` and `by_date` arrays partition the calls (a missing identity is `null`);
+dates are UTC. Each group carries the same counts, known cost and pricing completeness
+as the total. An unknown price remains unknown; zero is a reported price.
+
+`usage_summary.work_duration_ms` is the union of intervals `[ts * 1000 - ms, ts * 1000]`.
+Parallel calls count once and gaps count zero. Only calls recorded in the usage ledger
+contribute; calls without usage, and older lines without a duration or valid timestamp,
+add no time. `calls_without_duration` counts the latter, so the page can mark the duration
+as a lower bound. Calls still running enter the total when their usage is recorded.
+
+Conversation task rows expand on demand through `/api/projects/{id}/backlog/{task}`.
+The detail's `notes` contains the recorded letters and their addressees, including review
+returns and operator answers. `changed_files` contains the recorded edit paths from the
+latest Engineer turn, reset when the next Engineer call starts; it describes recorded
+edits, not a filesystem diff. The detail's `result_paths` includes files explicitly
+selected in task letters, including results awaiting review; the map's completion
+selection still waits for closure. The page uses these paths for the file viewer and the first result image,
+and displays the original letters without inferring a verdict from their text.
+
 Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system directories
 read-only, the workdir and the task's write directories writable, a private home per workdir
-with the CLI's login file passed through, and only the environment the CLI needs to sign in.
+with the CLI's login file passed through, and the CLI's login environment plus the operator's
+registered environment values.
 Its `~/.cache` is one every project's roles share (`$ARGUS_HOME/cache`, npm's cache in it), so a
 model, package or browser one project downloads the next finds; the machine's own cache, which
 may hold tokens, stays out. Codex runs there without plugins: the private home has none of the
@@ -246,6 +274,14 @@ operator's, and the catalog it would clone is 100MB a workdir.
 Without `bwrap` (macOS, Windows) the CLI's own sandbox mode is used: Codex's
 `workspace-write`, on Windows its sandbox that needs no administrator
 (`windows.sandbox="unelevated"`); Claude Code's `acceptEdits`, edits without commands.
+
+Settings registers environment names and literal string values for all projects in
+`$ARGUS_HOME/credentials.json`, a single JSON object in a file with mode 600. A newly started
+backend process receives these registrations over its inherited environment; the backend's
+existing login exceptions still apply, and other sensitive variables remain filtered. The
+authenticated `/api/settings/credentials` route reads only names, writes one name and value
+with PUT, and deletes a name with DELETE on `/api/settings/credentials/<name>`. Settings clears
+the inputs after saving and whenever it closes; saved values are never sent back to the page.
 
 Starting the CLI: no shell is involved. On Windows npm installs a CLI as a `.cmd` shim, which
 only `cmd.exe` runs; the agent layer runs the file the shim names instead, a script with

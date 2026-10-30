@@ -143,7 +143,7 @@ const MILESTONE_TYPES = new Set<string>([
   EVENT_TYPES.LIFE_LIFECYCLE_BLOCK,
 ]);
 
-/** Shared filter/search semantics so Web and Ink surface the same event subset. */
+/** Shared filter/search semantics for the web event feed. */
 export function eventMatchesView(
   event: EventMsg,
   presentation: EventPresentation,

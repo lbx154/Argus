@@ -1,7 +1,6 @@
 import type { ConversationPage, UploadedAttachment } from '@argus/contracts';
 /**
- * Browser client for the argus webapi — same surface as the terminal client
- * (frontend/tui/src/api.ts) but using the browser fetch, with server-sent events for streams.
+ * Browser client for the argus webapi, using fetch and server-sent events for streams.
  * URLs are relative so Vite proxies /api in dev and the API serves it in prod.
  */
 
@@ -69,24 +68,6 @@ export interface SkillDocument {
   role: string;
 }
 
-export type LearningChannel = 'knowledge' | 'skills' | 'preferences';
-export interface LearningJob {
-  id: string;
-  /** skipped = not attempted: nothing to learn, or model calls were paused by host policy. */
-  status: 'running' | 'completed' | 'unchanged' | 'skipped' | 'failed';
-  created: number;
-  updated: number;
-  attempts: number;
-  outcome: {
-    counts?: Record<LearningChannel, number>;
-    items?: { channel: LearningChannel; title: string; scope: string; path: string }[];
-    /** saved | no_new_learning | not_needed | paused | failed */
-    reason?: string;
-    /** Why calls were paused: cost_unreconciled | budget_exhausted | provider_cooldown | operator_pause. */
-    detail?: string;
-  };
-}
-export interface LearningState { jobs: LearningJob[]; pending: number; revision: number }
 /** One line of the host's knowledge journal: something learned, recalled into a prompt, promoted to a shared level, corrected or retired. */
 export type KnowledgeEventKind = 'learned' | 'recalled' | 'promoted' | 'corrected' | 'retired';
 export interface KnowledgeEvent {
@@ -137,6 +118,11 @@ export interface ConfigSnapshot {
   how_to_change: string[];
   /** Every backend there is, by its name for the page. */
   backends?: Record<string, string>;
+}
+export interface SetupStatus {
+  backends: { backend: string; installed: boolean; version: string | null; detail: string }[];
+  sandbox: { bubblewrap: boolean; platform: string };
+  mobile_origins: string[];
 }
 /** One model the backend offers: whether it is the backend's default, and its price. */
 export interface ModelChoice {
@@ -285,6 +271,14 @@ const token = (): string | null => {
 export function authHeaders(): Record<string, string> {
   const t = token();
   return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+/** Use this browser's existing bearer credential in the phone's first page load. */
+export function mobilePairingUrl(origin: string): string {
+  const url = new URL('/', origin);
+  const credential = token();
+  if (credential) url.searchParams.set('token', credential);
+  return url.href;
 }
 
 const API_META_TIMEOUT_MS = 8_000;
@@ -509,7 +503,7 @@ export function requireDaemonCommand<T>(result: T): T {
 }
 
 async function mutationJson<T>(
-  method: 'PATCH' | 'DELETE',
+  method: 'PATCH' | 'DELETE' | 'PUT',
   path: string,
   body?: unknown,
 ): Promise<T> {
@@ -686,6 +680,11 @@ export interface SearchResult {
 }
 
 export const api = {
+  credentials: () => getJson<{ names: string[] }>('/api/settings/credentials'),
+  saveCredential: (name: string, value: string) =>
+    mutationJson<{ names: string[] }>('PUT', '/api/settings/credentials', { name, value }),
+  deleteCredential: (name: string) =>
+    mutationJson<{ names: string[] }>('DELETE', `/api/settings/credentials/${encodeURIComponent(name)}`),
   organization: () => getJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization'),
   organize: (sid: string, field: keyof ProjectPreference, value: boolean) =>
     postJson<{ value: Record<string, ProjectPreference>; revision: number }>('/api/browser-state/organization', { sid, field, value }),
@@ -808,8 +807,9 @@ export const api = {
   deliveryDiff: (sid: string, change: { path: string; before: string; after: string }, signal?: AbortSignal) =>
     getJson<{ path: string; available: boolean; diff: string; truncated: boolean }>(
       P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
-  resources: (signal?: AbortSignal) =>
-    getJson<ResourceStatus>('/api/system/resources', signal),
+  resources: (sid: string, signal?: AbortSignal) =>
+    getJson<ResourceStatus>(`/api/system/resources?sid=${encodeURIComponent(sid)}`, signal),
+  setup: (signal?: AbortSignal) => getJson<SetupStatus>('/api/system/setup', signal),
   trash: (query = '', offset = 0, signal?: AbortSignal) =>
     getJson<{ entries: { trash_id: string; sid: string; label: string; launch_cwd: string; trashed_at: number }[]; total: number; offset: number; limit: number }>(
       `/api/trash?${new URLSearchParams({ query, offset: String(offset) })}`, signal),
@@ -1019,7 +1019,6 @@ export const api = {
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>
     getJson<KnowledgeFeed>(`/api/knowledge/feed?${new URLSearchParams({ limit: String(limit) })}`, signal),
-  learningStatus: (sid: string, signal?: AbortSignal) => getJson<LearningState>(P(sid, '/learning'), signal),
   setWorkdir: (sid: string, workdir: string) =>
     postJson<{ ok: boolean; workdir: string; unchanged?: boolean }>(
       P(sid, '/workdir'),

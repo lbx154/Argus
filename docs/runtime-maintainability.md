@@ -32,7 +32,7 @@ Web API 路由只接收 `app` 和 `ServerContext`，直接调用 `daemon_lifecyc
 
 ```mermaid
 flowchart TD
-    UI[Web / TUI / Desktop] --> API[webapi.server.create_app]
+    UI[Web / Desktop] --> API[webapi.server.create_app]
     API --> Intent[manager.front_door: 操作者意图]
     API --> Command[daemon.commands: 生命周期命令]
     Intent --> Backlog[life.memory.Backlog]
@@ -326,7 +326,7 @@ Web/终端回归 **86 项通过**；全仓 `ruff check argus tests` 与 `git dif
 全部数值读取修复完成后，`core` / WebAPI / 关联 CLI、事件查询和架构测试
 **1,659 项通过、2 项跳过**。共享历史读取补测 **73 项通过**；新增缺陷用例在 Python 3.11
 上 **26 项通过**。这些集合有重叠，完整 Python 套件没有在最后修复后再次全部运行。
-Web **594 项通过**、TUI **290 项通过、1 项跳过**，二者类型检查及生成协议校验通过。
+Web **594 项通过**，类型检查及生成协议校验通过。
 Python 3.11 下量化相关 **13 项通过**，补充覆盖主环境缺少的 LightGBM 运行时。
 
 真实入口测试使用隔离目录：10 轮崩溃提交恢复中，每轮两个领取进程与一个新增进程竞争，

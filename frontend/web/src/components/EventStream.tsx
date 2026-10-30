@@ -1,6 +1,8 @@
 import { questionSentence, latestManagerMessage, managerDoing, thoughtHeading } from '../lib/taskLanguage';
 import { useRoleLog } from '../useRoleLog';
 import { TaskDetailModal } from './TaskDetailModal';
+import { TaskLetters } from './TaskLetters';
+import { useBacklogItem } from '../hooks';
 import { splitMessageAttachments } from '../lib/attachments';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import type { UploadedAttachment } from '../api';
@@ -47,7 +49,7 @@ import type { ConversationHistoryStatus, ConversationPagination } from '../useCo
 import { ShowcasePrompts, StartPrompts } from './StartPrompts';
 import { writeLocalStorage } from '../lib/storage';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { ErrorDetails } from './ErrorMessage';
+import { ErrorDetails, ErrorMessage } from './ErrorMessage';
 
 /** The project's workspace roots, so replies show paths relative to them. */
 export const WorkspaceRootsContext = createContext<string[]>([]);
@@ -678,6 +680,8 @@ const TASK_RUNNING_LABEL: Record<string, [string, string]> = {
  */
 function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; onOpenArtifact?: (path: string) => void; onInspect: (id: string) => void }) {
   const { locale } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const sid = useContext(SessionIdContext);
   const state = String(event.state) as TaskCardState;
   const title = String(event.title ?? '');
   const paths = event.result_paths as string[];
@@ -688,12 +692,31 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
     className="task-line mx-auto w-full max-w-full px-4 py-1 sm:px-6 lg:max-w-[808px]">
     <div className="task-line-row flex min-w-0 items-center gap-2.5 text-[13px]">
       <span className="status-dot" data-tone={TASK_TONE[state]} aria-hidden="true" />
-      <button type="button" className="min-w-0 flex-1 break-words text-left text-ink-dim hover:text-ink" onClick={() => onInspect(String(event.item_id))}>{label}{locale === 'zh-CN' ? '：' : ': '}{title}</button>
+      <button type="button" aria-expanded={expanded} aria-controls={`task-record-${event.item_id}`}
+        title={locale === 'zh-CN' ? '展开或收起往来信件' : 'Expand or collapse letters'}
+        className="task-expand min-w-0 flex-1 break-words text-left text-ink-dim hover:text-ink" onClick={() => setExpanded(current => !current)}>
+        {label}{locale === 'zh-CN' ? '：' : ': '}{title}
+      </button>
     </div>
     {state !== 'done' && progress && <p data-task-progress className="mt-1 break-words pl-4 text-xs leading-relaxed text-ink-dim">{progress}</p>}
-    {paths?.length ? <div className="mt-1 flex flex-wrap gap-2 pl-4">{paths.map(path => <button key={path} type="button"
+    {!expanded && paths?.length ? <div className="mt-1 flex flex-wrap gap-2 pl-4">{paths.map(path => <button key={path} type="button"
       className="max-w-full break-all text-left text-xs text-blue hover:underline" onClick={() => onOpenArtifact?.(path)}>{path}</button>)}</div> : null}
+    {expanded && <div id={`task-record-${event.item_id}`} className="mt-3 min-w-0 border-l border-line pl-4">
+      <InlineTaskRecord sid={sid} id={String(event.item_id)} onOpenArtifact={onOpenArtifact} />
+      <button type="button" className="my-2 text-xs text-ink-faint hover:text-ink" onClick={() => onInspect(String(event.item_id))}>
+        {locale === 'zh-CN' ? '查看任务详情' : 'View task details'}
+      </button>
+    </div>}
   </section>;
+}
+
+/** Mounted only when expanded: the existing detail query owns the record. */
+function InlineTaskRecord({ sid, id, onOpenArtifact }: { sid: string | null; id: string; onOpenArtifact?: (path: string) => void }) {
+  const { locale } = useI18n();
+  const query = useBacklogItem(sid, id);
+  return query.isError ? <ErrorMessage error={query.error} /> : query.data
+    ? <TaskLetters item={query.data} sid={sid} onOpenArtifact={onOpenArtifact} />
+    : <p className="text-xs text-ink-faint">{locale === 'zh-CN' ? '正在读取信件…' : 'Reading letters…'}</p>;
 }
 
 /** Render one row in the order supplied by the server. */
@@ -1014,7 +1037,7 @@ export function EventStream({
         </button>
       )}
     </section>
-    {inspectingTask && <TaskDetailModal sid={snapshot?.session.id ?? sessionId} itemId={inspectingTask} onClose={() => setInspectingTask(null)} />}
+    {inspectingTask && <TaskDetailModal sid={snapshot?.session.id ?? sessionId} itemId={inspectingTask} onClose={() => setInspectingTask(null)} onOpenArtifact={onOpenArtifact} />}
     </TaskTitleContext.Provider>
     </WorkspaceContext.Provider>
     </ConversationActionContext.Provider>

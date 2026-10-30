@@ -95,7 +95,7 @@ and a standard task set of about 10 tasks runs before every merge to `dev`, with
 | --- | --- | --- | --- | --- |
 | L1.1 | Replay tests from real runs: recorded calls become fixtures; the host replays them without models and checks routes and every string the operator sees; Python and TS read the same fixtures | 0.2 | todo; first fixtures come with L2.1 | EV-3, TS-6 |
 | L1.2 | Standard task set: about 10 tasks layered by how long a person would take, across software, research, math and kernels | 0.2 | todo | EV-6 |
-| L1.3 | Run before every merge: replay blocks on every commit, the standard set runs before merging to `dev`; web and TUI tests on every commit | 0.2 | todo; web/TUI type checks already run per commit | EV-2, CI-2, CI-8 |
+| L1.3 | Run before every merge: replay blocks on every commit, the standard set runs before merging to `dev`; web tests on every commit | 0.2 | todo; web type checks already run per commit | EV-2, CI-2, CI-8 |
 | L1.4 | Reports: efficiency report, cost per passed task, weekly report, real work vs overhead, "review too fast" counter-metric | 0.2 | partly: efficiency report done [7a2432b5]; cost per passed task done [b5578571]; weekly report PR open [#295]; overhead split and counter-metric todo | HO-1, CE-1, EV-4, CE-5, SC-9 |
 | L1.5 | Injected-defect set for the Reviewer: wrongly passed and wrongly rejected rates | 0.3 | todo | SC-7 |
 | L1.6 | First public comparison with using an Agent directly, then experiments that need it: small models as Reviewer or Planner; real-model acceptance of the Manager and the team | 0.4 | todo; small-model test on hold until L1.5 and this | EV-1, CE-7, EC-13 |

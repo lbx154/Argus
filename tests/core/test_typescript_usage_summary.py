@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from argus.core.usage import UsageRecord, summarize_usage
-from argus.webapi.cost_inputs import usage_summary_input
+from argus.core.usage import UsageRecord, summarize_usage, usage_call_contributions
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "packages/runtime/fixtures"
 CASES = json.loads((FIXTURES / "usage-summary.json").read_text(encoding="utf-8"))
+MODEL_CASES = json.loads((ROOT / "tests/fixtures/usage-model-receipts.json").read_text(encoding="utf-8"))
 
 
 def records(rows: list[dict]) -> list[UsageRecord]:
@@ -30,7 +30,7 @@ def assert_summary(actual: dict, expected: dict) -> None:
             assert actual[key] == value, key
 
 
-@pytest.mark.parametrize("case", CASES, ids=lambda case: case["id"])
+@pytest.mark.parametrize("case", [*CASES, *MODEL_CASES], ids=lambda case: case["id"])
 def test_shared_summary_fixture(case: dict) -> None:
     assert_summary(summarize_usage(records(case["records"])).to_jsonable(), case["expected"])
 
@@ -42,7 +42,8 @@ def test_shared_summary_fixture(case: dict) -> None:
 )
 def test_generated_normalized_ledgers_match_node() -> None:
     rng = random.Random(20260923)
-    streams = [case["records"] for case in CASES]
+    sources = [case["records"] for case in [*CASES, *MODEL_CASES]]
+    streams = [list(usage_call_contributions(records(rows))) for rows in sources]
     for _ in range(180):
         rows = []
         for _ in range(rng.randrange(1, 15)):
@@ -64,12 +65,16 @@ def test_generated_normalized_ledgers_match_node() -> None:
                 } for _ in range(rng.randrange(4))],
             )
             rows.append(row)
-            streams.append([usage_summary_input(r) for r in records(rows)])
+            sources.append(list(rows))
+            streams.append(list(usage_call_contributions(records(rows))))
     response = subprocess.run(
         [shutil.which("node"), str(FIXTURES / "usage-summary-evaluate.mjs")],
         input=json.dumps(streams), text=True, encoding="utf-8", capture_output=True, check=True, timeout=30,
     )
     results = json.loads(response.stdout)
     assert len(results) == len(streams)
-    for rows, result in zip(streams, results, strict=True):
+    for index, case in enumerate([*CASES, *MODEL_CASES]):
+        assert_summary(results[index], case["expected"])
+        assert all("model_usage" not in contribution for contribution in streams[index])
+    for rows, result in zip(sources, results, strict=True):
         assert_summary(result, summarize_usage(records(rows)).to_jsonable())

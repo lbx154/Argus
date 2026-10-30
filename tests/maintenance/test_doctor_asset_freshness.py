@@ -34,14 +34,11 @@ def _checkout(tmp_path: Path) -> Path:
     (repo / "argus").mkdir(parents=True)
     (repo / "pyproject.toml").write_text("[project]\nname='argus'\n", encoding="utf-8")
     (repo / "argus" / "release_manifest.json").write_text("{}", encoding="utf-8")
-    for rel in ("frontend/web/src", "frontend/web/dist", "frontend/core/src",
-                "frontend/tui/src", "frontend/tui/bundle"):
+    for rel in ("frontend/web/src", "frontend/web/dist", "frontend/core/src"):
         (repo / rel).mkdir(parents=True)
     (repo / "frontend/web/dist/index.html").write_text("<html></html>", encoding="utf-8")
-    (repo / "frontend/tui/bundle/argus.mjs").write_text("// bundle\n", encoding="utf-8")
     (repo / "frontend/web/src/app.tsx").write_text("export const a = 1;\n", encoding="utf-8")
     (repo / "frontend/core/src/shared.ts").write_text("export const c = 1;\n", encoding="utf-8")
-    (repo / "frontend/tui/src/cli.tsx").write_text("export const t = 1;\n", encoding="utf-8")
     _git(repo, "init", "-q", when=BASE)
     _git(repo, "add", ".", when=BASE)
     _git(repo, "commit", "-q", "-m", "bundles and source together", when=BASE)
@@ -60,13 +57,13 @@ def _freshness(findings) -> object:
     return matches[0]
 
 
-def test_shared_core_source_counts_for_both_bundles(tmp_path: Path) -> None:
+def test_shared_core_source_counts_for_web_bundle(tmp_path: Path) -> None:
     repo = _checkout(tmp_path)
     (repo / "frontend/core/src/shared.ts").write_text("export const c = 2;\n", encoding="utf-8")
     _git(repo, "commit", "-q", "-am", "change shared frontend code", when=BASE + 3_600)
     finding = _freshness(_checkout_finding(_context(tmp_path, repo)))
     assert finding.status == "assets_stale"
-    assert "Web and TUI bundle" in finding.detail
+    assert "Web bundle" in finding.detail
 
 
 def test_a_tree_without_history_gets_no_verdict(tmp_path: Path) -> None:
@@ -76,8 +73,6 @@ def test_a_tree_without_history_gets_no_verdict(tmp_path: Path) -> None:
     (repo / "argus" / "release_manifest.json").write_text("{}", encoding="utf-8")
     (repo / "frontend/web/dist").mkdir(parents=True)
     (repo / "frontend/web/dist/index.html").write_text("<html></html>", encoding="utf-8")
-    (repo / "frontend/tui/bundle").mkdir(parents=True)
-    (repo / "frontend/tui/bundle/argus.mjs").write_text("// bundle\n", encoding="utf-8")
     codes = [item.code for item in _checkout_finding(_context(tmp_path, repo))]
     assert "ARGUS-ASSET-001" in codes
     assert "ARGUS-ASSET-002" not in codes

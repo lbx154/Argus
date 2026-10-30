@@ -1,6 +1,6 @@
 """Test-suite isolation guard.
 
-Some tests drive real entry points (``apps.cli.main``, the TUI/web launch path).
+Some tests drive real entry points (``apps.cli.main``, the web launch path).
 Those resolve their state root from ``ARGUS_SKILL_HOME`` at call time, so a test
 that does not set it writes into the DEVELOPER'S REAL ``~/.argus-skill``.
 

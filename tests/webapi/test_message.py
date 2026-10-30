@@ -859,7 +859,7 @@ def test_create_daemon_mints_session_and_spawns(tmp_path: Path, monkeypatch) -> 
 
 def test_fresh_idle_daemon_survives_concurrent_startup_gc(tmp_path: Path) -> None:
     """Regression: another user's daemon/REPL startup may run project GC in the
-    gap between POST /api/daemons and this TUI's first snapshot. A freshly
+    gap between POST /api/daemons and the web client's first snapshot. A freshly
     created empty session must survive that sweep."""
     from argus.core.project_gc import gc_stale_projects
 

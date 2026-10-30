@@ -77,9 +77,8 @@ export function cacheProjectState(queryClient: QueryClient, state: ProjectState)
     queryClient.setQueryData<ProjectIndex>(['projects'], (index) => index && {
       ...index, projects: [...index.projects.filter((project) => project.id !== id), ...row ? [row] : []],
     });
+    void queryClient.invalidateQueries({ queryKey: ['backlog-item', id] });
   }
-  // The roles learn in their turns, and a turn's end is a change.
-  if (state.type !== 'snapshot') void queryClient.invalidateQueries({ queryKey: ['learning-status'] });
 }
 
 /** A project's snapshot, however it arrives: read, read again, or pushed. A reply read before a

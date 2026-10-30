@@ -5,7 +5,7 @@ import { closeSync, fstatSync, openSync, readSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import {
   newestPerRole, SNAPSHOT_SCHEMA_VERSION, type BacklogItem, type BacklogSummary, type Daemon, type DeliveryReceipt, type EventMsg, type OperatorDecisionCard, type ProjectRow,
-  type Snapshot, type UsageSummary, type ConversationPage, type ProjectWorkStatus,
+  type Snapshot, type ProjectUsageSummary, type UsageSummaryRecord, type ConversationPage, type ProjectWorkStatus,
 } from '@argus/contracts';
 import { summarizeUsage } from '@argus/runtime';
 import { firstLine, openTasks } from '../flow.js';
@@ -159,16 +159,44 @@ export function follow(store: Store, id: string): () => EventMsg[] {
   };
 }
 
-function usage(rows: Record<string, unknown>[]): UsageSummary {
-  return summarizeUsage(rows.map(row => {
+function usage(rows: Record<string, unknown>[]): ProjectUsageSummary {
+  const grouped = { by_role: new Map<string | null, UsageSummaryRecord[]>(), by_model: new Map<string | null, UsageSummaryRecord[]>(), by_date: new Map<string | null, UsageSummaryRecord[]>() };
+  const intervals: Array<[number, number]> = [];
+  let missing = 0;
+  const records = rows.map(row => {
     const tokens = (row.tokens ?? {}) as Record<string, number | undefined>;
     const cost = typeof row.cost_usd === 'number' ? row.cost_usd : null;
-    return {
+    const record: UsageSummaryRecord = {
       input_tokens: tokens.input_tokens ?? null, cached_input_tokens: tokens.cached_input_tokens ?? null, cache_write_tokens: null,
       output_tokens: tokens.output_tokens ?? null, reasoning_output_tokens: tokens.reasoning_output_tokens ?? null, total_nano_aiu: null,
-      cost_usd: cost, pricing_status: cost === null ? 'unpriced' : 'priced', premium_requests: null, premium_request_cost_usd: null, model_usage: [],
+      cost_usd: cost, pricing_status: cost === null ? 'unpriced' : 'priced', premium_requests: null, premium_request_cost_usd: null,
     };
-  }));
+    const date = typeof row.ts === 'number' && Number.isFinite(row.ts) ? new Date(row.ts * 1000) : new Date(NaN);
+    const dated = Number.isFinite(date.getTime());
+    const keys = { by_role: typeof row.role === 'string' && row.role ? row.role : null,
+      by_model: typeof row.model === 'string' && row.model ? row.model : null, by_date: dated ? date.toISOString().slice(0, 10) : null };
+    for (const dimension of Object.keys(grouped) as Array<keyof typeof grouped>) {
+      const group = grouped[dimension].get(keys[dimension]) ?? [];
+      group.push(record);
+      grouped[dimension].set(keys[dimension], group);
+    }
+    if (dated && typeof row.ms === 'number' && Number.isFinite(row.ms) && row.ms >= 0) {
+      const stop = date.getTime();
+      intervals.push([stop - row.ms, stop]);
+    } else missing++;
+    return record;
+  });
+  intervals.sort((a, b) => a[0] - b[0]);
+  let duration = 0, end = -Infinity;
+  for (const [start, stop] of intervals) {
+    duration += Math.max(0, stop - Math.max(start, end));
+    end = Math.max(end, stop);
+  }
+  const groups = (dimension: keyof typeof grouped) => [...grouped[dimension]]
+    .sort(([a], [b]) => (a ?? '').localeCompare(b ?? ''))
+    .map(([key, values]) => ({ key, ...summarizeUsage(values) }));
+  return { ...summarizeUsage(records), by_role: groups('by_role'), by_model: groups('by_model'), by_date: groups('by_date'),
+    work_duration_ms: duration, calls_without_duration: missing };
 }
 
 /** The operator's messages a Manager turn is still to answer: each waits for the Manager till its
@@ -234,7 +262,7 @@ const lastActive = (store: Store, id: string): number => statSync(join(store.dir
 export interface Reading {
   end: number;
   /** Complete usage lines and the byte where their next read starts. */
-  usage: { end: number; rows: Record<string, unknown>[] };
+  usage: { end: number; rows: Record<string, unknown>[]; summary: ProjectUsageSummary };
   fold: Fold;
   rows: Map<string, EventMsg>;
   roleEvents: EventMsg[];
@@ -245,6 +273,8 @@ export interface Reading {
   stateLine: number;
   calls: Set<string>;
   tasks: Map<string, { title: string; line: number }>;
+  /** Edit steps of each task's latest Engineer turn. */
+  edits: Map<string, string[]>;
   questions: Map<string, EventMsg>;
   /** The results the Manager handed over, by delivery (`d` and its line), each with its files as delivered. */
   delivered: Map<string, Extract<Recorded, { type: 'handoff' }>>;
@@ -253,8 +283,8 @@ export interface Reading {
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
-  end: 0, usage: { end: 0, rows: [] }, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
-  roleEvents: [], round: 0, activityAt: null, lastReply: '', stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
+  end: 0, usage: { end: 0, rows: [], summary: usage([]) }, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
+  roleEvents: [], round: 0, activityAt: null, lastReply: '', stateLine: 0, calls: new Set(), tasks: new Map(), edits: new Map(), questions: new Map(), delivered: new Map(),
   trace: { ended: new Map(), tasks: new Map() },
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
     answered: null, briefed: null, reported: null, worked: new Set(), follows: new Map() },
@@ -265,6 +295,12 @@ export function projectRecord(events: Recorded[], reading: Reading = {
     const converted = webEvents([event], reading.fold);
     foldMap(reading.map, event, line);
     foldTrace(reading.trace, event);
+    if (event.type === 'call.start' && event.role === 'engineer' && event.task) reading.edits.set(event.task, []);
+    if (event.type === 'step' && event.kind === 'edit' && event.role === 'engineer' && event.task) {
+      const paths = reading.edits.get(event.task) ?? [];
+      if (!paths.includes(event.text)) paths.push(event.text);
+      reading.edits.set(event.task, paths);
+    }
     if (event.type !== 'step') reading.stateLine = line;
     const put = (row: EventMsg, id: string, order = line) => reading.rows.set(id, { ...row, row_id: id, order });
     if (event.type === 'message') {
@@ -329,6 +365,7 @@ export function readRecord(store: Store, id: string): Reading {
   reading.end = end;
   const spent = jsonLines(join(store.dir(id), 'usage.jsonl'), reading.usage.end);
   reading.usage.rows.push(...spent.rows);
+  if (spent.rows.length) reading.usage.summary = usage(reading.usage.rows);
   reading.usage.end = spent.end;
   readings.set(path, reading);
   return reading;
@@ -403,7 +440,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   // What was spent counts every call; what the project runs on, only its own.
   const reading = readRecord(store, id);
   const spent = reading.usage.rows;
-  const summary = usage(spent);
+  const summary = reading.usage.summary;
   const { calls: made } = reading;
   const calls = spent.filter(call => made.has(String(call.callId)));
   // The model each role's last call ran on: with none chosen, the backend's own default.
@@ -439,7 +476,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
 export function projectRow(store: Store, project: Project, live: Live): ProjectRow {
   const { since } = live;
   const reading = readRecord(store, project.id);
-  const summary = usage(reading.usage.rows);
+  const summary = reading.usage.summary;
   return {
     // A label other than the id is the name the operator gave it.
     id: project.id, label: project.name || project.id, display_name: named(project),
@@ -531,7 +568,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
     if (event.to === 'manager') reading.reported = event.task ? follows.get(event.task) ?? null : event.role === 'planner' ? reading.briefed : null;
     if (event.task) {
       if (event.role === 'engineer' || event.role === 'reviewer') {
-        if (event.to === 'manager' || event.to === 'planner') opened.set(event.task, event.open ?? []);
+        if (event.to === 'manager' || event.to === 'planner' || event.open !== undefined) opened.set(event.task, event.open ?? []);
         if (event.to !== 'operator') action(event.task, event.role, event.letter);
       }
       letter({ id: `e${line}`, item_id: event.task, type: 'handoff', ts, role: event.role, to: event.to, text: event.letter });

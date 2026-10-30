@@ -169,14 +169,13 @@ def run_bootstrap_doctor(root=None):
     if checkout is not None:
         assets = {
             "Web": checkout / "frontend" / "web" / "dist" / "index.html",
-            "TUI": checkout / "frontend" / "tui" / "bundle" / "argus.mjs",
         }
         missing = [label for label, path in assets.items() if not path.is_file()]
         findings.append(_finding(
             "ARGUS-WEB-001",
             "frontend assets",
             not missing,
-            "Web and TUI assets present" if not missing else f"missing: {', '.join(missing)}",
+            "Web assets present" if not missing else f"missing: {', '.join(missing)}",
             "restore a complete release checkout or rebuild the declared frontend assets",
         ))
         desktop = checkout / "desktop-tauri"

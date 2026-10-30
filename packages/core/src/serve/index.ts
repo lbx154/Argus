@@ -14,6 +14,7 @@ import {
 } from '@argus/contracts';
 import corePackage from '../../package.json' with { type: 'json' };
 import { rewritePrompt } from '../prompts.js';
+import { credentials, saveCredentials } from '../credentials.js';
 import { PROJECT_ID, asker, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachedFile, attachments } from './attachments.js';
@@ -23,6 +24,7 @@ import { preview } from './preview.js';
 import { CAPABILITIES, directory, projectRoutes } from './projects.js';
 import { records } from './records.js';
 import { resources } from './resources.js';
+import { setupStatus, mobileOrigins } from './setup.js';
 import { Runs, type Frame } from './runs.js';
 import { trash } from './trash.js';
 import { versions } from './versions.js';
@@ -194,15 +196,41 @@ export async function serve(options: ServeOptions): Promise<Served> {
 
   const routes: [string, RegExp, Handler][] = [
     ...trash(store, runs, project), ...attachments(project), ...versions(store, project),
+    ['GET', /^\/api\/settings\/credentials$/, ({ response }) => {
+      response.setHeader('cache-control', 'no-store');
+      return { names: Object.keys(credentials(store.home)).sort() };
+    }],
+    ['PUT', /^\/api\/settings\/credentials$/, async ({ body }) => {
+      const { name, value } = await body();
+      if (typeof name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)
+        || typeof value !== 'string' || value.includes('\0')) {
+        throw new HttpError(400, 'Enter an environment variable name and a string value without NUL.', 'invalid_credential');
+      }
+      const values = { ...credentials(store.home), [name]: value };
+      saveCredentials(store.home, values);
+      return { names: Object.keys(values).sort() };
+    }],
+    ['DELETE', /^\/api\/settings\/credentials\/([^/]+)$/, ({ params: [name] }) => {
+      const values = credentials(store.home);
+      delete values[name!];
+      saveCredentials(store.home, values);
+      return { names: Object.keys(values).sort() };
+    }],
     ['GET', /^\/api\/application-brand$/, () => BRAND],
     // The brand is Argus's own, so its manifest is the one the page was built with.
     ['GET', /^\/api\/application-brand\/manifest\.webmanifest$/, ({ request, response }) => {
       if (!sendStatic(request, response, options.web, '/manifest.webmanifest')) throw new HttpError(404, 'Not Found');
     }],
     ['GET', /^\/api\/projects$/, list],
+    // Installation and version probes belong to Settings, never to a snapshot.
+    ['GET', /^\/api\/system\/setup$/, async () => ({
+      ...await setupStatus(), mobile_origins: mobileOrigins(host, (server.address() as AddressInfo).port),
+    })],
     ['POST', /^\/api\/daemons$/, async ({ body }) => {
       const workdir = directory(String((await body()).workdir ?? ''));
-      const created = store.create({ workdir, request: '', backend: options.backend, model: options.model });
+      const recent = store.list().at(-1);
+      const { backend, model } = recent ?? options;
+      const created = store.create({ workdir, request: '', backend, model, ...recent?.effort ? { effort: recent.effort } : {} });
       runs.changed(created.id);
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
     }],
@@ -361,7 +389,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, false, found.path));
     }],
-    ...library(store), ...workspace(project), ...preview(project, grant, result), ...records(store, runs, project), ...resources(),
+    ...library(store), ...workspace(project), ...preview(project, grant, result), ...records(store, runs, project), ...resources(project),
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
@@ -428,9 +456,10 @@ function json(response: ServerResponse, status: number, body: unknown): void {
 }
 
 async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  request.setEncoding('utf8');
   let text = '';
   for await (const chunk of request) {
-    text += String(chunk);
+    text += chunk;
     if (text.length > BODY_LIMIT) throw new HttpError(413, 'request body too large', 'tooLarge');
   }
   try {

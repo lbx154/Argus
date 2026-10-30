@@ -1,9 +1,9 @@
-"""Web/TUI backend API: the FastAPI layer the Ink and React frontends consume.
+"""Web backend API: the FastAPI layer the React frontend consumes.
 
 Layer: delivery
 
-Thin FastAPI layer over the file-based daemon pub/sub that the Ink terminal
-frontend and the React web frontend both consume. See :mod:`.server`.
+Thin FastAPI layer over the file-based daemon pub/sub consumed by the React
+web frontend. See :mod:`.server`.
 ``fastapi`` and ``uvicorn`` are hard dependencies (``[project.dependencies]``
 in pyproject.toml); there is no ``[web]`` extra. The package-level
 ``__getattr__`` below still defers importing :mod:`.server` so that importing

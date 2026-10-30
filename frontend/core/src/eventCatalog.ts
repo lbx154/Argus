@@ -1,2 +1,2 @@
-/** Compatibility export; shared by browser, TUI and Node runtime. */
+/** Compatibility export; shared by browser and Node runtime. */
 export * from '../../../packages/contracts/src/eventCatalog.js';

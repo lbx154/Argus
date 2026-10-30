@@ -56,6 +56,7 @@ describe('embedded runtime control page', () => {
     props.active = true;
     await act(async () => tree!.update(element()));
     expect(api.resources).toHaveBeenCalledTimes(1);
+    expect(api.resources).toHaveBeenCalledWith('s-test', expect.any(AbortSignal));
     expect(JSON.stringify(tree!.toJSON())).not.toContain('Restore removed projects');
   });
   it('keeps maintenance disabled when read-only', async () => {
@@ -74,6 +75,18 @@ describe('embedded runtime control page', () => {
     expect(tree!.root.findAllByProps({ role: 'status' }).some(node => node.children.includes('Conversation context reset.'))).toBe(false);
     expect(tree!.root.findAllByType('pre').some(node => node.children.join('').includes('revision conflict'))).toBe(true);
   });
+});
+
+it('reads the selected project disk again after switching projects or changing its workdir', async () => {
+  props.active = true;
+  await mount();
+  props = { ...props, sid: 'another', snapshot: { ...snap, session: { ...snap.session, id: 'another', workdir: '/other-disk' } } };
+  await act(async () => tree!.update(element()));
+  expect(api.resources).toHaveBeenCalledTimes(2);
+  expect(api.resources).toHaveBeenLastCalledWith('another', expect.any(AbortSignal));
+  props = { ...props, snapshot: { ...props.snapshot, session: { ...props.snapshot.session, workdir: '/new-disk' } } };
+  await act(async () => tree!.update(element()));
+  expect(api.resources).toHaveBeenCalledTimes(3);
 });
 
 it('keeps stopped runtime resources current through invalidation without a periodic read', async () => {

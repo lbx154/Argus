@@ -48,6 +48,11 @@ try:  # pragma: no cover - Windows usage mutations use portalocker below
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
+_CONTRIBUTION_FIELDS = (
+    "input_tokens", "cached_input_tokens", "cache_write_tokens", "output_tokens",
+    "reasoning_output_tokens", "total_nano_aiu", "cost_usd",
+)
+
 USAGE_FILE = "usage.jsonl"
 USAGE_LOCK_FILE = "usage.lock"
 USAGE_MIGRATION_FILE = "usage.migration-v1.json"
@@ -1350,14 +1355,13 @@ class UsageLedger:
 
 
 def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
-    rows = list(records)
-    priced = sum(record.pricing_status == "priced" for record in rows)
-    partial = sum(record.pricing_status == "partial" for record in rows)
-    unpriced = sum(record.pricing_status == "unpriced" for record in rows)
-    not_billed = sum(record.pricing_status == "not_billed" for record in rows)
-    contributions = _deduplicated_usage_contributions(rows)
+    rows = list(usage_call_contributions(records))
+    priced = sum(record["pricing_status"] == "priced" for record in rows)
+    partial = sum(record["pricing_status"] == "partial" for record in rows)
+    unpriced = sum(record["pricing_status"] == "unpriced" for record in rows)
+    not_billed = sum(record["pricing_status"] == "not_billed" for record in rows)
     known_costs = [
-        float(item["cost_usd"]) for item in contributions if item.get("cost_usd") is not None
+        float(item["cost_usd"]) for item in rows if item.get("cost_usd") is not None
     ]
     known_cost = sum(known_costs)
     if partial:
@@ -1382,48 +1386,47 @@ def summarize_usage(records: Iterable[UsageRecord]) -> UsageSummary:
         partial_calls=partial,
         unpriced_calls=unpriced,
         not_billed_calls=not_billed,
-        input_tokens=sum(item.get("input_tokens") or 0 for item in contributions),
-        cached_input_tokens=sum(item.get("cached_input_tokens") or 0 for item in contributions),
-        output_tokens=sum(item.get("output_tokens") or 0 for item in contributions),
-        reasoning_output_tokens=sum(
-            item.get("reasoning_output_tokens") or 0 for item in contributions
-        ),
-        premium_requests=sum(record.premium_requests or 0.0 for record in rows),
-        cache_write_tokens=sum(item.get("cache_write_tokens") or 0 for item in contributions),
-        total_nano_aiu=sum(item.get("total_nano_aiu") or 0 for item in contributions),
-        premium_request_cost_usd=sum(record.premium_request_cost_usd or 0.0 for record in rows),
+        input_tokens=sum(item.get("input_tokens") or 0 for item in rows),
+        cached_input_tokens=sum(item.get("cached_input_tokens") or 0 for item in rows),
+        output_tokens=sum(item.get("output_tokens") or 0 for item in rows),
+        reasoning_output_tokens=sum(item.get("reasoning_output_tokens") or 0 for item in rows),
+        premium_requests=sum(record["premium_requests"] or 0.0 for record in rows),
+        cache_write_tokens=sum(item.get("cache_write_tokens") or 0 for item in rows),
+        total_nano_aiu=sum(item.get("total_nano_aiu") or 0 for item in rows),
+        premium_request_cost_usd=sum(record["premium_request_cost_usd"] or 0.0 for record in rows),
     )
 
 
-def _deduplicated_usage_contributions(
-    records: Iterable[UsageRecord],
-) -> list[dict[str, Any]]:
-    contributions: list[dict[str, Any]] = []
+def usage_call_contributions(records: Iterable[UsageRecord]) -> Iterator[dict[str, Any]]:
+    """One flat contribution per call, shared by native summaries and the read bridge.
+
+    Model receipts replace the outer aggregate. Their first observation wins across
+    calls in this reading; calls and their premium-request metadata still count once
+    each. An unknown cost stays None, including calls whose receipts all repeat.
+    """
     seen_copilot_events: set[tuple[str, int]] = set()
     for record in records:
-        if not record.model_usage:
-            contributions.append(
-                {
-                    "input_tokens": record.input_tokens,
-                    "cached_input_tokens": record.cached_input_tokens,
-                    "cache_write_tokens": record.cache_write_tokens,
-                    "output_tokens": record.output_tokens,
-                    "reasoning_output_tokens": record.reasoning_output_tokens,
-                    "total_nano_aiu": record.total_nano_aiu,
-                    "cost_usd": record.cost_usd,
-                }
-            )
-            continue
-        for item in record.model_usage:
-            session_id = _optional_text(item.get("session_id"))
-            usage_event_id = _optional_int(item.get("usage_event_id"))
-            if session_id is not None and usage_event_id is not None:
-                identity = (session_id, usage_event_id)
-                if identity in seen_copilot_events:
-                    continue
-                seen_copilot_events.add(identity)
-            contributions.append(dict(item))
-    return contributions
+        contribution = {field: getattr(record, field) for field in _CONTRIBUTION_FIELDS}
+        if record.model_usage:
+            items = []
+            for item in record.model_usage:
+                session_id = _optional_text(item.get("session_id"))
+                usage_event_id = _optional_int(item.get("usage_event_id"))
+                if session_id is not None and usage_event_id is not None:
+                    identity = (session_id, usage_event_id)
+                    if identity in seen_copilot_events:
+                        continue
+                    seen_copilot_events.add(identity)
+                items.append(item)
+            for field in _CONTRIBUTION_FIELDS:
+                values = [item[field] for item in items if item.get(field) is not None]
+                contribution[field] = sum(values) if values else None
+        yield {
+            **contribution,
+            "pricing_status": record.pricing_status,
+            "premium_requests": record.premium_requests,
+            "premium_request_cost_usd": record.premium_request_cost_usd,
+        }
 
 
 def project_usage_summary(
@@ -2175,6 +2178,7 @@ __all__ = [
     "format_usage_cost",
     "project_usage_summary",
     "summarize_usage",
+    "usage_call_contributions",
 ]
 
 

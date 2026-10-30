@@ -11,8 +11,8 @@ from ...agent_cli.runner_backend import SUPPORTED_BACKENDS
 _PUBLIC_HELP = """usage: argus [mode]
 
 Human cockpit:
-  argus
-  argus --web          browser cockpit on http://127.0.0.1:8799
+  argus               browser cockpit on http://127.0.0.1:8799 (default)
+  argus --web          the same browser cockpit
   argus --watch        live read-only view of the running mission
 
 First-time setup and diagnostics:
@@ -29,18 +29,8 @@ Automation:
   argus --daemon-fg    supervised foreground worker (systemd/debugging)
   argus --daemon       persistent unattended background worker
 
-Then type what you need in natural language.
-
-Examples:
-  "帮我优化这个项目"
-  "继续上次的任务"
-  "现在在干什么？"
-  "暂停一下"
-  "换成 copilot 后端"
-  "把模型换成 claude-sonnet-5"
-
-The cockpit is the human interface. Daemon flags are explicit automation
-surfaces; they do not start an interactive conversation.
+Open the printed address in a browser and tell the Manager what you need.
+Daemon flags are explicit automation surfaces.
 """
 
 
@@ -191,11 +181,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --gc: list what WOULD be pruned without moving anything",
     )
     daemon_grp.add_argument(
-        "--no-daemon",
-        action="store_true",
-        help="skip auto-spawning the background daemon when entering the cockpit",
-    )
-    daemon_grp.add_argument(
         "--life-dir",
         default=None,
         help="override the global argus root (default: ~/.argus-skill)",
@@ -203,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_grp.add_argument(
         "--new",
         action="store_true",
-        help="start a FRESH session (the default for a bare `argus`): a new "
+        help="start a FRESH daemon session: a new "
         "id keys its own daemon + memory, never reusing a previous run",
     )
     daemon_grp.add_argument(
@@ -331,9 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     cockpit_grp.add_argument(
         "--web",
         action="store_true",
-        help="serve the web/TUI backend API — the "
-             "shared API that the React web UI (frontend/web) and the Ink "
-             "terminal UI (frontend/tui) both talk to. Binds 127.0.0.1 by "
+        help="serve the Python web backend API for existing projects. Binds 127.0.0.1 by "
              "default; set ARGUS_SKILL_WEB_TOKEN to require a bearer token.",
     )
     cockpit_grp.add_argument(
@@ -350,11 +333,6 @@ def build_parser() -> argparse.ArgumentParser:
              "requires a bearer token: ARGUS_SKILL_WEB_TOKEN when set, "
              "otherwise one minted for the run and printed as a scannable QR "
              "code. ARGUS_SKILL_WEB_ALLOW_INSECURE=1 opts out.",
-    )
-    cockpit_grp.add_argument(
-        "--pair-plan",
-        action="store_true",
-        help=argparse.SUPPRESS,
     )
     cockpit_grp.add_argument(
         "--web-port",

@@ -1,6 +1,6 @@
 # Application branding
 
-Compatible applications can reuse the shipped Web and TUI without maintaining a
+Compatible applications can reuse the shipped Web without maintaining a
 fork of the runtime. Set `ARGUS_APPLICATION_BRAND` to an absolute path to a
 packaged UTF-8 JSON manifest before invoking the normal Argus entrypoint:
 
@@ -35,11 +35,6 @@ its wordmarks, follows both system and manually selected light/dark themes, and
 updates the browser title, icons and installable manifest. The administrator data
 viewer retains its existing independent identity. Reload/restart the application
 to change branding; these endpoints are not a runtime configuration editor.
-
-The Python launcher supplies the validated public identity to the bundled TUI.
-Custom terminal branding uses accessible text in the splash, header and prompt;
-it does not pretend to render an SVG logo in a text terminal. Direct development
-launches of the TUI without the Python launcher retain Argus defaults.
 
 Unset configuration preserves the original Argus artwork and labels. This
 extension does **not** rename Python packages, change protocol IDs, rewrite user
@@ -95,15 +90,13 @@ than create another account, authorization boundary or daemon. Import and
 registration errors fail startup. Without this setting Argus does not import
 the compatible application.
 
-The shared Web/TUI work-order client selects the `application.workflows.v1`
+The shared Web work-order client selects the `application.workflows.v1`
 capability when the registrar actually provides it. Its endpoints under
 `/api/application-workflows` expose create/open, snapshots, explicit actions and
 project-relative documents; the shared TypeScript contract lives in
 `frontend/core/src/applicationWorkflows.ts`. These clients must call the
 application's real engine, not relabel the native Manager/Planner loop.
-`allow_model=true` is explicit on run, resume and dialogue requests. The default
-TUI selects this capability before creating or upgrading any native daemon.
-`--once --project <work-id>` only reads a registered work order.
+`allow_model=true` is explicit on run, resume and dialogue requests.
 
 The shared workbenches display persisted `host` calls as **Tool execution**
 (`工具执行` in the Chinese Web interface). This distinguishes runtime checks
@@ -113,5 +106,5 @@ source records or the native Argus role model.
 The backend reports `runtime.application_routes` in metadata. Local port
 selection treats a different application as a different owner even at the same
 state root: it cannot claim, stop or replace that API. The Web `?legacy=1`
-selector and TUI `ARGUS_APPLICATION_MODE=legacy` retain explicit access to
-native Argus sessions, without migrating application work orders.
+selector retains explicit access to native Argus sessions, without migrating
+application work orders.

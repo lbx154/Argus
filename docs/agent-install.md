@@ -84,7 +84,7 @@ as `ARGUS_SKILL_COPILOT_HOME` in Argus's `config.json`. On failure the previous
 binding remains; a successful official login is not undone if a later check
 fails. `--copilot-login` cannot be combined with `--non-interactive`.
 
-Restart existing Argus TUI, Web/API and daemon processes after changing the
+Restart existing Argus Web/API and daemon processes after changing the
 binding, so they pick up the new account. Subsequent ordinary `argus` launches
 using the same `ARGUS_SKILL_HOME` use this account for every Copilot worker.
 Other Agent backends are unaffected.
@@ -164,7 +164,7 @@ entry point was tested instead of another copy earlier on PATH. If a later
 window cannot find plain `argus`, report `$Scripts` and ask before changing the
 user PATH; do not create a venv as a workaround.
 
-Windows supports Manager chat, pairing, Web/TUI and terminal-scoped daemon
+Windows supports Manager chat, pairing, Web and terminal-scoped daemon
 control. Each provider turn owns a private Job Object, so a long command a role
 starts stays in that turn and is cleaned up with it (see
 [process ownership](windows-process-ownership.md)). WSL2 is optional, not a

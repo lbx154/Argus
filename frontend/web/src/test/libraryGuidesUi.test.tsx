@@ -8,10 +8,10 @@ vi.mock('../i18n', async importOriginal => {
   const actual = await importOriginal<typeof import('../i18n')>();
   return { ...actual, useI18n: () => ({ locale: state.locale, t: (key: string) => actual.translate(key, {}, state.locale as 'zh-CN' | 'en') }) };
 });
-vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), knowledgeFeed: vi.fn(), learningStatus: vi.fn() } }));
+vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), knowledgeFeed: vi.fn() } }));
 vi.mock('../components/MarkdownContent', () => ({ MarkdownContent: ({ children }: { children: string }) => <pre data-original>{children}</pre> }));
-const builtin: SkillLibraryItem = { scope: 'global', vertical: '', source: 'bundled', library: 'global:bundled',
-  path: 'engineer/presentation-master.md', name: 'Editable Presentations with PPT Master', description: 'Original English description',
+const builtin: SkillLibraryItem = { scope: 'global', vertical: '', source: 'bundled', library: 'bundled',
+  path: 'software/SKILL.md', name: 'software', description: 'Original English description',
   role: 'engineer', updated_at: null, is_default: true };
 const custom = { ...builtin, library: 'project:learned', source: 'project', scope: 'project', is_default: false,
   name: 'Operator original title', description: 'Do not rewrite this description', updated_at: 2 } as SkillLibraryItem;
@@ -25,18 +25,15 @@ beforeEach(() => {
   vi.mocked(api.skillLibrary).mockResolvedValue({ scopes: ['global', 'vertical', 'project'], items: [builtin, custom], verticals: [], active_vertical: '', errors: [] });
   vi.mocked(api.skillDocument).mockImplementation(async (_sid, _library, path) => ({ ...builtin, path, content: '# ORIGINAL\n\nExact original text.\n', markdown: '' }));
   vi.mocked(api.knowledgeFeed).mockResolvedValue({ events: [] });
-  vi.mocked(api.learningStatus).mockResolvedValue({ jobs: [], pending: 0, revision: 0 });
 });
 
 it('reads skills in the unified browser and resets selection on a project switch', async () => {
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
-  act(() => view!.root.findAllByType('button').find(node => content(node).includes('可编辑演示文稿'))!.props.onClick()); await settle();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes('software'))!.props.onClick()); await settle();
   expect(api.skillDocument).toHaveBeenCalledWith('s-A', builtin.library, builtin.path, expect.any(AbortSignal));
-  expect(content(view!.root.findByProps({ 'data-skill-reading-guide': true }))).toContain('任务用得上时会自动参考');
-  expect(content(view!.root.findByProps({ 'data-skill-reading-guide': true }))).toContain('前置条件和软件许可以原文为准。');
-  await act(async () => view!.update(<QueryClientProvider client={client}><LearningLibrary sid="s-B" initialScope="global"
-    initialSelection={builtin} /></QueryClientProvider>)); await settle();
-  expect(view!.root.findAllByProps({ 'data-skill-reading-guide': true })).toHaveLength(0);
+  expect(content(view!.root.findByProps({ 'data-original': true }))).toContain('Exact original text.');
+  await act(async () => view!.update(<QueryClientProvider client={client}><LearningLibrary sid="s-B" initialScope="global" /></QueryClientProvider>)); await settle();
+  expect(view!.root.findAllByProps({ 'data-original': true })).toHaveLength(0);
   expect(api.skillDocument).toHaveBeenCalledTimes(1);
 });
 
@@ -66,12 +63,12 @@ it('separates real learning records from file updates and reports source failure
   expect(content(view!.root)).toContain('学习记录无法加载');
   expect(content(view!.root)).toContain(custom.name);
   expect(content(view!.root)).not.toContain('当前分类或筛选条件下没有资料');
-  expect(content(view!.root)).not.toContain('可编辑演示文稿');
+  expect(content(view!.root)).not.toContain('software');
 });
 
 it.each([
-  { locale: 'zh-CN', labels: ['学习动态', '全局项目'], skillName: '可编辑演示文稿' },
-  { locale: 'en', labels: ['Learning feed', 'Across projects'], skillName: 'Editable Presentations with PPT Master' },
+  { locale: 'zh-CN', labels: ['学习动态', '全局项目'], skillName: 'software' },
+  { locale: 'en', labels: ['Learning feed', 'Across projects'], skillName: 'software' },
 ])('offers the learning feed, by default, and everything the library holds in $locale', async ({ locale, labels, skillName }) => {
   state.locale = locale;
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();

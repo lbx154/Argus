@@ -26,7 +26,6 @@ def test_release_files_cover_runtime_and_frontend_build_inputs() -> None:
 
     assert {
         "argus/core/timeline_example.json",
-        "frontend/tui/scripts/build-bundle.mjs",
         "frontend/web/src/index.css",
         "frontend/web/public/manifest.webmanifest",
         "frontend/web/package-lock.json",
@@ -38,17 +37,8 @@ def test_release_files_cover_runtime_and_frontend_build_inputs() -> None:
         "desktop-tauri/scripts/stage-release.ps1",
         "desktop-tauri/package-lock.json",
         "argus_doctor.py",
-        ".agents/plugins/marketplace.json",
-        ".claude-plugin/marketplace.json",
-        "plugins/argus/.codex-plugin/plugin.json",
-        "plugins/argus/.claude-plugin/plugin.json",
-        "plugins/argus/skills/argus-run/SKILL.md",
-        "plugins/argus/bin/argus-plugin-mcp",
-        "plugins/argus/install.sh",
-        "plugins/argus/install.ps1",
     }.issubset(included)
     assert "frontend/web/dist/index.html" not in included
-    assert "frontend/tui/bundle/argus.mjs" not in included
 
 
 def test_release_manifest_is_internally_consistent() -> None:

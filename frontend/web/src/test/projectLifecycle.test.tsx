@@ -14,7 +14,6 @@ it('deleting a selected project stops snapshot and attachment reads before clear
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData<ProjectIndex>(['projects'], { projects: [row], local_cwd: '/fixture' });
   const snapshot = vi.spyOn(api, 'snapshot').mockResolvedValue({ session: { id: row.id }, daemon: {} } as never);
-  const learning = vi.spyOn(api, 'learningStatus').mockResolvedValue({ jobs: [], pending: 0 } as never);
   const attachments = vi.spyOn(api, 'attachmentLimits').mockResolvedValue({} as never);
   vi.spyOn(api, 'deleteProject').mockResolvedValue({ ok: true, sid: row.id } as never);
   let remove!: () => Promise<unknown>;
@@ -23,7 +22,6 @@ it('deleting a selected project stops snapshot and attachment reads before clear
     const sid = projects.data?.projects.some(project => project.id === row.id) ? row.id : null;
     useSnapshot(sid);
     useQuery({ queryKey: ['attachment-limits', sid], queryFn: ({ signal }) => api.attachmentLimits(sid!, signal), enabled: !!sid });
-    useQuery({ queryKey: ['learning-status', sid], queryFn: ({ signal }) => api.learningStatus(sid!, signal), enabled: !!sid });
     remove = useProjectActions(row.id).deleteProject.mutateAsync;
     return null;
   }
@@ -31,12 +29,11 @@ it('deleting a selected project stops snapshot and attachment reads before clear
   await act(() => new Promise(resolve => setTimeout(resolve, 10)));
   expect(snapshot).toHaveBeenCalledOnce();
   expect(attachments).toHaveBeenCalledOnce();
-  snapshot.mockClear(); attachments.mockClear(); learning.mockClear();
+  snapshot.mockClear(); attachments.mockClear();
   await act(async () => { await remove(); });
   await act(() => new Promise(resolve => setTimeout(resolve, 10)));
   expect(snapshot).not.toHaveBeenCalled();
   expect(attachments).not.toHaveBeenCalled();
-  expect(learning).not.toHaveBeenCalled();
 });
 
 it('reads organization once as the initial project list arrives, then preserves focus refresh and edits', async () => {

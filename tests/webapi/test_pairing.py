@@ -93,27 +93,6 @@ def test_qr_rendering_degrades_without_the_extra(monkeypatch) -> None:
     assert _plan().url.startswith("http://192.168.1.50:8799/")
 
 
-# -- cockpit bridge ---------------------------------------------------------
-
-def test_pair_plan_bridge_emits_what_the_cockpit_needs(capsys) -> None:
-    """The Ink cockpit spawns the backend with stdio discarded, so it reads the
-    plan from here instead of the child's banner."""
-    import json
-
-    from argus.apps.cli._core import main
-
-    assert main(["--pair-plan", "--web-host", "0.0.0.0", "--web-port", "8801"]) == 0
-
-    payload = json.loads(capsys.readouterr().out)
-    assert set(payload) == {"token", "url", "banner", "pairing"}
-    assert payload["pairing"] is True
-    # The cockpit passes this token to the child it spawns; without it the
-    # backend would 401 its own UI.
-    assert payload["token"]
-    assert f"token={payload['token']}" in payload["url"]
-    assert ":8801/" in payload["url"]
-
-
 # -- terminal encoding (Windows) --------------------------------------------
 
 

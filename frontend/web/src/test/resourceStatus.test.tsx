@@ -4,6 +4,25 @@ import type { ResourceStatus } from '../../../core/src/resourceStatus.generated'
 import { ResourceStatusView } from '../components/ResourceStatus';
 
 describe('ResourceStatusView', () => {
+  it('shows free space for the actual workdir and a warning that leaves work running', () => {
+    const markup = renderToStaticMarkup(<ResourceStatusView status={{
+      schema_version: 1, enforcement: 'advisory', accelerators: [],
+      disk: { workdir: '/mounted/project', total_bytes: 10 * 2 ** 30, available_bytes: 2 ** 30, low_space: true, detail: '' },
+    }} error="" />);
+    expect(markup).toContain('/mounted/project');
+    expect(markup).toContain('Free 1.0 GiB / 10.0 GiB');
+    expect(markup).toContain('Less than 5 GiB free');
+    expect(markup).toContain('Work continues.');
+  });
+  it('reports an unavailable disk as unknown space', () => {
+    const markup = renderToStaticMarkup(<ResourceStatusView status={{
+      schema_version: 1, enforcement: 'advisory', accelerators: [],
+      disk: { workdir: '/missing', total_bytes: null, available_bytes: null, low_space: false, detail: 'not found' },
+    }} error="" />);
+    expect(markup).toContain('Disk space unavailable');
+    expect(markup).toContain('not found');
+    expect(markup).not.toContain('0.0 GiB');
+  });
   it('renders degraded probe details', () => {
     const status: ResourceStatus = {
       schema_version: 1,

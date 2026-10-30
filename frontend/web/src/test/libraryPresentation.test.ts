@@ -1,56 +1,19 @@
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { describe, expect, it } from 'vitest';
+import { expect, it } from 'vitest';
 import type { SkillLibraryItem } from '../api';
-import guides from '../lib/bundledSkillChinese.json';
-import { bundledSkillGuide, libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
+import { libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
 
-const root = resolve(import.meta.dirname, '../../../..');
-function row(key: string): SkillLibraryItem {
-  const [scope, ...parts] = key.split('/');
-  const vertical = scope === 'vertical' ? parts.shift()! : '';
-  const guide = guides[key as keyof typeof guides];
-  return { scope: scope as 'global' | 'vertical', vertical, path: parts.join('/'),
-    library: scope === 'global' ? 'global:bundled' : `${vertical === 'chemistry' ? 'domain' : 'vertical'}:${vertical}:bundled`,
-    name: guide.originalName, description: 'Original metadata', source: 'bundled', is_default: true, updated_at: null, role: 'engineer' };
-}
-describe('source-bound Chinese display guides (not runtime instructions)', () => {
-  it('covers every shipped catalog Markdown source, including domain/reference pages', () => {
-    const sources = execFileSync('git', ['ls-files', '--', 'argus/builtin_skills', 'argus/domains', 'argus/verticals'], { cwd: root, encoding: 'utf8' })
-      .trim().split('\n').filter(path => path.endsWith('.md') && (path.startsWith('argus/builtin_skills/') || path.includes('/skills/')));
-    expect(Object.values(guides).map(guide => guide.source).sort()).toEqual(sources.sort());
-  });
-  it.each(Object.entries(guides))('keeps %s bound to its unmodified source and supplies a Chinese purpose', (key, guide) => {
-    expect(guide.source).toMatch(/^argus\/(builtin_skills|domains|verticals)\//);
-    expect(guide.source).not.toMatch(/\.\.\//);
-    expect(statSync(resolve(root, guide.source)).size).toBe(guide.sourceBytes);
-    expect(guide.title).toMatch(/[\u3400-\u9fff]/);
-    expect(guide.summary).toMatch(/[\u3400-\u9fff]/);
-    const item = row(key);
-    expect(bundledSkillGuide(item)).toEqual(guide);
-    expect(skillPresentation(item, 'zh-CN').title).toBe(guide.title);
-    expect(skillPresentation(item, 'en').title).toBe(item.name);
-    expect(skillSearchText(item, 'zh-CN')).toContain(guide.title.toLowerCase());
-  });
-  it('never relabels edited/learned/custom/third-party content because a filename matches', () => {
-    const item = row('global/engineer/presentation-master.md');
-    for (const changed of [{ is_default: false }, { source: 'native' as const }, { library: 'project:native' },
-      { name: 'My own reading instructions' }, { scope: 'project' as const }]) {
-      const custom = { ...item, ...changed };
-      expect(bundledSkillGuide(custom)).toBeNull();
-      expect(skillPresentation(custom, 'zh-CN').title).toBe(custom.name);
-    }
-    expect(bundledSkillGuide({ ...item, source: 'shared', library: 'global:shared' })?.title).toBe('可编辑演示文稿');
-  });
-  it('does not turn unknown domain identifiers into invented facts', () => {
-    expect(libraryVertical('research', 'zh-CN')).toBe('科研');
-    expect(libraryVertical('new-domain', 'zh-CN')).toBe('new-domain');
-  });
-  it('shows only the skill name in Chinese when no Chinese description is available', () => {
-    const item = { ...row('global/engineer/presentation-master.md'), is_default: false, description: 'Original English description' };
-    expect(skillPresentation(item, 'zh-CN')).toMatchObject({ title: item.name, summary: '' });
-    expect(skillPresentation(item, 'en').summary).toBe(item.description);
-    expect(skillPresentation({ ...item, description: '已有中文描述' }, 'zh-CN').summary).toBe('已有中文描述');
-  });
+const skill = { name: 'software', description: 'A change that builds', path: 'software/SKILL.md',
+  scope: 'global', library: 'bundled', source: 'bundled', is_default: true, vertical: '' } as SkillLibraryItem;
+
+it('shows actual skill metadata and searches the original description in either language', () => {
+  expect(skillPresentation(skill, 'zh-CN')).toEqual({ title: 'software', summary: '' });
+  expect(skillPresentation(skill, 'en')).toEqual({ title: 'software', summary: skill.description });
+  expect(skillSearchText(skill, 'zh-CN')).toContain(skill.description.toLowerCase());
+  const learned = { ...skill, name: '团队方法', description: '真实的中文描述', is_default: false, source: 'shared' } as SkillLibraryItem;
+  expect(skillPresentation(learned, 'zh-CN')).toEqual({ title: learned.name, summary: learned.description });
+});
+
+it('keeps unknown domain identifiers as recorded', () => {
+  expect(libraryVertical('research', 'zh-CN')).toBe('科研');
+  expect(libraryVertical('new-domain', 'zh-CN')).toBe('new-domain');
 });

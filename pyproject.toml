@@ -110,11 +110,10 @@ dev = [
 ]
 
 [project.scripts]
-argus = "argus.apps.tui_launcher:main"
+argus = "argus.__main__:main"
 argus-doctor = "argus_doctor:main"
 # Pre-rename command name, kept for one release; prints a deprecation line.
 argus-skill = "argus.__main__:main"
-argus-plugin-server = "argus.plugin.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/lbx154/Argus"
@@ -128,7 +127,6 @@ packages = ["argus", "argus_skill"]
 [tool.hatch.build.targets.wheel.force-include]
 "packages/contracts/schemas" = "argus/_contracts"
 "argus_doctor.py" = "argus_doctor.py"
-"frontend/tui/bundle/argus.mjs" = "argus/_frontend/tui/bundle/argus.mjs"
 "frontend/web/dist" = "argus/_frontend/web/dist"
 
 [tool.hatch.build.targets.sdist]
@@ -146,7 +144,6 @@ include = [
   "packages/contracts/**",
   "packages/runtime/fixtures/**",
   "tests/**",
-  "frontend/tui/bundle/**",
   "README.md",
 ]
 

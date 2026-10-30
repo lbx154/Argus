@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "argus": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/argus-plugin-mcp.mjs"]
-    }
-  }
-}

@@ -49,7 +49,7 @@ def _event_role(event: dict[str, Any]) -> str | None:
     if etype.startswith("agent.io."):
         label = str(event.get("run_label") or "").lower()
         if "compaction_batch" in label or "compaction-batch" in label:
-            # Post-mission library housekeeping is not Engineer work. The TUI
+            # Post-mission library housekeeping is not Engineer work. The web cockpit
             # presents it separately as Maintenance activity.
             return None
         if label.startswith(_BACKGROUND_RUN_LABELS):

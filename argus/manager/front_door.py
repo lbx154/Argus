@@ -1,4 +1,4 @@
-"""Manager front-door routing shared by the Ink TUI and Web API."""
+"""Manager front-door routing shared by the Web API."""
 
 from __future__ import annotations
 
@@ -836,7 +836,7 @@ def _manager_divide_user_task(
     already the Planner's decomposition and must not be routed back through
     Manager again.
 
-    The caller surfaces progress through the Web/TUI event stream while this
+    The caller surfaces progress through the Web event stream while this
     blocking Manager decision runs.
     """
     try:

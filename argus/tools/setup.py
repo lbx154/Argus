@@ -579,7 +579,7 @@ def run_setup(
         )
         if home is not None:
             if result == 0:
-                print("  Restart running Argus TUI, Web/API and daemons to use this account.")
+                print("  Restart running Argus Web/API and daemon processes to use this account.")
             else:
                 _write_stderr(
                     "argus: if login is needed, rerun with --copilot-login and the same "

@@ -126,7 +126,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
       mkdirSync(dirname(request.usageFile), { recursive: true });
       appendFileSync(request.usageFile, `${JSON.stringify({
         ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: result.model,
-        tokens: tokens(result.usage), cost_usd: result.usage.cost_usd ?? null,
+        ms: result.ms, tokens: tokens(result.usage), cost_usd: result.usage.cost_usd ?? null,
       })}\n`);
     }
     return result;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
-import { appendFile, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
+import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -9,6 +10,7 @@ import { inspectApiMeta, REQUIRED_API_CAPABILITIES, requireSnapshotContract, typ
 import type { AgentRequest, CallAgent, HandOff, Role } from '../src/types.js';
 import { SKILLS } from '../src/prompts.js';
 import { Store } from '../src/store.js';
+import { agentEnv } from '../src/agent/sandbox.js';
 import { serve } from '../src/serve/index.js';
 import { follow, readEvents, webEvents, type Recorded } from '../src/serve/views.js';
 
@@ -80,7 +82,7 @@ async function setup(t: TestContext, steps: Step[], token?: string) {
   };
   const post = (path: string, body: unknown) =>
     call(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  return { home, store, requests, closed, call, get, post };
+  return { home, store, requests, closed, call, get, post, url: served.url };
 }
 
 /** Every `data:` frame of a server-sent event stream, a record's naming its line as its id;
@@ -114,6 +116,114 @@ async function eventually<T>(read: () => Promise<T>, done: (value: T) => boolean
 }
 
 const brief = 'Summarize the CSV.\nreport.md gives the column totals.';
+
+test('credentials preserve UTF-8 across real HTTP chunks and large fetch bodies', async t => {
+  const { home, url, call } = await setup(t, [], 'chunk-token');
+  const previous = process.env.ARGUS_HOME;
+  process.env.ARGUS_HOME = home;
+  t.after(() => {
+    if (previous === undefined) delete process.env.ARGUS_HOME;
+    else process.env.ARGUS_HOME = previous;
+  });
+  const literal = '  before 中 😀\n中文\t after  ';
+  const body = Buffer.from(JSON.stringify({ name: 'HF_TOKEN', value: literal }));
+  // Replay the reported split inside E4 B8 AD, at both possible byte boundaries.
+  for (const offset of [1, 2]) {
+    const split = body.indexOf(Buffer.from('中')) + offset;
+    const response = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const request = httpRequest(`${url}/api/settings/credentials`, {
+        method: 'PUT', headers: { authorization: 'Bearer chunk-token', 'content-type': 'application/json', 'transfer-encoding': 'chunked' },
+      }, response => {
+        let text = '';
+        response.setEncoding('utf8');
+        response.on('data', chunk => { text += chunk; });
+        response.on('error', reject);
+        response.on('end', () => resolve({ status: response.statusCode!, body: text }));
+      });
+      request.on('error', reject);
+      request.write(body.subarray(0, split));
+      // The gap makes these separate HTTP reads instead of coalesced writes.
+      setTimeout(() => request.end(body.subarray(split)), 30);
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(response.body), { names: ['HF_TOKEN'] });
+    assert.equal(JSON.parse(await readFile(join(home, 'credentials.json'), 'utf8')).HF_TOKEN, literal);
+    for (const backend of ['codex', 'claude', 'copilot', 'pi'] as const) assert.equal(agentEnv(backend).HF_TOKEN, literal);
+  }
+  const large = '中'.repeat(65_000);
+  const saved = await call('/api/settings/credentials', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'WANDB_API_KEY', value: large }),
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await saved.json(), { names: ['HF_TOKEN', 'WANDB_API_KEY'] });
+  assert.equal(JSON.parse(await readFile(join(home, 'credentials.json'), 'utf8')).WANDB_API_KEY, large);
+  for (const backend of ['codex', 'claude', 'copilot', 'pi'] as const) assert.equal(agentEnv(backend).WANDB_API_KEY, large);
+});
+
+test('authenticated settings keep literal credentials in one private file and only return names', async t => {
+  const { home, call, get, store } = await setup(t, [], 'settings-token');
+  const path = '/api/settings/credentials';
+  const previous = { ...process.env };
+  Object.assign(process.env, {
+    ARGUS_HOME: home, HF_TOKEN: 'ambient-hf', WANDB_API_KEY: 'ambient-wandb', UNREGISTERED_SECRET: 'filtered',
+    ANTHROPIC_API_KEY: 'claude-login', OPENAI_API_KEY: 'codex-login', COPILOT_GITHUB_TOKEN: 'copilot-login',
+  });
+  t.after(() => { process.env = previous; });
+  for (const method of ['GET', 'PUT', 'DELETE']) {
+    const refused = await call(method === 'DELETE' ? `${path}/HF_TOKEN` : path, { method, headers: { authorization: '' } });
+    assert.equal(refused.status, 401);
+  }
+  assert.deepEqual(await get(path), { names: [] });
+  const literal = '  hf fixture\n"quoted" \\ 中文\t ';
+  const save = async (name: string, value: unknown) => {
+    const response = await call(path, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, value }) });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  assert.deepEqual(await save('HF_TOKEN', literal), { names: ['HF_TOKEN'] });
+  assert.deepEqual(await save('WANDB_API_KEY', '  wandb fixture  '), { names: ['HF_TOKEN', 'WANDB_API_KEY'] });
+  assert.equal((await call(path)).headers.get('cache-control'), 'no-store');
+  const file = join(home, 'credentials.json');
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { HF_TOKEN: literal, WANDB_API_KEY: '  wandb fixture  ' });
+  if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
+  for (const backend of ['codex', 'claude', 'copilot', 'pi'] as const) {
+    const env = agentEnv(backend);
+    assert.equal(env.HF_TOKEN, literal);
+    assert.equal(env.WANDB_API_KEY, '  wandb fixture  ');
+    assert.equal(env.UNREGISTERED_SECRET, undefined);
+  }
+  assert.equal(agentEnv('codex').OPENAI_API_KEY, 'codex-login');
+  assert.equal(agentEnv('claude').ANTHROPIC_API_KEY, 'claude-login');
+  assert.equal(agentEnv('copilot').COPILOT_GITHUB_TOKEN, 'copilot-login');
+  assert.equal(agentEnv('pi').ANTHROPIC_API_KEY, 'claude-login');
+  assert.equal(agentEnv('codex').ANTHROPIC_API_KEY, undefined);
+  assert.equal(agentEnv('claude').OPENAI_API_KEY, undefined);
+  if (process.platform !== 'win32') await chmod(file, 0o644);
+  await save('HF_TOKEN', '');
+  if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
+  assert.equal(agentEnv('codex').HF_TOKEN, '');
+  await save('__proto__', 'literal-property');
+  assert.equal(agentEnv('codex').__proto__, 'literal-property');
+  await call(`${path}/__proto__`, { method: 'DELETE' });
+  for (const body of [{ name: 'BAD-NAME', value: literal }, { name: ' KEY', value: literal }, { name: 'KEY', value: 42 }, { name: 'KEY', value: '\0' }]) {
+    const response = await call(path, { method: 'PUT', body: JSON.stringify(body) });
+    assert.equal(response.status, 400);
+    assert.equal((await response.text()).includes('hf fixture'), false);
+  }
+  assert.deepEqual(await (await call(`${path}/HF_TOKEN`, { method: 'DELETE' })).json(), { names: ['WANDB_API_KEY'] });
+  assert.equal(agentEnv('codex').HF_TOKEN, undefined);
+  await call(`${path}/WANDB_API_KEY`, { method: 'DELETE' });
+  assert.equal(agentEnv('codex').WANDB_API_KEY, undefined);
+  assert.deepEqual(await get(path), { names: [] });
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), {});
+  assert.deepEqual((await readdir(home)).filter(name => name.includes('credentials')), ['credentials.json']);
+  const work = store.create({ request: '', workdir: '', backend: 'codex', model: null });
+  assert.equal((await readFile(join(store.dir(work.id), 'project.json'), 'utf8')).includes('wandb fixture'), false);
+  await writeFile(file, '{"HF_TOKEN":"private-value', 'utf8');
+  const unreadable = await call(path);
+  assert.equal(unreadable.status, 500);
+  assert.equal((await unreadable.text()).includes('private-value'), false);
+});
 
 test('a recorded request is accepted again without another message or Manager call, running and after restart', async t => {
   const original=JSON.parse(await readFile(new URL('./fixtures/message-identity.jsonl',import.meta.url),'utf8')) as {text:string;request_id:string};
@@ -723,13 +833,6 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
     await utimes(join(own, path), at(minutes), at(minutes));
   };
   const { id } = store.create({ workdir: '', request: '', backend: 'codex', model: null });
-  const revision = async (): Promise<number> => {
-    const learning = await get<{ jobs: unknown[]; pending: number; revision: number }>(`/api/projects/${id}/learning`);
-    assert.deepEqual([learning.jobs, learning.pending], [[], 0]);
-    return learning.revision;
-  };
-  const before = await revision();
-
   const skill = (description: string) => `---\nname: x\ndescription: ${description}\n---\n`;
   await write('quant/SKILL.md', `${skill('Backtest a trading idea without lookahead')}\nRun check.mjs.\n`, 1);
   await write('quant/check.mjs', 'console.log("no lookahead");\n', 2);
@@ -759,16 +862,15 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
 
   assert.equal((await call('/api/wiki')).status, 404);
   assert.equal((await call('/api/wiki/page?scope=global&vertical=&path=x.md')).status, 404);
-  assert.ok(await revision() > before);
   const { events } = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=2');
   const learned = { kind: 'learned', scope: 'global', vertical: '', source_project: '', role: '', note: '' };
   assert.deepEqual(events, [
     { ...learned, ts: at(3), path: 'research/SKILL.md', title: 'Research as this operator wants it' },
     { ...learned, ts: at(2), path: 'quant/check.mjs', title: 'quant/check.mjs' },
   ]);
-  const changed = await revision();
   await write('quant/check.mjs', 'console.log("no lookahead, checked");\n', 60);
-  assert.ok(await revision() > changed);
+  const updated = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=1');
+  assert.deepEqual(updated.events, [{ ...learned, ts: at(60), path: 'quant/check.mjs', title: 'quant/check.mjs' }]);
 
   await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
   assert.equal((await call('/api/plugins')).status, 404);
@@ -1580,4 +1682,48 @@ test('map summaries retain the recorded drawing while explicit task and letter r
   assert.equal(detail.item.objective, task.objective);
   assert.deepEqual((await get<ProgressMap>(`${P}/map?after=${map.cursor}`)).events, []);
   assert.equal((await call(`${P}/backlog/${task.id}?letter=missing`)).status, 404);
+});
+
+test('task details expose recorded return reasons, operator letters and only the latest Engineer turn edits', async t => {
+  const { store, get } = await setup(t, []);
+  const work = store.create({ request: 'Draw a chart', workdir: '', backend: 'codex', model: null });
+  work.status = 'stopped';
+  const task = { id: 't1', title: 'Chart', objective: 'Draw a chart.', from: 'planner' as const,
+    status: 'closed' as const, holder: 'engineer' as const, note: null };
+  work.tasks.push(task);
+  store.save(work);
+  store.append(work.id, { type: 'task.added', task });
+  store.append(work.id, { type: 'call.start', role: 'engineer', task: task.id });
+  store.append(work.id, { type: 'step', role: 'engineer', task: task.id, kind: 'edit', text: 'old.ts' });
+  store.append(work.id, { type: 'handoff', role: 'reviewer', task: task.id, to: 'engineer', letter: '退回：缺少坐标单位。' });
+  store.append(work.id, { type: 'message', from: 'operator', to: 'engineer', task: task.id, text: '请用秒为单位。' });
+  store.append(work.id, { type: 'call.start', role: 'engineer', task: task.id });
+  for (const path of ['chart.ts', 'chart.png', 'chart.ts']) store.append(work.id, { type: 'step', role: 'engineer', task: task.id, kind: 'edit', text: path });
+  store.append(work.id, { type: 'handoff', role: 'reviewer', task: task.id, to: 'planner', letter: '已经修正。', open: ['chart.ts', 'chart.png', 'second.png'] });
+  store.append(work.id, { type: 'task.closed', task: task.id });
+  const { item } = await get<{ item: import('@argus/contracts').BacklogItem }>(`/api/projects/${work.id}/backlog/${task.id}`);
+  assert.deepEqual(item.changed_files, ['chart.ts', 'chart.png']);
+  assert.deepEqual(item.result_paths, ['chart.ts', 'chart.png', 'second.png']);
+  assert.ok(item.notes!.includes('退回：缺少坐标单位。'));
+  assert.ok(item.notes!.includes('请用秒为单位。'));
+});
+
+test('expanded task files come from its explicit letter before review completes, without marking the task done', async t => {
+  const { store, get } = await setup(t, []);
+  const work = store.create({ request: 'Chart', workdir: '', backend: 'codex', model: null });
+  work.status = 'stopped';
+  const task = { id: 't1', title: 'Chart', objective: 'Draw a chart.', from: 'planner' as const,
+    status: 'open' as const, holder: 'reviewer' as const, note: null };
+  work.tasks.push(task);
+  store.save(work);
+  store.append(work.id, { type: 'task.added', task });
+  store.append(work.id, { type: 'handoff', role: 'engineer', task: task.id, to: 'reviewer', letter: 'Chart ready for review.', open: ['chart.png'] });
+  const path = `/api/projects/${work.id}`;
+  const { item } = await get<{ item: import('@argus/contracts').BacklogItem }>(`${path}/backlog/${task.id}`);
+  assert.deepEqual(item.result_paths, ['chart.png']);
+  assert.equal(item.status, 'in_progress');
+  const snap = await get<Snapshot>(`${path}/snapshot`);
+  assert.equal(snap.backlog[0]!.status, 'in_progress');
+  const map = await get<{ tasks: Array<{ id: string; result_paths: string[] }> }>(`${path}/map`);
+  assert.deepEqual(map.tasks.find(row => row.id === task.id)!.result_paths, []);
 });

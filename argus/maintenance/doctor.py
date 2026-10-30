@@ -163,12 +163,11 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
 
     manifest = (package or root / "argus") / "release_manifest.json"
     web = root / "frontend" / "web" / "dist" / "index.html"
-    tui = root / "frontend" / "tui" / "bundle" / "argus.mjs"
-    missing = [str(path.relative_to(root)) for path in (manifest, web, tui) if not path.is_file()]
+    missing = [str(path.relative_to(root)) for path in (manifest, web) if not path.is_file()]
     findings.append(_finding(
         "ARGUS-ASSET-001", "install", not missing,
         "assets_ready" if not missing else "assets_missing",
-        "release manifest and Web/TUI assets are present" if not missing else f"missing: {', '.join(missing)}",
+        "release manifest and Web assets are present" if not missing else f"missing: {', '.join(missing)}",
         severity="error", actions=("rebuild_release_assets",),
         recommendation="rebuild release assets with the checkout interpreter",
         evidence={"missing": missing},
@@ -207,7 +206,6 @@ def _checkout_finding(context: DoctorContext) -> list[DoctorFinding]:
 # Each production bundle and the source commits it must be rebuilt after.
 _FRONTEND_BUNDLES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("Web", "frontend/web/dist", ("frontend/web/src", "frontend/core/src")),
-    ("TUI", "frontend/tui/bundle", ("frontend/tui/src", "frontend/core/src")),
 )
 
 
@@ -255,7 +253,7 @@ def _frontend_assets_freshness(root: Path, git_bin: str) -> DoctorFinding | None
         "ARGUS-ASSET-002", "install", not stale,
         "assets_current" if not stale else "assets_stale",
         (
-            "committed Web/TUI bundles are newer than their frontend source"
+            "committed Web bundles are newer than their frontend source"
             if not stale
             else f"{' and '.join(stale)} bundle committed before the newest frontend source change"
         ),

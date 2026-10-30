@@ -3,6 +3,14 @@ import type { ProjectRow, Snapshot } from '../../../core/src/types';
 /** Work skipped or cancelled: it is no task left to finish, so no count includes it. */
 export const COUNTED_OUT = new Set(['skipped', 'cancelled']);
 
+export function workDurationLabel(ms: number, zh: boolean, incomplete = false): string {
+  const seconds = Math.floor(ms / 1000);
+  const hours = Math.floor(seconds / 3600), minutes = Math.floor(seconds % 3600 / 60), rest = seconds % 60;
+  const duration = zh ? `${hours ? `${hours}小时 ` : ''}${minutes ? `${minutes}分 ` : ''}${rest}秒`
+    : `${hours ? `${hours}h ` : ''}${minutes ? `${minutes}m ` : ''}${rest}s`;
+  return `${zh ? '已工作' : 'Worked'} ${incomplete ? '≥' : ''}${duration}`;
+}
+
 /** Cost is an API-price equivalent, not what the account was charged; say so.
  * Empty only when nothing was spent; calls without a price say so instead. */
 export function spendEstimateLabel(overview: { spendUsd: number | null; spendStatus: Snapshot['spend_status'] }, zh: boolean, compact = false): string {

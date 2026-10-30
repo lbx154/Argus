@@ -63,8 +63,8 @@ test('pre-aborted queries do not spawn a process', async t => {
   await assert.rejects(worker.query('meta', {}, AbortSignal.abort()), { code: 'aborted' });
 });
 
-test('cost queries fold overlapping receipts in Node', async t => {
-  const worker = backend('cost-dedup'); t.after(() => worker.close());
+test('cost queries fold call contributions in Node', async t => {
+  const worker = backend('cost-calls'); t.after(() => worker.close());
   const costs = await worker.query('costs', { limit: 1 });
   assert.equal(costs.projects[0]?.usage_calls, 2);
   assert.equal(costs.projects[0]?.spend_usd, 0.02);

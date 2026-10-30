@@ -53,7 +53,7 @@ export function reconcileProjectSelection(
   return resolveProjectSelection(projects, current);
 }
 
-/** Multi-term project lookup shared by Web and Ink navigation surfaces. */
+/** Multi-term project lookup for web navigation. */
 export function projectMatchesQuery(project: ProjectRow, query: string): boolean {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return true;

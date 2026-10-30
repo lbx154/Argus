@@ -66,7 +66,6 @@
 网络、镜像和工作源码副本已清理；报告、diff、probe、日志和源代码镜像保留。
 
 相关本地实现（不包含在本次文档提交中）：
-`integrations/agent-skills/agent-harness-pr-regression/SKILL.md`、
 `hosting/experiments/pr_regression_50/README.md`（argus-hosting 子模块）。
 精确复现原实验时应使用实验目录中的冻结副本，而不是后来维护过的 runner。
 

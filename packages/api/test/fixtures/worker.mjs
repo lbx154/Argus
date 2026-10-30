@@ -20,7 +20,7 @@ if (mode === 'hang') {
   if (request.method === 'costs') {
     const send = frame => process.stdout.write(JSON.stringify({ protocol: request.protocol, version: request.version, id: request.id, ...frame }) + '\n');
     const summaries = JSON.parse(readFileSync(new URL('../../../runtime/fixtures/usage-summary.json', import.meta.url), 'utf8'));
-    const records = mode === 'cost-dedup' ? summaries.find(row => row.id === 'copilot-overlapping-receipts').records
+    const records = mode === 'cost-calls' ? summaries.find(row => row.id === 'two-calls').records
       : summaries.find(row => row.id === 'explicit-zero').records;
     const begin = { kind: 'cost_project', project_id: 's-fixture' };
     if (mode === 'cost-legacy') {

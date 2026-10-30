@@ -113,14 +113,21 @@ def test_node_http_rejects_authentication_writes_prewarm_and_unknown_projects(ru
     assert {path: path.read_bytes() for path in before} == before
 
 
-def test_node_costs_match_real_ledgers_with_cross_call_model_deduplication(running_api) -> None:
+@pytest.mark.parametrize("case_id", [
+    "copilot-overlapping-receipts", "model-detail-missing-cost-hides-aggregate",
+    "partial-record-with-duplicate-model", "model-detail-explicit-zero",
+    "model-detail-unpriced-zero-stays-unknown",
+])
+def test_node_costs_match_real_ledgers_with_cross_call_model_deduplication(running_api, case_id) -> None:
     from argus.core.usage import UsageLedger, UsageRecord
+    from argus.webapi.cost_inputs import cost_input_frames
 
     url, before = running_api
     life_dir = next(iter(before)).parent
     root = life_dir.parent.parent
-    cases = json.loads((ROOT / "packages/runtime/fixtures/usage-summary.json").read_text())
-    rows = next(case["records"] for case in cases if case["id"] == "copilot-overlapping-receipts")
+    cases = json.loads((ROOT / "tests/fixtures/usage-model-receipts.json").read_text())
+    case = next(case for case in cases if case["id"] == case_id)
+    rows = case["records"]
     paths = []
     for sid in ["s-read", "s-second"]:
         if sid != "s-read":
@@ -139,8 +146,21 @@ def test_node_costs_match_real_ledgers_with_cross_call_model_deduplication(runni
     assert status == 200
     assert result["projects"] == expected
     assert {row["id"]: row["spend_usd"] for row in result["projects"]} == {
-        "s-read": 0.02, "s-second": 0.02, "s-empty": None,
+        "s-read": case["expected"]["cost_usd"], "s-second": case["expected"]["cost_usd"], "s-empty": None,
     }
+    # Inspect the actual bridge producer, not hand-written normalized Node input.
+    wire = [frame["record"] for frame in cost_input_frames(
+        root, limit=3, max_records=100, validate_id=lambda sid: sid,
+    ) if frame["kind"] == "cost_record"]
+    assert len(wire) == len(rows) * 2
+    assert all("model_usage" not in contribution for contribution in wire)
+    assert sum(contribution["input_tokens"] or 0 for contribution in wire) == case["expected"]["input_tokens"] * 2
+    # The HTTP snapshot and the Node cost projection must agree on the same ledger.
+    summary = fetch(url, "/api/projects/s-read/snapshot")[1]["usage_summary"]
+    assert summary["input_tokens"] == case["expected"]["input_tokens"]
+    assert summary["cost_usd"] == case["expected"]["cost_usd"]
+    assert summary["call_count"] == len(rows)
+    assert summary["premium_requests"] == case["expected"]["premium_requests"]
     assert {path: path.read_bytes() for path in paths} == ledger_before
     assert {path: path.read_bytes() for path in before} == before
     limited = fetch(url, "/api/projects/costs?limit=1")[1]

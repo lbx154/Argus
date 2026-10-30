@@ -9,6 +9,10 @@ import { requestFailureText } from '../lib/requestFailure';
 import { AppearanceControls } from './AppearanceControls';
 import type { ThemeMode } from './TopBar';
 import { backendLabel, configuredBackend } from '../lib/backend';
+import { SetupStatus } from './SetupStatus';
+import { CredentialsSettings } from './CredentialsSettings';
+import { BrowserNotificationSettings } from './BrowserNotificationSettings';
+import type { useBrowserNotifications } from '../useBrowserNotifications';
 
 type Translate = (key: string, variables?: Record<string, string | number>) => string;
 
@@ -34,12 +38,14 @@ export function ConfigModal({
   onClose,
   themeMode,
   onCycleTheme,
+  notifications,
 }: {
   sid: string;
   open: boolean;
   onClose: () => void;
   themeMode?: ThemeMode;
   onCycleTheme?: () => void;
+  notifications?: ReturnType<typeof useBrowserNotifications>;
 }) {
   const { t, locale } = useI18n();
   const { data, isLoading, isError, isFetching, refetch } = useConfig(sid, open);
@@ -81,6 +87,8 @@ export function ConfigModal({
     <Modal open={open} onClose={onClose} label={t('common.settings')} width="max-w-4xl">
       <ModalHeader title={t('common.settings')} sub={t('settings.subtitle')} />
       <div className="settings-body">
+        {open && <CredentialsSettings />}
+        {notifications && <BrowserNotificationSettings notifications={notifications} />}
         {themeMode && onCycleTheme && <section className="settings-section mb-4 flex items-center gap-3">
           <div className="min-w-0 flex-1"><h3 className="text-sm font-medium">{locale === 'zh-CN' ? '此浏览器的偏好' : 'Preferences for this browser'}</h3>
             <p className="mt-1 text-xs text-ink-faint">{locale === 'zh-CN' ? '语言与明暗外观。' : 'Language and light/dark appearance.'}</p></div>
@@ -140,6 +148,7 @@ export function ConfigModal({
 
           </div>
         )}
+        <SetupStatus open={open} config={data} />
       </div>
     </Modal>
     <ModelPicker sid={sid} open={open && pickerOpen} onClose={() => setPickerOpen(false)} />

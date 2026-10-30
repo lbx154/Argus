@@ -11,7 +11,7 @@ blue/green handoff (``handoff``, ``config``) and semantic progress health
 whether a supervisor runs, not what a mission does.
 
 Does not belong here (and where it goes): mission execution (``life`` and
-``apps._runtime*`` today, ``mission_runner/`` after phase 5) and HTTP/TUI
+``apps._runtime*`` today, ``mission_runner/`` after phase 5) and HTTP
 presentation (``webapi``, ``apps``).
 ``daemon.spawn_helper`` is re-entered by argv (``python -m``), so renaming a
 module here without a shim strands every already-running daemon's restart.

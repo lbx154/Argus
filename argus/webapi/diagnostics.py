@@ -1,4 +1,4 @@
-"""Backend diagnostics for the Web/TUI ``/doctor`` panel.
+"""Backend diagnostics for the Web ``/doctor`` panel.
 
 Answers the practical question a stuck user has: *why is nothing executing my
 backlog, and what action can restore it?*

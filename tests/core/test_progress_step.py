@@ -20,12 +20,12 @@ from argus.skills.builtins import builtin_skill_source_path
 def test_command_step_says_what_the_command_does() -> None:
     label, detail = describe_progress_step({
         "kind": "command_execution",
-        "text": "/bin/bash -lc 'rg --line-number cockpit frontend/tui/src'",
+        "text": "/bin/bash -lc 'rg --line-number cockpit frontend/web/src'",
         # The bucketed summary must NOT win: it hides what actually ran.
         "action_summary": "inspecting project state",
     })
     assert label == "搜索：cockpit"
-    assert detail == "rg --line-number cockpit frontend/tui/src", "the command, unwrapped, stays in the detail"
+    assert detail == "rg --line-number cockpit frontend/web/src", "the command, unwrapped, stays in the detail"
 
 
 _WS = "/work/proj"

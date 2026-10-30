@@ -2,17 +2,32 @@
 // nvidia-smi lists, none where it is not installed. Argus limits none of them.
 
 import { execFile } from 'node:child_process';
+import { statfs } from 'node:fs/promises';
 import { availableParallelism, freemem, loadavg, totalmem } from 'node:os';
 import { promisify } from 'node:util';
 import type { Handler } from './index.js';
+import type { Project } from '../store.js';
 
 const run = promisify(execFile);
 const GIB = 1 << 30;
 
-export function resources(): [string, RegExp, Handler][] {
-  return [['GET', /^\/api\/system\/resources$/, async () => ({
-    schema_version: 1, enforcement: 'advisory', accelerators: [cpu(), ...await gpus()],
-  })]];
+export function resources(project: (id: string) => Project): [string, RegExp, Handler][] {
+  return [['GET', /^\/api\/system\/resources$/, async ({ url }) => {
+    const id = url.searchParams.get('sid');
+    const workdir = id ? project(id).workdir : null;
+    const [devices, disk] = await Promise.all([gpus(), workdir ? storage(workdir) : undefined]);
+    return { schema_version: 1, enforcement: 'advisory', accelerators: [cpu(), ...devices], ...disk ? { disk } : {} };
+  }]];
+}
+
+async function storage(workdir: string) {
+  try {
+    const { bavail, blocks, bsize } = await statfs(workdir);
+    const available_bytes = bavail * bsize;
+    return { workdir, total_bytes: blocks * bsize, available_bytes, low_space: available_bytes < 5 * GIB, detail: '' };
+  } catch (error) {
+    return { workdir, total_bytes: null, available_bytes: null, low_space: false, detail: (error as Error).message };
+  }
 }
 
 function cpu() {

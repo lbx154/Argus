@@ -6,16 +6,11 @@ import { addCost, exactCount, UsageAccountingError } from './accountingNumbers.j
 
 export interface UsageSummaryLimits {
   maxRecords?: number;
-  maxIdentities?: number;
 }
 
-/** Port of summarize_usage; preserves record counts while deduplicating model rows.
- * Holds only totals and bounded Copilot identities, never the input records.
- */
+/** Fold the call ledger. Holds totals, never another copy of the input records. */
 export class UsageSummaryAccumulator {
   private readonly maxRecords: number;
-  private readonly maxIdentities: number;
-  private readonly seen = new Set<string>();
   private failure: UsageAccountingError | null = null;
   private costPresent = false;
   private readonly totals: UsageSummary = {
@@ -27,8 +22,7 @@ export class UsageSummaryAccumulator {
 
   constructor(limits: UsageSummaryLimits = {}) {
     this.maxRecords = limits.maxRecords ?? 100_000;
-    this.maxIdentities = limits.maxIdentities ?? 100_000;
-    if (![this.maxRecords, this.maxIdentities].every(value => Number.isSafeInteger(value) && value > 0)) {
+    if (!Number.isSafeInteger(this.maxRecords) || this.maxRecords <= 0) {
       throw new Error('summary limits must be positive safe integers');
     }
   }
@@ -43,16 +37,7 @@ export class UsageSummaryAccumulator {
       this.totals[key[row.pricing_status]] += 1;
       this.totals.premium_requests = addCost(this.totals.premium_requests, row.premium_requests ?? 0);
       this.totals.premium_request_cost_usd = addCost(this.totals.premium_request_cost_usd, row.premium_request_cost_usd ?? 0);
-      if (row.model_usage.length === 0) this.contribute(row);
-      else for (const item of row.model_usage) {
-        if (item.session_id !== null && item.usage_event_id !== null) {
-          const identity = JSON.stringify([item.session_id, item.usage_event_id]);
-          if (this.seen.has(identity)) continue;
-          if (this.seen.size >= this.maxIdentities) throw new UsageAccountingError('Usage summary identity limit exceeded.');
-          this.seen.add(identity);
-        }
-        this.contribute(item);
-      }
+      this.contribute(row);
     } catch (error) {
       this.failure = error instanceof UsageAccountingError ? error : new UsageAccountingError('Invalid normalized usage record.');
       throw this.failure;

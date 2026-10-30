@@ -1,4 +1,4 @@
-"""Bridge the Web/Ink front-end to the Manager.
+"""Bridge the Web front-end to the Manager.
 
 Every operator message is one turn of the Manager's own session. It answers
 itself, or hands a ticket to the team, asks the operator, or files a setting

@@ -607,7 +607,7 @@ describe('shared frontend core', () => {
     expect(error.message).not.toContain('[object Object]');
   });
 
-  it('shares feed filters and backlog lifecycle semantics with Ink', () => {
+  it('uses feed filters and backlog lifecycle semantics', () => {
     const alert = { type: 'life.lifecycle.block', reason: 'needs credentials', operator_alert: true };
     expect(eventMatchesView(alert, { tone: 'err', text: 'blocked — needs you' }, 'attention')).toBe(true);
     expect(eventMatchesView(alert, { tone: 'err', text: 'blocked — needs you' }, 'messages')).toBe(false);

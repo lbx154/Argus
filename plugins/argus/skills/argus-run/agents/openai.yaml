@@ -1,4 +1,0 @@
-interface:
-  display_name: "Run with Argus"
-  short_description: "Start persistent reviewed Argus work"
-  default_prompt: "Use Argus to execute this objective persistently with independent review."

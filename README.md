@@ -146,8 +146,8 @@ a browser. There are no subcommands: everything else happens in the page.
 | Option | |
 |---|---|
 | `--port N` | another port (default `8799`; `0` picks a free one) |
-| `--backend codex\|claude\|copilot\|pi` | the backend new projects use (default `codex`); each project can change it in its settings |
-| `--model M` | the model new projects use, in the backend's own name for it; without it, the CLI's default |
+| `--backend codex\|claude\|copilot\|pi` | the first project's backend (default `codex`); later projects inherit the most recently created project |
+| `--model M` | the first project's model, in the backend's own name; without it, the CLI's default |
 | `--host H` | serve on another address, for example `0.0.0.0` |
 | `--web DIR` | serve a web page built elsewhere instead of the bundled one |
 | `ARGUS_WEB_TOKEN` | the access token; unset, one made on the first start and kept in the state root, so open pages stay signed in across restarts. The printed address carries it |
@@ -159,10 +159,89 @@ the team works you can keep talking to the Manager, follow the progress map (a c
 task, with every letter written about it), browse the project's files, open and download
 results, and read the skill library under **Knowledge & skills**.
 
-The work runs inside the `argus` process: closing the browser does not stop it, stopping
-`argus` (Ctrl-C) does, and you start the project again from the page. On a remote server,
+New projects inherit the most recently created project's backend, model and reasoning effort,
+including backend defaults. Only the first project uses the startup options. Settings shows
+which backend CLIs are installed, their reported versions and the actual bubblewrap launch
+probe. The resources panel shows free space on the selected project's working-directory disk;
+below 5 GiB it warns while work continues.
+
+The work runs inside the `argus` process: closing the browser does not stop it. When the
+process exits (including Ctrl-C), work stops. Starting Argus again with the same `ARGUS_HOME`
+resumes projects that were running; projects you stopped in the page remain stopped. On a remote server,
 run `argus` there and forward the port with `ssh -L 8799:127.0.0.1:8799 user@server`.
 A walkthrough is in **[Getting started](docs/getting-started.md)**.
+
+With `argus --host 0.0.0.0`, open a project's **Settings → Open on your phone**. Connect
+both devices to the same network and scan the QR code. It uses a host interface address,
+the listening port and the existing access token. If the machine has several interfaces,
+choose the address reachable from the phone. The token grants access to your projects.
+
+### Run at login
+
+A user service keeps Argus independent of a terminal. These examples start it at login;
+they do not restart an exited process. Replace the absolute Node and Argus paths with
+`command -v node` and `command -v argus`, and use the same state root as your terminal.
+Include the directory containing your backend CLI in `PATH`; service managers do not load
+your shell profile. Stop a terminal instance before starting the service.
+
+**Linux — systemd user service.** Save as `~/.config/systemd/user/argus.service`:
+
+```ini
+[Unit]
+Description=Argus
+
+[Service]
+ExecStart=/absolute/path/to/node /absolute/path/to/argus
+Environment=ARGUS_HOME=%h/.argus
+Environment=PATH=/absolute/path/to/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now argus.service
+journalctl --user -u argus.service   # includes the token-bearing cockpit address
+systemctl --user stop argus.service
+systemctl --user start argus.service # resumes work that was running
+```
+
+This service follows your user session. To keep it running after logout, your system must
+allow user lingering (`loginctl enable-linger "$USER"`); the machine must remain awake.
+See the [systemd user manager](https://www.freedesktop.org/software/systemd/man/latest/systemd.html)
+and [service configuration](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
+
+**macOS — launchd user agent.** Save as `~/Library/LaunchAgents/cn.argus.agent.plist`,
+replacing `/Users/you` and the executable paths (launchd does not expand `~` or `$HOME`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>cn.argus.agent</string>
+  <key>ProgramArguments</key><array>
+    <string>/absolute/path/to/node</string>
+    <string>/absolute/path/to/argus</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>ARGUS_HOME</key><string>/Users/you/.argus</string>
+    <key>PATH</key><string>/absolute/path/to/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/you/Library/Logs/argus.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/Library/Logs/argus-error.log</string>
+</dict></plist>
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/cn.argus.agent.plist
+launchctl kickstart gui/$(id -u)/cn.argus.agent  # start again after a process exit
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/cn.argus.agent.plist
+```
+
+The agent runs while you are logged in. See Apple's
+[launchd guide](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html).
 
 **Desktop.** The desktop app carries Argus and runs it with the machine's Node.js 22+, then
 opens the cockpit it serves; see **[Desktop](docs/windows-desktop.md)** and the
@@ -170,7 +249,7 @@ opens the cockpit it serves; see **[Desktop](docs/windows-desktop.md)** and the
 
 ## Upgrade and uninstall
 
-Stop `argus` first; work under way is interrupted, and you start it again from the page.
+Stop `argus` first; work under way is interrupted and resumes on the next start with the same state root.
 
 ```bash
 npm i -g @lbx154/argus@latest      # from source: git pull, then the source steps above again

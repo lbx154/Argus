@@ -363,7 +363,7 @@ def test_no_framework_package_imports_a_named_vertical() -> None:
     offenders = _concrete_vertical_imports(_python_files(
         "core", "life", "engineer", "reviewer", "planner", "manager",
         "roles", "skills", "daemon", "webapi", "wiki",
-        "tools", "adapters", "agent_cli", "provider_integrations", "plugin",
+        "tools", "adapters", "agent_cli", "provider_integrations",
         "maintenance", "release_tools", "cli", "integrations",
     ))
 
@@ -909,7 +909,7 @@ LAYERS: dict[str, tuple[str, ...]] = {
     "runtime": ("life", "manager", "messaging"),
     "process": ("daemon",),
     "delivery": (
-        "apps", "webapi", "plugin", "maintenance", "integrations", "release_tools",
+        "apps", "webapi", "maintenance", "integrations", "release_tools",
     ),
 }
 LAYER_ORDER = tuple(LAYERS)
@@ -1105,7 +1105,6 @@ FUNCTION_BODY_UPWARD_ALLOWLIST: frozenset[str] = frozenset({
 # is expected to delete the ``verticals._base`` / ``_registry`` /
 # ``_data_domain`` rows wholesale.
 PRIVATE_IMPORT_ALLOWLIST: frozenset[str] = frozenset({
-    "<root> -> argus.apps.tui_launcher._configure_windows_console_encoding",
     "<root> -> argus.verticals._base",
     "adapters -> argus.agent_cli._env",
     "adapters -> argus.agent_cli._structured_output",
@@ -1465,7 +1464,7 @@ _DOTTED_PATH = re.compile(r"\bargus(?:_skill)?(\.[A-Za-z_][A-Za-z0-9_]*)+")
 # ``argus.exe`` (the Windows launcher) and ``argus.mjs`` (the cockpit bundle)
 # are file names that share the package's stem, not module paths. Only the
 # two-segment form ``argus.<suffix>`` and tokens that are path components
-# (``bundle/argus.mjs``) are exempt: ``argus.plugin.service`` and
+# (``bundle/argus.mjs``) are exempt: ``argus.advisor.runtime`` and
 # ``argus.advisor.service`` are real modules and stay resolve-checked.
 _FILE_NAME_SUFFIXES = frozenset({"exe", "mjs", "md", "json", "log", "service", "toml", "yaml", "yml"})
 
@@ -1529,13 +1528,13 @@ def _resolves_on_disk(dotted: str) -> bool:
 
 
 def test_file_name_exemption_keeps_dotted_modules_checked() -> None:
-    """Only ``argus.<suffix>`` and path components are files; ``argus.plugin.service`` is a module."""
+    """Only ``argus.<suffix>`` and path components are files; ``argus.advisor.runtime`` is a module."""
     def scan(text: str) -> list[str]:
         return [m.group(0) for m in _DOTTED_PATH.finditer(text) if not _is_file_name(m)]
 
-    assert scan("run argus.exe or frontend/tui/bundle/argus.mjs") == []
-    assert scan("see argus.plugin.service and argus.advisor.service") == [
-        "argus.plugin.service", "argus.advisor.service",
+    assert scan("run argus.exe or packages/core/dist/argus.mjs") == []
+    assert scan("see argus.advisor.runtime and argus.advisor.service") == [
+        "argus.advisor.runtime", "argus.advisor.service",
     ]
     assert scan("python -m argus_skill.tools.peer") == ["argus_skill.tools.peer"]
 
@@ -1570,7 +1569,6 @@ def test_module_paths_cited_by_prompts_and_skills_resolve() -> None:
 SUBPROCESS_REENTRY_MODULES = (
     "argus.daemon.spawn_helper",
     "argus.tools.manager_live_view",
-    "argus.plugin.mcp_server",
     "argus.__main__",
 )
 
@@ -1902,7 +1900,6 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "manager": 66,
     "messaging": 1,
     "planner": 1,
-    "plugin": 9,
     "release_tools": 1,
     "reviewer": 2,
     "roles": 4,

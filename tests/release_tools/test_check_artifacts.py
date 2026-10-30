@@ -16,16 +16,12 @@ def release_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     source.write_text("VERSION = 1\n", encoding="utf-8")
     web = tmp_path / "frontend" / "web" / "dist"
     (web / "assets").mkdir(parents=True)
-    tui = tmp_path / "frontend" / "tui" / "bundle" / "argus.mjs"
-    tui.parent.mkdir(parents=True)
     manifest = source.parent / "release_manifest.json"
     manifest.write_text(json.dumps({"source_files": source_files(tmp_path)}))
     (web / "index.html").write_text('<script type="module" src="./assets/entry.js"></script>')
     (web / "assets" / "entry.js").write_text('// web entry')
-    tui.write_text('// tui entry')
     monkeypatch.setattr(check_artifacts, "ROOT", tmp_path)
     monkeypatch.setattr(check_artifacts, "MANIFEST", manifest)
-    monkeypatch.setattr(check_artifacts, "TUI_BUNDLE", tui)
     monkeypatch.setattr(check_artifacts, "WEB_INDEX", web / "index.html")
     return tmp_path
 

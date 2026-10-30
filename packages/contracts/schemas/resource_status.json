@@ -19,6 +19,7 @@
         "advisory"
       ]
     },
+    "disk": {"$ref": "#/$defs/ResourceDiskStatus"},
     "accelerators": {
       "type": "array",
       "items": {
@@ -27,6 +28,18 @@
     }
   },
   "$defs": {
+    "ResourceDiskStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workdir", "total_bytes", "available_bytes", "low_space", "detail"],
+      "properties": {
+        "workdir": {"type": "string"},
+        "total_bytes": {"type": ["number", "null"], "minimum": 0},
+        "available_bytes": {"type": ["number", "null"], "minimum": 0},
+        "low_space": {"type": "boolean"},
+        "detail": {"type": "string"}
+      }
+    },
     "ResourceDeviceStatus": {
       "type": "object",
       "additionalProperties": false,

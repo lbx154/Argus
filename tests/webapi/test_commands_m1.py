@@ -1,4 +1,4 @@
-"""M1 tests for the web/TUI backend API command surface (POST endpoints + auth).
+"""M1 tests for the web backend API command surface (POST endpoints + auth).
 
 Daemon start/stop are monkeypatched so no real subprocess is spawned.
 """
@@ -1271,7 +1271,7 @@ def test_ws_requires_token_when_configured(ctx) -> None:
                 with pytest.raises(WebSocketDisconnect) as closed:
                     ws.receive_json()
                 assert closed.value.code == 4401
-        # The bearer header (CLI, TUI, portal) → open.
+        # The bearer header (CLI, portal) → open.
         with tc.websocket_connect(url, headers={"Authorization": "Bearer secret123"}) as ws:
             assert ws.receive_json()["type"] == "loop.start"
 

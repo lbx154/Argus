@@ -1,4 +1,4 @@
-"""FastAPI application, event streaming, and HTTP middleware for Web and TUI.
+"""FastAPI application, event streaming, and HTTP middleware for Web.
 
 Routes call their owning services directly. The daemon owns persistent work;
 closing a browser or terminal connection does not stop it.

@@ -132,7 +132,7 @@ export class Store {
   }
 
   /** A new project; without a workdir it works in its own under $ARGUS_HOME/workspaces. */
-  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model'>): Project {
+  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'effort'>): Project {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),

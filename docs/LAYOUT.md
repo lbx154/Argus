@@ -35,8 +35,8 @@ moves section at the end is a plan, not a description of the tree.
   [docs/CORE_CONCEPTS.md, "Concept-to-storage mapping"](CORE_CONCEPTS.md#concept-to-storage-mapping).
 - Event ledger: `life/event_log.py` is the only appender of `events.jsonl`; every
   other module reads it.
-- Operator entry points: `apps/cli/` (the `argus` command line) and
-  `webapi/routes/` (what the Web and Ink cockpits call).
+- Operator entry points: `apps/cli/` (Python administration for existing projects) and
+  `webapi/routes/` (what the Python web API serves).
 
 ## Layers
 
@@ -54,7 +54,7 @@ typing-only under `if TYPE_CHECKING:`) are tolerated only while their
 | roles | `roles`, `planner`, `engineer`, `reviewer` | kernel through roles; `engineer` and `reviewer` never import `verticals` (existing test) |
 | runtime | `life`, `manager`, `messaging` | kernel through runtime; the intra-layer cycle `life` <-> `manager` is tolerated (not measured by the tests) |
 | process | `daemon` | kernel through process |
-| delivery | `apps`, `webapi`, `plugin`, `maintenance`, `integrations`, `release_tools` | everything |
+| delivery | `apps`, `webapi`, `maintenance`, `integrations`, `release_tools` | everything |
 
 Notes on the table:
 
@@ -96,14 +96,13 @@ that fixes it.
 - `argus/engineer/` (roles) - `SupervisedEngineer`: the Reviewer-gated round loop, split by round phase (prompt, execution, waits, reviewer, self-review, settlement).
 - `argus/reviewer/` (roles) - the L2 Reviewer: it judges each candidate and hands on its verdict with the `hand_off` form.
 - `argus/life/` (runtime) - one Project's continuous life: persistent memory (`EventJournal`, `Backlog`, `IdentityCard`, `LifeMemory`), `event_log` (the only appender), `LifeSupervisor` (runs missions back-to-back and drives the continuous planner), operator channels (chat router, Feishu, Telegram, letters), project lifecycle and research plan state.
-- `argus/manager/` (runtime) - the Manager control plane: front-door routing shared by the TUI and Web API, vertical decision and domain authoring, stage-transition authority, dispatch, directives, plan mode, Skill tidy.
+- `argus/manager/` (runtime) - the Manager control plane: front-door routing shared by the Web API, vertical decision and domain authoring, stage-transition authority, dispatch, directives, plan mode, Skill tidy.
 - `argus/messaging/` (runtime) - advisory messages between projects owned by one Argus user/tenant: store, inbox, transport and handler beside `life` and `manager`. Added upstream on 2026-09-13; `adapters` and `tools` import it at call time (pinned upward edges).
 - `argus/daemon/` (process) - the detached 7x24 life worker: boot and run phases, admission caps, blue/green handoff, status sidecar and stop control, health, durable commands, spawn helper.
-- `argus/apps/` (delivery) - the Python CLI (`apps/cli/`; `python -m argus`, and every admin flag and subcommand of the `argus` command), the `argus` console-script launcher (`tui_launcher`: the Ink cockpit by default, the CLI for admin flags), updaters, `--watch` and `--init-identity`. Today it also holds the mission runtime (`_runtime*.py`, `_self_reply.py`; about 4.6k lines shared by daemon and Manager front door; moves to `mission_runner/` in phase 5) and the operator inbox helpers `_inbox`, `_life_actions` (move to `life/` in phase 4).
-- `argus/webapi/` (delivery) - the FastAPI server and `routes/` that the Web and Ink cockpits consume. It also hosts the framework-free `manager_*`, `map_*`, `daemon_*`, `mission_items`, `project_state`, `diagnostics` service modules that `plugin/`, `apps/`, `maintenance/` and `life/chat` import: a service layer that has not been named as one. `fastapi` and `uvicorn` are hard dependencies (`[project.dependencies]`); there is no `[web]` extra (the docstring that claimed one was fixed in phase 0).
-- `argus/plugin/` (delivery) - the host-plugin facade and stdio MCP server behind the `argus-plugin-server` script; installed from `plugins/argus/`.
+- `argus/apps/` (delivery) - the Python `argus` command (`apps/cli/`; also `python -m argus`), serving the web cockpit by default and retaining explicit administration commands, updaters, `--watch` and `--init-identity`. Today it also holds the mission runtime (`_runtime*.py`, `_self_reply.py`; about 4.6k lines shared by daemon and Manager front door; moves to `mission_runner/` in phase 5) and the operator inbox helpers `_inbox`, `_life_actions` (move to `life/` in phase 4).
+- `argus/webapi/` (delivery) - the FastAPI server and `routes/` that the Web cockpits consume. It also hosts the framework-free `manager_*`, `map_*`, `daemon_*`, `mission_items`, `project_state`, `diagnostics` service modules that `apps/`, `maintenance/` and `life/chat` import: a service layer that has not been named as one. `fastapi` and `uvicorn` are hard dependencies (`[project.dependencies]`); there is no `[web]` extra (the docstring that claimed one was fixed in phase 0).
 - `argus/maintenance/` (delivery) - the Doctor: read-only findings, closed repair registry, installed-Agent advisor, and the deployment boundary. Not the `argus_maintenance` vertical and not the `~/.argus-skill/maintenance/` decision cards; renamed `doctor/` in phase 6.
-- `argus/integrations/` (delivery) - lets the Harbor Framework invoke the complete Argus runtime as an installed agent. Distinct from the top-level `integrations/` directory below.
+- `argus/integrations/` (delivery) - lets the Harbor Framework invoke the complete Argus runtime as an installed agent.
 - `argus/release_tools/` (delivery) - release and CI tooling: release build, plugin wheel build, manifest and artifact checks, repository parity check. The PR gate moved to the `argus-hosting` repository (see `hosting/` below).
 - Package-root modules (delivery): `argus/__init__.py` (public API, lazy via PEP 562 from phase 0), `__main__.py` (`python -m argus`; re-exports `apps.cli.main` and is the target of the pre-rename `argus-skill` console script, kept one release), `loop.py` (`SkillLoop`; moves to `mission_runner/` in phase 5).
 
@@ -115,8 +114,7 @@ private-mirror only, see `PRIVATE_ONLY_PATTERNS` in
 shipped" means no CI job, no test, and no wheel content comes from the directory
 (decision card 5 leaves them in place for now).
 
-- `.agents/` - agent-host marketplace manifest plus the `minimal-rigorous-work` Skill for agents working on this repository.
-- `.claude-plugin/` - Claude Code marketplace manifest pointing at `plugins/argus`.
+- `.agents/` - the `minimal-rigorous-work` Skill for agents working on this repository.
 - `.github/` - CI workflows: `tests` (ruff and full pytest on Linux, TypeScript packages on Linux/macOS/Windows, frontend contract consumers on Linux), `extended` (mypy, additional portability/frontend/Windows checks; on demand), `pr-gate`, `release`, `desktop-cache`, `desktop` (the desktop app and the Argus it ships, on Windows/macOS/Linux), `core` (the TypeScript core); plus Copilot instructions.
 - `argus/` - the Python package; everything above. Also carries `plugin_catalog.json`.
 - `argus_skill/` - the two-file import alias for the package's pre-rename name (`__init__.py` installs a `sys.meta_path` finder so `argus_skill[.x]` is the same module object as `argus[.x]`; `__main__.py` delegates to `argus.__main__`). Shipped in the wheel for one release after 2026-09-14, then removed. Not a package of its own, not type-checked, no layer.
@@ -126,10 +124,8 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `docs/` - operator and developer documentation; `docs/audits/` holds dated audit reports and their data attachments.
 - `examples/` - worked examples the guides refer to: `verticals/` holds the small `lab_notebook` vertical built in `docs/building-a-vertical.md` and the helper that packages a vertical into a local store catalog. Not built, not tested, not shipped.
 - `hosting/` - optional git submodule of [argus-hosting](https://github.com/lbx154/argus-hosting) (Python package `argus_hosting`): the PR gate (description gate run by the `pr-gate` workflow, the local regression gate behind `scripts/pr-gate`, and the historical 50-PR regression study). Argus does not import it at run time; it is not built or shipped in the wheel or sdist, and tests that need it skip when it is not checked out (`git submodule update --init hosting`).
-- `frontend/` - `core` (shared TypeScript), `tui` (Ink terminal cockpit), `web` (React web cockpit). `frontend/web/dist` is committed on purpose and force-included into the wheel.
-- `integrations/` - the `agent-skills` package for external agent hosts (`SKILL.md` plus per-host adapters). Not the Python package `argus/integrations/`.
+- `frontend/` - `core` (shared TypeScript), `web` (React web cockpit). `frontend/web/dist` is committed on purpose and force-included into the wheel.
 - `packages/` - the root npm workspace: `contracts` owns shared event/API/snapshot definitions and TypeScript generation; `runtime` contains the experimental Pi transport; `api` provides the Node read API and typed client backed by explicit Python queries. Built and tested by `npm run check` and CI, including Node/Python HTTP integration in the Python job. Contract schemas ship with the Python wheel and frozen desktop backend; the experimental runtime does not replace the production Python daemon. See [TypeScript migration](typescript-migration.md); `core` is the Node-only runtime that replaces it, see [The TypeScript core](typescript-core.md).
-- `plugins/` - the installable `argus` host plugin for Claude Code and Codex: MCP config, bundled Skills, install scripts.
 - `research/` - generated architecture-audit output (about 2 MB) and maintenance decisions. Not built, not tested, not shipped.
 - `scripts/` - one-off repository scripts (brand asset generation).
 - `tools/` - opt-in operator tooling kept outside the package: `rl_experiment_benchmark/` (a local benchmark of whether Argus carries out an RL experiment on its own: `start.py` attaches a declared case to a session, `collect.py` gathers the outcome; see its README).

@@ -31,9 +31,11 @@ function detail(store: Store, project: Project, id: string, calls: Live['calls']
     : project.tasks.find(task => task.id === id)?.objective;
   const selected = letterId === null ? undefined : reading.map.letters.find(({ letter }) => letter.id === letterId && letter.item_id === id)?.letter;
   if (letterId !== null && !selected) throw new HttpError(404, `unknown task letter: ${letterId}`);
-  const notes = selected ? String(selected.text) : reading.map.letters.filter(({ letter }) => letter.item_id === id && letter.type === 'handoff' && letter.role !== 'operator')
+  const notes = selected ? String(selected.text) : reading.map.letters.filter(({ letter }) => letter.item_id === id && letter.type === 'handoff')
     .map(({ letter }) => `${named(String(letter.role))} to the ${named(String(letter.to))}:\n${letter.text}`).join('\n\n');
-  return { ...card, latest_action: taskPresentation(reading.map, project, id).latest_action, objective, notes, last_error: project.failures?.filter(failure => failure.task === id).at(-1)?.error ?? '' };
+  return { ...card, latest_action: taskPresentation(reading.map, project, id).latest_action, objective, notes,
+    result_paths: reading.map.opened.get(id) ?? card.result_paths,
+    changed_files: reading.edits.get(id) ?? [], last_error: project.failures?.filter(failure => failure.task === id).at(-1)?.error ?? '' };
 }
 
 /** Where a text is quoted for the line found at `hit`: the paragraph, list or table it is in,

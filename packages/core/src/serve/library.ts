@@ -29,11 +29,6 @@ export function library(store: Store): [string, RegExp, Handler][] {
       if (!found) throw new HttpError(404, 'no such skill file');
       return { content: readFileSync(found.file, 'utf8') };
     }],
-    // The page reads the library again when the revision changes: when a role has changed a skill.
-    ['GET', /^\/api\/projects\/[^/]+\/learning$/, () => {
-      const home = skillsHome(store.home);
-      return { jobs: [], pending: 0, revision: Math.max(statSync(home).mtimeMs, changed(home)[0]?.stat.mtimeMs ?? 0) };
-    }],
     ['GET', /^\/api\/knowledge\/feed$/, ({ url }) => {
       const home = skillsHome(store.home);
       return {

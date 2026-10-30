@@ -1,4 +1,0 @@
-interface:
-  display_name: "Target-Disease Research"
-  short_description: "Build an auditable biomedical evidence dossier"
-  default_prompt: "Research this target-disease question with Argus and produce an auditable non-diagnostic dossier."

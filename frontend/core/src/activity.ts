@@ -256,7 +256,7 @@ export function reduceOperatorEvent(
     // The first request can sit behind WebAPI cold start for several seconds,
     // so timestamp proximity cannot correlate its optimistic echo. Confirm the
     // oldest matching local request in place and preserve its explicit event_id;
-    // Ink Static then keeps one stable scrollback key instead of printing twice.
+    // The event feed then keeps one stable scrollback key instead of printing twice.
     const optimisticIndex = incomingMessageId
       ? events.findIndex((candidate) => (
           candidate.type === event.type

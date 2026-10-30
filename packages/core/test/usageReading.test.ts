@@ -152,3 +152,48 @@ test('the project list shares its first record fold and usage with snapshots and
   project.error = null;
   assert.equal(projectRow(store, project, idle).last_message, 'Excel 还是 CSV？');
 });
+
+test('one shared summary groups every call by role, model and UTC day, and unions parallel intervals', t => {
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-usage-groups-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+  const path = join(store.dir(project.id), 'usage.jsonl');
+  const at = Date.parse('2026-10-30T00:00:00Z') / 1000;
+  const rows = [
+    // [0, 60s], [30s, 90s], nested [40s, 50s], touching [90s, 100s], gap, [120s, 125s].
+    { ts: at + 60, ms: 60_000, role: 'engineer', model: 'a', cost_usd: 0.1 },
+    { ts: at + 90, ms: 60_000, role: 'reviewer', model: 'b', cost_usd: 0.2 },
+    { ts: at + 50, ms: 10_000, role: 'manager', model: 'a', cost_usd: null },
+    { ts: at + 100, ms: 10_000, role: 'engineer', model: 'b', cost_usd: 0 },
+    { ts: at + 125, ms: 5_000, role: 'engineer', model: null, cost_usd: 0.3 },
+    { ts: at - 1, role: 'planner', model: 'a', cost_usd: null }, // Old record: priced independently of duration.
+    { ts: null, ms: 100, role: null, model: null, cost_usd: null },
+    { ts: at, ms: -1, role: 'engineer', model: 'a', cost_usd: null },
+  ].map(row => ({ ...row, tokens: { input_tokens: 100, output_tokens: 10 } }));
+  fs.writeFileSync(path, rows.map(row => JSON.stringify(row) + '\n').join(''));
+  const live = { since: null, calls: [], requests: [] };
+  const snap = snapshot(store, project, live);
+  const summary = snap.usage_summary!;
+  assert.equal(summary.work_duration_ms, 105_000);
+  assert.equal(summary.calls_without_duration, 3);
+  assert.equal(summary.call_count, 8);
+  assert.ok(Math.abs(summary.known_cost_usd - 0.6) < 1e-12);
+  assert.equal(summary.pricing_status, 'unpriced');
+  for (const dimension of [summary.by_role, summary.by_model, summary.by_date]) {
+    for (const key of ['call_count', 'known_cost_usd', 'input_tokens', 'output_tokens', 'priced_calls', 'unpriced_calls'] as const) {
+      assert.ok(Math.abs(dimension.reduce((sum, group) => sum + group[key], 0) - summary[key]) < 1e-12, key);
+    }
+  }
+  assert.deepEqual(summary.by_role.map(group => [group.key, group.call_count]), [[null, 1], ['engineer', 4], ['manager', 1], ['planner', 1], ['reviewer', 1]]);
+  assert.deepEqual(summary.by_model.map(group => [group.key, group.call_count]), [[null, 2], ['a', 4], ['b', 2]]);
+  assert.deepEqual(summary.by_date.map(group => [group.key, group.call_count]), [[null, 1], ['2026-10-29', 1], ['2026-10-30', 6]]);
+  assert.equal(summary.by_role.find(group => group.key === 'manager')!.cost_usd, null);
+  assert.equal(summary.by_role.find(group => group.key === 'manager')!.pricing_status, 'unpriced');
+  const listed = projectRow(store, project, live);
+  assert.deepEqual([listed.spend_usd, listed.spend_status], [summary.cost_usd, summary.pricing_status]);
+  assert.equal(snapshot(store, project, live).usage_summary, summary, 'unchanged lines reuse the same summary object');
+  fs.appendFileSync(path, JSON.stringify({ ts: at + 70, ms: 70_000, role: 'engineer', cost_usd: null }) + '\n');
+  assert.equal(snapshot(store, project, live).usage_summary!.work_duration_ms, 105_000, 'out of order containing intervals count once');
+  assert.equal(summary.call_count, 8, 'a previous response stays immutable');
+});

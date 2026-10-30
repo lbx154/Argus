@@ -19,7 +19,7 @@ export class CostProjectionStream {
       }
       this.seen.add(value.project_id);
       this.active = { id: value.project_id, summary: new UsageSummaryAccumulator({
-        maxRecords: READ_API.max_cost_records, maxIdentities: READ_API.max_cost_identities,
+        maxRecords: READ_API.max_cost_records,
       }) };
     } else if (value.kind === 'cost_record') {
       if (!this.active || this.records >= READ_API.max_cost_records) throw new Error('unexpected or excessive usage records');

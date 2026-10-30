@@ -22,7 +22,7 @@ Verification:
 
 - Backend: 2,019 selected regressions, 2,017 passed and two platform skips.
 - Frontend: 17 session-name/create/sidebar checks passed.
-- Ruff, Web/TUI builds and release artifact validation passed. Python type
+- Ruff, Web builds and release artifact validation passed. Python type
   comparison: 1,283 existing diagnostics, zero introduced.
 - Real browser with Argus-Pi, using an initially unnamed session:
   - `17` followed by a request to explain binary search → `二分查找原理`.

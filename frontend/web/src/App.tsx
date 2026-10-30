@@ -4,9 +4,8 @@ import type { MapSendOptions } from './map/submission';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useProjects, useSnapshot, useProjectActions, useArtifacts, useWorkspaceTree } from './hooks';
 import { useConversationHistory } from './useConversationHistory';
-import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type UploadedAttachment, type EventMsg, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, PairingRequiredError } from './api';
-import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
-import { LearningStatus } from './components/LearningStatus';
+import { api, holdsToken, isConnectionError, newRequestId, signOut, type AttachmentUploadOptions, type UploadedAttachment, type EventMsg, type MessageRouteOverride, PairingRequiredError } from './api';
+import { LearningLibrary, type LearningScope } from './components/LearningLibrary';
 import { ComposerRuntime } from './components/ComposerRuntime';
 import { TopBar } from './components/TopBar';
 import { ReplyChoiceContext } from './components/ReplyOptions';
@@ -60,6 +59,7 @@ import { useDeliveryCenter } from './useDeliveryCenter';
 import { deliveryFiles, defaultDeliverySelection } from './components/deliveryPresentation';
 import { projectAttention } from './lib/attention';
 import { useAttentionSignals } from './useAttentionSignals';
+import { useBrowserNotifications } from './useBrowserNotifications';
 import { DraftUploadContext, DraftUploads, type DraftUploadView } from './lib/draftUploads';
 import type { DeliveryReceipt } from '../../core/src/types';
 import {
@@ -88,6 +88,7 @@ const MapPanel = lazy(async () => {
 });
 
 export default function App() {
+  const notifications = useBrowserNotifications();
   const { locale, t } = useI18n();
   // The pairing error carries a fixed English message; show the localized copy instead.
   const landingErrorText = (error: unknown): string =>
@@ -101,16 +102,9 @@ export default function App() {
 
   const [overlay, setOverlay] = useState<Overlay>('none');
   const openSettings = useCapability(SETTINGS_CAPABILITY) ? () => setOverlay('config') : undefined;
-  const [learningSelection, setLearningSelection] = useState<LearningSelection | null>(null);
   const [learningScope, setLearningScope] = useState<LearningScope>('feed');
   const openLearningLibrary = useCallback((scope: LearningScope) => {
-    setLearningSelection(null);
     setLearningScope(scope);
-    setOverlay('learning');
-  }, []);
-  const openSkillLibrary = useCallback((item?: SkillLibraryItem, scope: SkillScope | 'recent' = 'recent') => {
-    setLearningSelection(item ?? null);
-    setLearningScope(item || scope !== 'recent' ? 'global' : 'feed');
     setOverlay('learning');
   }, []);
   const {
@@ -425,6 +419,8 @@ export default function App() {
     return state === 'running' || state === 'waiting';
   }, [snap]);
   useAttentionSignals({
+    projectId: loadedSid,
+    notificationsEnabled: notifications.enabled,
     projectName: projects.find(project => project.id === activeSid)?.display_name?.trim()
       || (loadedSid === activeSid ? snap?.session.display_name?.trim() || snap?.session.objective.split('\n')[0]?.trim() : '') || '',
     attention,
@@ -933,7 +929,6 @@ export default function App() {
                 </button>
               </nav>
               {snap ? <>
-              {!kiosk && workspaceView === 'workbench' && <LearningStatus sid={activeSid} onOpenSkills={() => openSkillLibrary()} />}
               {workspaceView === 'map' && <Suspense fallback={<div className="m-auto text-sm text-ink-faint">{t('common.loading')}</div>}><MapPanel requestedTaskId={searchTarget?.sid === loadedSid ? searchTarget.task_id : undefined} onTaskLocated={() => setSearchTarget(null)} key={snap.session.id} immersive={mapImmersive} onImmersiveChange={setMapFull} snapshot={snap} pending={messagePending} readOnly={kiosk}
                 onStopWork={stopWork} onResumeTeam={requestStartDaemon} onFocusComposer={focusComposer} teamBusy={daemonBusy}
                 conversationEvents={activityEvents} conversationPagination={conversationPagination} connected={connected} artifacts={artifactsQ.data ?? []}
@@ -1126,7 +1121,7 @@ export default function App() {
         path={editor.path} initialVersion={editor.version} onClose={() => setEditor(null)}
         onRequest={text => { if (composeContext(text)) setEditor(null); }} />}
       <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
-        {overlay === 'learning' && <LearningLibrary sid={activeSid} initialSelection={learningSelection} initialScope={learningScope}
+        {overlay === 'learning' && <LearningLibrary sid={activeSid} initialScope={learningScope}
           onUse={kiosk ? undefined : useMaterial}
           projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
       </Modal>
@@ -1135,6 +1130,7 @@ export default function App() {
       {activeSid && (
         <ConfigModal
           sid={activeSid}
+          notifications={notifications}
           themeMode={themeMode}
           onCycleTheme={cycleTheme}
           open={overlay === 'config'}
@@ -1154,7 +1150,7 @@ export default function App() {
         onEdit={onEditArtifact}
         onSelectPath={setArtifactPath}
         onClose={() => setArtifactPath(null)} />
-      <TaskDetailModal sid={activeSid} itemId={taskItemId} onClose={() => setTaskItemId(null)} />
+      <TaskDetailModal sid={activeSid} itemId={taskItemId} onClose={() => setTaskItemId(null)} onOpenArtifact={setArtifactPath} />
       {manageTargetSid ? (
         <DaemonManageModal
           open={daemonManageOpen}

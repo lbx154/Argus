@@ -50,7 +50,7 @@ def manager_execution_handoff(
     global_root: Path | str | None = None,
     root_task_id: str | None = None,
 ) -> str:
-    """Resolve a direct Web/TUI command into Manager's role-clean handoff."""
+    """Resolve a direct Web command into Manager's role-clean handoff."""
     from ..life.memory import MemoryBundle
     from ..manager.front_door import manager_execution_task
 

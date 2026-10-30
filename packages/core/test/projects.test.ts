@@ -151,6 +151,25 @@ test('a project has its own backend, model and effort, which the settings change
   assert.deepEqual([store.load(sid).model, store.load(sid).backend], ['claude-sonnet-4-5', 'claude']);
 });
 
+test('new projects inherit the most recently created project settings, including defaults, rather than the last active project', async t => {
+  const { store, create, send, get } = await setup(t);
+  const first = await create();
+  assert.deepEqual([store.load(first).backend, store.load(first).model, store.load(first).effort], ['codex', null, undefined]);
+  store.save({ ...store.load(first), created: '2020-01-01T00:00:00.000Z', backend: 'claude', model: 'opus', effort: 'high', sessions: { manager: 'old' } });
+  const second = await create();
+  assert.deepEqual([store.load(second).backend, store.load(second).model, store.load(second).effort, store.load(second).sessions], ['claude', 'opus', 'high', {}]);
+  // An older project's new activity must not become the next project's defaults.
+  store.append(first, { type: 'message', from: 'operator', text: 'recent activity' });
+  await get('/api/projects');
+  for (const [name, value] of [['ARGUS_SKILL_RUNNER_BACKEND', 'pi'], ['ARGUS_SKILL_MODEL', 'auto'], ['ARGUS_SKILL_REASONING_EFFORT', 'default']]) {
+    assert.equal((await send('POST', `/api/projects/${second}/config/set`, { name, value })).status, 200);
+  }
+  const third = await create();
+  assert.deepEqual([store.load(third).backend, store.load(third).model, store.load(third).effort], ['pi', null, undefined]);
+  const config = await get<{ roles: { backend: string; model: string; reasoning_effort: string | null }[] }>(`/api/projects/${third}/config`);
+  assert.ok(config.roles.every(role => role.backend === 'pi' && role.model === '' && role.reasoning_effort === null));
+});
+
 test('a project is named by the operator, marked in the sidebar, and restored from the trash', async t => {
   const { home, store, send, get, create, busy } = await setup(t);
   const sid = await create();

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Atomically refresh Argus release identity and both production frontends."""
+"""Refresh the Python release identity and production web frontend."""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m argus.release_tools.build_release",
         description=(
-            "Refresh the release identity and rebuild both production frontends "
+            "Refresh the release identity and rebuild the production web frontend "
             "in place: generated protocol types and fixtures, the release "
-            "manifest, frontend/web/dist and frontend/tui/bundle. Run it from a "
+            "manifest and frontend/web/dist. Run it from a "
             "source checkout with the project interpreter; there are no options."
         ),
     )
@@ -59,7 +59,6 @@ def main(argv: list[str] | None = None) -> int:
             "--prepare-build",
         )
         run(NPM_COMMAND, "run", "build", cwd=ROOT / "frontend" / "web")
-        run(NPM_COMMAND, "run", "build", cwd=ROOT / "frontend" / "tui")
         run(
             sys.executable,
             "-m",

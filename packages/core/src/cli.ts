@@ -16,6 +16,7 @@ import { BACKENDS, type Backend } from './types.js';
 const USAGE = `Usage: argus [--host H] [--port N] [--backend codex|claude|copilot|pi] [--model M] [--web DIR] [--version]
 Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), at the address it prints.
 The team works through the --backend CLI (codex unless chosen), which must be installed and signed in.
+Work stops when this process exits; the next start resumes projects that were running. Closing the browser leaves work running.
 ARGUS_WEB_TOKEN: the token the cockpit asks for; unset, the one kept in the state root. ARGUS_HOME: the state root (~/.argus).
 `;
 
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
     web: resolve(values.web ?? fileURLToPath(new URL('../web', import.meta.url))),
   }).catch((error: unknown) => { release(); throw error; });
   process.stdout.write(`Argus is at ${served.url}/?token=${encodeURIComponent(token)}\n`);
+  process.stdout.write('Work stops when this process exits; the next start resumes projects that were running. Closing the browser leaves work running.\n');
   const missing = notInstalled(backend);
   if (missing) process.stdout.write(`${missing}, then sign in to it.\n`);
   const stop = (): void => { void served.close().finally(release); };

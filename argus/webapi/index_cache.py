@@ -16,7 +16,7 @@ running and the server never recovers; that is how a cockpit with a handful of
 open tabs ends up taking 30s to answer ``/api/projects`` and starves every
 other synchronous route of a worker thread. Per-project snapshots have the same
 failure mode: they aggregate event history, spend, provider usage, daemon state,
-mission view and host metrics, while the TUI starts a new poll every five seconds.
+mission view and host metrics.
 
 This module is the dumb pipe that fixes it: concurrent callers asking for the
 same key share a single computation ("single flight"), and the result is reused

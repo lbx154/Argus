@@ -1,24 +1,4 @@
-"""argus CLI — the ``argus`` console script of the 7×24 lifetime agent.
-
-The product has one positioning: a long-running supervised coding agent
-that drains a backlog forever. ``argus`` is the operator's entry to
-it and, with no subcommand:
-
-* launches the Ink cockpit, and
-* by default ensures a detached daemon is alive draining the backlog
-  in the background even after you log out.
-
-It is not the only console script: ``pyproject.toml`` also installs
-``argus`` (TUI launcher), ``argus-doctor`` and ``argus-plugin-server``;
-this module owns only ``argus``.
-
-Top-level flags control daemon lifecycle and read-only operator help
-(``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
-``--daemon-runbook``, ``--no-daemon``). Subcommands are admin helpers —
-``doctor``, ``repair``, ``update``, ``learn`` and ``wiki`` (``wiki init
-<project>``, ``wiki correct``); ``_parser.py`` is the authoritative list.
-The cockpit and backlog remain the single runtime workflow.
-"""
+"""Python administration and daemon commands for existing projects."""
 from __future__ import annotations
 
 import argparse
@@ -38,6 +18,7 @@ from .._target_paths import resolve_life_root
 from ._follow import (
     _clean_follow_text,
     _follow_layer_from_event,
+    _format_follow_event,
     _format_follow_heartbeat,
     _read_backlog_rows,
     _resolve_follow_events_path,
@@ -180,7 +161,7 @@ def _session_for_current_workdir(
 ) -> str | None:
     """Newest session bound to the selected workdir, preferring a live daemon.
 
-    Web/TUI sessions are keyed by session id rather than the legacy cwd
+    Web sessions are keyed by session id rather than the legacy cwd
     fingerprint. Without this bridge, running ``argus --status`` from the exact
     execution directory can report a different empty project while that
     session's daemon is visibly alive in the cockpit.
@@ -397,8 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     # ---- mutual exclusion -----------------------------------------
-    # Action-style flags pick exactly one mission; --no-daemon and
-    # --life-dir are modifiers and may combine with any of them.
+    # Action-style flags pick exactly one mission; --life-dir is a modifier.
     action_flags = (
         bool(args.daemon)
         + bool(getattr(args, "update", False))
@@ -527,36 +507,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run_with_path_resolution_errors(lambda: _cmd_watch(args))
     if args.follow:
         return _run_with_path_resolution_errors(lambda: _cmd_follow(args))
-    if getattr(args, "pair_plan", False):
-        # Internal bridge for the Ink cockpit. It spawns the backend detached
-        # with stdio discarded, so it cannot see the banner the child prints;
-        # it asks for the plan here instead, passes the token down to the
-        # child, and prints the banner itself. Keeps token minting, URL
-        # construction, and QR rendering in one implementation.
-        import json as _json
-
-        from ...webapi.pairing import is_loopback_host, pairing_plan
-
-        pair_host = str(getattr(args, "web_host", "127.0.0.1") or "127.0.0.1")
-        plan = pairing_plan(
-            pair_host,
-            int(getattr(args, "web_port", 8799) or 8799),
-        )
-        sys.stdout.write(
-            _json.dumps(
-                {
-                    "token": plan.token,
-                    "url": plan.url,
-                    "banner": plan.banner,
-                    # The cockpit prints its own one-line URL for a loopback
-                    # bind; the full banner is only worth showing when a phone
-                    # actually has to pair.
-                    "pairing": not is_loopback_host(pair_host),
-                }
-            )
-        )
-        return 0
-    if getattr(args, "web", False):
+    if getattr(args, "web", False) or action_flags == 0:
         # Nothing may promise a URL before the stack that serves it is known
         # to be present.
         missing = _missing_web_dependency()
@@ -635,12 +586,8 @@ def main(argv: list[str] | None = None) -> int:
             lambda: _cmd_lifecycle_transition(args, action="archive")
         )
 
-    # All interactive use goes through the Ink cockpit; ``argus`` remains
-    # the daemon/admin CLI for explicit flags.
-    from ..tui_launcher import main as run_tui
-
-    forwarded = list(sys.argv[1:] if argv is None else argv)
-    return run_tui(forwarded)
+    parser.print_help()
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1065,10 +1012,9 @@ def _cmd_follow(args: argparse.Namespace) -> int:
     current_mission: dict[str, str] = {"item_id": "", "title": "", "objective": ""}
     from ...cli.theme import Theme
     from ...core import log_view as lv
-    from ._follow import _FollowCoalescer, _FollowEventRenderer
+    from ._follow import _FollowCoalescer
     state = lv.LogState()
     theme = Theme.auto()
-    renderer = _FollowEventRenderer(theme=theme)
     last_event_at = time.monotonic()
     last_heartbeat_at = 0.0
     seen_order: deque[str] = deque(maxlen=512)
@@ -1117,10 +1063,11 @@ def _cmd_follow(args: argparse.Namespace) -> int:
                 "title": title,
                 "objective": objective,
             }
-        body = renderer.render(
+        body = _format_follow_event(
             ev,
             current_layer,
             mission_context=current_mission,
+            theme=theme,
         )
         if not body:
             return
@@ -1216,7 +1163,6 @@ def _cmd_follow(args: argparse.Namespace) -> int:
         print("\nargus: stopped following", flush=True)
     finally:
         coalescer.flush()
-        renderer.close()
         if fh is not None:
             fh.close()
     return 0

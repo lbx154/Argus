@@ -27,8 +27,8 @@ principle in [docs/PRINCIPLES.md](docs/PRINCIPLES.md) that requires it.
 ## TypeScript runtime
 
 The root npm workspace contains the shared contracts, experimental runtime and
-read API packages. With Node 22.12+, run `npm ci` and `npm run check`. Web and TUI retain
-their own install/build commands. Contract edits require
+read API packages and the web core. With Node 22.12+, run `npm ci` and
+`npm run check`. The web frontend retains its own install/build commands. Contract edits require
 `npm run contracts:generate`; generated files are checked by CI.
 Build with `npm run build` before running Python tests to include the real
 Node/Python read API integration tests.
@@ -36,14 +36,19 @@ Node/Python read API integration tests.
 See [the migration guide](docs/typescript-migration.md) for supported behaviour,
 Python compatibility, state ownership and the remaining migration steps.
 
-## Web and TUI bundles
+## Web build
 
-`frontend/web/dist` and `frontend/tui/bundle` are committed. After changing
-`frontend/web/src`, `frontend/tui/src` or `frontend/core/src`, rebuild them with
-`python -m argus.release_tools.build_release` from the project interpreter and
-commit the result; otherwise `argus --web` from a source checkout keeps serving
-the previous interface. `argus doctor` reports `ARGUS-ASSET-002` when a bundle
-was committed before the newest change to its source.
+Install the frontend dependencies with `npm --prefix frontend/web ci`. Run
+`npm --prefix frontend/web run typecheck` and `npm --prefix frontend/web test`.
+Build the page the TypeScript package serves with `npm run web -w packages/core`;
+run the CLI with `ARGUS_HOME` set to a scratch directory:
+
+```sh
+ARGUS_HOME=/absolute/path/to/scratch node packages/core/dist/argus.mjs --port 0
+```
+
+The release process generates the frontend bundles and the Python release
+manifest. Development commits contain source, tests and documentation only.
 
 ## Archived work
 
