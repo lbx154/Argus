@@ -77,7 +77,7 @@ test('recorded task: dialogue and map share hidden progress while asking, closin
     if (map!.latest_action) assert.ok(String(row.progress).startsWith(firstLine(map!.latest_action.text).replace(/…$/, '')));
     else assert.equal(row.progress, '');
     assert.deepEqual(row.result_paths, map!.result_paths);
-    assert.deepEqual(row.result_paths, work.tasks[2]!.status === 'closed' ? ['result.md'] : []);
+    assert.deepEqual(row.result_paths, []); // The fragment ends before the Manager reports.
     // Controlled pending state over the real record: the question itself owns the card.
     work.questions = [{ role: 'reviewer', task: 't3', question: 'Ship the recorded result?' }];
     const asking = conversationRows(reading, work, idle).find(row => row.type === 'ui.task')!;

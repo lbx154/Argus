@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, readFile, rm, statfs, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, statfs, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -217,59 +217,59 @@ test('the results listed are what the project delivered and changed, not what it
   assert.deepEqual(artifacts.map(row => row.path), ['out/report.md', 'src/index.js']);
 });
 
-test('an HTML result is previewed as one page, its local files inlined, that can reach nothing', async t => {
-  const files = {
-    'site/index.html': '<!doctype html><html><head><link rel="stylesheet" href="style.css?v=1"><script src="app.js"></script>'
-      + '<style>h1 { background: url("img/dot.png") }</style></head><body><img src="img/dot.png"><a href="next.html">next</a>'
-      + '<img src="../../secret.png"><img src="https://example.com/x.png"><div style="background:url(\'/img/dot.png\')"></div></body></html>',
-    'site/style.css': 'body { background: url(img/dot.png) }',
-    'site/app.js': 'document.title = "ok";',
-    'site/img/dot.png': 'PNG',
-    'site/deep/page.html': '<script src="../app.js"></script>',
-  };
+test('an HTML result and its modules, CSP and styles are served unchanged on a separate origin', async t => {
+  const { files } = JSON.parse(await readFile(new URL('./fixtures/static-preview.json', import.meta.url), 'utf8')) as { files: Record<string, string> };
   const { project, call, get } = await setup(t, files);
   const P = `/api/projects/${project.id}`;
-  const shown = await get<{ html: string; warnings: string[]; file_count: number; served_page: boolean }>(`${P}/artifact/preview?path=site/index.html`);
-  const data = (type: string, text: string) => `data:${type};base64,${Buffer.from(text).toString('base64')}`;
-  const dot = data('image/png', 'PNG');
-  const policy = 'default-src \'none\'; script-src \'unsafe-inline\' data: blob:; style-src \'unsafe-inline\' data:; '
-    + 'img-src data: blob:; font-src data:; media-src data: blob:; base-uri \'none\'; form-action \'none\'';
-  assert.equal(shown.html, `<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">`
-    + `<html><head><link rel="stylesheet" href="${data('text/css', `body { background: url(${dot}) }`)}">`
-    + `<script src="${data('text/javascript', 'document.title = "ok";')}"></script><style>h1 { background: url(${dot}) }</style></head>`
-    + `<body><img src="${dot}"><a href="next.html">next</a><img src="data:,"><img src="https://example.com/x.png">`
-    + `<div style="background:url(${dot})"></div></body></html>`);
-  assert.deepEqual(shown.warnings, ['Could not include local resource: ../../secret.png']);
-  assert.equal(shown.file_count, 4);
-  assert.equal(shown.served_page, true);
+  const shown = await get<{ url: string }>(`${P}/artifact/preview?path=site/index.html`);
+  const url = new URL(shown.url);
+  assert.notEqual(url.origin, new URL((await call('/api/meta')).url).origin);
+  assert.match(url.pathname, /^\/[A-Za-z0-9_-]{32}\/site\/index.html$/);
+  for (const [path, content] of Object.entries(files)) {
+    const response = await fetch(new URL(path.slice('site/'.length), shown.url));
+    if (path.includes('/.')) { assert.equal(response.status, 404); continue; }
+    assert.equal(response.status, 200);
+    assert.equal(await response.text(), content);
+    assert.equal(response.headers.get('content-security-policy'), null);
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
+  }
+  assert.equal((await fetch(new URL('engine.mjs?v=1', shown.url))).headers.get('content-type'), 'text/javascript; charset=utf-8');
+  assert.equal((await fetch(shown.url, { method: 'HEAD' })).headers.get('content-length'), String(Buffer.byteLength(files['site/index.html']!)));
+  assert.equal(await (await fetch(shown.url, { method: 'HEAD' })).text(), '');
+  assert.equal((await fetch(shown.url, { headers: { range: 'bytes=0-8' } })).status, 206);
   assert.equal((await call(`${P}/artifact/preview?path=site/style.css`)).status, 404);
-  // Without a token there is no cookie to grant, and the frame loads the same page by URL, sandboxed by its policy.
   assert.equal((await call(`${P}/artifact/preview?path=site/index.html`)).headers.get('set-cookie'), null);
-  const served = await call(`${P}/artifact/preview/page?path=site/index.html`);
-  assert.deepEqual(['content-type', 'content-security-policy', 'x-content-type-options', 'cache-control', 'referrer-policy'].map(name => served.headers.get(name)),
-    ['text/html; charset=utf-8', `sandbox allow-scripts allow-downloads; ${policy}`, 'nosniff', 'private, no-store', 'no-referrer']);
-  assert.equal(await served.text(), shown.html);
-  assert.equal((await call(`${P}/artifact/preview/page?path=site/style.css`)).status, 404);
-
-  // The page and the files it names as they are, in a zip rooted at its folder, with what was left out.
+  assert.equal((await call(`${P}/artifact/preview/page?path=site/index.html`)).status, 404);
+  await writeFile(join(project.workdir, '..', 'outside.txt'), 'outside');
+  await symlink('../outside.txt', join(project.workdir, 'site/leak.txt'));
+  for (const path of ['leak.txt', '../../../outside.txt', '%2e%2e%2f%2e%2e%2foutside.txt', '.env']) {
+    assert.equal((await fetch(new URL(path, shown.url))).status, 404, path);
+  }
+  for (const path of ['/api/meta', P + '/snapshot', '/wrong/site/index.html']) {
+    assert.equal((await fetch(new URL(path, url))).status, 404);
+  }
+  assert.equal((await fetch(shown.url, { method: 'POST' })).status, 404);
+  // Preview requests cannot reach even a token-free cockpit's API.
+  for (const path of ['/api/meta', '/api/daemons', P + '/snapshot']) {
+    assert.equal((await call(path, { method: path === '/api/daemons' ? 'POST' : 'GET', headers: { origin: url.origin } })).status, 403);
+  }
+  assert.equal((await call('/api/meta', { headers: { origin: 'null' } })).status, 403);
+  assert.equal((await call('/api/meta', { headers: { origin: new URL((await call('/api/meta')).url).origin } })).status, 200);
   const site = await call(`${P}/artifact/bundle?path=site/index.html`);
   assert.deepEqual([site.headers.get('content-type'), site.headers.get('content-disposition')], ['application/zip', 'attachment; filename*=UTF-8\'\'argus-website.zip']);
-  assert.deepEqual(unzip(Buffer.from(await site.arrayBuffer())), {
-    'index.html': files['site/index.html'], 'style.css': files['site/style.css'], 'app.js': files['site/app.js'], 'img/dot.png': 'PNG',
-    'ARGUS-PREVIEW-NOTES.txt': 'Could not include local resource: ../../secret.png',
-  });
-  // A page that names a file above its folder is zipped from the folder holding both.
+  assert.deepEqual(unzip(Buffer.from(await site.arrayBuffer())), Object.fromEntries(Object.entries(files).filter(([path]) => !path.includes('/.')).map(([path, body]) => [path.slice(5), body])));
   const deep = await call(`${P}/artifact/bundle?path=site/deep/page.html`);
-  assert.deepEqual(unzip(Buffer.from(await deep.arrayBuffer())), { 'deep/page.html': files['site/deep/page.html'], 'app.js': files['site/app.js'] });
+  assert.deepEqual(unzip(Buffer.from(await deep.arrayBuffer())), Object.fromEntries(Object.entries(files).filter(([path]) => !path.includes('/.')).map(([path, body]) => [path.slice(5), body])));
 
   // Results chosen together: each once, under its path; those not there are named in the summary's README.
   const bundle = (body: Record<string, unknown>) => call(`${P}/artifacts/bundle`, { method: 'POST', body: JSON.stringify(body) });
   const chosen = await bundle({
-    paths: ['site/app.js', ' site/img/dot.png ', 'site/app.js', 'gone.csv', '../../secret.png'], name: 'Q3: sales / "final".', summary: ' The sales site. ',
+    paths: ['site/app.js', ' site/img/dot.svg ', 'site/app.js', 'gone.csv', '../../secret.png'], name: 'Q3: sales / "final".', summary: ' The sales site. ',
   });
   assert.equal(chosen.headers.get('content-disposition'), 'attachment; filename*=UTF-8\'\'Q3%20sales%20final.zip');
   assert.deepEqual(unzip(Buffer.from(await chosen.arrayBuffer())), {
-    'site/app.js': files['site/app.js'], 'site/img/dot.png': 'PNG',
+    'site/app.js': files['site/app.js'], 'site/img/dot.svg': files['site/img/dot.svg'],
     'README-Argus.md': 'The sales site.\n\nNot included (no longer available):\n- gone.csv\n- ../../secret.png\n',
   });
   assert.equal((await bundle({ paths: ['site/app.js'], name: ' .. ' })).headers.get('content-disposition'), 'attachment; filename*=UTF-8\'\'argus-results.zip');
@@ -281,19 +281,127 @@ test('an HTML result is previewed as one page, its local files inlined, that can
   assert.equal((await bundle({ paths: ['huge.bin'] })).status, 413);
 });
 
-test('with a token, the preview grants a cookie that its page alone takes, as a frame cannot send the bearer, and that is not the token', async t => {
-  const { project, call } = await setup(t, { 'index.html': '<p>hi</p>' }, 'secret');
+test('website downloads include only the page and files served by that preview, without scanning directories', async t => {
+  const { files } = JSON.parse(await readFile(new URL('./fixtures/static-preview.json', import.meta.url), 'utf8')) as { files: Record<string, string> };
+  const { project, call, get } = await setup(t, files);
   const P = `/api/projects/${project.id}`;
-  const page = (cookie?: string) => call(`${P}/artifact/preview/page?path=index.html`, { headers: { authorization: '', ...cookie ? { cookie } : {} } });
-  assert.equal((await page()).status, 401);
-  assert.equal((await page('argus_preview_access=wrong')).status, 401);
-  const granted = (await call(`${P}/artifact/preview?path=index.html`)).headers.get('set-cookie');
-  assert.match(granted ?? '', /^argus_preview_access=[\w-]{36}; Path=\/api\/projects; HttpOnly; SameSite=Strict$/);
-  assert.doesNotMatch(granted!, /secret/);
-  const shown = await page(`theme=dark; ${granted!.split(';')[0]}`);
-  assert.equal(shown.status, 200);
-  assert.match(await shown.text(), /<p>hi<\/p>$/);
-  assert.equal((await call(`${P}/artifact/preview?path=index.html`, { headers: { authorization: '', cookie: 'argus_preview_access=secret' } })).status, 401);
+  await writeFile(join(project.workdir, 'large-unrelated.bin'), '');
+  await truncate(join(project.workdir, 'large-unrelated.bin'), 2 ** 35);
+  const download = async (path = 'site/deep/index.html', delivery = '') => unzip(Buffer.from(await (await call(`${P}/artifact/bundle?${new URLSearchParams({ path, ...(delivery ? { delivery } : {}) })}`)).arrayBuffer()));
+  assert.deepEqual(await download(), { 'index.html': files['site/deep/index.html'] });
+  const { url } = await get<{ url: string }>(`${P}/artifact/preview?path=site/deep/index.html`);
+  assert.deepEqual(await download(), { 'index.html': files['site/deep/index.html'] });
+  const servedPaths = ['site/deep/index.html', 'site/style.css', 'site/app.js', 'site/engine.mjs', 'site/lib/formula.mjs', 'site/img/dot.svg'];
+  for (const path of servedPaths) {
+    const response = await fetch(new URL('../' + path.slice(5), url));
+    assert.equal(response.status, 200);
+    await response.arrayBuffer();
+  }
+  // HEAD and rejected/missing requests do not add a resource.
+  await fetch(new URL('page.html', url), { method: 'HEAD' });
+  assert.equal((await fetch(new URL('../.env', url))).status, 404);
+  assert.equal((await fetch(new URL('missing.js', url))).status, 404);
+  assert.equal((await fetch(new URL('page.html', url), { headers: { range: 'bytes=1000-' } })).status, 416);
+  const expected = Object.fromEntries(servedPaths.map(path => [path.slice(5), files[path]]));
+  // Guard the real download entry point: no directory should be listed, however large the workspace.
+  t.mock.method(fs, 'readdirSync', () => { throw new Error('website download must not walk the workspace'); });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  for (const path of ['site/deep/index.html', join(project.workdir, 'site/deep/index.html')]) assert.deepEqual(await download(path), expected);
+  // A different delivery gets a different key and no files from the current preview.
+  assert.deepEqual(await download('site/deep/index.html', 'd-other'), { 'index.html': files['site/deep/index.html'] });
+});
+
+test('static directories redirect to their slash URL only when the index passes the file boundary', async t => {
+  const { project, get } = await setup(t, {
+    'index.html': '<p>root</p>', 'site/index.html': '<a href="deep">next</a>',
+    'site/deep/index.html': '<p>nested</p>', 'site/file': '<p>file</p>',
+    'site/.hidden/index.html': '<p>hidden</p>',
+  });
+  const { url } = await get<{ url: string }>(`/api/projects/${project.id}/artifact/preview?path=site/index.html`);
+  const target = new URL('deep?from=link', url);
+  for (const method of ['GET', 'HEAD']) {
+    const redirect = await fetch(target, { redirect: 'manual', method });
+    assert.equal(redirect.status, 301);
+    assert.equal(redirect.headers.get('location'), target.pathname + '/?from=link');
+    assert.equal(await redirect.text(), '');
+  }
+  const followed = await fetch(target);
+  assert.equal(followed.status, 200);
+  assert.equal(followed.url, target.origin + target.pathname + '/?from=link');
+  assert.equal(await followed.text(), '<p>nested</p>');
+  assert.equal(await (await fetch(new URL('file', url), { redirect: 'manual' })).text(), '<p>file</p>');
+  const root = new URL('../', url);
+  root.pathname = root.pathname.slice(0, -1);
+  assert.equal((await fetch(root, { redirect: 'manual' })).status, 301);
+  assert.equal(await (await fetch(root)).text(), '<p>root</p>');
+  const outside = join(project.workdir, '..', 'outside');
+  await mkdir(outside);
+  await writeFile(join(outside, 'index.html'), 'outside');
+  await symlink(outside, join(project.workdir, 'site/linked'));
+  for (const name of ['linked', 'linked/', '.hidden', '.hidden/', 'missing', 'missing/']) {
+    assert.equal((await fetch(new URL(name, url), { redirect: 'manual' })).status, 404, name);
+  }
+});
+
+test('a valid bearer still works when a development proxy changes Host but preserves Origin', async t => {
+  const { project, call, get } = await setup(t, { 'index.html': '<p>site</p>' }, 'secret');
+  const P = `/api/projects/${project.id}`;
+  const directOrigin = new URL((await call('/api/meta')).url).origin;
+  for (const origin of [directOrigin, 'http://127.0.0.1:5173', 'http://localhost:5173']) {
+    const response = await call(`${P}/daemon/stop`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(response.status, 200, origin);
+  }
+  const { url } = await get<{ url: string }>(`${P}/artifact/preview?path=index.html`);
+  // The preview's real Origin survives the same proxy, including a different host spelling.
+  for (const origin of [new URL(url).origin, `http://localhost:${new URL(url).port}`, 'null']) {
+    const response = await call(`${P}/daemon/stop`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(response.status, 403, origin);
+  }
+  assert.equal((await call(`${P}/daemon/stop`, { method: 'POST', headers: { origin: 'http://127.0.0.1:5173', authorization: '' }, body: '{}' })).status, 401);
+});
+
+test('a token-free API rejects every foreign browser origin before a text/plain JSON request creates a project', async t => {
+  const { store, call, get } = await setup(t, { 'index.html': '<p>delivery</p>' });
+  const work = store.list()[0]!;
+  const origin = new URL((await call('/api/meta')).url).origin;
+  const site = new URL((await get<{ url: string }>(`/api/projects/${work.id}/artifact/preview?path=index.html`)).url);
+  const other = new URL(origin);
+  other.port = String([30000, 30001, 30002].find(port => ![new URL(origin).port, site.port].includes(String(port)))!);
+  for (const foreign of [other.origin, 'http://untrusted.example', 'null']) {
+    const response = await call('/api/daemons', {
+      method: 'POST', headers: { origin: foreign, 'content-type': 'text/plain', authorization: 'Bearer unconfigured', 'x-forwarded-host': new URL(foreign === 'null' ? other.origin : foreign).host }, body: '{}',
+    });
+    assert.deepEqual({ status: response.status, projects: store.list().length, directories: (await readdir(join(store.home, 'projects'))).length },
+      { status: 403, projects: 1, directories: 1 }, foreign);
+    assert.equal((await call('/api/meta', { headers: { origin: foreign } })).status, 403, foreign);
+  }
+  // Ordinary browser requests and local HTTP clients keep their existing access.
+  for (const headers of [{ origin }, {}]) {
+    const response = await call('/api/daemons', { method: 'POST', headers: { ...headers, 'content-type': 'text/plain' }, body: '{}' });
+    assert.equal(response.status, 200);
+  }
+  assert.equal((await readdir(join(store.home, 'projects'))).length, 3);
+});
+
+test('preview URLs need a bearer to obtain, never grant cookies, and confer no API access', async t => {
+  const { store, project, call, get } = await setup(t, { 'index.html': '<p>hi</p>' }, 'secret');
+  const P = `/api/projects/${project.id}`;
+  const path = `${P}/artifact/preview?path=index.html`;
+  assert.equal((await call(path, { headers: { authorization: '' } })).status, 401);
+  assert.equal((await call(path, { headers: { authorization: '', cookie: 'argus_preview_access=secret' } })).status, 401);
+  const granted = await call(path);
+  assert.equal(granted.headers.get('set-cookie'), null);
+  const { url } = await granted.json() as { url: string };
+  assert.doesNotMatch(url, /secret|token=/);
+  assert.equal(await (await fetch(url)).text(), '<p>hi</p>');
+  assert.deepEqual(await get(path), { url });
+  const second = store.create({ workdir: join(project.workdir, '../other'), request: '', backend: 'codex', model: null });
+  await mkdir(second.workdir, { recursive: true });
+  await writeFile(join(second.workdir, 'index.html'), 'other');
+  const secondUrl = (await get<{ url: string }>(`/api/projects/${second.id}/artifact/preview?path=index.html`)).url;
+  assert.notEqual(new URL(url).pathname.split('/')[1], new URL(secondUrl).pathname.split('/')[1]);
+  assert.equal((await call(P + '/snapshot', { headers: { authorization: '', cookie: 'argus_preview_access=secret' } })).status, 401);
 });
 
 test('unknown file extensions preview UTF-8 text, including JSONL, and leave binary bytes downloadable', async t => {
@@ -640,13 +748,14 @@ test('delivered HTML, nested resources, model assets and downloads use their own
   await writeFile(join(project.workdir, 'mesh.obj'), 'v 9 9 9\n');
   const second = keep(project, store.dir(project.id), paths);
   store.append(project.id, { type: 'handoff', role: 'manager', to: 'operator', letter: 'New page', open: paths, snapshots: second });
-  const old = await get<{ html: string; warnings: string[] }>(`${P}/artifact/preview?path=index.html&delivery=d0`);
-  assert.match(old.html, /Old page/);
-  assert.ok(old.html.includes(Buffer.from('body { color: red }').toString('base64')));
-  assert.deepEqual(old.warnings, [], 'a resource the delivery kept no copy of is the current file');
-  assert.ok(old.html.includes(Buffer.from('current image').toString('base64')));
-  assert.match(await (await call(`${P}/artifact/preview/page?path=index.html&delivery=d0`)).text(), /Old page/);
-  assert.match(await (await call(`${P}/artifact/preview/page?path=index.html&delivery=d1`)).text(), /New page/);
+  const old = await get<{ url: string }>(`${P}/artifact/preview?path=index.html&delivery=d0`);
+  const current = await get<{ url: string }>(`${P}/artifact/preview?path=index.html&delivery=d1`);
+  assert.notEqual(old.url, current.url);
+  assert.match(await (await fetch(old.url)).text(), /Old page/);
+  assert.match(await (await fetch(current.url)).text(), /New page/);
+  assert.equal(await (await fetch(new URL('style.css', old.url))).text(), 'body { color: red }');
+  assert.equal(await (await fetch(new URL('style.css', current.url))).text(), 'body { color: blue }');
+  assert.equal(await (await fetch(new URL('unlisted.png', old.url))).text(), 'current image');
   const files = unzip(Buffer.from(await (await call(`${P}/artifact/bundle?path=index.html&delivery=d0`)).arrayBuffer()));
   assert.match(files['index.html']!, /Old page/);
   assert.equal(files['style.css'], 'body { color: red }');

@@ -56,7 +56,7 @@ function agent(steps: Step[]): { callAgent: CallAgent; requests: AgentRequest[];
     await appendFile(request.usageFile, `${JSON.stringify({ ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: request.model ?? 'fake-model', tokens, cost_usd: 0.01 })}\n`);
     return {
       callId, threadId: `${request.role}-${requests.length}`, completed: true,
-      error: handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
+      error: handoff ? null : 'The turn ended without the hand-off form.', handoff, model: request.model ?? 'fake-model', usage: { ...tokens, cost_usd: 0.01 }, ms: 1,
     };
   };
   return { callAgent: Object.assign(callAgent, { close: async (prefix: string) => { closed.push(prefix); } }), requests, closed };
@@ -355,7 +355,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(asking.backlog.map(item => [item.id, item.status]), [['t1', 'blocked']]);
   assert.equal(asking.usage_summary?.call_count, 3);
   assert.equal(asking.spend_usd, 0.03);
-  // With no model chosen, each role shows the one its last call ran on.
+  // The first call's model is saved and passed to each later role.
   assert.deepEqual([asking.roles.find(role => role.role === 'engineer')?.model, asking.last_call?.role, asking.last_call?.model], ['fake-model', 'reviewer', 'fake-model']);
   assert.equal('role_events' in asking, false);
   assert.equal('role_round' in asking, false);
@@ -456,7 +456,7 @@ interface MapLetter { id: string; item_id: string; type: string; role: string; t
 interface ProgressMap { id: string; tasks: MapTask[]; events: MapLetter[]; cursor: string }
 interface Trace { task_id: string; groups: { call_id: string; role: string; entries: { kind: string; text: string }[] }[] }
 
-test('map updates carry each task’s holder, the latest thing said on it (not a command) and only its closing handoff’s files', async t => {
+test('map updates carry each task’s holder, latest words and only the Manager’s first selected file', async t => {
   let releaseEngineer = (): void => {};
   let releaseReviewer = (): void => {};
   const engineer = new Promise<void>(resolve => { releaseEngineer = resolve; });
@@ -468,7 +468,7 @@ test('map updates carry each task’s holder, the latest thing said on it (not a
       progress: [{ kind: 'command', text: 'node totals.mjs' }], open: ['draft.md'], files: { 'draft.md': '# Draft' } },
     { role: 'reviewer', to: 'manager', letter: 'Accepted. Ignore guessed.md in this letter.', until: reviewer,
       says: 'Checking the totals.', open: ['report.md', 'data.csv'], files: { 'report.md': '# Totals', 'data.csv': 'a,b\n1,2' } },
-    { role: 'manager', to: 'operator', letter: 'All done.', open: ['unrelated.md'], files: { 'unrelated.md': '# Unrelated' } },
+    { role: 'manager', to: 'operator', letter: 'All done.', open: ['selected.md', 'data.csv'], files: { 'selected.md': '# Selected' } },
   ]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   // The operator's message is a card of its own, before the task its answer opens.
@@ -492,7 +492,7 @@ test('map updates carry each task’s holder, the latest thing said on it (not a
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive);
   const done = await get<ProgressMap>(`${P}/map?after=${checking.cursor}`);
   assert.equal(t1(done)!.status, 'done');
-  assert.deepEqual(t1(done)!.result_paths, ['report.md', 'data.csv']);
+  assert.deepEqual(t1(done)!.result_paths, ['selected.md']);
   assert.equal(t1(done)!.latest_action!.text, 'Accepted. Ignore guessed.md in this letter.');
   const unchanged = await get<ProgressMap>(`${P}/map?after=${done.cursor}`);
   assert.deepEqual(unchanged.events, []);
@@ -722,7 +722,7 @@ test("a project whose work comes to rest ends its sessions, unless a question wa
   assert.deepEqual(closed, [`${sid}/`, `${sid}/`]);
 });
 
-test('a project that comes to rest failed keeps its sessions: what the failed task started runs on', async t => {
+test('a failed review ends its review sessions while the Engineer’s background work runs on', async t => {
   const { store, post, closed } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: brief },
     { role: 'engineer', to: 'reviewer', letter: 'Training runs in the background; the first checkpoint is in two hours.' },
@@ -733,7 +733,7 @@ test('a project that comes to rest failed keeps its sessions: what the failed ta
   await frames(await post(`/api/projects/${sid}/message/stream`, { text: 'Train it', request_id: 'r1' }));
   await eventually(async () => store.load(sid).status, status => status === 'failed');
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(closed, []);
+  assert.deepEqual(closed, [`${sid}/t1.reviewer`, `${sid}/t1.reviewer`]);
 });
 
 test('work a shutdown cut off goes on when Argus starts again; what the operator stopped stays stopped', async t => {
@@ -814,10 +814,11 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   assert.equal(inFlight.rows[1]?.live, true);
   assert.match(requests[1]!.prompt, /What is 6 times 7\?/);
   finish();
-  const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows[1]?.text === '42');
-  assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'], ['ui.argus', '42']]);
+  const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.request_id === 'r1' && row.text === '42'));
+  assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'],
+    ['ui.argus', 'Checking the original question'], ['ui.argus', '42']]);
   assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
-  assert.equal(answered.rows[1]?.message_id, refreshed.rows[1]?.message_id);
+  assert.equal(answered.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r1')?.message_id, refreshed.rows[1]?.message_id);
   assert.equal(requests.length, 2);
 });
 
@@ -1137,7 +1138,7 @@ test('attached files land in the workdir, and the message that carries them says
   assert.ok(requests[0]!.prompt.includes(`Use these\n\nAttached, in the workdir:\n- ${csv!.relative_path}\n- ${weights.relative_path}`));
 });
 
-test('an uploaded HTML file opens through the sandboxed preview and is sent raw as a sandboxed page', async t => {
+test('an uploaded HTML file opens on the static origin and raw downloads stay sandboxed', async t => {
   const { call, post } = await setup(t, []);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
@@ -1147,9 +1148,10 @@ test('an uploaded HTML file opens through the sandboxed preview and is sent raw 
   const query = new URLSearchParams({ path: file!.relative_path });
   const preview = await call(`${P}/artifact/preview?${query}`);
   assert.equal(preview.status, 200);
-  assert.match((await preview.json() as { html: string }).html, /<h1>Material HTML<\/h1>/);
-  const page = await call(`${P}/artifact/preview/page?${query}`);
-  assert.match(page.headers.get('content-security-policy') ?? '', /sandbox/);
+  const { url } = await preview.json() as { url: string };
+  const page = await fetch(url);
+  assert.equal(page.headers.get('content-security-policy'), null);
+  assert.equal(await page.text(), '<h1>Material HTML</h1>');
   const raw = await call(`${P}/artifact/raw?${query}`);
   assert.equal(raw.headers.get('content-security-policy'), 'sandbox');
   assert.equal(await raw.text(), '<h1>Material HTML</h1>');
@@ -1446,7 +1448,7 @@ test('answering a question outside the loaded page sends the whole pair and reta
   assert.deepEqual(pair.rows.map(row => row.text), ['Which seed?', '424242']);
 });
 
-test('rows SSE sends live task progress and holder files, while Manager steps stay only in the role log', async t => {
+test('rows SSE sends task progress and durable Manager messages without onWords callbacks', async t => {
   let finishEngineer!: () => void, finishManager!: () => void;
   const engineer = new Promise<void>(resolve => { finishEngineer = resolve; });
   const manager = new Promise<void>(resolve => { finishManager = resolve; });
@@ -1455,7 +1457,7 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
     { role: 'manager', to: 'engineer', letter: `${title}\n核对报告并交付文件。` },
     { role: 'engineer', to: 'manager', says: '正在核对报告的输入。', until: engineer, files: { 'report.md': '# 报告\n已核对。' }, open: ['report.md'], letter: '报告已核对。\n文件可以打开。' },
     { role: 'manager', to: 'operator', until: manager, letter: '已核对你询问的状态。' },
-    { role: 'manager', to: 'operator', letter: '任务报告已交付。' },
+    { role: 'manager', to: 'operator', letter: '任务报告已交付。', open: ['report.md'] },
   ]);
   t.after(() => { finishEngineer(); finishManager(); });
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
@@ -1475,12 +1477,13 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第二句实时文字。' });
   const received = await streamed;
   const managerStep = received.find(frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第一句实时文字。'))!;
-  assert.deepEqual(managerStep.rows, []);
+  assert.ok((managerStep.rows as EventMsg[]).some(row => row.type === 'ui.argus' && row.text === '经理的第一句实时文字。'));
   const progress = received.flatMap(frame => frame.rows as EventMsg[] ?? []).find(row => row.progress === '已核对输入，正在检查输出。')!;
   assert.equal(progress.title, title);
   const page = await get<ConversationPage>(`${P}/conversation`);
   assert.equal(page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, '');
   assert.equal(page.rows.find(row => row.type === 'ui.task')?.progress, progress.progress);
+  assert.ok(page.rows.some(row => row.type === 'ui.argus' && row.text === '经理的第二句实时文字。'));
   finishManager();
   await reply;
   finishEngineer();

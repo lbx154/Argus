@@ -1,7 +1,7 @@
 // `argus serve`: the web cockpit's API and its built pages, on 127.0.0.1, or with a token on any
 // address. Requests read the projects' files as they are; messages, answers, starts and stops go
 // to the Flow runs of this process. With a token (ARGUS_WEB_TOKEN) every project request needs it
-// as a bearer, the preview page alone as a cookie.
+// as a bearer. HTML results have their own static origin.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -38,6 +38,8 @@ export interface ServeOptions {
   model: string | null;
   /** 0 picks a free port. */
   port: number;
+  /** The preview listener's public origin when served through a proxy. */
+  previewUrl?: string;
   /** The built web cockpit: the package's web/, the files of frontend/web/dist its page reaches. */
   web: string;
   /** The address to listen on, 127.0.0.1 by default; one beyond this machine needs a token. */
@@ -81,9 +83,9 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // A step, or words as they are written, change no project's state.
     const quiet = event === 'words' || event?.type === 'step';
     if (!listeners.get(id)?.size && (!watchers.size || quiet)) return;
-    // A command or an edit moves no row, only its role's log; a message on a task is its progress,
-    // and words as they come are the reply's or the task's.
-    const moved = event === 'words' || event?.type !== 'step' || event.kind === 'message' && event.task !== undefined;
+    // A command or an edit moves no row, only its role's log. A message changes
+    // dialogue or task progress; words as they come are the reply's or the task's.
+    const moved = event === 'words' || event?.type !== 'step' || event.kind === 'message';
     const pending = due.get(id);
     if (pending) {
       pending.moved ||= moved;
@@ -134,16 +136,9 @@ export async function serve(options: ServeOptions): Promise<Served> {
     const live = runs.live(id);
     return { type: 'project', id, row: projectRow(store, work, live) };
   };
-  /** The token as the bearer; for the preview page, which a frame loads by URL with no way to send
-   * it, a cookie its preview grants, which a browser sends with every project request, so no other
-   * takes it. */
-  const cookie = `argus_preview_access=${randomUUID()}`;
-  const authorized = (request: IncomingMessage, page = false): boolean => !token
-    || same(request.headers.authorization, `Bearer ${token}`)
-    || page && (request.headers.cookie ?? '').split(/;\s*/).some(offered => same(offered, cookie));
-  const grant = (response: ServerResponse): void => {
-    if (token) response.setHeader('set-cookie', `${cookie}; Path=/api/projects; HttpOnly; SameSite=Strict`);
-  };
+  const authorized = (request: IncomingMessage): boolean => !token
+    || same(request.headers.authorization, `Bearer ${token}`);
+  const sites = await preview(project, result, host, options.port === 0 ? 0 : options.port + 1, options.previewUrl);
   const meta = (authenticated: boolean): ApiMeta => ({
     service: API_SERVICE,
     protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
@@ -230,7 +225,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const workdir = directory(String((await body()).workdir ?? ''));
       const recent = store.list().at(-1);
       const { backend, model } = recent ?? options;
-      const created = store.create({ workdir, request: '', backend, model, ...recent?.effort ? { effort: recent.effort } : {} });
+      const modelAutomatic = recent?.modelAutomatic ?? model === null;
+      const created = store.create({ workdir, request: '', backend, model: modelAutomatic ? null : model, modelAutomatic, ...recent?.effort ? { effort: recent.effort } : {} });
       runs.changed(created.id);
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
     }],
@@ -389,7 +385,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (!found) throw new HttpError(404, `the model's file is not in the workspace: ${ref}`);
       sendFile(request, response, found.file, found.stat.size, rawHeaders(found.file, false, found.path));
     }],
-    ...library(store), ...workspace(project), ...preview(project, grant, result), ...records(store, runs, project), ...resources(project),
+    ...library(store), ...workspace(project), ...sites.routes, ...records(store, runs, project), ...resources(project),
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
@@ -399,11 +395,16 @@ export async function serve(options: ServeOptions): Promise<Served> {
       if (method === 'GET' && sendStatic(request, response, options.web, decodeURIComponent(url.pathname))) return;
       throw new HttpError(404, 'Not Found');
     }
+    // Without a bearer secret, browser access belongs to this API's own origin. A token
+    // still authorizes a development proxy rewriting Host, but never the preview origin.
+    const origin = request.headers.origin;
+    if (origin && (origin === 'null' || origin === sites.origin || origin.endsWith(`:${sites.port}`)
+      || !token && origin !== requestOrigin(request))) throw new HttpError(403, 'This origin cannot access the cockpit API.');
     if (url.pathname === '/api/meta') {
       response.setHeader('cache-control', 'no-store');
       return json(response, 200, meta(authorized(request)));
     }
-    if (!url.pathname.startsWith('/api/application-brand') && !authorized(request, url.pathname.endsWith('/artifact/preview/page'))) throw new HttpError(401, 'invalid or missing bearer token');
+    if (!url.pathname.startsWith('/api/application-brand') && !authorized(request)) throw new HttpError(401, 'invalid or missing bearer token');
     for (const [verb, pattern, handler] of routes) {
       const match = pattern.exec(url.pathname);
       if (!match || verb !== method) continue;
@@ -428,7 +429,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
   });
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject).listen(options.port, host, resolveListen);
-  });
+  }).catch(async error => { await sites.close(); throw error; });
   // Work a shutdown cut off goes on, the Manager's answer to a message too; what the operator stopped
   // stays stopped, a message being answered in it included, as if stopped again; a failure waits for
   // the operator.
@@ -439,10 +440,19 @@ export async function serve(options: ServeOptions): Promise<Served> {
     url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
     close: async () => {
       await runs.stopAll();
+      await sites.close();
       server.closeAllConnections();
       await new Promise(resolveClose => server.close(resolveClose));
     },
   };
+}
+
+/** The browser-facing protocol, including HTTPS terminated by a reverse proxy. */
+export function requestOrigin(request: IncomingMessage): string {
+  const forwarded = request.headers['x-forwarded-proto']?.toString().split(',')[0]?.trim();
+  const protocol = forwarded === 'http' || forwarded === 'https' ? forwarded
+    : 'encrypted' in request.socket && request.socket.encrypted ? 'https' : 'http';
+  return new URL(`${protocol}://${request.headers.host}`).origin;
 }
 
 /** Whether the secret offered is the one expected, in a time that tells nothing of how much of it is. */

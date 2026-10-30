@@ -6,7 +6,7 @@ import { EventStream } from './serverSnapshot';
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('an ended task keeps its whole title and delivered files while its closing progress stays in the reader', () => {
+it('an ended task keeps its whole title and only the first selected file while its closing progress stays in the reader', () => {
   vi.stubGlobal('window', { requestAnimationFrame: vi.fn(() => 1), cancelAnimationFrame: vi.fn() });
   const title = '对话任务完整标题与交付文件'.repeat(14) + '标题结束';
   const events = [{ type: 'ui.task', row_id: 'task-t1', item_id: 't1', title, state: 'done',
@@ -17,6 +17,7 @@ it('an ended task keeps its whole title and delivered files while its closing pr
   expect(html).toContain(title);
   expect(html).not.toContain('计算已完成，输出已核对。');
   expect(html).toContain('Ended');
+  expect(html).not.toContain('a.py');
   expect(events[0].progress).toBe('计算已完成，输出已核对。');
   let root!: ReturnType<typeof create>;
   act(() => { root = create(view); });

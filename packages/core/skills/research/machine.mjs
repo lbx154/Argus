@@ -1,7 +1,11 @@
 #!/usr/bin/env node
-// What this machine offers a run: its GPUs and their free memory, the Python ML stack, memory and
-// disk where the work is. Run it with node from the workspace.
+// What this machine offers a run: its CPUs and their load, its GPUs and their free memory, the
+// Python ML stack, memory and disk where the work is. Run it with node from the workspace.
 import { execFileSync } from 'node:child_process';
+import { cpus, loadavg } from 'node:os';
+
+const load = loadavg()[0];
+console.log(`${cpus().length} logical CPUs (load ${load.toFixed(1)}, about ${Math.max(0, cpus().length - load).toFixed(0)} free)`);
 
 const run = (command, args) => {
   try { return execFileSync(command, args, { encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; }

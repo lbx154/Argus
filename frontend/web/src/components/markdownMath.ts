@@ -36,8 +36,32 @@ function remarkPathUnderscores() {
   };
 }
 
+/** GFM bare URLs keep sentence-ending Chinese punctuation in the surrounding prose. */
+function remarkUrlPunctuation() {
+  return (tree: MarkdownRoot, file: VFile) => {
+    const source = String(file.value);
+    const trim = (parent: Parent) => {
+      parent.children = parent.children.flatMap(child => {
+        if ('children' in child) trim(child);
+        if (child.type !== 'link' || child.children.length !== 1 || child.children[0]?.type !== 'text') return [child];
+        const text = child.children[0];
+        const written = source.slice(child.position?.start.offset, child.position?.end.offset);
+        // Explicit Markdown links and <autolinks> retain the URL their author chose.
+        if (written !== text.value) return [child];
+        const end = /[。，；：！？、）》」』】〕〉]+$/.exec(text.value)?.[0];
+        if (!end) return [child];
+        text.value = text.value.slice(0, -end.length);
+        child.url = child.url.replace(/[。，；：！？、）》」』】〕〉]+$/, '');
+        return [child, { type: 'text', value: end } as Text];
+      });
+    };
+    trim(tree);
+  };
+}
+
 export const markdownRemarkPlugins: PluggableList = [
   remarkGfm,
+  remarkUrlPunctuation,
   [remarkMath, { backslashDelimiters: true, singleDollarTextMath: false }],
   remarkPathUnderscores,
 ];

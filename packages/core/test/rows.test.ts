@@ -116,7 +116,7 @@ test('real stopped conversation: refresh retains the original request and Resume
   const asked = stoppedRecord.find(event => event.type === 'message')!;
   const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [{ text: asked.type === 'message' ? asked.text : '', request_id: 'stop-request-1' }] };
   const stopped = rowsOf(stoppedRecord.slice(0, stop + 1), work);
-  assert.equal(stopped.length, 2);
+  assert.equal(stopped.length, 2 + stoppedRecord.slice(0, stop + 1).filter(event => event.type === 'step' && event.kind === 'message').length);
   assert.match(String(stopped[0]?.text), /不要丢掉这条消息/);
   assert.equal(stopped[1]?.status, 'stopped');
   const resumed = rowsOf(stoppedRecord, { ...work, status: 'working' }, { since: 1, calls: [{ started_ts: 1, role: 'manager', task: undefined, answers: 'stop-request-1' }], requests: [] });
@@ -200,7 +200,7 @@ test('real task fragments: progress and files share the map projection; incoming
   // The Planner's later letter to it brings the row below it.
   const lastLetter = events.map(event => event.type === 'handoff' && event.role === 'planner' && event.task === 't3').lastIndexOf(true);
   assert.equal(done.order, lastLetter + 0.2);
-  assert.deepEqual(done.result_paths, ['result.md']);
+  assert.deepEqual(done.result_paths, []); // This fragment has no Manager delivery.
   assert.deepEqual(done.result_paths, map.result_paths);
   assert.equal(done.progress, firstLine(map.latest_action!.text));
   assert.equal(map.latest_action!.role, 'reviewer');

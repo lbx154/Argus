@@ -1,7 +1,7 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
-import { api, adoptTokenFromUrl, previewPageUrl } from '../api';
+import { api, adoptTokenFromUrl } from '../api';
 import { useArtifact } from '../hooks';
 
 let tree: ReactTestRenderer | undefined;
@@ -23,7 +23,6 @@ it('carries the delivery in artifact, raw, HTML, archive and model resource requ
   const calls = fetcher.mock.calls as unknown as Array<[string, RequestInit]>;
   for (const [url] of calls.slice(0, 5)) expect(new URL(url, location).searchParams.get('delivery')).toBe('d12');
   expect(JSON.parse(String(calls[5][1].body))).toEqual({ paths: ['index.html'], name: 'Report', summary: 'Old summary', delivery: 'd12' });
-  expect(previewPageUrl('s', 'index.html', 'd12')).toContain('delivery=d12');
   expect(api.artifactRawUrl('s', 'report.pdf', 'd12')).toContain('delivery=d12');
 });
 

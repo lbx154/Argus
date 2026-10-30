@@ -1,7 +1,7 @@
 // The models a backend offers, asked of the backend itself: Codex's app-server lists its catalog
 // (`model/list`), Copilot names its models when an ACP session opens, and Claude Code takes the
-// aliases of its current models. Pi is asked nothing yet: any model is taken by name. Asked once
-// a process, and again after a failure.
+// aliases of its current models. Pi takes any model by name. The catalog is asked once a process,
+// and again after a failure.
 
 import { isJsonObject } from '@argus/contracts';
 import type { Backend } from '../types.js';
@@ -18,7 +18,7 @@ const ASK: Record<Backend, (cwd: string) => Promise<Offered[]>> = {
       await cli.request('initialize', { clientInfo: { name: 'argus', title: 'Argus', version: '1' }, capabilities: null });
       const { data } = await cli.request('model/list', {});
       return (Array.isArray(data) ? data.filter(isJsonObject) : []).map(row => ({ model: String(row.model), default: row.isDefault === true }));
-    } finally { void cli.close(); }
+    } finally { await cli.close(); }
   },
   async copilot(cwd) {
     const cli = new Cli([...launcher('copilot'), '--acp'], cwd, agentEnv('copilot'), { jsonrpc: '2.0' });
@@ -27,8 +27,10 @@ const ASK: Record<Backend, (cwd: string) => Promise<Offered[]>> = {
       const { models } = await cli.request('session/new', { cwd, mcpServers: [] });
       const offered = isJsonObject(models) && Array.isArray(models.availableModels) ? models.availableModels.filter(isJsonObject) : [];
       const current = isJsonObject(models) ? models.currentModelId : undefined;
-      return [...new Map(offered.map(row => [String(row.modelId), { model: String(row.modelId), default: row.modelId === current }])).values()];
-    } finally { void cli.close(); }
+      const choices = offered.map(row => ({ model: String(row.modelId), default: row.modelId === current }));
+      if (typeof current === 'string' && !choices.some(row => row.model === current)) choices.push({ model: current, default: true });
+      return [...new Map(choices.map(row => [row.model, row])).values()];
+    } finally { await cli.close(); }
   },
   claude: async () => ['opus', 'sonnet', 'haiku'].map(model => ({ model, default: false })),
   pi: async () => [],

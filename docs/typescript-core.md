@@ -43,30 +43,32 @@ back into state. The work itself stays in the workdir.
 
 ## Roles and letters
 
-A hand-off is a letter and its addressee. Every turn ends with `{ "to": ..., "letter": ... }`
-as its final answer, and the backend CLI holds the model to that shape (Codex
-`--output-schema`, Claude `--json-schema`), or, with no such answer, takes it as the arguments
-of a `hand_off` tool whose call ends the turn (Copilot, Pi), so a turn cannot end in prose that
-only reads like a hand-off. A role's standing instructions, its rules and where things are, go
-apart from the turn's message: with every turn where the backend has a place for them (Codex
+A hand-off is a letter and its addressee. Every turn ends with `{ "to": ..., "letter": ... }` as
+its final answer, and the backend CLI holds the model to that shape (Codex `--output-schema`,
+Claude `--json-schema`), or, with no such answer, takes it as the arguments of a `hand_off` tool
+whose call ends the turn (Copilot, Pi), so a turn cannot end in prose that only reads like a
+hand-off. A role's standing instructions, its rules and where things are, go apart from the
+turn's message: with every turn where the backend has a place for them (Codex
 `developer_instructions`, Claude `--append-system-prompt`), so they outlast its compaction of a
 long session, and at the head of a session's first prompt where it has none (Copilot, Pi). The
-addressee is the one thing the host routes by, and it is always
-someone who acts on the letter: never a state such as done. The Manager's form also names the
-files of a result it hands the operator (`open`, empty for any other letter); the page shows
-them beside the letter as its result card, as named, without a check. The letter is free text, passed to
-its reader as written: they see the workspace, Argus's record and the letter, not the writer's
-conversation, so a letter that hands on new work is that work's whole brief. The operator reads
-every letter, so the letters are the project's timeline. A hand-off Argus refuses goes back to
-its writer once, in the same session, with the reason; refused again, or a turn that fails, is
-a failed call, recorded as such. Nothing retries it: like a question, it holds up only its role,
-the task or the Planner, till the operator resumes the work, while the rest goes on.
+addressee is the one thing the host routes by, and it is always someone who acts on the letter:
+never a state such as done. The Manager's form also names the files of a result it hands the
+operator (`open`, empty for any other letter); the page shows them beside the letter as its
+result card, as named, without a check. The letter is free text, passed to its reader as
+written: they see the workspace, Argus's record and the letter, not the writer's conversation.
+When the Manager hands an operator request to the Engineer or Planner, the flow appends that
+request's exact text and attachment paths to the brief. The current Manager letter identifies
+the request; team mail supplies no operator text. The operator reads every letter, so the
+letters are the project's timeline. A hand-off Argus refuses goes back to its writer once, with
+the reason (a fresh session for a review); refused again, or a turn that fails, is a failed
+call, recorded as such. Nothing retries it: like a question, it holds up only its role, the task
+or the Planner, till the operator resumes the work, while the rest goes on.
 
 | Role | Writes to |
 |---|---|
 | Manager | `engineer`: the work, whole, when one person can carry it through, opened as a task, the letter its brief, or word addressed to an existing task; `planner`: work too large for one task, whose later parts depend on what the earlier ones find, or word on the work it runs; `operator`: the answer, report or question |
 | Planner | `engineer`: the next tasks, a letter each, each a result to carry through and its letter its brief, each naming the tasks it waits for; `planner`: nothing to open now, it reads on with the next letter; `manager`: the goal is met, to report, or the work is stuck; `operator`: a question it waits on |
-| Engineer | `reviewer`; `engineer` (keeps working); `planner` or `manager`: the task cannot go on as its giver briefed it, or the work is stuck; `operator` |
+| Engineer | `reviewer`; `engineer` (keeps working); `planner`: the task cannot go on as the Planner briefed it; `manager`: the work is stuck; `operator`: a question only the operator can decide |
 | Reviewer | `engineer`: what to repair before the operator sees it; `planner` or `manager`: its judgment, accepted or what is wrong, to whoever gave the task; `operator` |
 
 An untargeted letter to the Engineer opens a task; a letter from the Engineer or its Reviewer to anyone but
@@ -113,23 +115,23 @@ The web cockpit shows the library: its skills, and as its learning feed the file
 ## The web cockpit
 
 `argus` serves the cockpit (on 127.0.0.1, or on `--host`, `0.0.0.0` for every network; project
-requests always need a bearer token, `ARGUS_WEB_TOKEN` or one made on the first start, kept in the state root and printed in the
-address, since the roles' sandbox shares the machine's network)
-and runs the work of its projects in its own process, projects side by side. The page reads files
-as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
+requests always need a bearer token, `ARGUS_WEB_TOKEN` or one made on the first start, kept in
+the state root and printed in the address, since the roles' sandbox shares the machine's
+network) and runs the work of its projects in its own process, projects side by side. The page
+reads files as they are: the snapshot from `project.json` and `usage.jsonl`, events and the
 conversation from `events.jsonl` in the cockpit's event vocabulary, results from the workdir's
 files created or changed since the project began. The operator may write at any time: the
 Manager takes the message up in its next turn, at once unless it is answering a letter from the
 team, while the team's work goes on, and what its letter hands on joins that work. The message
 is recorded when it arrives, with its request id and attachment metadata. Manager calls take
 waiting letters in order, so replies and interrupted messages keep their request identity;
-attachment instructions are added only to the Manager's prompt. The message's stream follows
-that turn and ends with the reply. Stop interrupts every call under
+attachment paths accompany the operator text in the Manager's prompt and its brief to the team.
+The message's stream follows that turn and ends with the reply. Stop interrupts every call under
 way on the project and records it `stopped`: no turn starts again till Start, or the Manager
 handing the team new work at the operator's word. A turn goes on next time in the session its
-backend reported, whether it ended, was cut off or failed. When `argus` starts, the projects a
-shutdown cut off, still `working`, go on. The live event stream is server-sent events, in both
-runtimes.
+backend reported, whether it ended, was cut off or failed, except that every review starts a
+fresh session. When `argus` starts, the projects a shutdown cut off, still `working`, go on. The
+live event stream is server-sent events, in both runtimes.
 
 Files attached to a message are uploaded as they are picked, small ones at once and a large one
 in parts, into the
@@ -140,17 +142,21 @@ interrupted calls are still recording how they ended, the deletion is refused ra
 The trash lists what it holds, from each entry's `project.json`, and a restore moves the directory
 back unless a project with its id exists.
 
-What the operator sets on a project is in its `project.json`: its workdir, any existing directory,
-given when the project is made or later; its name, which the project list and the snapshot show,
-an unnamed project named by its request; and the backend, model and reasoning effort every role's
-call uses, written by the Python runtime's setting names, a per-role model refused rather than half
-applied. A model or effort is the backend's own word for it, passed to its command line as one
-argument; the model chooser offers the one set and takes any other by name. A new workdir or
-backend clears the role sessions, which belong to the directory and the backend that started them,
-and resetting the conversation clears the Manager's. While work is under way, a change is made in
-the record that work holds, for the calls after it; a new workdir or backend is refused until the
-work stops, since the calls under way work in them. The sidebar's pins, archive
-and follow-up marks are kept in `$ARGUS_HOME/browser-state.json`.
+What the operator sets on a project is in its `project.json`: its workdir, any existing
+directory, given when the project is made or later; its name, which the project list and the
+snapshot show, an unnamed project named by its request; and the backend, model and reasoning
+effort every role's call uses, written by the Python runtime's setting names, a per-role model
+refused rather than half applied. A model or effort is the backend's own word for it, passed to
+its command line as one argument. An unset model is saved from the backend's report at the end
+of a call, and later calls pass that model explicitly. `modelAutomatic` keeps Automatic as the selection inherited by new
+projects; explicit selections inherit the model name. Changing the backend or choosing
+Automatic clears the model so the next call can report its choice. The model chooser offers
+the one set and takes any other by name. A new workdir or backend clears the role sessions, which belong to the
+directory and the backend that started them, and resetting the conversation clears the
+Manager's. While work is under way, a change is made in the record that work holds, for the
+calls after it; a new workdir or backend is refused until the work stops, since the calls under
+way work in them. The sidebar's pins, archive and follow-up marks are kept in
+`$ARGUS_HOME/browser-state.json`.
 
 The project list previews the first line of the Manager's last letter addressed to the operator,
 or the project's recorded error when it failed. It shares the snapshot's incremental record
@@ -162,11 +168,13 @@ and files; their original progress and closing letters stay available in the tas
 The code workspace is the workdir, read-only: its tree, which the composer's `@` completion lists
 too, a file's text or bytes, and what the system `git` says of it when the workdir is a
 repository of its own. A path there passes the check a result's does: inside the workdir, not
-hidden. An HTML result is previewed as one page, the local files it names inlined as `data:` URLs,
-served to a sandboxed frame under a policy that lets its own scripts and styles run while it can
-call nothing, this server least of all; the frame, which cannot send the bearer, offers a cookie
-the preview grants, which no other request takes. The page and those files download as they are in
-a zip, and results chosen together in another, each made as it is sent. A task
+hidden. An HTML result is served unchanged under an unguessable project/delivery path on a separate
+static origin, using the cockpit port plus one. Behind a proxy, `--preview-url` supplies its
+public origin; otherwise URLs use the request's protocol and hostname with the preview port.
+The static listener has no cockpit API or credentials, and the API rejects preview origins.
+Website downloads contain the page and files that preview has served, removing their common
+parent directories while preserving relative paths. Results chosen together download in a
+separate zip. A task
 opened from the list is its card on the map with every letter written about it and the error of
 its last call; the search reads each project's request,
 conversation and letters as they are, with no index. The machine's CPUs and memory (from Node)
@@ -215,15 +223,16 @@ callAgent(request: AgentRequest): Promise<AgentResult>
 thread, each turn a `turn/start` with the form's schema as its `outputSchema`) and Claude Code's
 `-p --input-format stream-json` (each turn a user message, the schema given by `--json-schema`)
 stay open from the session's first turn to its end, so what a turn leaves running in the
-background runs on into the next; Copilot and Pi take one prompt on stdin and exit with the turn
-(Copilot's ACP mode, which could stay open, offered the model neither an extension's tool nor an
-MCP server's, so the hand-off had no way in). The agent layer reads the CLI's JSON events, takes
-only the backend's own completion event as success (Codex `turn/completed` with status
-`completed`, Claude `result` with `subtype: success`, Copilot `result` with `exitCode: 0`, Pi
-`agent_settled` after a last answer that did not fail), and judges the hand-off the turn ended with: Codex's last message, Claude's
-`structured_output`, or the `hand_off` call in the last message of Copilot's main agent or of
-Pi. The shape is already the strict one OpenAI's structured outputs take: both fields required,
-no other allowed.
+background runs on into the next. Review sessions end with each call and are never resumed.
+Copilot and Pi take one prompt on stdin and exit with the turn (Copilot's ACP mode, which could
+stay open, offered the model neither an extension's tool nor an MCP server's, so the hand-off
+had no way in). The agent layer reads the CLI's JSON events, takes only the backend's own
+completion event as success (Codex `turn/completed` with status `completed`, Claude `result`
+with `subtype: success`, Copilot `result` with `exitCode: 0`, Pi `agent_settled` after a last
+answer that did not fail), and judges the hand-off the turn ended with: Codex's last message,
+Claude's `structured_output`, or the `hand_off` call in the last message of Copilot's main agent
+or of Pi. The shape is already the strict one OpenAI's structured outputs take: both fields
+required, no other allowed.
 
 Copilot and Pi have no final answer held to a schema, so each call writes an extension that
 registers `hand_off` with the form's schema: for Copilot a plugin (`--plugin-dir`) whose tool is
@@ -254,26 +263,36 @@ contribute; calls without usage, and older lines without a duration or valid tim
 add no time. `calls_without_duration` counts the latter, so the page can mark the duration
 as a lower bound. Calls still running enter the total when their usage is recorded.
 
+Manager and Planner message steps remain as Argus messages in the conversation,
+including questions said while work continues. Each keeps its event identity across
+completion, pagination and reload. Conversation and map task cards show only the
+first file in the Manager's delivery for the request that opened their work; they
+show no result before that delivery. The task detail reader retains the team's
+full file selections and original letters.
+
 Conversation task rows expand on demand through `/api/projects/{id}/backlog/{task}`.
 The detail's `notes` contains the recorded letters and their addressees, including review
 returns and operator answers. `changed_files` contains the recorded edit paths from the
 latest Engineer turn, reset when the next Engineer call starts; it describes recorded
 edits, not a filesystem diff. The detail's `result_paths` includes files explicitly
-selected in task letters, including results awaiting review; the map's completion
-selection still waits for closure. The page uses these paths for the file viewer and the first result image,
+selected in task letters, including results awaiting review; card results wait for
+closure and the Manager's primary selection. The page uses the detail's paths for the file viewer and the first result image,
 and displays the original letters without inferring a verdict from their text.
 
 Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system directories
 read-only, the workdir and the task's write directories writable, a private home per workdir
 with the CLI's login file passed through, and the CLI's login environment plus the operator's
-registered environment values.
-Its `~/.cache` is one every project's roles share (`$ARGUS_HOME/cache`, npm's cache in it), so a
+registered environment values. Each review has a fresh disk-backed temporary directory under
+`$ARGUS_HOME/sandbox`, bound to `/tmp` under bubblewrap or selected by `TMPDIR` without it,
+and removed when the review ends. Other roles' sandboxes cannot see that directory.
+Other roles retain their existing temporary filesystem. Its
+`~/.cache` is one every project's roles share (`$ARGUS_HOME/cache`, npm's cache in it), so a
 model, package or browser one project downloads the next finds; the machine's own cache, which
 may hold tokens, stays out. Codex runs there without plugins: the private home has none of the
-operator's, and the catalog it would clone is 100MB a workdir.
-Without `bwrap` (macOS, Windows) the CLI's own sandbox mode is used: Codex's
-`workspace-write`, on Windows its sandbox that needs no administrator
-(`windows.sandbox="unelevated"`); Claude Code's `acceptEdits`, edits without commands.
+operator's, and the catalog it would clone is 100MB a workdir. Without `bwrap` (macOS, Windows)
+the CLI's own sandbox mode is used: Codex's `workspace-write`, on Windows its sandbox that needs
+no administrator (`windows.sandbox="unelevated"`); Claude Code's `acceptEdits`, edits without
+commands.
 
 Settings registers environment names and literal string values for all projects in
 `$ARGUS_HOME/credentials.json`, a single JSON object in a file with mode 600. A newly started

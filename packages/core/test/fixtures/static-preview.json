@@ -1,0 +1,15 @@
+{
+  "source": "Frontend comparison report, section 3 example 1: localStorage throws, engine.mjs/formula.mjs are omitted, and the delivered CSP blocks inlined CSS/JS. Reduced regression cases; the six original deliveries are not available in this checkout.",
+  "files": {
+    "site/index.html": "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'\"><link rel=\"stylesheet\" href=\"style.css\"><script type=\"module\" src=\"app.js\"></script><h1>Static delivery</h1><p id=\"status\">Loading</p><button id=\"increment\">Increment</button><a id=\"directory\" href=\"deep?from=link\">Nested delivery</a>",
+    "site/style.css": "body { color: rgb(18, 87, 140); background: url(img/dot.svg) }",
+    "site/app.js": "import { answer } from \"./engine.mjs\";\nconst key = \"static-preview-count\";\nlet count = Number(localStorage.getItem(key) || 0);\nconst show = () => document.querySelector(\"#status\").textContent = `Modules: ${answer}; storage: ${count}`;\ndocument.querySelector(\"#increment\").onclick = () => { localStorage.setItem(key, String(++count)); show(); };\nshow();\n",
+    "site/engine.mjs": "export { answer } from \"./lib/formula.mjs\";",
+    "site/lib/formula.mjs": "export const answer = 42;",
+    "site/img/dot.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><path fill=\"white\" d=\"M0 0h1v1H0z\"/></svg>",
+    "site/deep/page.html": "<p>Nested page</p>",
+    "site/.env": "hidden",
+    "site/deep/index.html": "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'\"><link rel=\"stylesheet\" href=\"../style.css\"><script type=\"module\" src=\"../app.js\"></script><h1>Static delivery</h1><p id=\"status\">Loading</p><button id=\"increment\">Increment</button><a href=\"../\">Back</a>"
+  },
+  "letter": "访问 http://localhost:8000/。 请看 http://localhost:8000/， 也见 http://localhost:8000/； 以及 http://localhost:8000/： 打开 http://localhost:8000/！ 确认 http://localhost:8000/？ 「http://localhost:8000/」 【http://localhost:8000/】"
+}

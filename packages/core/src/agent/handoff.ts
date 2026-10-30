@@ -9,44 +9,42 @@
 import { isJsonObject, schemaErrors, type PayloadSchema } from '@argus/contracts';
 import type { AgentRequest, Form, HandOff } from '../types.js';
 
-const STUCK = 'the work is stuck and needs the Manager to get it going';
-const OPERATOR = 'only for what the operator alone can decide: the letter is your question, and you wait for the answer while the rest of the work goes on';
+const STUCK = 'the work is stuck and needs the Manager';
+const OPERATOR = 'a question only the operator can decide';
 
-/** Whom each role can write to, and what such a letter is for. Every addressee is someone who
- * acts on it: the work is never sent to a state such as done. */
+/** Each addressee and the work it receives. */
 const TO: Record<Form, Record<string, string>> = {
   manager: {
-    engineer: 'the work, whole, when one person can carry it through, as most research and builds can; it opens a task, named by the letter\'s first line, a short title, and the letter is its whole brief',
-    planner: 'work of more than one task, however small: separate things asked for, parts that can go side by side, each with its own Engineer, or later parts that depend on what earlier ones find; or word on the work the Planner runs. The letter is its whole brief',
+    engineer: 'work one person can finish, including several related requests; the first line names the task',
+    planner: 'work needing several Engineers or dependent tasks; or a letter about the Planner’s work',
     operator: 'your answer, report or question',
   },
   plan: {
-    engineer: 'the next tasks, a letter each: each opens a task, a result for an Engineer to carry through, named by its letter\'s first line, a short title, and its letter is its whole brief; each starts once the tasks it waits for have closed, and those that wait for none run side by side at once',
-    planner: 'nothing to open or tell now: the tasks under way go on, and you read on when the next letter comes',
-    manager: `the operator's goal is met, for the Manager to report; or ${STUCK}`,
+    engineer: 'tasks for Engineers, one letter per task; the first line names each task',
+    planner: 'continue when another letter arrives',
+    manager: `the operator’s goal is met, or ${STUCK}`,
     operator: OPERATOR,
   },
   engineer: {
-    reviewer: 'the work is ready for the independent review (do not start one yourself or through a subagent)',
-    engineer: 'you keep working next turn',
+    reviewer: 'the delivery, ready for independent review',
+    engineer: 'continue working next turn',
     planner: 'a task the Planner gave cannot go on as briefed',
-    manager: `a task the Manager gave cannot go on as briefed; or ${STUCK}`,
+    manager: STUCK,
     operator: OPERATOR,
   },
   review: {
-    engineer: 'what to repair before the operator sees it, named in the letter',
-    planner: 'your judgment on a task the Planner gave: accepted, or what is wrong',
-    manager: `your judgment on a task the Manager gave: accepted, or what is wrong; or ${STUCK}`,
+    engineer: 'what needs repair',
+    planner: 'your judgment on the Planner’s task',
+    manager: 'your judgment on the Manager’s task, or the work is stuck',
     operator: OPERATOR,
   },
 };
 
-const LETTER = 'Your letter, passed on as written: its reader sees the workspace and your letter, not your conversation.';
-const LETTERS = 'Your letters, each passed on as written: to the Engineer, one for each task; to anyone else, one. Each reader sees the workspace and its letter, not your conversation.';
-const AFTER = 'The tasks this one waits for, by id: an open or closed one, or one of these letters\' tasks above it, which take the next free ids in order. It starts once they have all closed. Empty when it can start now, and in a letter to anyone else.';
-const TASK = 'The open task this letter is for, by id, when it is about that task\'s own work: whoever holds it reads the letter as soon as they can, in the turn under way or their next, and no task is opened. Empty for a letter that opens a task, such as work that can go on beside it, and in a letter to anyone else.';
-// The result the operator opens: shown beside the letter as written, without a check.
-const OPEN = 'What the operator opens to see the result your letter hands over, if it hands one over: the paths of its files, relative to the workspace, the one to open first first. Empty when it hands over none.';
+const LETTER = 'Your letter, passed on as written. The reader sees the workspace and this letter.';
+const LETTERS = 'One letter per Engineer task; one letter to any other addressee.';
+const AFTER = 'Task ids this task waits for. Earlier letters take the next free ids in order. Empty to start now, or when writing to anyone else.';
+const TASK = 'An open task id to send this letter to its holder. Empty to open a new task, or when writing to anyone except the Engineer.';
+const OPEN = 'Result file paths relative to the workspace, first to open first. Empty when handing over no files.';
 
 export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSchema {
   // The Planner hears only of the tasks it gave: it never had the Manager's.

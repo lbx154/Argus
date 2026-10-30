@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema, judge } from '../src/agent/handoff.js';
-import { confine } from '../src/agent/sandbox.js';
+import { confine, privatePath, sandboxed } from '../src/agent/sandbox.js';
 import { writing } from '../src/agent/steps.js';
 import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend, type Step } from '../src/index.js';
 
@@ -74,7 +74,9 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(judge('manager', formSchema('manager'), { to: 'engineer', letter: '继续现有任务，使用新模型。', task: 't1', open: [] }),
     { form: 'manager', to: 'engineer', letters: ['继续现有任务，使用新模型。'], tasks: [{ task: 't1', after: [] }] });
   // A letter that opens a task names it in its first line, the title the progress map shows.
-  for (const form of ['manager', 'plan'] as const) assert.match(String(formSchema(form).properties!.to!.description), /opens a task, [^;]*first line, a short title/);
+  for (const form of ['manager', 'plan'] as const) assert.match(String(formSchema(form).properties!.to!.description), /first line names/);
+  assert.doesNotMatch(String(formSchema('manager').properties!.to!.description), /however small: separate things asked for/);
+  assert.doesNotMatch(String(formSchema('engineer').properties!.to!.description), /a task the Manager gave cannot go on as briefed/);
   // Every field is required and none other allowed: the strict shape OpenAI's structured outputs take.
   const strict = ({ properties, required, additionalProperties, items }: ReturnType<typeof formSchema>): void => {
     if (properties) assert.deepEqual([required, additionalProperties], [Object.keys(properties), false]);
@@ -340,4 +342,50 @@ test('a CLI not on PATH says how to install it', async () => {
   } finally {
     process.env.PATH = path;
   }
+});
+
+test('a review uses disk /tmp under Argus home and cleans it when the CLI ends', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
+  const { readdirSync } = await import('node:fs');
+  const temps = privatePath('/tmp', work);
+  const result = await call('codex', { tempProbe: true, output: { to: 'manager', letter: 'probe', open: [] } },
+    { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-review/t1.reviewer' });
+  assert.equal(result.completed, true, result.error ?? 'review failed');
+  assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), { device: statSync(temps).dev, writable: false });
+  assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
+  assert.equal(await callAgent.steer!('p-review/t1.reviewer', 'late'), false);
+  const failed = await call('codex', { tempProbe: true, fail: 'review backend failed', output: { to: 'manager', letter: 'probe', open: [] } },
+    { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-review/t1.reviewer' });
+  assert.equal(failed.completed, false);
+  assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
+});
+
+test('parallel reviewers and an already running Engineer cannot read or overwrite another review’s private /tmp', { skip: !sandboxed() && 'requires bubblewrap', timeout: 30_000 }, async t => {
+  const { existsSync, readdirSync } = await import('node:fs');
+  const engineerSession = 'p-isolation/t1.engineer';
+  t.after(() => callAgent.close!('p-isolation/'));
+  // Start the writable sandbox before the private file exists.
+  const engineer = await call('codex', { output: handoff }, { session: engineerSession });
+  const stop = new AbortController();
+  let ready = (): void => {};
+  const opened = new Promise<void>(resolve => { ready = resolve; });
+  const first = call('codex', { privateTemp: true, steer: true, output: { to: 'manager', letter: 'private review', open: [] } },
+    { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-isolation/t1.reviewer', signal: stop.signal,
+      onStep: step => { if (step.text === 'Private temporary file ready.') ready(); } });
+  t.after(async () => { stop.abort(); await first; });
+  await opened;
+  const temps = privatePath('/tmp', work);
+  const files = readdirSync(temps, { recursive: true }).map(String).filter(path => path.endsWith('private-content')).map(path => join(temps, path));
+  assert.ok(files.every(path => path.startsWith(join(root, 'argus', 'sandbox'))));
+  assert.ok(!existsSync(join(work, '.argus-review')));
+  assert.equal(files.length, 1);
+  assert.equal(readFileSync(files[0]!, 'utf8'), 'private review content');
+  const other = await call('codex', { attackPaths: files, output: { to: 'manager', letter: 'probe', open: [] } },
+    { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-isolation/t2.reviewer' });
+  assert.deepEqual(JSON.parse(other.handoff!.letters[0]!), [{ content: null, changed: false }]);
+  const attack = await call('codex', { attackPaths: files, output: handoff }, { session: engineerSession, resume: engineer.threadId! });
+  assert.deepEqual(JSON.parse(attack.handoff!.letters[0]!), [{ content: null, changed: false }]);
+  assert.equal(readFileSync(files[0]!, 'utf8'), 'private review content');
+  await callAgent.steer!('p-isolation/t1.reviewer', 'Finish');
+  assert.equal((await first).completed, true);
+  assert.ok(files.every(path => !existsSync(path)));
 });

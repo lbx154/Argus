@@ -1,6 +1,6 @@
 ---
 name: software
-description: "Changing a software project others build on (an experiment's own scripts are checked by their runs instead): a change that builds, whose tests ran, and that does what was asked"
+description: "Changing an existing software codebase with a build toolchain and tests"
 ---
 
 ## Why the Reviewer builds the change itself
@@ -10,7 +10,7 @@ a Reviewer that reads only the Engineer's report cannot see it. The Engineer run
 see; when CI, a benchmark or a colleague later compiles the change against code the Engineer never
 ran, a name or signature it never reconciled is a build error, and every test in the package fails
 at once. Building the change and watching its tests run is cheap and catches that outright, so the
-Reviewer does both, on the current files, every time it judges.
+Reviewer does both on the current files.
 
 ## What counts as done
 
@@ -39,16 +39,7 @@ and removes their worktrees and branches once merged.
 
 The commands the project's CI runs are the ones the change will be judged by: look in
 `.github/workflows/` or the CI file the project has, then its `Makefile`, `package.json` scripts,
-`pyproject.toml`, `tox.ini` or `CONTRIBUTING`. Where the project names none, use its toolchain's:
-
-| Project | Builds or type-checks | Runs the tests | The tests ran when the output shows |
-|---|---|---|---|
-| Node, TypeScript | `npx tsc --noEmit`, or the `build` script | `npm test` | the runner's count of passed tests, above zero, and no failure |
-| Python | `python -m compileall -q .`, importing the changed modules, and the type checker or linter the project configures | `python -m pytest -q` | `N passed`; exit code 5 means no test was collected |
-| Go | `go build ./... && go vet ./...` | `go test ./...` | `ok` for each changed package; `[no test files]` is no test |
-| Rust | `cargo check --all-targets` | `cargo test` | `test result: ok. N passed` |
-| Java | `mvn -q compile`, or `./gradlew compileJava` | `mvn test`, or `./gradlew test` | `Tests run: N, Failures: 0, Errors: 0` |
-| C, C++ with CMake | `cmake --build build` | `ctest --test-dir build` | `100% tests passed, 0 tests failed out of N` |
+`pyproject.toml`, `tox.ini` or `CONTRIBUTING`.
 
 The Reviewer's workspace is read-only, so a build that writes into it (`target/`, `build/`,
 `__pycache__`) runs on a copy: `cp -a . /tmp/ws && cd /tmp/ws`.

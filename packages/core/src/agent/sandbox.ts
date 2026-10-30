@@ -153,7 +153,7 @@ function gitCommonDir(cwd: string): string[] {
 const SYSTEM = ['/usr', '/bin', '/sbin', '/lib', '/lib32', '/lib64', '/libx32', '/etc', '/opt', '/sys'];
 
 /** `argv` under bubblewrap, seeing only what the call is given. */
-export function confine(argv: string[], request: AgentRequest): string[] {
+export function confine(argv: string[], request: AgentRequest, temp?: string): string[] {
   const [name, ...args] = argv;
   const found = which(name!);
   const executable = found ? real(found) : name!;
@@ -195,7 +195,8 @@ export function confine(argv: string[], request: AgentRequest): string[] {
     .sort((a, b) => depth(a[1]) - depth(b[1]) || Number(a[0] !== a[1]) - Number(b[0] !== b[1]));
   return [
     'bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-uts', '--unshare-ipc',
-    '--proc', '/proc', '--dev-bind', '/dev', '/dev', '--tmpfs', '/dev/shm', '--tmpfs', '/tmp',
+    '--proc', '/proc', '--dev-bind', '/dev', '/dev', '--tmpfs', '/dev/shm',
+    ...temp ? ['--bind', temp, '/tmp'] : ['--tmpfs', '/tmp'],
     ...ordered.flatMap(([source, target, writable]) => [writable ? '--bind-try' : '--ro-bind-try', source, target]),
     // The sandbox ends with the CLI, and everything in it: a session's CLI outlives what it started.
     '--setenv', 'TMPDIR', '/tmp', '--setenv', 'XDG_CACHE_HOME', join(homedir(), '.cache'), '--setenv', 'npm_config_cache', join(homedir(), '.cache', 'npm'),

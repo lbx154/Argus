@@ -1,59 +1,99 @@
-// An HTML result in the cockpit: the page with the local files it names inlined, served to a
-// sandboxed frame under a policy that lets it reach nothing, this server least of all; or the page
-// and those files as they are, in a zip. Results chosen together download as one zip too.
+// HTML results are served unchanged on a separate origin. The cockpit alone grants an
+// unguessable project/delivery path; this listener has neither credentials nor API routes.
 
-import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { ServerResponse } from 'node:http';
-import { posix } from 'node:path';
+import { createServer, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import { pipeline, Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { crc32, deflateRaw } from 'node:zlib';
 import type { Project } from '../store.js';
-import { typeOf, under } from './files.js';
-import { HttpError, type Context, type Handler } from './index.js';
+import { sendFile, typeOf, under } from './files.js';
+import { HttpError, requestOrigin, type Context, type Handler } from './index.js';
 
-const PAGE_BYTES = 12 << 20;
 const BUNDLE_BYTES = 2 ** 31;
-/** The page's own scripts and styles run; nothing in it may call out, send a form or move its base. */
-const POLICY = "default-src 'none'; script-src 'unsafe-inline' data: blob:; style-src 'unsafe-inline' data:; "
-  + "img-src data: blob:; font-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'";
 const deflate = promisify(deflateRaw);
 
-/** `grant` lets in the preview page, which a frame loads by URL and so without the bearer. */
-export function preview(project: (id: string) => Project, grant: (response: ServerResponse) => void, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>): [string, RegExp, Handler][] {
+export async function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, listenPort: number, publicUrl?: string) {
+  const source = publicUrl ? new URL(publicUrl) : undefined;
+  if (source && (!['http:', 'https:'].includes(source.protocol) || source.username || source.password
+    || source.pathname !== '/' || source.search || source.hash)) throw new Error('--preview-url must be an HTTP(S) origin, such as https://preview.example.com');
+  const sites = new Map<string, { id: string; delivery: string | null; paths: Set<string> }>();
+  const server = createServer((request, response) => {
+    try {
+      const url = new URL(request.url ?? '/', 'http://localhost');
+      const [, key, path = ''] = /^\/([^/]+)(?:\/(.*))?$/.exec(url.pathname) ?? [];
+      const site = key && sites.get(key);
+      if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'Not Found');
+      const name = decodeURIComponent(path);
+      const work = project(site.id);
+      const directory = url.pathname.endsWith('/');
+      const found = result(work, directory ? name + 'index.html' : name, site.delivery);
+      if (!found && !directory && result(work, name ? name + '/index.html' : 'index.html', site.delivery)) {
+        response.writeHead(301, {
+          location: url.pathname + '/' + url.search, 'cache-control': 'no-store', 'referrer-policy': 'no-referrer',
+        }).end();
+        return;
+      }
+      if (!found) throw new HttpError(404, 'Not Found');
+      sendFile(request, response, found.file, found.stat.size, {
+        'content-type': typeOf(found.file, found.path)[1], 'x-content-type-options': 'nosniff',
+        'cache-control': 'no-store', 'referrer-policy': 'no-referrer',
+      });
+      if (request.method === 'GET') response.once('finish', () => {
+        if (response.statusCode === 200 || response.statusCode === 206) site.paths.add(found.path);
+      });
+    } catch (error) {
+      response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500).end();
+    }
+  });
+  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(listenPort, host, resolve))
+    .catch((error: unknown) => { throw new Error(`Preview server could not listen on ${host}:${listenPort}: ${error instanceof Error ? error.message : String(error)}`); });
+  const port = (server.address() as AddressInfo).port;
+  const close = async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  };
   const html = ({ params: [id], url }: Context) => {
     const work = project(id!);
     const path = url.searchParams.get('path') ?? '';
     const delivery = url.searchParams.get('delivery');
     const found = result(work, path, delivery);
     if (!found || typeOf(found.file, found.path)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
-    if (found.stat.size > PAGE_BYTES) throw new HttpError(413, 'This page is too large to preview; download it instead.', 'preview_too_large');
-    return { found, ...page(found.path, readFileSync(found.file, 'utf8'), path => result(work, path, delivery)) };
+    return { work, path, delivery, found };
   };
-  return [
+  const routes: [string, RegExp, Handler][] = [
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, context => {
-      const { html: shown, warnings, files } = html(context);
-      grant(context.response);
-      return { html: shown, warnings, file_count: 1 + files.length, served_page: true };
-    }],
-    // Sandboxed by its policy, the page is no page of this origin, whichever frame holds it.
-    ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview\/page$/, context => {
-      const shown = html(context).html;
-      context.response.writeHead(200, {
-        'content-type': 'text/html; charset=utf-8', 'content-security-policy': `sandbox allow-scripts allow-downloads; ${POLICY}`,
-        'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store', 'referrer-policy': 'no-referrer',
-      }).end(shown);
+      const { work, path, delivery } = html(context);
+      let key = [...sites].find(([, site]) => site.id === work.id && site.delivery === delivery)?.[0];
+      if (!key) { key = randomBytes(24).toString('base64url'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
+      const url = new URL(source?.origin ?? requestOrigin(context.request));
+      if (!source) url.port = String(port);
+      url.pathname = `/${key}/${path.split('/').map(encodeURIComponent).join('/')}`;
+      return { url: url.href };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/bundle$/, context => {
-      const { found, warnings, files } = html(context);
-      const all = [found, ...files];
-      // The page's folder is the zip's root, or the folder above it that holds every file the page names.
-      let root = posix.dirname(found.path);
-      while (root !== '.' && !all.every(file => file.path.startsWith(`${root}/`))) root = posix.dirname(root);
-      const entries = new Map<string, string | Buffer>(all.map(file => [root === '.' ? file.path : file.path.slice(root.length + 1), file.file]));
-      if (warnings.length) entries.set('ARGUS-PREVIEW-NOTES.txt', Buffer.from(warnings.join('\n')));
-      sendZip(context.response, 'argus-website.zip', entries);
+      const { work, path: requested, delivery } = html(context);
+      const path = relative(work.workdir, resolve(work.workdir, requested)).split(sep).join('/');
+      if (path === '..' || path.startsWith('../') || isAbsolute(path)) throw new HttpError(404, 'no such HTML result');
+      // Include the page and files this project/delivery's preview actually served.
+      let root = posix.dirname(path);
+      const entries = new Map<string, string | Buffer>();
+      let bytes = 0;
+      const add = (name: string) => {
+        const file = result(work, name, delivery);
+        if (!file || entries.has(name)) return;
+        if ((bytes += file.stat.size) > BUNDLE_BYTES) throw new HttpError(413, 'This website is too large for one archive.', 'archive_too_large');
+        entries.set(name, file.file);
+        while (root !== '.' && !name.startsWith(`${root}/`)) root = posix.dirname(root);
+      };
+      // A kept page remains downloadable even if its original folder has since disappeared.
+      add(path);
+      const site = [...sites.values()].find(site => site.id === work.id && site.delivery === delivery);
+      for (const name of site?.paths ?? []) add(name);
+      sendZip(context.response, 'argus-website.zip', new Map([...entries].map(([name, file]) => [posix.relative(root, name), file])));
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/artifacts\/bundle$/, async ({ params: [id], body, response }) => {
       const { paths, name, summary, delivery } = await body();
@@ -76,46 +116,7 @@ export function preview(project: (id: string) => Project, grant: (response: Serv
       sendZip(response, zipName(String(name ?? '')), entries);
     }],
   ];
-}
-
-/** The page with each local file it names (a src or poster, a link's href, a CSS url()) inlined as
- * a data: URL, a stylesheet's own url()s from where it is, and the files so inlined. A file outside
- * the workdir, hidden, missing or past the size limit is left out, and named in a warning. */
-function page(path: string, html: string, result: (path: string) => ReturnType<typeof under>) {
-  const warnings: string[] = [];
-  const files: NonNullable<ReturnType<typeof under>>[] = [];
-  const inlined = new Map<string, string>();
-  let bytes = Buffer.byteLength(html);
-  const inline = (ref: string, from: string): string => {
-    if (!ref || /^(?:[a-z][\w+.-]*:|\/\/|#)/i.test(ref)) return ref;
-    let name = ref.split(/[?#]/)[0]!;
-    try { name = decodeURIComponent(name); } catch { /* as written */ }
-    // A path from the root is from the page's folder, the site's root.
-    const file = posix.join(posix.dirname(from), name);
-    if (!inlined.has(file)) {
-      // Taken before it is read, so a stylesheet that leads back to itself gets nothing.
-      inlined.set(file, 'data:,');
-      const found = result(file);
-      if (!found || (bytes += found.stat.size) > PAGE_BYTES) warnings.push(`Could not include local resource: ${ref}`);
-      else {
-        files.push(found);
-        const data = found.path.endsWith('.css') ? Buffer.from(css(readFileSync(found.file, 'utf8'), found.path)) : readFileSync(found.file);
-        inlined.set(file, `data:${typeOf(found.file, found.path)[1].split(';')[0]};base64,${data.toString('base64')}`);
-      }
-    }
-    return inlined.get(file)!;
-  };
-  const css = (text: string, from: string): string =>
-    text.replace(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi, (_, _quote: string, ref: string) => `url(${inline(ref.trim(), from)})`);
-  const inlinedPage = html
-    .replace(/(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi, (_, open: string, sheet: string, close: string) => open + css(sheet, path) + close)
-    .replace(/<[a-z][^>]*>/gi, tag => tag.replace(/(\s(src|poster|href|style)\s*=\s*)(["'])(.*?)\3/gi,
-      (attribute, head: string, name: string, quote: string, value: string) => {
-        const key = name.toLowerCase();
-        if (key === 'href' && !/^<link\b/i.test(tag)) return attribute;
-        return head + quote + (key === 'style' ? css(value, path) : inline(value, path)) + quote;
-      }));
-  return { html: inlinedPage.replace(/^(\s*<!doctype[^>]*>)?/i, `$1<meta http-equiv="Content-Security-Policy" content="${POLICY}">`), warnings, files };
+  return { routes, close, port, origin: source?.origin };
 }
 
 /** A zip's name from the one asked for: no character a file system refuses, at most 80 of them. */

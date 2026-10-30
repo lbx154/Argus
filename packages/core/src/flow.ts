@@ -200,13 +200,13 @@ export class Flow {
     if (title) project.name = title;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
-      const letter = read(handoff);
+      const brief = read(handoff) + (typeof letter === 'string' ? '' : `\n\n## Operator message\n${input}`);
       if (handoff.to === 'engineer') {
         const id = handoff.tasks?.[0]?.task;
-        if (id) await this.taskLetter(project, 'manager', id, letter);
-        else this.open(project, 'manager', letter);
+        if (id) await this.taskLetter(project, 'manager', id, brief);
+        else this.open(project, 'manager', brief);
       }
-      else project.inbox.push(handedTo('manager', null, letter));
+      else project.inbox.push(handedTo('manager', null, brief));
       // New work wakes a resting team; a stopped one takes it up, with what the stop interrupted, on Resume.
       if (project.status !== 'failed' && project.status !== 'stopped') this.status(project, 'working');
     }
@@ -322,6 +322,8 @@ export class Flow {
     const { signal } = this.options;
     if (signal?.aborted) return null;
     const key = task ? `${task.id}.${role}` : role;
+    // Review rounds have no earlier judgment in their context, including after a restart.
+    if (role === 'reviewer') delete project.sessions[key];
     const resume = project.sessions[key];
     let stepped = false;
     const where = task ? { task: task.id } : {};
@@ -330,8 +332,8 @@ export class Flow {
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, TURN[role].access === 'write', project, this.store),
-        prompt: refused ? refusedPrompt(refused) : prompt(resume !== undefined),
+        backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, project, this.store),
+        prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
@@ -344,15 +346,21 @@ export class Flow {
       this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
       if (!signal?.aborted) this.fail(project, role, task, error);
       return null;
+    } finally {
+      if (role === 'reviewer') await this.callAgent.close?.(`${project.id}/${key}`);
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
     // A turn goes on next time in the session its backend reported, whether it ended, was cut off
     // or failed: its work is not done again. With none reported, or a new one whose turn failed before
     // a step, which holds no work and may hold the settings it failed on, the role starts afresh; and
     // a session reset while the turn went on stays reset.
-    if (project.sessions[key] === resume) {
+    if (role !== 'reviewer' && project.sessions[key] === resume) {
       if (threadId && (resume || completed || stepped || signal?.aborted)) project.sessions[key] = threadId;
       else delete project.sessions[key];
+    }
+    if (!project.model && model) {
+      project.modelAutomatic ??= true;
+      project.model = model;
     }
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
     if (handoff) {

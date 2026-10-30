@@ -9,7 +9,7 @@
 // (in its own place for them, or above the scenario), and which run of the CLI it was.
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -17,7 +17,7 @@ import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
-const cli = args[0] === 'app-server' ? 'codex' : args.includes('--plugin-dir') ? 'copilot' : args.includes('--extension') ? 'pi' : 'claude';
+const cli = args[0] === 'app-server' ? 'codex' : args.includes('--plugin-dir') || args.includes('--acp') ? 'copilot' : args.includes('--extension') || args.includes('rpc') ? 'pi' : 'claude';
 const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
 const option = name => args[args.indexOf(name) + 1];
 const run = randomUUID();
@@ -90,11 +90,25 @@ if (cli === 'codex') {
     if (scenario.refuse) return emit({ id, error: { code: -32600, message: scenario.refuse } });
     reply(id, { turn: { id: 'turn-1', status: 'inProgress' } });
     const seen = { schema: params.outputSchema, instructions, model: params.model ?? undefined };
-    note(seen);
+    if (scenario.tempProbe) {
+      let writable = true;
+      try { writeFileSync(join(process.cwd(), 'review-must-not-write'), 'bad'); } catch { writable = false; }
+      writeFileSync('/tmp/review-sentinel', 'private');
+      scenario.output.letter = JSON.stringify({ device: statSync('/tmp').dev, writable });
+    } else if (scenario.privateTemp) writeFileSync('/tmp/private-content', 'private review content');
+    else if (scenario.attackPaths) {
+      scenario.output.letter = JSON.stringify(scenario.attackPaths.map(path => {
+        let content = null, changed = false;
+        try { content = readFileSync(path, 'utf8'); } catch { /* private */ }
+        try { writeFileSync(path, 'overwritten by another role'); changed = true; } catch { /* private */ }
+        return { content, changed };
+      }));
+    } else note(seen);
     leave(scenario);
     if (scenario.hang) return;
     if (scenario.steer) {
-      steerable = steered => { steerable = null; note({ ...seen, steered }); end(scenario); };
+      steerable = steered => { steerable = null; if (!scenario.privateTemp) note({ ...seen, steered }); end(scenario); };
+      if (scenario.privateTemp) notify('item/completed', { item: { type: 'agentMessage', text: 'Private temporary file ready.' } });
       return;
     }
     end(scenario);

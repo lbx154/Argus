@@ -693,7 +693,7 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
   const sid = useContext(SessionIdContext);
   const state = String(event.state) as TaskCardState;
   const title = String(event.title ?? '');
-  const paths = event.result_paths as string[];
+  const path = (event.result_paths as string[] | undefined)?.[0];
   const progress = String(event.progress ?? '');
   const label = state === 'running' ? (TASK_RUNNING_LABEL[String(event.role)] ?? ['进行中', 'In progress'])[locale === 'zh-CN' ? 0 : 1]
     : state === 'idle' ? '' : TASK_STATE_LABEL[state][locale === 'zh-CN' ? 0 : 1];
@@ -708,8 +708,8 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
       </button>
     </div>
     {state !== 'done' && progress && <p data-task-progress className="mt-1 break-words pl-4 text-xs leading-relaxed text-ink-dim">{progress}</p>}
-    {!expanded && paths?.length ? <div className="mt-1 flex flex-wrap gap-2 pl-4">{paths.map(path => <button key={path} type="button"
-      className="max-w-full break-all text-left text-xs text-blue hover:underline" onClick={() => onOpenArtifact?.(path)}>{path}</button>)}</div> : null}
+    {!expanded && path ? <div className="mt-1 pl-4"><button type="button"
+      className="max-w-full break-all text-left text-xs text-blue hover:underline" onClick={() => onOpenArtifact?.(path)}>{path}</button></div> : null}
     {expanded && <div id={`task-record-${event.item_id}`} className="mt-3 min-w-0 border-l border-line pl-4">
       <InlineTaskRecord sid={sid} id={String(event.item_id)} onOpenArtifact={onOpenArtifact} />
       <button type="button" className="my-2 text-xs text-ink-faint hover:text-ink" onClick={() => onInspect(String(event.item_id))}>

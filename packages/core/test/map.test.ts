@@ -66,7 +66,7 @@ test('map polling reads only appended bytes while task state and each reader’s
   const done = progressMap(store, project, 3, []);
   assert.equal(done.cursor, '5');
   assert.equal(done.tasks[0]!.status, 'done');
-  assert.deepEqual(done.tasks[0]!.result_paths, ['report.md']);
+  assert.deepEqual(done.tasks[0]!.result_paths, []); // No Manager has selected a result.
   assert.equal(done.tasks[0]!.finished_ts, Date.parse(ts) / 1000);
   fs.appendFileSync(path, JSON.stringify({ ts, type: 'message', from: 'operator', to: 'reviewer', task: 't1', text: '可以交付。' }) + '\n');
   const answered = progressMap(store, project, Number(done.cursor), []);
@@ -114,7 +114,7 @@ test('each message the Manager takes up is a question and its answer on the map,
   const said = record.filter(event => event.type === 'message');
   const answers = record.filter(event => event.type === 'handoff');
   assert.deepEqual(map.tasks.map(card => [card.id, 'turn_kind' in card && card.turn_kind, card.status, card.role, card.title, card.result_paths, card.deps, card.started_ts, card.finished_ts]),
-    [['q0', ['timer.html']], ['q23', ['timer.html']], ['q45', ['README.md', 'check_timer.py']]].map(([id, paths], index) =>
+    [['q0', ['timer.html']], ['q23', ['timer.html']], ['q45', ['README.md']]].map(([id, paths], index) =>
       [id, 'qa', 'done', 'manager', firstLine(said[index].text), paths, [], at(said[index].ts), at(answers[index].ts)]));
   // Named by what the operator asked, so a file handed over twice names two cards apart.
   assert.deepEqual(map.tasks.map(card => card.title), said.map(event => event.text.split('\n')[0]));

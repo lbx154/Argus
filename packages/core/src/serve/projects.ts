@@ -22,9 +22,9 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
   // A backend session is the backend's own: every role starts afresh on another.
   ARGUS_SKILL_RUNNER_BACKEND: (work, backend) => {
     if (!BACKENDS.includes(backend as Backend)) throw new HttpError(400, `the backend must be one of ${BACKENDS.join(', ')}`, 'invalid_backend');
-    if (backend !== work.backend) Object.assign(work, { backend, sessions: {} });
+    if (backend !== work.backend) Object.assign(work, { backend, sessions: {}, model: null, modelAutomatic: true });
   },
-  ARGUS_SKILL_MODEL: (work, model) => { work.model = model || null; },
+  ARGUS_SKILL_MODEL: (work, model) => { work.model = model || null; work.modelAutomatic = !model; },
   ARGUS_SKILL_REASONING_EFFORT: (work, effort) => {
     if (effort) work.effort = effort;
     else delete work.effort;

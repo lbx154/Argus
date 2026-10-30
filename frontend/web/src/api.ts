@@ -526,12 +526,6 @@ const P = (sid: string, path = '') => `/api/projects/${encodeURIComponent(sid)}$
 
 const artifactParams = (path: string, delivery?: string) => new URLSearchParams({ path, ...(delivery ? { delivery } : {}) });
 
-/** URL of the served, self-sandboxing preview page for an HTML result. A
- * sandboxed iframe loads it by URL so the delivered site keeps its own styles
- * and scripts; it cannot send an auth header, so it presents the cookie that
- * `api.artifactPreview` received (a hosted portal adds the header upstream). */
-export const previewPageUrl = (sid: string, path: string, delivery?: string): string =>
-  P(sid, `/artifact/preview/page?${artifactParams(path, delivery)}`);
 export const newRequestId = (): string => globalThis.crypto?.randomUUID?.()
   ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const commandId = newRequestId;
@@ -781,7 +775,7 @@ export const api = {
     return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
   artifactPreview: (sid: string, path: string, signal?: AbortSignal, delivery?: string) =>
-    getJson<{ html: string; warnings: string[]; file_count: number; served_page?: boolean }>(
+    getJson<{ url: string }>(
       P(sid, `/artifact/preview?${artifactParams(path, delivery)}`), signal),
   /** One zip of listed results (each path passes the artifact allowlist). */
   artifactsBundle: async (sid: string, paths: string[], name = '', summary = '', signal?: AbortSignal, delivery?: string) =>

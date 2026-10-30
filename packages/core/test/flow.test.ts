@@ -72,6 +72,7 @@ const say = async (flow: Flow, id: string, text: string) => { await flow.say(id,
 const answer = (flow: Flow, id: string, question: Question, text: string) => { flow.answer(id, question, text); return flow.settled(id); };
 
 const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.';
+const withOperator = (brief: string, text: string) => `${brief}\n\n## Operator message\n${text}`;
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
 
@@ -181,8 +182,8 @@ test('the Manager answers directly', async t => {
   const skill = join(SKILLS, 'research', 'SKILL.md');
   assert.ok(request?.instructions?.includes('\n- research: Research that ends in a result worth publishing: where to start, how to use the machine, '
     + `and the few setup errors that quietly ruin a result (${skill})\n`));
-  // Every role writes for a person, and knows the machine.
-  assert.match(request?.instructions ?? '', /## Writing for a person\n[\s\S]*\nThe machine: \d+ logical CPUs, \d+ GiB of memory/);
+  assert.doesNotMatch(request?.instructions ?? '', /## Writing for a person/);
+  assert.match(request?.instructions ?? '', /\d+ logical CPUs \(load [\d.]+, about \d+ free\), \d+ GiB of memory/);
   // A project with no work rests, and an answer leaves it resting.
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
@@ -199,7 +200,7 @@ test('a skill from before SKILL.md, a README.md whose first line said what it wa
   assert.deepEqual([existsSync(join(dir, 'README.md')), purpose(dir)], [false, 'Backtest a trading idea: without lookahead']);
 });
 
-test("every role is shown Argus's skills and the team's beside them, and a role that writes is asked to write the team's", async t => {
+test("every role is shown Argus's skills and the team's beside them, without rules to write skills", async t => {
   const { home, store, flow, id, requests } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letter: 'Parse data.csv' },
@@ -214,13 +215,14 @@ test("every role is shown Argus's skills and the team's beside them, and a role 
   }
   await say(flow, id, 'Summarise data.csv');
   assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'write'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
-  for (const { instructions: prompt = '', readDirs, writeDirs, access } of requests) {
+  for (const { instructions: prompt = '', readDirs, writeDirs } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
     assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- software: `) && prompt.includes(join(SKILLS, 'research')));
-    assert.equal(prompt.includes(`\nThe skills in ${own} are the team's: when your work teaches how later projects can do theirs better`), access === 'write');
+    assert.ok(prompt.includes(`Skills (Argus's own, then the team's in ${own}):`));
+    assert.doesNotMatch(prompt, /write it there|read its SKILL.md whole|Keep in the workspace|call nothing the latest/);
   }
 });
 
@@ -247,7 +249,7 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   ]);
   const [, engineer, reviewer, manager] = requests;
   assert.deepEqual([engineer?.form, engineer?.access], ['engineer', 'write']);
-  assert.equal(engineer?.prompt, '## Task t1, from the Manager\nBuild the CSV summary tool.\nsummary.py prints the column totals.');
+  assert.equal(engineer?.prompt, '## Task t1, from the Manager\nBuild the CSV summary tool.\nsummary.py prints the column totals.\n\n## Operator message\nMake me a CSV summary tool');
   assert.match(engineer?.instructions ?? '', /^You are the Argus Engineer[\s\S]*## Where things are\n/);
   assert.deepEqual([reviewer?.form, reviewer?.access], ['review', 'read']);
   assert.match(reviewer?.prompt ?? '', /^## Task t1[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
@@ -260,7 +262,7 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   ]);
 });
 
-test('a review returns the work once, and both roles continue their sessions', async t => {
+test('a review returns the work once; the Engineer resumes and the Reviewer starts afresh', async t => {
   const { flow, id, requests } = await setup(t, [
     toEngineer,
     { role: 'engineer', to: 'reviewer', letter: 'v1' },
@@ -273,8 +275,10 @@ test('a review returns the work once, and both roles continue their sessions', a
   const [, , , engineer, reviewer] = requests;
   assert.equal(engineer?.resume, 'engineer-2');
   assert.equal(engineer?.prompt, '## From the Reviewer\nTotals skip the last row.');
-  assert.equal(reviewer?.resume, 'reviewer-3');
-  assert.match(reviewer?.prompt ?? '', /^The Engineer has worked on the task since your last judgment\.[\s\S]*\n\n## From the Engineer\nv2 counts the last row$/);
+  assert.equal(reviewer?.resume, undefined);
+  assert.match(reviewer?.prompt ?? '', /^## Task t1, from the Manager[\s\S]*## From the Engineer\nv2 counts the last row$/);
+  assert.doesNotMatch(reviewer?.prompt ?? '', /earlier judgment|Judge the current files afresh/);
+  assert.match(reviewer?.instructions ?? '', /Your session ends with each turn/);
 });
 
 test("the Engineer's question holds up its task until the operator answers", async t => {
@@ -365,7 +369,7 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
     [['t1', 'Parse data.csv', 'planner', 'closed'], ['t2', 'Write the totals report', 'planner', 'closed']]);
   const [, planner, parse, , replan, report2, , , manager] = requests;
   assert.deepEqual([planner?.form, planner?.access], ['plan', 'read']);
-  assert.match(planner?.prompt ?? '', /## Tasks\nThe next task opened is t1\.\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
+  assert.match(planner?.prompt ?? '', /## Tasks\nThe next task opened is t1\.\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.\n\n## Operator message\nSummarise data.csv, in stages$/);
   assert.match(parse?.prompt ?? '', /## Task t1, from the Planner\nParse data\.csv\nCheck: the parser tests pass\.$/);
   assert.equal(replan?.resume, 'planner-2');
   assert.equal(replan?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\nThe next task opened is t2.\n\n## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted: the parser reads every row.');
@@ -537,11 +541,11 @@ test('replay the recorded Manager supplement: an explicit task target delivers t
     await flow.say(id, messages[1]!.text, { request_id: messages[1]!.request_id! });
     const project = store.load(id);
     assert.deepEqual(project.tasks.map(task => [task.id, task.objective]),
-      added.slice(0, target ? 1 : 2).map(task => [task.id, task.objective]));
-    assert.deepEqual(steered, target ? [[`${id}/t1.engineer`, `## From the Manager, during your turn\n${letters[1]!.letter}`]] : []);
+      added.slice(0, target ? 1 : 2).map((task, i) => [task.id, withOperator(task.objective, messages[i]!.text)]));
+    assert.deepEqual(steered, target ? [[`${id}/t1.engineer`, `## From the Manager, during your turn\n${withOperator(letters[1]!.letter, messages[1]!.text)}`]] : []);
     assert.equal(events().filter(event => event.type === 'task.added').length, target ? 1 : 2);
     if (target) {
-      assert.deepEqual(project.tasks[0]!.unread, [{ from: 'manager', text: letters[1]!.letter }]);
+      assert.deepEqual(project.tasks[0]!.unread, [{ from: 'manager', text: withOperator(letters[1]!.letter, messages[1]!.text) }]);
       assert.ok(events().some(event => event.type === 'handoff' && event.role === 'manager' && event.task === 't1'
         && event.letter === letters[1]!.letter && event.answers === messages[1]!.request_id));
     }
@@ -570,17 +574,17 @@ for (const holder of ['engineer', 'reviewer'] as const) for (const steer of [fal
     await flow.say(id, 'Build the CSV summary tool');
     while (!requests.some(request => request.role === holder && request.session === `${id}/t1.${holder}`)) await tick();
     await flow.say(id, '使用新模型');
-    assert.deepEqual(steered, [[`${id}/t1.${holder}`, `## From the Manager, during your turn\n${letter}`]]);
-    assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: letter }]);
+    assert.deepEqual(steered, [[`${id}/t1.${holder}`, `## From the Manager, during your turn\n${withOperator(letter, '使用新模型')}`]]);
+    assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: withOperator(letter, '使用新模型') }]);
     assert.equal(taskTrace(store, store.load(id), 't1').groups.at(-1)?.role, 'manager');
     held.open();
     const project = await flow.settled(id);
-    assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.objective, project.tasks[0]?.unread], ['idle', 1, brief, undefined]);
+    assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.objective, project.tasks[0]?.unread], ['idle', 1, withOperator(brief, 'Build the CSV summary tool'), undefined]);
     assert.equal(events().filter(event => event.type === 'task.added').length, 1);
     assert.ok(events().some(event => event.type === 'handoff' && event.role === 'manager' && event.task === 't1' && event.letter === letter));
     const next = requests.find(request => request.role === 'engineer' && request.prompt.startsWith(`## From the ${holder === 'engineer' ? 'Engineer' : 'Reviewer'}\nCarry on.`));
     assert.ok(next);
-    assert.equal(next.prompt.includes(`## From the Manager, since the task's last turn\n${letter}`), !steer);
+    assert.equal(next.prompt.includes(`## From the Manager, since the task's last turn\n${withOperator(letter, '使用新模型')}`), !steer);
   });
 }
 
@@ -698,7 +702,7 @@ for (const timing of ['before delivery', 'after delivery']) {
     while (requests.length < 3) await tick();
     if (timing === 'after delivery') {
       await supplement;
-      assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: letter }]);
+      assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: withOperator(letter, 'Also log the loss') }]);
     }
     engineer.open();
     if (timing === 'before delivery') {
@@ -708,7 +712,7 @@ for (const timing of ['before delivery', 'after delivery']) {
     await supplement;
     const project = await flow.settled(id);
     assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.status, project.tasks[0]?.unread, project.inbox], ['idle', 1, 'closed', undefined, []]);
-    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which is not open, was not read:\n${letter}`).length, 1);
+    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which is not open, was not read:\n${withOperator(letter, 'Also log the loss')}`).length, 1);
     assert.ok(!requests.some(request => request.role === 'planner'));
     assert.equal(events().filter(event => event.type === 'task.added').length, 1);
   });
@@ -866,8 +870,8 @@ test('a restarted process continues from project.json', async t => {
   const project = await say(new Flow(store, next.callAgent), id, 'continue');
   assert.equal(project.status, 'idle');
   assert.equal(next.requests[0]?.resume, 'manager-1');
-  // The Reviewer the restart cut off goes on in its session, with the letter it was reading.
-  assert.equal(next.requests[1]?.resume, 'reviewer-3');
+  // A restarted review reads the full brief and current letter in a fresh session.
+  assert.equal(next.requests[1]?.resume, undefined);
   assert.match(next.requests[1]?.prompt ?? '', /## From the Engineer\nsummary\.py added$/);
 });
 
@@ -955,4 +959,76 @@ test('a new session whose turn did work before it failed is gone on in, though n
   assert.equal(store.load(id).sessions.manager, 'worked');
   await say(flow, id, 'go on');
   assert.equal(requests[1]?.resume, 'worked');
+});
+
+test('concurrent operator requests keep their own verbatim briefs; team mail supplies no operator message', async t => {
+  const held = gate();
+  t.after(held.open);
+  const { flow, id, requests, store } = await setup(t, [
+    { ...toEngineer, waits: held.shut },
+    { role: 'engineer', to: 'operator', letter: 'Which format?' },
+    { role: 'manager', to: 'planner', letter: 'Plan the second request' },
+    { role: 'planner', to: 'manager', letter: 'Team result' },
+    { role: 'manager', to: 'engineer', letter: 'Follow up on the team result' },
+    { role: 'engineer', to: 'operator', letter: 'Which output?' },
+  ]);
+  const firstText = '第一条原话  \n\n保留空格、标点。\n';
+  const secondText = '第二条要求：不能混入第一条！';
+  const first = flow.say(id, firstText, { request_id: 'first' });
+  while (requests.length < 1) await tick();
+  const second = flow.say(id, secondText, { request_id: 'second', attachments: [{ relative_path: 'input.csv', attachment_id: 'a', original_name: 'input.csv', stored_name: 'input.csv', size_bytes: 2, mime: 'text/csv' }] });
+  held.open();
+  await Promise.all([first, second]);
+  await flow.settled(id);
+  assert.equal(store.load(id).tasks[0]!.objective, withOperator(brief, firstText));
+  const planner = requests.find(request => request.role === 'planner')!;
+  assert.ok(planner.prompt.endsWith(`## Operator message\n${secondText}\n\nAttached, in the workdir:\n- input.csv`));
+  assert.ok(!planner.prompt.includes(firstText));
+  assert.equal(store.load(id).tasks[1]!.objective, 'Follow up on the team result');
+});
+
+test('review rounds end their processes and ignore stored review sessions after restart', async t => {
+  const { flow, id, callAgent, requests, store } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'first delivery' },
+    { role: 'reviewer', to: 'engineer', letter: 'fix the parser' },
+    { role: 'engineer', to: 'reviewer', letter: 'fixed delivery' },
+    { role: 'reviewer', to: 'manager', letter: 'accepted' }, report,
+  ]);
+  const closed: string[] = [];
+  callAgent.close = async prefix => { closed.push(prefix); };
+  flow.edit(id, project => { project.sessions['t1.reviewer'] = 'old-judgment'; });
+  await say(flow, id, 'Fix the parser');
+  assert.deepEqual(requests.filter(request => request.role === 'reviewer').map(request => request.resume), [undefined, undefined]);
+  assert.equal(closed.filter(prefix => prefix === `${id}/t1.reviewer`).length, 2);
+  assert.equal(store.load(id).sessions['t1.reviewer'], undefined);
+});
+
+test('a legacy project saves its first reported model for later roles and restart', async t => {
+  const { flow, id, store, requests, home, events } = await setup(t, [toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'built' }, { role: 'reviewer', to: 'manager', letter: 'accepted' }, report]);
+  flow.edit(id, project => { delete project.modelAutomatic; });
+  assert.equal(Object.hasOwn(store.load(id), 'modelAutomatic'), false);
+  await say(flow, id, 'Build it');
+  const end = events().find(event => event.type === 'call.end');
+  assert.equal(end?.type === 'call.end' && end.model, 'fake');
+  assert.equal(store.load(id).model, 'fake');
+  assert.equal(store.load(id).modelAutomatic, true);
+  assert.equal(requests[0]!.model, undefined);
+  assert.ok(requests.slice(1).every(request => request.model === 'fake'));
+  const next = agent([report]);
+  await say(new Flow(new Store(home), next.callAgent), id, 'Any news?');
+  assert.equal(next.requests[0]!.model, 'fake');
+});
+
+test('a refused review form keeps the full task brief when it opens a fresh correction session', async t => {
+  const { flow, id, requests } = await setup(t, [toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'current delivery' },
+    { role: 'reviewer' }, { role: 'reviewer', to: 'manager', letter: 'accepted' }, report]);
+  await say(flow, id, 'Check this exact request');
+  const reviews = requests.filter(request => request.role === 'reviewer');
+  assert.equal(reviews.length, 2);
+  assert.ok(reviews.every(request => request.resume === undefined));
+  assert.ok(reviews[1]!.prompt.startsWith(reviews[0]!.prompt));
+  assert.ok(reviews[1]!.prompt.includes('Argus refused your hand-off:'));
 });

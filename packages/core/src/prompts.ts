@@ -3,7 +3,7 @@
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { cpus, totalmem } from 'node:os';
+import { cpus, loadavg, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KEPT, type Role } from './types.js';
@@ -52,37 +52,35 @@ export function renameSkills(home: string): void {
   }
 }
 
-const rules = (name: Role | 'writing'): string => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim();
+const rules = (name: Role): string => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim();
 const section = (title: string, body: string): string => `## ${title}\n${body}`;
 const join = (...parts: (string | false | null)[]): string => parts.filter(Boolean).join('\n\n');
 
-/** A role's standing instructions: its rules, how every role writes, and where the work, Argus's
- * record of it and the skills are, the date and the machine. A role that writes may write skills. */
-export const instructions = (role: Role, writes: boolean, project: Project, store: Store): string =>
-  join(rules(role), rules('writing'), where(project, store, writes));
+/** A role's standing instructions and the work's locations, session lifetime, date and machine. */
+export const instructions = (role: Role, project: Project, store: Store): string =>
+  join(rules(role), where(project, store, role));
 
-function where(project: Project, store: Store, writes: boolean): string {
+function where(project: Project, store: Store, role: Role): string {
   const library = skillsHome(store.home);
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
     `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
-    `Skills, a folder each whose SKILL.md says in its front matter what it is for: when one fits your work, read its SKILL.md whole, once, and the files it links as you need them. A skill is how you work, which what you say does not name. Argus's own, then the team's in ${library}:`,
+    `Skills (Argus's own, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
-    writes && `The skills in ${library} are the team's: when your work teaches how later projects can do theirs better, write it there, in a new skill or one of the team's. A fault in Argus itself is no skill: tell the operator.`,
-    KEPT.includes(project.backend)
+    role !== 'reviewer' && KEPT.includes(project.backend)
       ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
       : 'Your session ends with each turn, and everything you started with it.',
-    `Today is ${new Date().toISOString().slice(0, 10)} (UTC). Your training knowledge may predate it: call nothing the latest unless a source checked now says so.`,
-    'Keep in the workspace what the work makes, for the other roles and the operator to see; install a tool you only check with (a browser, say) under ~/.cache, which every role and project shares. Your /tmp may be yours alone, and a path elsewhere may be hidden from you: when the operator names a file you cannot read, ask them to attach it, or for a folder that keeps changing, to start the project in a folder that holds it. What only the operator can do on their own machine, such as installing a scheduled job, give them as the commands to type.',
+    `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,
     machine(),
   ].filter(Boolean).join('\n'));
 }
 
 /** The machine the work runs on, as far as Argus knows it. */
 function machine(): string {
+  const count = cpus().length;
+  const load = loadavg()[0]!;
   const gpus = process.env.CUDA_VISIBLE_DEVICES;
-  return `The machine: ${cpus().length} logical CPUs, ${Math.round(totalmem() / 2 ** 30)} GiB of memory${gpus === undefined ? ''
-    : `, and the GPUs this project may use, CUDA_VISIBLE_DEVICES=${gpus || '(none)'}`}.`;
+  return `${count} logical CPUs (load ${load.toFixed(1)}, about ${Math.max(0, count - load).toFixed(0)} free), ${Math.round(totalmem() / 2 ** 30)} GiB of memory; project GPUs: CUDA_VISIBLE_DEVICES=${(gpus ?? '(unset)') || '(none)'}.`;
 }
 
 export const managerPrompt = (message: string, resumed: boolean): string => resumed ? message : section('Message', message);
@@ -102,11 +100,7 @@ export const letterPrompt = (from: Note['from'], text: string): string => sectio
 export function taskPrompt(project: Project, task: Task, resumed: boolean): string {
   const note = join(task.note && section(`From the ${NAMES[task.note.from]}`, task.note.text),
     ...(task.unread ?? []).map(({ from, text }) => section(`From the ${NAMES[from]}, since the task's last turn`, text)));
-  if (resumed) {
-    const again = task.holder === 'reviewer' && task.note?.from === 'engineer'
-      && 'The Engineer has worked on the task since your last judgment. Judge the current files afresh: your earlier judgment is not a fact.';
-    return join(again, note || 'Continue the task.');
-  }
+  if (resumed) return note || 'Continue the task.';
   // How each earlier task ended is in Argus's record, which the workspace may not say.
   const earlier = project.tasks.filter(other => other.status === 'closed')
     .map(({ id, title, note }) => `- ${id} ${title}${note ? `. Its last word, from the ${NAMES[note.from]}: ${note.text.split('\n')[0]}` : ''}`);

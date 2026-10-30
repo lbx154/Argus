@@ -404,7 +404,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
         </button>
         {task.status === 'done' && !!task.result_paths?.length && onOpenArtifact && (
           <div className="map-card-results nodrag nopan">
-            {task.result_paths.map((path) => (
+            {task.result_paths.slice(0, 1).map((path) => (
               <button key={path} type="button" title={path} onClick={() => onOpenArtifact(path)}>
                 {path.split('/').pop()}
               </button>

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { Snapshot } from '@argus/contracts';
 import type { AgentRequest, CallAgent } from '../src/types.js';
-import { Store } from '../src/store.js';
+import { Store, type Project } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 
 /** A cockpit whose Manager answers at once, except its first `<hang>` turn, which waits for Stop. */
@@ -155,7 +155,7 @@ test('new projects inherit the most recently created project settings, including
   const { store, create, send, get } = await setup(t);
   const first = await create();
   assert.deepEqual([store.load(first).backend, store.load(first).model, store.load(first).effort], ['codex', null, undefined]);
-  store.save({ ...store.load(first), created: '2020-01-01T00:00:00.000Z', backend: 'claude', model: 'opus', effort: 'high', sessions: { manager: 'old' } });
+  store.save({ ...store.load(first), created: '2020-01-01T00:00:00.000Z', backend: 'claude', model: 'opus', modelAutomatic: false, effort: 'high', sessions: { manager: 'old' } });
   const second = await create();
   assert.deepEqual([store.load(second).backend, store.load(second).model, store.load(second).effort, store.load(second).sessions], ['claude', 'opus', 'high', {}]);
   // An older project's new activity must not become the next project's defaults.
@@ -326,4 +326,117 @@ test('project names stay complete through request naming, automatic naming, rena
   assert.ok(entry.trashed_at > 0);
   assert.equal((await send('POST', `/api/trash/${basename(trash_path)}/restore`)).status, 200);
   assert.equal((await snapshot()).session.display_name, renamed);
+});
+
+test('legacy selection survives model pinning and is inherited through the API after restart', async t => {
+  for (const model of [null, 'legacy-explicit']) await t.test(model ?? 'Automatic', async t => {
+    const home = await mkdtemp(join(tmpdir(), 'argus-legacy-selection-'));
+    t.after(() => rm(home, { recursive: true, force: true }));
+    const fixture = new URL('./fixtures/progress-messages/', import.meta.url);
+    const legacy = JSON.parse(await readFile(new URL('project.json', fixture), 'utf8')) as Project;
+    assert.equal(legacy.model, null);
+    assert.equal(Object.hasOwn(legacy, 'modelAutomatic'), false);
+    const store = new Store(home);
+    await cp(fixture, store.dir(legacy.id), { recursive: true });
+    legacy.workdir = join(home, 'work');
+    await mkdir(legacy.workdir);
+    legacy.model = model;
+    store.save(legacy);
+    const requests: AgentRequest[] = [];
+    const callAgent: CallAgent = async request => {
+      requests.push(request);
+      return { callId: 'legacy', threadId: 'legacy', completed: true, error: null,
+        handoff: { form: request.form, to: 'operator', letters: ['ok'] }, model: request.model ?? 'reported-model', usage: null, ms: 1 };
+    };
+    let server = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web: home });
+    t.after(() => server.close());
+    const post = async (path: string, body = {}) => {
+      const response = await fetch(server.url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      assert.equal(response.status, 200, await response.clone().text());
+      return await response.json() as { sid: string };
+    };
+    await post(`/api/projects/${legacy.id}/message`, { text: 'Run the legacy project' });
+    assert.equal(requests[0]!.model, model ?? undefined);
+    assert.equal(store.load(legacy.id).model, model ?? 'reported-model');
+    await server.close();
+    server = await serve({ store: new Store(home), callAgent, backend: 'codex', model: null, port: 0, web: home });
+    const { sid } = await post('/api/daemons');
+    assert.deepEqual([store.load(sid).model, store.load(sid).modelAutomatic, requests.length], [model, model === null, 1]);
+    assert.equal(store.load(legacy.id).modelAutomatic, model === null ? true : undefined);
+  });
+});
+
+test('new projects save the model reported by their first call and keep it through restart', async t => {
+  const { home, requests } = await setup(t);
+  let current = 'first-call-model';
+  const backend = async (request: AgentRequest) => {
+    requests.push(request);
+    return { callId: 'pin', threadId: 'pin', completed: true, error: null,
+      handoff: { form: request.form, to: 'operator', letters: ['ok'] }, model: request.model ?? current, usage: null, ms: 1 };
+  };
+  const store = new Store(join(home, 'pin-home'));
+  let server = await serve({ store, callAgent: backend, backend: 'codex', model: null, port: 0, web: home });
+  t.after(() => server.close());
+  const post = async (path: string, body = {}) => {
+    const response = await fetch(server.url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal(response.status, 200, await response.clone().text());
+    return await response.json() as { sid: string; value?: string };
+  };
+  const { sid } = await post('/api/daemons');
+  assert.equal(store.load(sid).model, null);
+  assert.equal(requests.length, 0);
+  await post(`/api/projects/${sid}/message`, { text: 'Run' });
+  assert.equal(requests.at(-1)!.model, undefined);
+  assert.equal(store.load(sid).model, 'first-call-model');
+  current = 'changed-global-default';
+  await server.close();
+  server = await serve({ store, callAgent: backend, backend: 'codex', model: null, port: 0, web: home });
+  await post(`/api/projects/${sid}/message`, { text: 'Again' });
+  assert.equal(requests.at(-1)!.model, 'first-call-model');
+  assert.equal((await post(`/api/projects/${sid}/config/set`, { name: 'ARGUS_SKILL_MODEL', value: 'auto' })).value, '');
+  assert.deepEqual([store.load(sid).model, store.load(sid).modelAutomatic, requests.length], [null, true, 2]);
+  await post(`/api/projects/${sid}/message`, { text: 'Use Automatic' });
+  assert.equal(requests.at(-1)!.model, undefined);
+  assert.equal(store.load(sid).model, current);
+  await post(`/api/projects/${sid}/config/set`, { name: 'ARGUS_SKILL_RUNNER_BACKEND', value: 'claude' });
+  assert.deepEqual([store.load(sid).model, store.load(sid).modelAutomatic, store.load(sid).sessions, requests.length], [null, true, {}, 3]);
+  current = 'claude-default';
+  await post(`/api/projects/${sid}/message`, { text: 'New backend' });
+  assert.equal(requests.at(-1)!.backend, 'claude');
+  assert.equal(requests.at(-1)!.model, undefined);
+  assert.equal(store.load(sid).model, current);
+});
+
+test('new projects inherit Automatic as unset and explicit model selections by name without calling a backend', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-model-selection-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  let current = 'model-A';
+  const called: (string | undefined)[] = [];
+  const backend = async (request: AgentRequest) => {
+    called.push(request.model);
+    return { callId: 'selection', threadId: 'selection', completed: true, error: null,
+      handoff: { form: request.form, to: 'operator', letters: ['ok'] }, model: request.model ?? current, usage: null, ms: 1 };
+  };
+  const store = new Store(home);
+  const server = await serve({ store, callAgent: backend, backend: 'codex', model: null, port: 0, web: home });
+  t.after(() => server.close());
+  const post = async (path: string, body = {}) => {
+    const response = await fetch(server.url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal(response.status, 200, await response.clone().text());
+    return await response.json() as { sid: string };
+  };
+  const first = (await post('/api/daemons')).sid;
+  assert.deepEqual([store.load(first).model, called.length], [null, 0]);
+  await post(`/api/projects/${first}/message`, { text: 'Original project' });
+  const second = (await post('/api/daemons')).sid;
+  assert.deepEqual([store.load(first).model, store.load(second).model, store.load(second).modelAutomatic, called], ['model-A', null, true, [undefined]]);
+  current = 'model-B';
+  await post(`/api/projects/${second}/message`, { text: 'New project' });
+  assert.equal(store.load(second).model, current);
+  await post(`/api/projects/${second}/config/set`, { name: 'ARGUS_SKILL_MODEL', value: 'explicit-model' });
+  const explicit = (await post('/api/daemons')).sid;
+  assert.deepEqual([store.load(explicit).model, store.load(explicit).modelAutomatic, called.length], ['explicit-model', false, 2]);
+  await post(`/api/projects/${explicit}/config/set`, { name: 'ARGUS_SKILL_MODEL', value: 'auto' });
+  const automatic = (await post('/api/daemons')).sid;
+  assert.deepEqual([store.load(explicit).model, store.load(automatic).model, called.length], [null, null, 2]);
 });

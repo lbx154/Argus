@@ -18,8 +18,8 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   cases the question is about: a question about close rivals needs rivals the published numbers put
   close. A study of an outdated model, a toy setup, or a benchmark the model already nearly solves
   (GSM8K for a current 4B model) is a result nobody will use.
-- Use the whole machine. `node <this folder>/machine.mjs` shows the GPUs with their free memory, the
-  Python ML stack and the disk; size the model, batch, threads and number of runs to it together,
+- Use what is free on the machine. `node <this folder>/machine.mjs` shows the CPU load, the GPUs with their free
+  memory, the Python ML stack and the disk; size the model, batch, threads and number of runs to it together,
   and run independent jobs side by side from one queue, so nothing idles while work is left. Work
   that generates a lot (RL rollouts, evaluation, synthetic data) runs through an inference engine
   such as vLLM or SGLang, often ten times faster than generating inside the training loop.
@@ -37,8 +37,6 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   real system belongs in a test, never in a result. Every number comes from the raw rows a run
   wrote; those rows and the scripts that read them are the record: keep no hashes, archives or
   copies of them.
-- Superiority means beating the strongest same-information baseline under the same protocol, run
-  from its official code and landing near its published number.
 - A benchmark carries a claim only if its labels and scoring can: know where each gold label
   comes from and what a constant answer scores.
 

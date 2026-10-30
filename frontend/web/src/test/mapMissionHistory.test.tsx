@@ -72,7 +72,7 @@ it("keeps history navigation in the details without an overview history control"
 it.each([
   ['results/solo.md'],
   ['results/first.html', 'results/说明.md'],
-])('names every delivered file button: %s', (...paths) => {
+])('names only the first delivered file button: %s', (...paths) => {
   const delivered = { ...task, status: 'done', result_paths: paths };
   const scene = layoutScene(buildMap([delivered]), [], false);
   const card = scene.cards[0];
@@ -83,8 +83,8 @@ it.each([
       canvasSize: { width: 1440, height: 960 }, zh: false, focused: false, detailed: false, open: vi.fn(), readStep: vi.fn() },
   } as NodeProps<MacroNode>} /></MapArtifactContext.Provider>); });
   const buttons = renderer.root.findByProps({ className: 'map-card-results nodrag nopan' }).findAllByType('button');
-  expect(buttons.map(button => button.children.join(''))).toEqual(paths.map(path => path.split('/').pop()));
+  expect(buttons.map(button => button.children.join(''))).toEqual(paths.slice(0, 1).map(path => path.split('/').pop()));
   act(() => buttons.forEach(button => button.props.onClick()));
-  expect(opened.mock.calls).toEqual(paths.map(path => [path]));
+  expect(opened.mock.calls).toEqual(paths.slice(0, 1).map(path => [path]));
   act(() => renderer.unmount());
 });

@@ -73,7 +73,7 @@ describe('the task holder, the latest thing said and results on the map card', (
     expect(tree!.root.findAllByProps({ 'data-testid': 'map-card-now' })).toHaveLength(0);
   });
 
-  it('opens every file from the closing handoff with the existing preview callback, in order', () => {
+  it('opens only the first selected file with the existing preview callback', () => {
     const open = vi.fn();
     const first: Dataset = { id: 'live:p', tasks: [task], events: [] };
     const next = mergeMapProgress(first, { ...first, tasks: [{ ...task, status: 'done', result_paths: ['report.md', 'data.csv'] }] });
@@ -84,8 +84,8 @@ describe('the task holder, the latest thing said and results on the map card', (
     const result = tree!.root.findByProps({ title: 'report.md' });
     expect(result.children.join('')).toBe('report.md');
     act(() => result.props.onClick());
-    act(() => tree!.root.findByProps({ title: 'data.csv' }).props.onClick());
-    expect(open.mock.calls).toEqual([['report.md'], ['data.csv']]);
+    expect(tree!.root.findAllByProps({ title: 'data.csv' })).toHaveLength(0);
+    expect(open.mock.calls).toEqual([['report.md']]);
     expect(result.parent?.type).toBe('div');
     act(() => tree!.update(shown({ ...task, status: 'done', latest_action: { role: 'reviewer', text: 'See report.md', ts: 3 }, result_paths: [] })));
     expect(tree!.root.findAll(node => node.type === 'button' && node.children.includes('打开结果'))).toHaveLength(0);

@@ -46,7 +46,7 @@ export const codex: StartBackend = (request, { confined, schema }) => {
       if (!ready) {
         await cli.request('initialize', { clientInfo: { name: 'argus', title: 'Argus', version: '1' }, capabilities: null });
         cli.send({ method: 'initialized' });
-        const settings = { cwd: request.cwd, developerInstructions: request.instructions ?? null };
+        const settings = { cwd: request.cwd, developerInstructions: request.instructions ?? null, ...request.model ? { model: request.model } : {} };
         let opened;
         try {
           opened = thread ? await cli.request('thread/resume', { threadId: thread, ...settings, excludeTurns: true })

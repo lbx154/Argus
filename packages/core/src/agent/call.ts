@@ -4,7 +4,7 @@
 // output and usage.
 
 import { randomBytes } from 'node:crypto';
-import { appendFileSync, createWriteStream, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { PayloadSchema } from '@argus/contracts';
 import { KEPT, type AgentRequest, type AgentResult, type Backend, type CallAgent, type Step, type Usage } from '../types.js';
@@ -13,7 +13,7 @@ import { codex } from './codex.js';
 import { copilot } from './copilot.js';
 import { formSchema, judge } from './handoff.js';
 import { pi } from './pi.js';
-import { agentEnv, confine, launcher, notInstalled, sandboxed } from './sandbox.js';
+import { agentEnv, confine, launcher, notInstalled, privatePath, sandboxed } from './sandbox.js';
 import { models } from './models.js';
 import { Cli } from './session.js';
 
@@ -44,7 +44,7 @@ export type StartBackend = (
 const START: Record<Backend, StartBackend> = { codex, claude, copilot, pi };
 
 /** A session's CLI, the settings it runs with, and the backend session it holds. */
-interface Live { cli: Cli; conversation: Conversation; settings: string; thread: string | null }
+interface Live { cli: Cli; conversation: Conversation; settings: string; thread: string | null; tempRoot: string | undefined }
 /** Every CLI running, by its session's key, or for a call with none, by the call's. */
 const live = new Map<string, Live>();
 
@@ -58,20 +58,31 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
   if (kept && !kept.cli.gone && kept.settings === settings(request) && kept.thread === (request.resume ?? null)) return kept;
   await end(key);
   const confined = sandboxed();
-  const conversation = START[request.backend](request, { confined, schema: formSchema(request.form, request.giver), stem });
-  const argv = confined ? confine([request.backend, ...conversation.args], request) : [...launcher(request.backend), ...conversation.args];
-  const started: Live = {
-    cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env }),
-    conversation, settings: settings(request), thread: request.resume ?? null,
-  };
-  live.set(key, started);
-  return started;
+  const temps = request.role === 'reviewer' ? privatePath('/tmp', request.cwd) : undefined;
+  if (temps) mkdirSync(temps, { recursive: true, mode: 0o700 });
+  const tempRoot = temps ? mkdtempSync(join(temps, 'review-')) : undefined;
+  try {
+    const temp = tempRoot;
+    const conversation = START[request.backend](request, { confined, schema: formSchema(request.form, request.giver), stem });
+    const argv = confined ? confine([request.backend, ...conversation.args], request, temp) : [...launcher(request.backend), ...conversation.args];
+    const started: Live = {
+      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp } : {} }),
+      conversation, settings: settings(request), thread: request.resume ?? null, tempRoot,
+    };
+    live.set(key, started);
+    return started;
+  } catch (error) {
+    if (tempRoot) rmSync(tempRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 /** Ends a CLI, the one kept under `key` unless another is named, and all it started. */
 async function end(key: string, cli = live.get(key)?.cli): Promise<void> {
-  if (live.get(key)?.cli === cli) live.delete(key);
-  await cli?.close();
+  const kept = live.get(key);
+  if (kept?.cli === cli) live.delete(key);
+  try { await cli?.close(); }
+  finally { if (kept && kept.cli === cli && kept.tempRoot) rmSync(kept.tempRoot, { recursive: true, force: true }); }
 }
 
 export const callAgent: CallAgent = Object.assign(async (request: AgentRequest): Promise<AgentResult> => {
@@ -131,6 +142,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
     }
     return result;
   } finally {
+    if (request.role === 'reviewer') await end(key);
     await new Promise(resolve => raw.end(resolve));
   }
 }, {

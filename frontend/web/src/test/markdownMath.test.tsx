@@ -120,3 +120,19 @@ it.each(surfaces)('%s keeps the underscores of a path and still reads emphasis i
   expect(html).toMatch(/<strong[^>]*>这句<\/strong> 和 <em>那句<\/em>/);
   expect(html).not.toMatch(/<strong[^>]*>(?:init|main|pycache)</);
 });
+
+// The frontend comparison report recorded “访问 http://localhost:8000/。” becoming /%E3%80%82.
+it.each(surfaces)('%s keeps Chinese sentence punctuation outside bare URLs', (_name, Surface) => {
+  for (const punctuation of ['。', '，', '；', '：', '！', '？', '」', '】', '。）」']) {
+    const html = renderToStaticMarkup(<Surface>{`访问 http://localhost:8000/${punctuation}`}</Surface>);
+    expect(html).toMatch(/href="http:\/\/localhost:8000\/"/);
+    expect(html).toContain(`</a>${punctuation}`);
+  }
+});
+
+it.each(surfaces)('%s preserves deliberate and encoded punctuation and Chinese URL paths', (_name, Surface) => {
+  const html = renderToStaticMarkup(<Surface>{'[明确](https://example.com/。) <https://example.com/。> https://example.com/中文?q=值%EF%BC%81。'}</Surface>);
+  expect(html.match(/href="https:\/\/example.com\/%E3%80%82"/g)).toHaveLength(2);
+  expect(html).toContain('href="https://example.com/%E4%B8%AD%E6%96%87?q=%E5%80%BC%EF%BC%81"');
+  expect(html).toContain('</a>。');
+});

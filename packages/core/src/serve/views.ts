@@ -320,6 +320,11 @@ export function projectRecord(events: Recorded[], reading: Reading = {
         if (!event.to && event.request_id) put({ type: 'ui.argus', agent_layer: 'manager', text: '', ts, event_id: line,
           message_id: `m${line}-argus`, request_id: event.request_id }, `m${line}-argus`, line + 0.1);
       }
+    } else if (event.type === 'step' && event.kind === 'message' && (event.role === 'manager' || event.role === 'planner')) {
+      // These are words to the operator, including questions said while work goes on.
+      // Give each its own record identity: a later reply must not replace it.
+      const id = `m${line}-argus`;
+      put({ ...converted[0]!, type: 'ui.argus', message_id: id }, id);
     } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
       const row = { type: 'ui.question', ts, event_id: line, question_id: `q${line}`, agent_layer: event.role,
         item_id: event.task ?? '', text: event.letter, order: line };
@@ -492,13 +497,14 @@ type MapCard = Omit<BacklogItem, 'objective' | 'notes' | 'last_error'> & { role:
 
 /** Map facts in the shared project reading: when each task
  * was added and closed, the latest thing said on it (a message or a letter, not a command), the
- * files its holder's closing letter handed over, the letters written about
+ * first result the Manager handed over for their request, the letters written about
  * tasks, by line, the operator's messages to the Manager, and which tasks follow the message whose
  * answer set them going. */
 interface MapReading {
   added: Map<string, number>;
   closed: Map<string, number>;
   actions: Map<string, NonNullable<BacklogItem['latest_action']> & { line: number; preview: string }>;
+  /** Internal task selections, read only by the full task detail endpoint. */
   opened: Map<string, string[]>;
   letters: { line: number; letter: Record<string, unknown>; preview: string }[];
   /** Requests to the Manager; initial clarifications share the original request card. */
@@ -577,7 +583,7 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       const card = qa.get(event.answers)!;
       // A reply answers the message; work handed to the team answers it once that work is done.
       const replied = event.to === 'operator';
-      Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: [...new Set([...card.result_paths ?? [], ...event.open ?? []])] });
+      Object.assign(card, { status: replied ? 'done' : 'in_progress', finished_ts: replied ? ts : null, result_paths: (event.open ?? card.result_paths ?? []).slice(0, 1) });
       // Word for a task under way joins the message to that task.
       if (event.task && added.has(event.task) && !closed.has(event.task)) card.deps = [event.task];
       reading.answered = card.id;
@@ -587,19 +593,23 @@ function foldMap(reading: MapReading, event: Recorded, line: number): void {
       if (replied) action(card.id, event.role, event.letter);
       if (replied) letter({ id: `e${line}${event.task ? ':reply' : ''}`, item_id: card.id, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter });
     } else if (event.role === 'manager' && event.to === 'operator' && reading.reported) {
+      const card = [...qa.values()].find(card => card.id === reading.reported);
+      if (card && event.open) card.result_paths = event.open.slice(0, 1);
       action(reading.reported, event.role, event.letter);
       letter({ id: `e${line}`, item_id: reading.reported, type: 'turn.replied', ts, role: event.role, to: event.to, text: event.letter });
     }
   }
 }
 
-/** Dialogue and map share the task's visible progress and closing files. */
+/** Dialogue and map share progress and the Manager's primary result for the task's request.
+ * Internal task files remain in the full letter reader. */
 export function taskPresentation(reading: MapReading, project: Project, id: string, preview = false) {
   const question = asked(project, id);
   const action = question ? undefined : reading.actions.get(id);
+  const request = [...reading.qa.values()].find(card => card.id === reading.follows.get(id));
   return {
     latest_action: action ? { role: action.role, text: preview ? action.preview : action.text, ts: action.ts } : undefined,
-    result_paths: reading.closed.has(id) ? reading.opened.get(id) ?? [] : [],
+    result_paths: reading.closed.has(id) ? request?.result_paths ?? [] : [],
   };
 }
 

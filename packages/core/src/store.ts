@@ -65,7 +65,10 @@ export interface Project {
   /** The first operator message's request id; absent in older projects. */
   requestId?: string;
   backend: Backend;
+  /** Pinned for every role; null in records made before the default was resolved. */
   model: string | null;
+  /** Automatic selection is resolved afresh for a new project; model above stays pinned here. */
+  modelAutomatic?: boolean;
   /** The reasoning effort of every call, in the backend's word for it; absent, the backend's default. */
   effort?: string;
   /** The project's name: the operator's, or fixed by the first request's Manager turn;
@@ -83,7 +86,7 @@ export interface Project {
   inbox: string[];
   /** Letters to the Manager, the operator's and the team's, that no Manager turn has taken yet. */
   forManager?: ManagerLetter[];
-  /** Backend session per role: manager, planner, <task>.engineer, <task>.reviewer. */
+  /** Backend session per role: manager, planner, <task>.engineer. Review turns start afresh. */
   sessions: Record<string, string>;
   /** The versions kept of each file a result was delivered with, oldest first: copies in delivered/. */
   delivered?: Record<string, string[]>;
@@ -132,10 +135,11 @@ export class Store {
   }
 
   /** A new project; without a workdir it works in its own under $ARGUS_HOME/workspaces. */
-  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'effort'>): Project {
+  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'modelAutomatic' | 'effort'>): Project {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),
+      modelAutomatic: init.modelAutomatic ?? init.model === null,
       status: 'idle', error: null, questions: [], tasks: [], inbox: [], sessions: {},
     };
     mkdirSync(project.workdir, { recursive: true });
