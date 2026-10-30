@@ -19,6 +19,22 @@ beforeEach(() => {
 afterEach(() => { act(() => renderer?.unmount()); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('persistent text drafts and in-memory file revisions', () => {
+  it('shows a draft another tab of this browser writes, keeping the files chosen here', () => {
+    const page = new EventTarget();
+    vi.stubGlobal('window', page);
+    mount();
+    const file = new File(['a'], 'a.txt');
+    act(() => { controller.setText('a long draft written here'); controller.setAttachments([file]); });
+    const before = controller.capture('s-A')!;
+    // The other tab writes the one stored copy, and the browser says so to this one.
+    saved.set('argus.composer.draft.v1:s-A', JSON.stringify({ text: 'and a sentence from there', attachments: [] }));
+    act(() => { page.dispatchEvent(Object.assign(new Event('storage'), { key: 'argus.composer.draft.v1:s-A' })); });
+    expect(controller.draft.text).toBe('and a sentence from there');
+    expect(controller.draft.attachments).toEqual([file]);
+    // What was captured before is no longer the draft.
+    expect(controller.draft.revision).not.toBe(before.revision);
+  });
+
   it('persists completed references, retains unfinished reminders and fences removed files', () => {
     mount();
     const first = new File(['a'], 'first.txt');

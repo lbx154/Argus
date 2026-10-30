@@ -8,7 +8,6 @@ import { Capabilities } from './lib/capabilities';
 import { I18nProvider, useI18n, translate } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { queryRetryPolicy } from './hooks';
-import { installStaleChunkRecovery } from './lib/preloadRecovery';
 import { persistQueryCache, restoreQueryCache } from './lib/queryPersistence';
 import { loadApplicationBrand } from './applicationBrand';
 import '@fontsource-variable/geist';
@@ -20,13 +19,6 @@ const App = lazy(() => import('./App'));
 
 // This build: the entry chunk's own address, fingerprinted by what the build made.
 const build = import.meta.url;
-
-// A cockpit left open across an update can still reference a deleted hashed
-// chunk. Reload the no-store shell before React turns that import into a blank UI.
-installStaleChunkRecovery(window, () => window.location.reload(), {
-  buildId: build,
-  storage: () => window.sessionStorage,
-});
 
 // Runs before the first request so a QR-paired phone is authenticated for
 // every later load, not just the one carrying `?token=`.
@@ -40,6 +32,9 @@ const queryClient = new QueryClient({
     // Keep a project's views while the operator works elsewhere, so coming
     // back draws the last known content at once and refreshes it behind.
     queries: { staleTime: 3_000, gcTime: 30 * 60_000, retry: queryRetryPolicy, refetchOnWindowFocus: false },
+    // A stop, a resume or a deletion is done now or fails now, as a message is: never held while
+    // the browser is offline and carried out when it is back.
+    mutations: { networkMode: 'always' },
   },
 });
 // A reload in this tab starts from the views it last showed.

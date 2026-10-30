@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, responseError } from '../../../core/src/http';
+import { LocalArgusUnavailableError } from '../api';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { I18nProvider, translate, type Locale } from '../i18n';
 import { errorText } from '../lib/format';
@@ -17,6 +18,10 @@ function render(error: unknown, locale: Locale, code?: string) {
 }
 
 describe.each(['zh-CN', 'en'] as const)('error messages in %s', locale => {
+  it('says a request that never reached Argus is the connection, whichever request it was', () => {
+    expect(errorText(new LocalArgusUnavailableError('POST', '/api/projects/p-1/daemon/stop'), locale)).toBe(translate('error.network', {}, locale));
+  });
+
   it('replays the reported directory response through HTTP decoding and keeps its raw reason folded', async () => {
     const response = new Response(JSON.stringify({ ...recorded.directory.body, code: 'invalid_workdir' }), { status: recorded.directory.status });
     const error = await responseError(response, 'POST', '/api/daemons');

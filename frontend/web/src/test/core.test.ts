@@ -10,7 +10,6 @@ import {
   authoritativeSpend,
   computeSpend,
   defaultProject,
-  reconcileProjectSelection,
   EVENT_TYPES,
   eventKey,
   eventMatchesView,
@@ -352,21 +351,6 @@ describe('shared frontend core', () => {
     expect(resolveProjectSelection([], 'missing')).toEqual({
       id: null, requested: 'missing', recovered: true,
     });
-  });
-
-  it('never auto-follows another operator session after initial selection', () => {
-    const current = { workdir: '/work',
-      id: 'mine', label: 'Mine', last_active: 1,
-      daemon_alive: false, daemon_pid: null,
-    };
-    const other = { workdir: '/work',
-      id: 'other', label: 'Other live session', last_active: 2,
-      daemon_alive: true, daemon_pid: 42,
-    };
-    expect(reconcileProjectSelection([current], null, false).id).toBe('mine');
-    expect(reconcileProjectSelection([other, current], 'mine', true).id).toBe('mine');
-    expect(reconcileProjectSelection([other], 'mine', true).id).toBe('mine');
-    expect(reconcileProjectSelection([other], null, true).id).toBeNull();
   });
 
   it('uses only the authoritative project ledger total', () => {

@@ -402,10 +402,7 @@ export function Sidebar({
                         className="flex h-14 w-full min-w-0 flex-col justify-center px-2.5 pr-10 text-left"
                       >
                         <div className="flex min-w-0 items-center gap-2">
-                          <StatusDot
-                            ok={project.daemon_alive}
-                            pulse={work ? ['running', 'waiting'].includes(work.state) : false}
-                          />
+                          <StatusDot ok={project.daemon_alive} />
                           <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
                           {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
                         </div>

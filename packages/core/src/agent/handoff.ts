@@ -16,8 +16,8 @@ const OPERATOR = 'only for what the operator alone can decide: the letter is you
  * acts on it: the work is never sent to a state such as done. */
 const TO: Record<Form, Record<string, string>> = {
   manager: {
-    engineer: 'the work, whole, when one person can carry it through, as most research and builds can; it opens a task, named by the letter\'s first line, a short title, and the letter is its whole brief',
-    planner: 'work of more than one task, however small: separate things asked for, parts that can go side by side, each with its own Engineer, or later parts that depend on what earlier ones find; or word on the work the Planner runs. The letter is its whole brief',
+    engineer: 'the work, whole, when one person can carry it through, as most research and builds can, a few small things asked together included; it opens a task, named by the letter\'s first line, a short title, and the letter is its whole brief',
+    planner: 'work one person cannot carry through as well: parts large enough to go side by side, each with its own Engineer, or later parts that depend on what earlier ones find; or word on the work the Planner runs. The letter is its whole brief',
     operator: 'your answer, report or question',
   },
   plan: {

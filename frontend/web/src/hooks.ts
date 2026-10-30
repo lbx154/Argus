@@ -1,6 +1,6 @@
-import { queryOptions, replaceEqualDeep, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryOptions, replaceEqualDeep, useQuery, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { api, isAuthenticationError, openProjectStates, type ProjectIndex, type Snapshot } from './api';
+import { api, isAuthenticationError, type ProjectIndex, type ProjectState, type Snapshot } from './api';
 import { POLL_CAPABILITY, useCapability } from './lib/capabilities';
 import { cacheProjectName } from './lib/projectName';
 import { workspaceApi } from './research-workbench/workspaceApi';
@@ -56,37 +56,45 @@ export function snapshotPollInterval(snapshot?: Snapshot): number {
     : SNAPSHOT_POLL_MS;
 }
 
+/** The project list, read as the page opens; a server that pushes state then keeps it on the page's
+ * one stream (applyProjectState), a polled one is read again. */
 export function useProjects() {
   const polled = useCapability(POLL_CAPABILITY);
-  const queryClient = useQueryClient();
-  const query = useQuery({
+  return useQuery({
     queryKey: ['projects'],
     queryFn: api.projectIndex,
     refetchInterval: (query) => polled && projectPollInterval(query.state.data),
   });
-  const listed = query.data !== undefined;
-  // A server that pushes state sends the list as the page connects, then each project's row and
-  // snapshot as it changes. It is followed once the first list is in, which it then supersedes.
-  useEffect(() => {
-    if (polled || !listed) return;
-    return openProjectStates((state) => {
-      if (state.type === 'projects') {
-        queryClient.setQueryData<ProjectIndex>(['projects'], { projects: state.projects, local_cwd: state.local_cwd });
-        // A snapshot the page holds may be older than the connection: it is read again.
-        void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
-      } else {
-        const { id, row, snapshot } = state;
-        queryClient.setQueryData<ProjectIndex>(['projects'], (index) => index && {
-          ...index, projects: [...index.projects.filter((project) => project.id !== id), ...row ? [row] : []],
-        });
-        if (snapshot) queryClient.setQueryData(['snapshot', id], snapshot);
-        if (!row) return;
-      }
-      // The roles learn in their turns, and a turn's end is a change.
-      void queryClient.invalidateQueries({ queryKey: ['learning-status'] });
+}
+
+/** The page's entry script, as the server names the page it sends; none in development or a test. */
+const pageBuild = (): string =>
+  /assets\/index-[^/]+\.js$/.exec(globalThis.document?.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src ?? '')?.[0] ?? '';
+
+/** A project state from the page's stream, into the page: the list as it connects, then each row as it
+ * changes, and the shown project's snapshot. A server that now sends another page is reloaded from. */
+export function applyProjectState(queryClient: QueryClient, state: ProjectState): void {
+  if (state.type === 'projects') {
+    const page = pageBuild();
+    if (state.build && page && state.build !== page) {
+      window.location.reload();
+      return;
+    }
+    queryClient.setQueryData<ProjectIndex>(['projects'], { projects: state.projects, local_cwd: state.local_cwd });
+    // A snapshot the page holds may be older than the connection: it is read again.
+    void queryClient.invalidateQueries({ queryKey: ['snapshot'] });
+  } else {
+    const { id, row, snapshot } = state;
+    queryClient.setQueryData<ProjectIndex>(['projects'], (index) => index && {
+      ...index, projects: [...index.projects.filter((project) => project.id !== id), ...row ? [row] : []],
     });
-  }, [polled, listed, queryClient]);
-  return query;
+    // Another project's change comes as its row: the snapshot held of it is read again when shown.
+    if (snapshot) queryClient.setQueryData(['snapshot', id], snapshot);
+    else void queryClient.invalidateQueries({ queryKey: ['snapshot', id] });
+    if (!row) return;
+  }
+  // The roles learn in their turns, and a turn's end is a change.
+  void queryClient.invalidateQueries({ queryKey: ['learning-status'] });
 }
 
 /** A project's snapshot, however it arrives: read, read again, or pushed. A reply read before a

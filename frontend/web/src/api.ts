@@ -161,9 +161,11 @@ export interface ProjectIndex {
 }
 /** What a server without POLL_CAPABILITY pushes: the project list as the page connects, then each
  * project's state as it changes; a deleted project's is null. */
+/** What a page's stream says of the projects: the list as it connects, with the page the server
+ * sends (`build`); then a project's row as it changes, with its snapshot to the page showing it. */
 export type ProjectState =
-  | ({ type: 'projects' } & ProjectIndex)
-  | { type: 'project'; id: string; row: ProjectRow | null; snapshot: Snapshot | null };
+  | ({ type: 'projects'; build?: string } & ProjectIndex)
+  | { type: 'project'; id: string; row: ProjectRow | null; snapshot?: Snapshot | null };
 /** A Manager-authored restatement of an operator draft (see the rewrite button). */
 export interface PromptRewrite {
   original: string;
@@ -408,7 +410,7 @@ async function postResponse(
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {
-  const r = await fetch(path, {
+  const r = await fetchArgus(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -513,7 +515,7 @@ async function mutationJson<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const r = await fetch(path, {
+  const r = await fetchArgus(path, {
     method,
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -523,7 +525,7 @@ async function mutationJson<T>(
 }
 
 async function getBlob(path: string, signal?: AbortSignal): Promise<Blob> {
-  const r = await fetch(path, { headers: authHeaders(), signal });
+  const r = await fetchArgus(path, { headers: authHeaders(), signal });
   await ensureResponseOk(r, 'GET', path);
   return r.blob();
 }
@@ -726,7 +728,7 @@ export const api = {
       command_id: commandId(),
       expected_revision: expectedRevision,
     };
-    const response = await fetch(path, {
+    const response = await fetchArgus(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
@@ -1048,21 +1050,24 @@ const NON_RETRYABLE_STREAM_STATUSES = new Set([401, 404]);
 
 type StreamOptions = { onOpen?: () => void; onClose?: (info: StreamCloseInfo) => void };
 
-/** Row updates use the same projection as a fresh conversation page. */
+/** A page's one stream while it shows a project: its rows, in the projection of a fresh conversation
+ * page, and the projects' states (ProjectState). A browser gives a page few connections to a server. */
 export const openConversation = (
   sid: string, after: number, onFrame: (frame: EventMsg) => void, opts: StreamOptions = {},
 ): (() => void) => follow(P(sid, `/stream?view=rows&after=${after}`), 'Conversation stream', onFrame, opts);
 
-/** The project list, then each project's state as it changes, from a server without POLL_CAPABILITY. Returns a close() fn. */
+/** A page's one stream while it shows no project: the projects' states. Returns a close() fn. */
 export const openProjectStates = (onState: (state: ProjectState) => void, opts: StreamOptions = {}): (() => void) =>
   follow('/api/projects/stream', 'Project stream', (frame) => onState(frame as ProjectState), opts);
 
-/** Follow server-sent events, connecting again a second after a lost connection; a record's
- * stream is told the last event the page has (Last-Event-ID) and goes on after it. */
+/** Follow server-sent events, connecting again a second after a lost connection and twice as long
+ * after each further failure, up to ten seconds; a record's stream is told the last event the page
+ * has (Last-Event-ID) and goes on after it. */
 function follow(path: string, label: string, onFrame: (frame: EventMsg) => void, opts: StreamOptions): () => void {
   const controller = new AbortController();
   let retry: ReturnType<typeof setTimeout> | undefined;
   let last: unknown;
+  let wait = 1000;
   const connect = async () => {
     let info: StreamCloseInfo;
     try {
@@ -1072,6 +1077,7 @@ function follow(path: string, label: string, onFrame: (frame: EventMsg) => void,
         info = { code: response.status, reason: response.statusText, retryable: !NON_RETRYABLE_STREAM_STATUSES.has(response.status) };
       } else {
         opts.onOpen?.();
+        wait = 1000;
         await readSSE(response, label, (frame) => {
           if (frame.event_id !== undefined) last = frame.event_id;
           onFrame(frame as EventMsg);
@@ -1083,7 +1089,10 @@ function follow(path: string, label: string, onFrame: (frame: EventMsg) => void,
       info = { code: 0, reason: error instanceof Error ? error.message : String(error), retryable: true };
     }
     opts.onClose?.(info);
-    if (info.retryable) retry = setTimeout(connect, 1000); // reconnect with backoff
+    if (info.retryable) {
+      retry = setTimeout(connect, wait);
+      wait = Math.min(wait * 2, 10_000);
+    }
   };
   void connect();
   return () => {

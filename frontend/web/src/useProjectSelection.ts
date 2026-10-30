@@ -1,6 +1,6 @@
 import { type QueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { resolveProjectSelection, reconcileProjectSelection } from '../../core/src/projects';
+import { resolveProjectSelection } from '../../core/src/projects';
 import { type ProjectRow } from './api';
 import { snapshotQuery } from './hooks';
 import { type NoticeTone } from './components/ActionNotice';
@@ -134,15 +134,18 @@ export function useProjectSelection({
     void queryClient.prefetchQuery(snapshotQuery(id));
   }, [queryClient]);
 
+  /** The projects the list last held, by name: the one shown leaving it was deleted, here or on another device. */
+  const listedRef = useRef(new Map<string, string>());
   useEffect(() => {
     if (!projectsReady) return;
     const wasResolved = initialSelectionResolvedRef.current;
-    const selection = reconcileProjectSelection(
-      projects,
-      sidRef.current,
-      wasResolved,
-    );
-    if (wasResolved) return;
+    const current = sidRef.current;
+    const goneName = wasResolved && current && !projects.some(project => project.id === current) ? listedRef.current.get(current) : undefined;
+    listedRef.current = new Map(projects.map(project => [project.id, project.label || project.id]));
+    // The first list chooses; later ones change nothing unless the project shown has left it.
+    if (wasResolved && goneName === undefined) return;
+    const selection = resolveProjectSelection(projects, current);
+    if (goneName !== undefined) selection.requested = goneName;
     initialSelectionResolvedRef.current = true;
     if (selection.id !== sidRef.current) activateProject(selection.id);
     else storeBrowserProject(selection.id);
@@ -150,7 +153,7 @@ export function useProjectSelection({
     if (locationId !== selection.id) {
       writeProjectLocation(selection.id, 'replace');
     }
-    if (selection.recovered && urlRequestedRef.current) {
+    if (selection.recovered && (goneName !== undefined || urlRequestedRef.current)) {
       const fallback = projects.find((project) => project.id === selection.id);
       notify(
         'info',

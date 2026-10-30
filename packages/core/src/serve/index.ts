@@ -4,6 +4,7 @@
 // as a bearer, the preview page alone as a cookie.
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -68,9 +69,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
   const { store, token, host = '127.0.0.1' } = options;
   // Whoever reaches the cockpit can run work on this machine.
   if (!token && !/^(localhost|127(\.\d+){3}|::1)$/.test(host)) throw new Error(`Serving on ${host} needs ARGUS_WEB_TOKEN.`);
-  /** The streams following each project's record, and those following every project's state. */
+  /** The streams following each project's record; and every page's one stream, by the project it
+   * shows (null: none), which is sent each project's row as it changes and its own project's snapshot. */
   const listeners = new Map<string, Set<(moved: boolean) => void>>();
-  const watchers = new Set<(frame: Record<string, unknown>) => void>();
+  const watchers = new Map<(frame: Record<string, unknown>) => void, string | null>();
   /** Send each project's changes once the current event has run on to its next wait:
    * a question is added just after the letter that asks it is recorded. */
   const due = new Map<string, { moved: boolean; state: boolean }>();
@@ -88,11 +90,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
     setImmediate(() => {
       const changed = due.get(id)!;
       due.delete(id);
-      for (const wake of listeners.get(id) ?? []) wake(changed.moved);
+      // States first: a project deleted ends its rows, and its page learns why from the state.
       if (changed.state && watchers.size) {
-        const frame = state(id);
-        for (const send of watchers) send(frame);
+        const frame = state(id, [...watchers.values()].includes(id));
+        for (const [send, shown] of watchers) send(shown === id ? frame : { ...frame, snapshot: undefined });
       }
+      for (const wake of listeners.get(id) ?? []) wake(changed.moved);
     });
   });
 
@@ -112,12 +115,22 @@ export async function serve(options: ServeOptions): Promise<Served> {
     projects: store.list().map(project => projectRow(store, project, runs.live(project.id))).sort((a, b) => b.last_active - a.last_active),
     local_cwd: process.cwd(),
   });
-  /** A project's row in the list and its snapshot, as the page holds them; a deleted one's are null. */
-  const state = (id: string): Record<string, unknown> => {
+  /** A project's row in the list and, for a page showing it, its snapshot; a deleted one's are null. */
+  const state = (id: string, shown: boolean): Record<string, unknown> => {
     let work: Project;
     try { work = store.load(id); } catch { return { type: 'project', id, row: null, snapshot: null }; }
     const live = runs.live(id);
-    return { type: 'project', id, row: projectRow(store, work, live), snapshot: snapshot(store, work, live) };
+    return { type: 'project', id, row: projectRow(store, work, live), snapshot: shown ? snapshot(store, work, live) : undefined };
+  };
+  /** The page this server sends, named by its entry script: a page that was sent another reloads.
+   * A server without built pages names none. */
+  let build = '';
+  try { build = /src="\.\/(assets\/index-[^"]+\.js)"/.exec(readFileSync(join(options.web, 'index.html'), 'utf8'))?.[1] ?? ''; } catch { /* no pages */ }
+  /** A page's one stream: the project list as it connects, then each project's state as it changes. */
+  const watch = (send: (frame: Record<string, unknown>) => void, response: ServerResponse, shown: string | null): void => {
+    send({ type: 'projects', ...list(), build });
+    watchers.set(send, shown);
+    response.on('close', () => watchers.delete(send));
   };
   /** The token as the bearer; for the preview page, which a frame loads by URL with no way to send
    * it, a cookie its preview grants, which a browser sends with every project request, so no other
@@ -147,7 +160,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // A stream that goes quiet still learns when its reader has gone.
     response.socket?.setKeepAlive(true, 60_000);
     return frame => {
-      if (!response.destroyed) response.write(`${'event_id' in frame ? `id: ${frame.event_id}\n` : ''}data: ${JSON.stringify(frame)}\n\n`);
+      if (!response.writableEnded) response.write(`${'event_id' in frame ? `id: ${frame.event_id}\n` : ''}data: ${JSON.stringify(frame)}\n\n`);
     };
   };
   /** The operator's answer to one of the open questions, in their own words. */
@@ -194,6 +207,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const work = project(id!);
       const send = sse(response);
       if (url.searchParams.get('view') === 'rows') {
+        watch(send, response, work.id);
         let previous = new Map<string, string>();
         let cursor = Number(request.headers['last-event-id'] ?? url.searchParams.get('after') ?? -1);
         let roleCursor = -1;
@@ -232,13 +246,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
       listeners.set(id!, wake.add(flush));
       response.on('close', () => wake.delete(flush));
     }],
-    // The project list, then each project's state as it changes: the page asks for none of it again.
-    ['GET', /^\/api\/projects\/stream$/, ({ response }) => {
-      const send = sse(response);
-      send({ type: 'projects', ...list() });
-      watchers.add(send);
-      response.on('close', () => watchers.delete(send));
-    }],
+    // A page showing no project follows this; one showing a project, that project's rows, which carry the same.
+    ['GET', /^\/api\/projects\/stream$/, ({ response }) => watch(sse(response), response, null)],
     ['GET', /^\/api\/projects\/([^/]+)\/conversation$/, ({ params: [id], url }) => {
       const work = project(id!);
       const reading = readRecord(store, work.id);

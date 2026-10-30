@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, type KnowledgeEvent, type KnowledgeEventKind, type SkillLibraryItem, type SkillScope } from '../api';
 import { useI18n } from '../i18n';
-import { formatRelativeTime } from '../lib/format';
+import { formatCalendarTime } from '../lib/format';
 import { roleLabel } from '../lib/enumLabels';
 import { libraryVertical } from '../lib/libraryPresentation';
 
@@ -76,7 +76,7 @@ export function KnowledgeFeedList({ events, items, projectNames = {}, query = ''
   const zh = locale === 'zh-CN';
   const kinds = knowledgeKindLabels[zh ? 'zh' : 'en'];
   const scopes = scopeLabels[zh ? 'zh' : 'en'];
-  const relative = (ts: number) => formatRelativeTime(ts, zh ? 'zh-CN' : 'en');
+  const when = (ts: number) => formatCalendarTime(ts, zh ? 'zh-CN' : 'en');
   const needle = query.trim().toLocaleLowerCase();
   const visible = needle
     ? events.filter(event => `${event.title} ${event.path} ${event.vertical} ${event.source_project} ${event.role} ${event.note}`.toLocaleLowerCase().includes(needle))
@@ -107,7 +107,7 @@ export function KnowledgeFeedList({ events, items, projectNames = {}, query = ''
     {rows.map(row => row.kind === 'single'
       ? <li key={`${row.event.ts}/${row.event.kind}/${row.event.path}`} className="rounded-md px-3 py-2.5" data-feed-row={row.event.kind}>
         <span className="flex items-baseline gap-2 text-[11px] text-ink-faint">
-          <time dateTime={new Date(row.event.ts * 1000).toISOString()}>{relative(row.event.ts)}</time>
+          <time dateTime={new Date(row.event.ts * 1000).toISOString()}>{when(row.event.ts)}</time>
           <span className={`rounded px-1.5 py-px text-[10px] font-medium ${badgeTone[row.event.kind] ?? badgeTone.learned}`}>{kinds[row.event.kind] ?? row.event.kind}</span>
         </span>
         {titleButton(row.event, 'mt-1 block w-full break-words text-sm font-medium')}
@@ -116,7 +116,7 @@ export function KnowledgeFeedList({ events, items, projectNames = {}, query = ''
       </li>
       : <li key={`${row.ts}/recalls/${row.role}`} className="rounded-md px-3 py-2.5" data-feed-row="recalls">
         <span className="flex items-baseline gap-2 text-[11px] text-ink-faint">
-          <time dateTime={new Date(row.ts * 1000).toISOString()}>{relative(row.ts)}</time>
+          <time dateTime={new Date(row.ts * 1000).toISOString()}>{when(row.ts)}</time>
           <span className={`rounded px-1.5 py-px text-[10px] font-medium ${badgeTone.recalled}`}>{kinds.recalled}</span>
         </span>
         <span className="mt-1 block text-sm font-medium text-ink" data-feed-title>

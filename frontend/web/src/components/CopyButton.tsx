@@ -57,7 +57,7 @@ export function CopyButton({
       onClick={() => void onCopy()}
       aria-label={copied ? copiedLabel : label}
       title={copied ? copiedLabel : label}
-      className={`inline-flex h-7 items-center gap-1 rounded-md border border-line/60 bg-panel/85 px-2 text-[10px] text-ink-faint shadow-sm backdrop-blur transition hover:border-blue/45 hover:text-blue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue/50 ${className}`}
+      className={`inline-flex h-7 items-center gap-1 rounded-md border border-line/60 bg-panel/85 px-2 text-[10px] text-ink-faint shadow-sm backdrop-blur transition hover:border-blue/45 hover:text-blue ${className}`}
     >
       {copied ? (
         <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">

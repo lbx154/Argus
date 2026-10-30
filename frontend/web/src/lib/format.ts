@@ -29,48 +29,25 @@ export function formatBytes(bytes: number): string {
   return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
 }
 
-/** Human-readable local time relative to now, with calendar context for older events. */
-export function formatRelativeTime(ts: string | number | Date, locale: Locale = 'en'): string {
+/** When something happened, as a clock: today the time, yesterday and this week with the day, earlier
+ * with the date. It reads true however long the page stays open, as "5 minutes ago" would not. */
+export function formatCalendarTime(ts: string | number | Date, locale: Locale = 'en'): string {
   const date = ts instanceof Date
     ? ts
     : new Date(typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts);
   if (Number.isNaN(date.getTime())) return '—';
-
   const now = new Date();
-  const elapsed = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
-  if (elapsed < 60) return translate('time.justNow', {}, locale);
-  if (elapsed < 3600) {
-    return translate('time.minutesAgo', { count: Math.floor(elapsed / 60) }, locale);
-  }
-
-  const time = new Intl.DateTimeFormat(locale, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
+  const time = new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
   const calendarDays = Math.round((
     Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
     - Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
   ) / 86_400_000);
+  if (calendarDays <= 0) return time;
   if (calendarDays === 1) return translate('time.yesterdayAt', { time }, locale);
-  if (elapsed < 86_400) {
-    return translate('time.hoursAgo', { count: Math.floor(elapsed / 3600) }, locale);
+  if (calendarDays < 7) {
+    return new Intl.DateTimeFormat(locale, { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
   }
-  if (elapsed < 7 * 86_400) {
-    return new Intl.DateTimeFormat(locale, {
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(date);
-  }
-  return new Intl.DateTimeFormat(locale, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(date);
+  return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
 }
 
 /** Local date for a stream event, tolerant of ts/time shapes. */
@@ -104,7 +81,9 @@ export function errorText(error: unknown, locale?: Locale, code = error instance
     if (text !== key) return text;
   }
   let key = 'unknown';
-  if (error instanceof ApiError) {
+  // The request never reached the server (api.ts's LocalArgusUnavailableError): the network, not the work.
+  if (error instanceof Error && error.name === 'LocalArgusUnavailableError') key = 'network';
+  else if (error instanceof ApiError) {
     const status = error.status;
     key = !status ? 'network' : status === 401 ? 'unauthorized' : status === 403 ? 'forbidden'
       : status === 404 ? 'notFound' : status === 413 ? 'tooLarge' : status === 429 || status === 503 ? 'busy'

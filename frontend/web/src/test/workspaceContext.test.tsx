@@ -44,7 +44,8 @@ describe('A3 snapshot-only session context', () => {
       const html = markup(topbar(recorded), locale);
       const status = html.match(/class="topbar-status[^>]*>([\s\S]*?)<div class="hidden sm:block"/)?.[1];
       expect(status).toContain(locale === 'zh-CN' ? '已停止' : 'Stopped');
-      expect(status).toContain(locale === 'zh-CN' ? '3小时前' : '3h ago');
+      // A clock time, which is still true however long the page stays open.
+      expect(status).toContain('>13:25</time>');
       expect(status).toContain(locale === 'zh-CN' ? '估算 ≈$94.5（按 API 价）' : 'Est. ≈$94.5 (API prices)');
       expect(status).not.toContain('truncate');
     }

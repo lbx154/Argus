@@ -384,12 +384,12 @@ export default function App() {
       }
       return;
     }
+    // Its reply is already on the page: the stream brought its row.
     if (current?.recovered && current.sid === loadedSid) {
       messageRequestRef.current = null;
       setChatPending(false);
-      void transcriptQ.refetch();
     }
-  }, [activeManagerRequestId, loadedSid, transcriptQ.refetch]);
+  }, [activeManagerRequestId, loadedSid]);
   const {
     answerPendingReply,
     pendingReply,
@@ -549,20 +549,20 @@ export default function App() {
   const manageDeleteProject = useCallback(async (): Promise<boolean> => {
     if (!manageTargetSid) return false;
     try {
-      const deletedSid = manageTargetSid;
-      const deleted = await manageActions.deleteProject.mutateAsync();
-      setDaemonManageOpen(false);
-      setSidebarOpen(false);
-      setManageTargetSid(null);
-      const refreshed = await projectsQ.refetch();
-      if (deletedSid === activeSid) {
-        const next = rankProjects(refreshed.data?.projects ?? [])[0];
+      // The project shown is left first: its deletion is then no news to this page.
+      if (manageTargetSid === activeSid) {
+        const next = rankProjects(projects.filter(project => project.id !== manageTargetSid))[0];
         if (next) selectProject(next.id, 'replace');
         else {
           setComposerFocus(0);
           clearProjectSelection('replace');
         }
       }
+      const deleted = await manageActions.deleteProject.mutateAsync();
+      setDaemonManageOpen(false);
+      setSidebarOpen(false);
+      setManageTargetSid(null);
+      await projectsQ.refetch();
       notify('success', t('project.trashed'), undefined, {
         label: t('project.undoDelete'),
         onClick: async () => {
@@ -581,7 +581,7 @@ export default function App() {
       notify('error', errorText(error), error);
       return false;
     }
-  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, projectsQ.refetch, selectProject, setDaemonManageOpen, setManageTargetSid, setSidebarOpen, t]);
+  }, [activeSid, clearProjectSelection, manageActions.deleteProject, manageTargetSid, notify, projects, projectsQ.refetch, selectProject, setDaemonManageOpen, setManageTargetSid, setSidebarOpen, t]);
 
   const requestManageSession = useCallback((projectId: string) => {
     setManageTargetSid(projectId);
@@ -696,11 +696,7 @@ export default function App() {
               if (!isCurrent()) return;
               setRouteOverride('auto');
               void queryClient.invalidateQueries({ queryKey: ['artifacts', requestSid] });
-              if (result.kind === 'task') {
-                if (result.reply && !onRejected) notify('success', result.reply);
-                void snapQ.refetch();
-              }
-              void transcriptQ.refetch();
+              if (result.kind === 'task' && result.reply && !onRejected) notify('success', result.reply);
             },
             onError: (err) => {
               if (isCurrent()) streamErr = err;
@@ -723,10 +719,8 @@ export default function App() {
             notify('error', errorText(streamErr), streamErr);
             onRejected?.();
           }
-          // Read the recorded failure once, in the existing conversation row.
-          // A lost stream never retries the POST or discards a partial reply.
-          void transcriptQ.refetch();
-          void snapQ.refetch();
+          // Once taken, what became of it is its row, which the page's stream brings, on
+          // reconnecting too. A lost stream never retries the POST or discards a partial reply.
         }
       } finally {
         resetCurrentRequest();

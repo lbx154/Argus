@@ -17,7 +17,8 @@ export interface DraftSnapshot extends SessionDraft { sid: string }
 interface RewriteOperation extends DraftSnapshot { request: number }
 const EMPTY: SessionDraft = { text: '', attachments: [], revision: 0 };
 
-const draftKey = (sid: string) => `argus.composer.draft.v1:${sid}`;
+const DRAFT_KEY = 'argus.composer.draft.v1:';
+const draftKey = (sid: string) => `${DRAFT_KEY}${sid}`;
 
 function isUploadedAttachment(value: unknown): value is UploadedAttachment {
   return Boolean(value && typeof value === 'object'
@@ -66,6 +67,22 @@ export function useSessionComposer(sid: string | null) {
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
+  }, []);
+  // Every tab of this browser writes a project's draft to the one stored copy: another tab's edit
+  // shows here too, rather than the last tab to write replacing it. Files chosen here stay.
+  useEffect(() => {
+    const follow = (event: StorageEvent) => {
+      if (!event.key?.startsWith(DRAFT_KEY)) return;
+      const id = event.key.slice(DRAFT_KEY.length);
+      const held = drafts.current.get(id);
+      if (!held) return;
+      drafts.current.delete(id);
+      drafts.current.set(id, { ...read(id), attachments: held.attachments });
+      if (mounted.current) redraw();
+    };
+    const page = globalThis.window;
+    page?.addEventListener('storage', follow);
+    return () => page?.removeEventListener('storage', follow);
   }, []);
 
   const persist = useCallback((id: string, draft: SessionDraft) => {

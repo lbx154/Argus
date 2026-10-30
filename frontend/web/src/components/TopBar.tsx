@@ -6,7 +6,7 @@ import { PHASE_TONE, RunControl, teamPhase } from './TeamControls';
 import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
-import { formatRelativeTime } from '../lib/format';
+import { formatCalendarTime } from '../lib/format';
 import { SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
 
 export type ThemeMode = 'light' | 'dark';
@@ -84,7 +84,7 @@ export function TopBar({
           aria-hidden={roleActive ? undefined : true}
         />}
         <span role="status" className="topbar-work-status text-ink-dim">{statusWords}</span>
-        {showStatus && activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{formatRelativeTime(activityAt, locale)}</time></> : null}
+        {showStatus && activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{formatCalendarTime(activityAt, locale)}</time></> : null}
         {showStatus && spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
         {showStatus && <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>}
       </div>

@@ -280,11 +280,18 @@ describe('App session composer ownership', () => {
     expect(notice.message).not.toContain('/');
     expect(notice.action.label).toBe('Undo');
     expect(renderer.root.findByType(Sidebar).props.mobileOpen).toBe(false);
-    expect(renderer.root.findByType(Landing).props.focusSignal).toBe(0);
+    // The page left the project before deleting it: the next one is shown.
+    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-B');
     await act(async () => notice.action.onClick());
     expect(restore).toHaveBeenCalledExactlyOnceWith('s-A-20261029000000');
     expect(new URLSearchParams(window.location.search).get('project')).toBe('s-A');
     expect(renderer.root.findByType(ActionNotice).props.notice.message).toBe('Project restored.');
+  });
+  it('leaves the project shown when it is deleted on another device, for the next one, and says so', () => {
+    fixture.index.data = { ...fixture.index.data, projects: fixture.index.data.projects.filter(row => (row as { id: string }).id !== 's-A') };
+    refresh();
+    expect(new URLSearchParams(window.location.search).get('project')).toBe('s-B');
+    expect(renderer.root.findByType(ActionNotice).props.notice.message).toContain('s-A');
   });
   it('reports a failed restore without showing a successful restoration', async () => {
     fixture.actions.deleteProject.mutateAsync.mockResolvedValueOnce({ ok: true, trash_path: 'trash/s-A-20261029000000' });

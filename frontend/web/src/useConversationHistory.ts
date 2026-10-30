@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useInfiniteQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { newestPerRole, type ConversationPage } from '@argus/contracts';
-import { api, openConversation, type EventMsg } from './api';
+import { api, openConversation, openProjectStates, type EventMsg, type ProjectState } from './api';
+import { applyProjectState } from './hooks';
+import { POLL_CAPABILITY, useCapability } from './lib/capabilities';
 import { roleLogKey, type RoleLog } from './useRoleLog';
 import { mapRefresher } from './map/refresh';
 import { mergeConversationEvents } from './lib/conversationEvents';
@@ -14,11 +16,14 @@ export interface ConversationPagination {
   onLoadOlder: () => void;
 }
 
-/** Page over server rows; the stream replaces rows by their durable identity. */
+/** Page over server rows; the stream replaces rows by their durable identity. The page's one stream
+ * is followed here: the shown project's, which carries the projects' states too, or with no project
+ * shown, the projects' alone. */
 export function useConversationHistory(
   sid: string | null, enabled: boolean, optimistic: EventMsg[], optimisticSid: string | null,
 ) {
   const client = useQueryClient();
+  const polled = useCapability(POLL_CAPABILITY);
   const query = useInfiniteQuery({
     queryKey: ['conversation', sid],
     initialPageParam: undefined as number | undefined,
@@ -38,7 +43,8 @@ export function useConversationHistory(
   // cached cursor that would replay existing deliveries into a second file read.
   const ready = query.data !== undefined && (!query.isRefetching || query.isFetchedAfterMount);
   useEffect(() => {
-    if (!sid || !enabled || !ready) return;
+    if (!sid) return polled ? undefined : openProjectStates(state => applyProjectState(client, state));
+    if (!enabled || !ready) return;
     const data = client.getQueryData<InfiniteData<ConversationPage>>(['conversation', sid])!;
     let cursor = Math.max(...data.pages.map(page => page.cursor));
     let closed = false;
@@ -46,6 +52,10 @@ export function useConversationHistory(
     setConnection({ sid, connected: false });
     const close = openConversation(sid, cursor, frame => {
       if (closed) return;
+      if (frame.type === 'projects' || frame.type === 'project') {
+        applyProjectState(client, frame as unknown as ProjectState);
+        return;
+      }
       const updates = frame.rows as EventMsg[];
       const roleEvents = frame.role_events as EventMsg[];
       if (updates.length) client.setQueryData<InfiniteData<ConversationPage>>(['conversation', sid], current => {
@@ -78,7 +88,7 @@ export function useConversationHistory(
       onClose: () => { if (!closed) setConnection({ sid, connected: false }); },
     });
     return () => { closed = true; close(); };
-  }, [sid, enabled, ready, client]);
+  }, [sid, enabled, ready, client, polled]);
   const events = useMemo(() => {
     if (!sid) return [];
     const rows = new Map<string, EventMsg>();

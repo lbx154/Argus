@@ -2,14 +2,11 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { useI18n } from '../i18n';
 
 /** A steady status dot. Motion is reserved for real loading operations. */
-export function StatusDot({ ok, pulse = false, title }: { ok: boolean; pulse?: boolean; title?: string }) {
+export function StatusDot({ ok, title }: { ok: boolean; title?: string }) {
   return (
     <span
       title={title}
-      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full transition-shadow duration-150 ${
-        ok ? 'bg-status-running' : 'bg-status-idle'
-      }`}
-      data-live={ok && pulse ? 'true' : undefined}
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${ok ? 'bg-status-running' : 'bg-status-idle'}`}
     />
   );
 }

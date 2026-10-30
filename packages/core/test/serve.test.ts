@@ -85,6 +85,12 @@ async function setup(t: TestContext, steps: Step[], token?: string) {
 
 /** Every `data:` frame of a server-sent event stream, a record's naming its line as its id;
  * `until` stops reading an endless one. */
+/** A rows stream's projections, without the project states the page's one stream also carries. */
+async function rowFrames(response: Response, until?: (frame: EventMsg) => boolean): Promise<EventMsg[]> {
+  return (await frames(response, frame => frame.type === 'ui.projection' && Boolean(until?.(frame))))
+    .filter(frame => frame.type === 'ui.projection');
+}
+
 async function frames(response: Response, until?: (frame: EventMsg) => boolean): Promise<EventMsg[]> {
   const read: EventMsg[] = [];
   const decoder = new TextDecoder();
@@ -1083,17 +1089,23 @@ test("the page is sent each project's state as it changes: the question a turn a
   type State = { type: string; row?: { id: string; daemon_alive: boolean } | null; snapshot?: Snapshot | null };
   const live = new AbortController();
   t.after(() => live.abort());
-  const sent = frames(await call('/api/projects/stream', { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
+  const others = frames(await call('/api/projects/stream', { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   const P = `/api/projects/${sid}`;
+  // The page showing the project follows its rows, which carry every project's state and its own snapshot.
+  const sent = frames(await call(`${P}/stream?view=rows`, { signal: live.signal }), frame => frame.row === null) as Promise<State[]>;
   await frames(await post(`${P}/message/stream`, { text: 'Total data.csv', request_id: 'r1' }));
   await frames(await post(`${P}/message/stream`, { text: 'Total data2.csv too', request_id: 'r2' }));
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => Boolean(snapshot.pending_questions?.length));
   await post(`${P}/daemon/stop`, {});
   await eventually(() => call(P, { method: 'DELETE' }), response => response.status === 200);
-  const states = await sent;
+  const states = (await sent).filter(state => state.type !== 'ui.projection');
+  const elsewhere = await others;
   live.abort();
-  assert.deepEqual(states[0], { type: 'projects', projects: [], local_cwd: process.cwd() });
+  assert.deepEqual(elsewhere[0], { type: 'projects', projects: [], local_cwd: process.cwd(), build: '' });
+  // A page showing no project, or another, is sent the row alone.
+  assert.ok(elsewhere.length > 2 && !elsewhere.some(state => 'snapshot' in state));
+  assert.equal(states[0]?.type, 'projects');
   assert.equal(states[1]?.row?.id, sid);
   // Nothing is recorded after the letter while the other task works on: the question comes with it.
   const asked = states.find(state => state.snapshot?.pending_questions?.length);
@@ -1169,7 +1181,7 @@ test('row stream, refreshed conversation and current-round role log share one pr
   const live = new AbortController();
   t.after(() => live.abort());
   let closed = false;
-  const stream = frames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame => {
+  const stream = rowFrames(await call(`${P}/stream?view=rows&after=-1`, { signal: live.signal }), frame => {
     closed ||= (frame.rows as EventMsg[]).some(row => row.type === 'ui.task' && row.state === 'done');
     // Use this frame's cursor: reading the current project can see a later state.
     return closed && readEvents(store, sid).slice(0, Number(frame.cursor) + 1).filter(event => event.type === 'status').at(-1)?.status === 'idle';
@@ -1197,7 +1209,7 @@ test('row stream, refreshed conversation and current-round role log share one pr
   assert.equal(refreshed.rows[question + 1]!.text, '42');
   assert.equal(refreshed.rows[task]!.state, 'done');
   const ended = await eventually(() => get<Snapshot>(`${P}/snapshot`), state => !state.daemon.alive);
-  const replay = frames(await call(`${P}/stream?view=rows&after=${Number(sent.at(-1)!.cursor)}`), () => true);
+  const replay = rowFrames(await call(`${P}/stream?view=rows&after=${Number(sent.at(-1)!.cursor)}`), () => true);
   const initial = (await replay)[0]!;
   assert.deepEqual(roles, initial.role_events);
   assert.equal('role_events' in ended, false);
@@ -1231,7 +1243,7 @@ test('answering a question outside the loaded page sends the whole pair and reta
 
   const live = new AbortController();
   t.after(() => live.abort());
-  const stream = frames(await call(`${P}/stream?view=rows&after=${initial.cursor}`, { signal: live.signal }), frame =>
+  const stream = rowFrames(await call(`${P}/stream?view=rows&after=${initial.cursor}`, { signal: live.signal }), frame =>
     (frame.rows as EventMsg[]).some(row => row.text === '424242'));
   await post(`${P}/decisions/${card.id}/resolve`, { note: '424242' });
   const sent = await stream;
@@ -1255,7 +1267,7 @@ test('answering a question outside the loaded page sends the whole pair and reta
   assert.equal(refreshed.rows[question + 1]?.text, '424242');
   const reconnect = new AbortController();
   t.after(() => reconnect.abort());
-  const replayed = await frames(await call(`${P}/stream?view=rows`, {
+  const replayed = await rowFrames(await call(`${P}/stream?view=rows`, {
     signal: reconnect.signal, headers: { 'last-event-id': String(initial.cursor) },
   }), frame => (frame.rows as EventMsg[]).some(row => row.text === '424242'));
   reconnect.abort();
@@ -1299,7 +1311,7 @@ test('rows SSE sends live task progress and holder files, while Manager steps st
   const reply = frames(await post(`${P}/message/stream`, { text: '现在做到哪', request_id: 'r-live' }));
   await eventually(async () => requests, rows => rows.length === 3);
   const response = await call(`${P}/stream?view=rows`);
-  const streamed = frames(response, frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第二句实时文字。'));
+  const streamed = rowFrames(response, frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第二句实时文字。'));
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第一句实时文字。' });
   await new Promise(resolve => setImmediate(resolve));
   requests[1]!.onStep?.({ kind: 'message', text: '已核对输入，正在检查输出。\n详细记录留在角色日志。' });
@@ -1347,17 +1359,22 @@ test('the row stream shows a task asking once it has asked, while another task r
   const served = await serve({ store, callAgent, backend: 'codex', model: null, port: 0, web: home });
   t.after(() => { ended.abort(); return served.close(); });
   const P = `${served.url}/api/projects/${project.id}`;
-  const stream = frames(await fetch(`${P}/stream?view=rows&after=-1`, { signal: ended.signal }), frame =>
-    (frame.rows as EventMsg[]).some(row => row.row_id === 'task-t1' && row.state === 'asking'));
-  const states = frames(await fetch(`${served.url}/api/projects/stream`, { signal: ended.signal }), frame =>
-    (frame.snapshot as Snapshot | undefined)?.pending_questions?.length === 1);
+  const asks = (frame: EventMsg) => frame.type === 'ui.projection' && (frame.rows as EventMsg[]).some(row => row.row_id === 'task-t1' && row.state === 'asking');
+  const asked = (frame: EventMsg) => (frame.snapshot as Snapshot | undefined)?.pending_questions?.length === 1;
+  const seen = { rows: false, snapshot: false };
+  const stream = frames(await fetch(`${P}/stream?view=rows&after=-1`, { signal: ended.signal }), frame => {
+    seen.rows ||= asks(frame);
+    seen.snapshot ||= asked(frame);
+    return seen.rows && seen.snapshot;
+  });
   await fetch(`${P}/daemon/start`, { method: 'POST', body: '{}' });
-  const [rows, projects] = await Promise.all([stream, states]);
-  const pushed = projects.at(-1)!.snapshot as Snapshot;
+  const sent = await stream;
+  const rows = sent.filter(frame => frame.type === 'ui.projection');
+  const pushed = sent.find(asked)!.snapshot as Snapshot;
   const fresh = await (await fetch(`${P}/snapshot`)).json() as Snapshot;
   assert.equal(pushed.backlog.find(task => task.id === 't1')?.status, 'blocked');
   assert.deepEqual(pushed.pending_questions, fresh.pending_questions);
-  assert.equal((rows.at(-1)!.rows as EventMsg[]).find(row => row.item_id === 't1')?.state, 'asking');
+  assert.equal(rows.flatMap(frame => frame.rows as EventMsg[]).filter(row => row.row_id === 'task-t1').at(-1)?.state, 'asking');
 });
 
 test('project list and artifact routes expose only the fields their readers use', async t => {

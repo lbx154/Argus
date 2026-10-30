@@ -188,6 +188,14 @@ export const MacroTaskNode = memo(function MacroTaskNode({
   const detail = layout.steps.find((s) => s.id === detailId);
   const detailTs = detail?.ts;
   const isLastPart = data.part === data.partCount;
+  const card = useRef<HTMLElement>(null);
+  // Opened from its summary, which turns inert, the task takes the focus to its first action.
+  useEffect(() => {
+    const page = card.current?.ownerDocument;
+    const active = page?.activeElement;
+    if (!page || !detailed || !isLastPart || active && active !== page.body && !active.closest('[inert]')) return;
+    card.current!.querySelector<HTMLElement>('[data-testid="map-task-read"]')?.focus({ preventScroll: true });
+  }, [detailed, isLastPart]);
   const state = (detailed && !isLastPart)
     ? "recorded"
     : task.status === "missing"
@@ -273,6 +281,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
     : stateLabel(state);
   return (
     <article
+      ref={card}
       className={`map-macro map-state-${state}`}
       data-testid="map-macro"
       data-task-id={task.id}

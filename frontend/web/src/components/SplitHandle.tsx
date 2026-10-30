@@ -38,7 +38,7 @@ export function SplitHandle({
           onReset();
         }
       }}
-      className="group relative hidden w-2 shrink-0 cursor-col-resize items-center justify-center outline-none lg:flex"
+      className="group relative hidden w-2 shrink-0 cursor-col-resize items-center justify-center lg:flex"
     >
       <span className="h-full w-px bg-line/30 transition-colors duration-150 group-hover:bg-blue/70 group-focus:bg-blue/70" />
     </div>

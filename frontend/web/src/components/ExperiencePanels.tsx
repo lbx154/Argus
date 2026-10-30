@@ -34,7 +34,15 @@ export function HistorySearch({ open, onClose, onChoose }: {
   return <Modal open={open} onClose={onClose} label={zh ? '搜索历史与成果' : 'Search history and results'} width="max-w-4xl" align="top">
     <div className="experience-shell history-search">
       <ModalHeader title={zh ? '搜索历史与成果' : 'Search history and results'} sub={zh ? '在项目、对话与成果中查找' : 'Find content across projects, conversations and results'} />
-      <div className="experience-panel search-body">
+      {/* ↑ and ↓ go between the box and the results, as Tab does. */}
+      <div className="experience-panel search-body" onKeyDown={event => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        const stops = [...event.currentTarget.querySelectorAll<HTMLElement>('input, .search-result-list button')];
+        const next = stops[stops.indexOf(document.activeElement as HTMLElement) + (event.key === 'ArrowDown' ? 1 : -1)];
+        if (!next) return;
+        event.preventDefault();
+        next.focus();
+      }}>
       <input data-autofocus type="search" aria-label={zh ? '搜索历史内容' : 'Search history content'} className="experience-input"
         placeholder={zh ? '搜索消息、结论、成果正文或修改稿…' : 'Search messages, conclusions, results or editions…'}
         value={input} onChange={event => setInput(event.target.value)} />

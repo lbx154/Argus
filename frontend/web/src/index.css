@@ -793,7 +793,7 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-:where(button, a, input, textarea, select, summary):focus-visible {
+:where(button, a, input, textarea, select, summary, [role="separator"]):focus-visible {
   outline: 2px solid rgb(var(--accent-ink));
   outline-offset: 2px;
 }
@@ -889,11 +889,6 @@ button {
 
 /* Asset selection follows the workbench theme, including manual overrides. */
 
-/* A project that is working breathes in the list; a stopped one is still. */
-[data-live='true'] { animation: status-dot-breathe 2.4s ease-in-out infinite; }
-@keyframes status-dot-breathe { 0%, 100% { box-shadow: 0 0 0 0 rgb(var(--status-running) / .5); } 50% { box-shadow: 0 0 0 4px rgb(var(--status-running) / 0); } }
-@media (prefers-reduced-motion: reduce) { [data-live='true'] { animation: none; } }
-
 /* ── Intelligent UI: type and space, not boxes ─────────────────────────────
  * design/intelligent-ui.md. Status is a small dot plus words; colour lives on
  * the dot only. Gold marks the person's own things and focus. */
@@ -906,7 +901,7 @@ button {
   border-radius: 999px;
   background: rgb(var(--status-idle));
 }
-.status-dot[data-tone='running'] { background: rgb(var(--status-running)); animation: status-dot-breathe 2.4s ease-in-out infinite; }
+.status-dot[data-tone='running'] { background: rgb(var(--status-running)); }
 .status-dot[data-tone='waiting'] { background: rgb(var(--status-waiting)); box-shadow: 0 0 0 2px rgb(var(--panel)), 0 0 0 3px rgb(var(--status-waiting) / .7); }
 .status-dot[data-tone='done'] { background: rgb(var(--status-done)); }
 .status-dot[data-tone='failed'] { background: rgb(var(--status-failed)); }
