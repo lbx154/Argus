@@ -54,6 +54,13 @@ jobs:
         run: |
           npm ci
           npm run build
+      - name: Build release assets for the full Python suite
+        # Source-only changes leave the last release artifacts untouched in Git.
+        # The artifact contract must inspect assets built from this checkout.
+        run: |
+          npm --prefix frontend/web ci
+          npm --prefix frontend/tui ci
+          python -m argus.release_tools.build_release
       - name: Install the bounded Store reference simulator
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends iverilog
       - name: Test
