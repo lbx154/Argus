@@ -8,8 +8,10 @@ from starlette.exceptions import HTTPException
 from starlette.formparsers import MultiPartException
 from starlette.responses import JSONResponse
 
-MESSAGE_MAX_CHARS = 32_000
-JSON_BODY_MAX_BYTES = 256 * 1024
+MESSAGE_MAX_CHARS = 1_000_000
+# A full-length message is up to 3 bytes a character in UTF-8, or 6 when a
+# client escapes it as \uXXXX, plus the JSON around it.
+JSON_BODY_MAX_BYTES = 8 * 1024 * 1024
 UPLOAD_BODY_MAX_BYTES = 26 * 1024 * 1024  # 25 MiB files plus multipart headers
 CHUNK_BODY_MAX_BYTES = 4 * 1024 * 1024
 _CHUNK_PATH = re.compile(r"^/api/projects/[^/]+/attachments/uploads/att-[a-f0-9]{12}$")
