@@ -126,11 +126,25 @@ export async function serve(options: ServeOptions): Promise<Served> {
    * A server without built pages names none. */
   let build = '';
   try { build = /src="\.\/(assets\/index-[^"]+\.js)"/.exec(readFileSync(join(options.web, 'index.html'), 'utf8'))?.[1] ?? ''; } catch { /* no pages */ }
-  /** A page's one stream: the project list as it connects, then each project's state as it changes. */
-  const watch = (send: (frame: Record<string, unknown>) => void, response: ServerResponse, shown: string | null): void => {
-    send({ type: 'projects', ...list(), build });
+  /** A page's one stream: the project list as it connects, then each project's state as it changes.
+   * A page asking again (`once`) is not sent the list again; its list is named 0, to be asked after. */
+  const watch = (send: (frame: Record<string, unknown>) => void, response: ServerResponse, shown: string | null, once: boolean, again: boolean): void => {
+    if (!again) send({ type: 'projects', ...list(), build, ...once ? { event_id: 0 } : {} });
     watchers.set(send, shown);
     response.on('close', () => watchers.delete(send));
+  };
+  /** `once`: the stream says what is new and ends, and the page asks again, after the last event it
+   * has (Last-Event-ID). A proxy that holds a response until it ends, as a Cloudflare quick tunnel
+   * holds a stream, then passes each change at once. With nothing new it ends after 50 seconds. */
+  const endsOnce = (send: (frame: Record<string, unknown>) => void, response: ServerResponse) => {
+    const quiet = setTimeout(() => response.end(), 50_000);
+    response.on('close', () => clearTimeout(quiet));
+    let ending = false;
+    return (frame: Record<string, unknown>): void => {
+      send(frame);
+      if (!ending) setImmediate(() => response.end());
+      ending = true;
+    };
   };
   /** The token as the bearer; for the preview page, which a frame loads by URL with no way to send
    * it, a cookie its preview grants, which a browser sends with every project request, so no other
@@ -205,12 +219,14 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // one, the last `replay`.
     ['GET', /^\/api\/projects\/([^/]+)\/stream$/, ({ params: [id], url, request, response }) => {
       const work = project(id!);
-      const send = sse(response);
       if (url.searchParams.get('view') === 'rows') {
-        watch(send, response, work.id);
+        const once = url.searchParams.get('once') === '1';
+        const again = once && request.headers['last-event-id'] !== undefined;
+        const send = once ? endsOnce(sse(response), response) : sse(response);
+        watch(send, response, work.id, once, again);
         let previous = new Map<string, string>();
         let cursor = Number(request.headers['last-event-id'] ?? url.searchParams.get('after') ?? -1);
-        let roleCursor = -1;
+        let roleCursor = again ? cursor : -1;
         const wake = listeners.get(id!) ?? new Set();
         listeners.set(id!, wake);
         const flush = (moved = true) => {
@@ -226,9 +242,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
           const changed = rows.filter(row => previous.size
             ? previous.get(String(row.row_id)) !== shown.get(String(row.row_id)) : Number(row.event_id) > cursor);
           if (moved) previous = shown;
+          const roleEvents = reading.roleEvents.filter(event => Number(event.event_id) > roleCursor);
+          // A page asking again waits for something new.
+          if (again && !changed.length && !roleEvents.length) return;
           cursor = reading.fold.line - 1;
-          send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round,
-            role_events: reading.roleEvents.filter(event => Number(event.event_id) > roleCursor) });
+          send({ type: 'ui.projection', event_id: cursor, cursor, rows: changed, round: reading.round, role_events: roleEvents });
           roleCursor = cursor;
         };
         flush();
@@ -236,6 +254,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
         response.on('close', () => wake.delete(flush));
         return;
       }
+      const send = sse(response);
       const read = follow(store, work.id);
       const had = Number(request.headers['last-event-id'] || NaN);
       const replay = Math.min(200, Number(url.searchParams.get('replay') ?? 40));
@@ -247,7 +266,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
       response.on('close', () => wake.delete(flush));
     }],
     // A page showing no project follows this; one showing a project, that project's rows, which carry the same.
-    ['GET', /^\/api\/projects\/stream$/, ({ response }) => watch(sse(response), response, null)],
+    ['GET', /^\/api\/projects\/stream$/, ({ url, request, response }) => {
+      const once = url.searchParams.get('once') === '1';
+      watch(once ? endsOnce(sse(response), response) : sse(response), response, null, once, once && request.headers['last-event-id'] !== undefined);
+    }],
     ['GET', /^\/api\/projects\/([^/]+)\/conversation$/, ({ params: [id], url }) => {
       const work = project(id!);
       const reading = readRecord(store, work.id);

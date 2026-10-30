@@ -1079,6 +1079,25 @@ test('a reading that goes on where it stopped folds the record as one whole read
   assert.deepEqual(readEvents(store, crashed.id).map(event => event.type === 'status' && event.status), ['idle', 'stopped', 'working']);
 });
 
+test('a page that asks again is sent what is new and the response ends, so a proxy that holds a stream till it ends passes it', { timeout: 20_000 }, async t => {
+  const { call, post } = await setup(t, [{ role: 'manager', to: 'operator', letter: 'Hello.' }]);
+  const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
+  const P = `/api/projects/${sid}`;
+  // The first answer: the list, named 0, and the rows past the page's cursor; then it ends.
+  const first = await frames(await call(`${P}/stream?view=rows&after=-1&once=1`));
+  assert.deepEqual(first.map(frame => frame.type), ['projects', 'ui.projection']);
+  assert.equal(first[0]!.event_id, 0);
+  // Asked again after its last event, it waits for something new, says it, and ends.
+  const next = frames(await call(`${P}/stream?view=rows&once=1`, { headers: { 'last-event-id': String(first[1]!.cursor) } }));
+  await frames(await post(`${P}/message/stream`, { text: 'Hi', request_id: 'r1' }));
+  const sent = await next;
+  assert.ok(sent.length >= 1 && !sent.some(frame => frame.type === 'projects'));
+  assert.ok(sent.some(frame => frame.type === 'project' || (frame.rows as EventMsg[] | undefined)?.some(row => row.type === 'ui.operator')));
+  // The page showing no project: the list, then each change, a response each.
+  const list = await frames(await call('/api/projects/stream?once=1'));
+  assert.deepEqual(list.map(frame => [frame.type, frame.event_id]), [['projects', 0]]);
+});
+
 test("the page is sent each project's state as it changes: the question a turn asks with the letter that asks it", { timeout: 20_000 }, async t => {
   const { call, get, post } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: 'Total data.csv' },

@@ -641,12 +641,15 @@ export function parseSSEFrames(buf: string): { frames: SSEFrame[]; rest: string 
 }
 
 /** Share Manager/map framing and wait for a terminal result, never a heartbeat. */
+/** The frames of a response; one that must end in `done` or `error` fails without it, while a page's
+ * stream (`ends` false) may simply end. */
 async function readSSE(
   response: Response,
   label: string,
   onFrame?: (frame: SSEFrame) => void,
   signal?: AbortSignal,
-): Promise<SSEFrame> {
+  ends = true,
+): Promise<SSEFrame | undefined> {
   if (!response.body) throw new Error(`${label} returned no response body`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -667,7 +670,7 @@ async function readSSE(
         if (frame.type === 'done' || frame.type === 'error') terminal = frame;
       }
       if (done) {
-        if (!terminal) throw new Error(`${label} ended before a terminal event`);
+        if (!terminal && ends) throw new Error(`${label} ended before a terminal event`);
         return terminal;
       }
     }
@@ -1054,15 +1057,16 @@ type StreamOptions = { onOpen?: () => void; onClose?: (info: StreamCloseInfo) =>
  * page, and the projects' states (ProjectState). A browser gives a page few connections to a server. */
 export const openConversation = (
   sid: string, after: number, onFrame: (frame: EventMsg) => void, opts: StreamOptions = {},
-): (() => void) => follow(P(sid, `/stream?view=rows&after=${after}`), 'Conversation stream', onFrame, opts);
+): (() => void) => follow(P(sid, `/stream?view=rows&after=${after}&once=1`), 'Conversation stream', onFrame, opts);
 
 /** A page's one stream while it shows no project: the projects' states. Returns a close() fn. */
 export const openProjectStates = (onState: (state: ProjectState) => void, opts: StreamOptions = {}): (() => void) =>
-  follow('/api/projects/stream', 'Project stream', (frame) => onState(frame as ProjectState), opts);
+  follow('/api/projects/stream?once=1', 'Project stream', (frame) => onState(frame as ProjectState), opts);
 
-/** Follow server-sent events, connecting again a second after a lost connection and twice as long
- * after each further failure, up to ten seconds; a record's stream is told the last event the page
- * has (Last-Event-ID) and goes on after it. */
+/** Follow server-sent events. The server says what is new and ends (`once`): the page asks again at
+ * once, telling it the last event it has (Last-Event-ID), so a proxy that holds a response until it
+ * ends still passes each change. A lost connection is tried again a second later, then twice as long
+ * after each further failure, up to ten seconds. */
 function follow(path: string, label: string, onFrame: (frame: EventMsg) => void, opts: StreamOptions): () => void {
   const controller = new AbortController();
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -1081,8 +1085,9 @@ function follow(path: string, label: string, onFrame: (frame: EventMsg) => void,
         await readSSE(response, label, (frame) => {
           if (frame.event_id !== undefined) last = frame.event_id;
           onFrame(frame as EventMsg);
-        }, controller.signal);
-        info = { code: 0, reason: '', retryable: true };
+        }, controller.signal, false);
+        retry = setTimeout(connect, 0);
+        return;
       }
     } catch (error) {
       if (controller.signal.aborted) return;

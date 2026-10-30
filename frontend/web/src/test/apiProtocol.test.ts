@@ -53,10 +53,11 @@ describe('web API protocol handshake', () => {
     close();
   });
 
-  it('delivers each event frame and reconnects after the connection ends, from the last event it had', async () => {
+  it('delivers each event frame and, when the response ends, asks again at once after the last event it had', async () => {
     vi.useFakeTimers();
     const body = 'id: 7\ndata: {"type":"ui.argus","text":"hi","event_id":7}\n\n: comment\n\nid: 8\ndata: {"type":"life.planner.task_added","item_id":"t1","event_id":8}\n\n';
-    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }));
+    // The server says what is new and ends; asked again, it has nothing yet and waits.
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(fetchMock.mock.calls.length === 1 ? body : new ReadableStream(), { headers: { 'Content-Type': 'text/event-stream' } }));
     vi.stubGlobal('fetch', fetchMock);
     const { openConversation } = await import('../api');
     const events: unknown[] = [];
@@ -66,9 +67,9 @@ describe('web API protocol handshake', () => {
 
     await vi.advanceTimersByTimeAsync(0);
     expect(events).toEqual([{ type: 'ui.argus', text: 'hi', event_id: 7 }, { type: 'life.planner.task_added', item_id: 't1', event_id: 8 }]);
-    expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ code: 0, retryable: true }));
-    await vi.advanceTimersByTimeAsync(1_001);
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    // An answer that ends is no lost connection: the page stays connected.
+    expect(onClose).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.map(([, init]) => init?.headers)).toEqual([{}, { 'Last-Event-ID': '8' }]);
     close();
   });
@@ -96,8 +97,8 @@ describe('web API protocol handshake', () => {
     openConversation('s-live', 40, () => undefined)();
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
-      '/api/projects/s-live/stream?view=rows&after=-1',
-      '/api/projects/s-live/stream?view=rows&after=40',
+      '/api/projects/s-live/stream?view=rows&after=-1&once=1',
+      '/api/projects/s-live/stream?view=rows&after=40&once=1',
     ]);
     for (const [, init] of fetchMock.mock.calls) {
       expect(init?.headers).toEqual({ Authorization: 'Bearer fake-token' });

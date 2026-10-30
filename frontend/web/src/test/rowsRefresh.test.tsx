@@ -68,7 +68,7 @@ afterEach(() => {
 });
 it('keeps file reads through edits and commands, refreshing only on call completion and delivery', async () => {
   act(() => { view = create(tree('a')); }); await flush();
-  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}`]);
+  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}&once=1`]);
   expect(latest.connected).toBe(true);
   expect(savedRows.some(row => row.delivery)).toBe(true);
   send(connections[0], frame(cursor, [], reading.roleEvents)); await flush();
@@ -109,9 +109,9 @@ it('counts a new event between REST and the first frame, and resumes a reconnect
   act(() => { view = create(tree('a')); }); await flush();
   send(connections[0], frame(cursor + 1, [], [...reading.roleEvents, { type: 'provider.request.completed', event_id: cursor + 1 }])); await flush();
   expect(api.artifacts).toHaveBeenCalledTimes(2);
+  // The answer ends; the page asks again at once and stays connected.
   connections[0].body.close(); await flush();
-  expect(latest.connected).toBe(false);
-  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
   expect(latest.connected).toBe(true);
   expect(connections[1].headers).toEqual({ 'Last-Event-ID': String(cursor + 1) });
   send(connections[1], frame(cursor + 1, [], [...reading.roleEvents, { type: 'provider.request.completed', event_id: cursor + 1 }])); await flush();
@@ -135,7 +135,7 @@ it('isolates switched projects and uses the held cursor on a revisit', async () 
   client.setQueryDefaults(['conversation'], { staleTime: 0 });
   act(() => view!.update(tree('a'))); await flush();
   expect(connections[1].signal.aborted).toBe(true);
-  expect(connections[2].path).toBe(`/api/projects/a/stream?view=rows&after=${cursor + 1}`);
+  expect(connections[2].path).toBe(`/api/projects/a/stream?view=rows&after=${cursor + 1}&once=1`);
   send(connections[2], frame(cursor + 1, [], [...reading.roleEvents, { type: 'provider.request.completed', event_id: cursor + 1 }])); await flush();
   expect(api.artifacts).toHaveBeenCalledTimes(3);
   expect(count('a')).toEqual([2, 2, 2, 1]);
@@ -160,7 +160,7 @@ it('waits for the opening refresh of stale cached history before following its c
   expect(api.artifacts).toHaveBeenCalledTimes(1);
   expect(connections).toHaveLength(0);
   await act(async () => { finish({ rows: savedRows, cursor, before: null }); await vi.advanceTimersByTimeAsync(10); });
-  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}`]);
+  expect(connections.map(connection => connection.path)).toEqual([`/api/projects/a/stream?view=rows&after=${cursor}&once=1`]);
   send(connections[0], frame(cursor, [], reading.roleEvents)); await flush();
   expect(api.artifacts).toHaveBeenCalledTimes(1);
   expect(count('a')).toEqual([1, 1, 1, 1]);
