@@ -114,7 +114,7 @@ test('read-only git returns only workspace consumers; trash uses the project nam
   assert.equal(trash.entries[0].label, 'Saved request title');
 });
 
-test('real task record: details and traces share the incremental reading and clear errors on the next successful call', async t => {
+test('real task record: details and traces share the incremental reading as calls are appended', async t => {
   const home = mkdtempSync(join(tmpdir(), 'argus-shared-reading-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const store = new Store(home);
@@ -160,10 +160,11 @@ test('real task record: details and traces share the incremental reading and cle
   for (const [task, error] of [['t3', 'first error'], ['t2', 'other task error'], ['t3', null]] as const) {
     const event: Recorded = { ...end, task, callId: `increment-${task}-${error}`, completed: !error, error };
     writeFileSync(path, JSON.stringify(event) + '\n', { flag: 'a' });
-    const item = (await get(`backlog/${task}`)).item;
-    assert.equal(item.last_error, error ?? '');
     assert.equal(readRecord(store, work.id), reading);
     assert.equal((await get(`map-trace?task=${task}`)).groups.at(-1).call_id, event.callId);
   }
+  // A task's last error is the failure the project holds for it, which a successful call clears.
+  assert.equal((await get('backlog/t2')).item.last_error, '');
+  store.save({ ...store.load(work.id), failures: [{ role: 'engineer', task: 't2', error: 'other task error' }] });
   assert.equal((await get('backlog/t2')).item.last_error, 'other task error');
 });

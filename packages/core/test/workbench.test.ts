@@ -422,7 +422,7 @@ test('a task in full and a search of every project\'s record', async t => {
   // A record from before there could be several questions holds its one as `question`.
   const question = { role: 'engineer' as const, task: 't2', question: 'Which years?' };
   await writeFile(join(store.dir(id), 'project.json'), JSON.stringify({
-    ...record, name: chart.title, status: 'asking', question, tasks: [{ ...chart, status: 'closed', note: { from: 'reviewer', text: 'The chart matches the data.' } }, years],
+    ...record, name: chart.title, status: 'asking', question, failures: [{ role: 'engineer', task: 't2', error: 'codex exited with code 1' }], tasks: [{ ...chart, status: 'closed', note: { from: 'reviewer', text: 'The chart matches the data.' } }, years],
   }));
   assert.deepEqual([questions, store.load(id).questions], [[], [question]]);
   const P = `/api/projects/${id}`;

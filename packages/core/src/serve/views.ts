@@ -247,14 +247,13 @@ export interface Reading {
   /** The results the Manager handed over, by delivery (`d` and its line), each with its files as delivered. */
   delivered: Map<string, Extract<Recorded, { type: 'handoff' }>>;
   map: MapReading;
-  errors: Map<string, string>;
   trace: { ended: Map<string, Omit<TraceGroup, 'entries'>>; tasks: Map<string, TraceGroup[]> };
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
   end: 0, usage: { end: 0, rows: [] }, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
   roleEvents: [], round: 0, activityAt: null, stateLine: 0, calls: new Set(), tasks: new Map(), questions: new Map(), delivered: new Map(),
-  errors: new Map(), trace: { ended: new Map(), tasks: new Map() },
+  trace: { ended: new Map(), tasks: new Map() },
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
     answered: null, briefed: null, worked: new Set(), follows: new Map() },
 }): Reading {
@@ -264,10 +263,6 @@ export function projectRecord(events: Recorded[], reading: Reading = {
     const converted = webEvents([event], reading.fold);
     foldMap(reading.map, event, line);
     foldTrace(reading.trace, event);
-    if (event.type === 'call.end' && event.task) {
-      if (event.error) reading.errors.set(event.task, event.error);
-      else reading.errors.delete(event.task);
-    }
     if (event.type !== 'step') reading.stateLine = line;
     const put = (row: EventMsg, id: string, order = line) => reading.rows.set(id, { ...row, row_id: id, order });
     if (event.type === 'message') {
@@ -602,8 +597,8 @@ interface TraceGroup {
   entries: { kind: string; text: string }[];
 }
 
-/** Retain the call facts needed by traces in the shared fold. Incoming letters belong to the
- * last completed call in their author's scope; one Planner call may open several tasks. */
+/** Retain the call facts needed by traces in the shared fold. Letters on a task belong to the last
+ * completed call in their author's scope; the brief that opened it is the task's objective. */
 function foldTrace(trace: Reading['trace'], event: Recorded): void {
   const include = (task: string, call: Omit<TraceGroup, 'entries'>): TraceGroup => {
     let groups = trace.tasks.get(task);
@@ -620,14 +615,11 @@ function foldTrace(trace: Reading['trace'], event: Recorded): void {
     const scope = event.role === 'engineer' || event.role === 'reviewer' ? event.task : '';
     const call = trace.ended.get(`${event.role}.${scope}`);
     if (call) include(event.task, call).entries.push({ kind: 'message', text: event.letter });
-  } else if (event.type === 'task.added') {
-    const call = trace.ended.get(`${event.task.from}.`);
-    if (call) include(event.task.id, call).entries.push({ kind: 'message', text: event.task.objective });
   }
 }
 
 /** A task's calls and incoming letters, grouped by the call that wrote them.
- * The call whose letter opened the task comes first. */
+ * Its brief is not among them: the reader shows it as the objective. */
 export function taskTrace(store: Store, project: Project, task: string) {
   return { task_id: task, groups: readRecord(store, project.id).trace.tasks.get(task) ?? [] };
 }

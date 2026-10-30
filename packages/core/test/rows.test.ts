@@ -188,8 +188,9 @@ test('real task fragments: progress and files share the map projection; incoming
   assert.equal(line.progress, 'text' in events[3]! ? events[3]!.text : '');
   assert.deepEqual(line.result_paths, []);
   const trace = taskTrace(store, work, 't3');
-  assert.deepEqual(trace.groups.map(group => group.role), ['planner', 'planner']);
-  assert.equal(trace.groups[1]!.entries[0]!.text, 'letter' in events[5]! ? events[5]!.letter : '');
+  // The brief that opened it is its objective, not a trace entry.
+  assert.deepEqual(trace.groups.map(group => group.role), ['planner']);
+  assert.equal(trace.groups[0]!.entries[0]!.text, 'letter' in events[5]! ? events[5]!.letter : '');
   assert.ok(!before.some(event => event.type === 'call.end' && event.task === 't3'));
   // Append rather than replace the file: both views continue from their shared cursor.
   writeFileSync(path, events.slice(6).map(row => JSON.stringify(row)).join('\n') + '\n', { flag: 'a' });
@@ -203,5 +204,5 @@ test('real task fragments: progress and files share the map projection; incoming
   assert.deepEqual(done.result_paths, map.result_paths);
   assert.equal(done.progress, firstLine(map.latest_action!.text));
   assert.equal(map.latest_action!.role, 'reviewer');
-  assert.deepEqual(taskTrace(store, work, 't3').groups.map(group => group.role), ['planner', 'planner', 'engineer', 'reviewer', 'planner']);
+  assert.deepEqual(taskTrace(store, work, 't3').groups.map(group => group.role), ['planner', 'engineer', 'reviewer', 'planner']);
 });

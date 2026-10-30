@@ -406,7 +406,7 @@ test('the map shows each task and the letters written about it, and a task its c
   const trace = await get<Trace>(`${P}/map-trace?task=t1`);
   assert.equal(trace.task_id, 't1');
   assert.deepEqual(trace.groups.map(group => [group.role, group.entries.map(entry => entry.text)]), [
-    ['planner', [brief]], ['engineer', []], ['engineer', ['report.md written']], ['reviewer', ['Ship it as is?']],
+    ['engineer', []], ['engineer', ['report.md written']], ['reviewer', ['Ship it as is?']],
     ['reviewer', ['Add the units.']], ['engineer', ['Units added.']], ['reviewer', ['Accepted.']],
   ]);
   assert.ok(trace.groups.every(group => !Object.hasOwn(group, 'output')));
