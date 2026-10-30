@@ -57,9 +57,7 @@ _MAX_SIBLINGS = 8
 _MAX_SIBLING_CANDIDATES = 64
 _MAX_PROJECT_ENTRIES = 256
 _OBJECTIVE_EXCERPT_CHARS = 200
-# Read through the knob resolver rather than the hosted-trial client: the
-# runtime layer may not import the delivery layer, and both read this switch.
-_HOSTED_TRIAL_KNOB = "ARGUS_SKILL_COPILOT_TRIAL"
+
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _RECALL_HEADER = "### What Argus already knows (advisory)"
 # These terms express a request or page scaffolding, not a topic match. Keep
@@ -405,9 +403,10 @@ def _bounded_wiki_roots(workspace: Path) -> list[Path]:
 def _sibling_libraries_enabled() -> bool:
     """Other projects' Wikis and Skills are read only on a single-operator host with learning on."""
     try:
-        from ..core.knobs import learning_enabled, resolve_knob
+        from ..core.hosting import hosting
+        from ..core.knobs import learning_enabled
 
-        if resolve_knob(_HOSTED_TRIAL_KNOB, "0").value.strip() == "1":
+        if not hosting().sibling_libraries_enabled():
             return False
         return learning_enabled()
     except Exception:  # noqa: BLE001 - an unreadable switch means no cross-project reads

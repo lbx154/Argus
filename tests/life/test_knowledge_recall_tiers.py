@@ -65,7 +65,6 @@ def tenant(tmp_path, monkeypatch):
     home = tmp_path / "tenant"
     home.mkdir()
     monkeypatch.setenv("ARGUS_SKILL_HOME", str(home))
-    monkeypatch.delenv("ARGUS_SKILL_COPILOT_TRIAL", raising=False)
     monkeypatch.delenv("ARGUS_SKILL_LEARNING", raising=False)
     return home
 
@@ -201,14 +200,18 @@ def test_a_sandboxed_engineer_is_given_the_directories_recall_points_at(tmp_path
     assert Capture.options.add_dirs[0] == "/elsewhere/wiki"
 
 
-@pytest.mark.parametrize("switch", [("ARGUS_SKILL_COPILOT_TRIAL", "1"), ("ARGUS_SKILL_LEARNING", "0")])
-def test_hosted_trial_or_switched_off_recall_never_reads_other_workspaces(tenant, tmp_path, monkeypatch, switch):
+@pytest.mark.parametrize("switch", ["policy", "learning"])
+def test_disabled_sibling_recall_never_reads_other_workspaces(tenant, tmp_path, monkeypatch, switch):
     workspace = workspace_with_vertical(tenant / "workspaces" / "current", VERTICAL)
     same = tmp_path / "work" / "earlier-same"
     earlier_project(tenant, "s-same", VERTICAL, same)
     project_wiki(same, "same", "notes.md", page("Same", "d", "quartz same"))
     write(shared_vertical_wiki_root(VERTICAL, tenant) / "pages" / "shared.md", page("Shared", "d", "quartz shared"))
-    monkeypatch.setenv(*switch)
+    if switch == "policy":
+        from argus.core.hosting import NO_HOSTING
+        monkeypatch.setattr(NO_HOSTING, "sibling_libraries_enabled", lambda: False)
+    else:
+        monkeypatch.setenv("ARGUS_SKILL_LEARNING", "0")
 
     recall = knowledge_recall_for_memory(bundle(tenant, workspace))
 

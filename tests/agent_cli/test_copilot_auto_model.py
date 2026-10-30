@@ -40,7 +40,6 @@ def _isolated_home(monkeypatch, tmp_path) -> None:
         "ARGUS_SKILL_MANAGER_MODEL",
         "ARGUS_SKILL_PLAN_MODEL",
         "ARGUS_SKILL_LIGHT_MODEL",
-        "ARGUS_SKILL_TRIAL",
     ):
         monkeypatch.delenv(name, raising=False)
 

@@ -379,7 +379,7 @@ def test_uninstall_refuses_a_dependency_and_keeps_dependencies_of_the_removed(re
 # --- host-managed deployments -----------------------------------------------------
 
 
-@pytest.mark.parametrize("env", ["ARGUS_TRIAL_HARNESS", store.HOST_ROOT_ENV])
+@pytest.mark.parametrize("env", [store.HOST_ROOT_ENV])
 def test_host_managed_roots_refuse_install_update_and_remove_but_allow_toggling(release, tmp_path, monkeypatch, env) -> None:
     store.install("solo_v", wait=True)
     value = str(store.store_root()) if env == store.HOST_ROOT_ENV else "argus-pi"

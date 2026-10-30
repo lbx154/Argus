@@ -13,7 +13,6 @@ import pytest
 from argus.engineer.round_stop_signals import (
     authentication_review_decision,
     backend_failure_cause,
-    infrastructure_failure_review_decision,
 )
 from argus.engineer.runner import fatal_error_looks_like_backend_failure as _is_bf
 
@@ -66,13 +65,6 @@ ECONNREFUSED_RECORD = (
     ("github-copilot: OAuth refresh failed: timeout", "sign_in",
      "github-copilot: OAuth refresh failed: timeout"),
     ("HTTP 402: Payment Required", "service_quota", "HTTP 402: Payment Required"),
-    # The hosted trial's meter: its allowance, not the model service's quota.
-    ("HTTP 402: Insufficient trial tokens for this request.", "allowance_exhausted",
-     "HTTP 402: Insufficient trial tokens for this request."),
-    ("query: HTTP 402: 402 试用额度不足，任务已暂停。请联系试用版管理员。", "allowance_exhausted",
-     "query: HTTP 402: 402 试用额度不足，任务已暂停。请联系试用版管理员。"),
-    ('HTTP 402 {"error": {"code": "trial_budget_exhausted"}}', "allowance_exhausted",
-     'HTTP 402 {"error": {"code": "trial_budget_exhausted"}}'),
 ])
 def test_infrastructure_failures_are_named_with_their_cause_line(
     record: str, kind: str, line: str,
@@ -127,16 +119,3 @@ def test_oauth_refresh_failure_requires_operator_authentication() -> None:
     assert "`pi`" in decision.operator_question
     assert "/login" in decision.operator_question
     assert "resume the same mission" in decision.operator_question
-
-
-def test_a_spent_trial_allowance_waits_for_resume_instead_of_retrying() -> None:
-    record = "query: HTTP 402: 402 试用额度不足，任务已暂停。请联系试用版管理员。"
-    decision = infrastructure_failure_review_decision(
-        cause=backend_failure_cause(record, exit_code=1), fatal_error=record, exit_code=1,
-    )
-
-    # Waiting does not bring an allowance back: the task waits for Resume.
-    assert decision.backend_stop_kind == "provider_fence"
-    assert decision.reason.startswith("The trial allowance is used up")
-    assert "retries" not in decision.reason
-    assert "click Resume" in (decision.next_action or "")

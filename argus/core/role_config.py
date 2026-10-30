@@ -148,8 +148,10 @@ def is_reasoning_model(model: str) -> bool:
     m = (model or "").strip().lower()
     if not m:
         return False
-    if m == "argus-trial":
-        return True  # The hosted selector explicitly forwards reasoning effort.
+    from .hosting import hosting
+
+    if hosting().supports_reasoning_effort(m):
+        return True
     if re.match(r"^gpt-?[5-9]", m):  # gpt-5.x, gpt-6.1-sol, …
         return True
     if re.match(r"^o[1-9]", m):  # o1 / o3 / o4 …

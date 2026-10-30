@@ -8,7 +8,7 @@ from typing import Any
 from ..life.event_log import JsonlEventSink
 from .mission_view import say, uses_cjk
 from .residual_risk import sanitize_text
-from .stop_kinds import park_reason_of, trial_allowance_exhausted
+from .stop_kinds import park_reason_of
 from .transcript import append_turn
 
 _TIMEOUT_RE = re.compile(
@@ -36,8 +36,10 @@ def humanize_runtime_reason(reason: str, *, language_hint: str = "", interactive
         return (f"模型服务连续 {AUTOMATIC_RETRY_WINDOW_HOURS} 小时没有恢复，Argus 已停止自动重试；点「继续运行」即可继续。" if zh else
                 f"The model service did not recover during {AUTOMATIC_RETRY_WINDOW_HOURS} hours of automatic retries, so Argus "
                 "stopped retrying; click Resume to continue.")
-    if trial_allowance_exhausted(raw):
-        return say("allowance_exhausted", zh)
+    from .hosting import hosting
+
+    if message := hosting().failure_message(raw, zh):
+        return message
     if "efbig" in lowered or "package extraction" in lowered:
         return ("执行环境未能准备所需文件，请联系管理员检查环境后重试。" if zh else
                 "The runtime could not prepare its required files. Ask the administrator to check the environment before retrying.")
@@ -142,10 +144,10 @@ def render_operator_update(
     # Reviewer/Manager next_action is already the actionable instruction. Do
     # not replace it with the generic explanation used for a raw error reason.
     action = str(next_action or "").strip()
-    if park == "provider_fence" and trial_allowance_exhausted(raw):
-        # The allowance, not the model service: say so, and nothing else to do
-        # but resume once it is topped up. The record stays on the task's row.
-        return "\n".join((why, say("update_resume_after_top_up", chinese)))
+    from .hosting import hosting
+
+    if message := hosting().operator_update(park=park, reason=raw, chinese=chinese):
+        return message
     if park == "provider_fence":
         return "\n".join(part for part in (
             say("update_provider_fenced", chinese, subject=subject),

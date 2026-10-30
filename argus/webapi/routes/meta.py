@@ -217,8 +217,8 @@ def register_meta_routes(app, ctx: ServerContext) -> None:
         from .. import model_choices
 
         life_dir = ctx.resolve_or_404(sid)
-        if hosting().enabled():
-            raise HTTPException(status_code=409, detail="the hosted trial chooses its own model")
+        if error := hosting().model_change_error():
+            raise HTTPException(status_code=409, detail=error)
         try:
             return model_choices.probe_model(
                 body.model, life_dir, global_root=ctx.project_root_or_404(sid),

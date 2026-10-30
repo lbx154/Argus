@@ -1041,7 +1041,6 @@ def persist_validated_profile(
         return False
     values = {
         "ARGUS_SKILL_RUNNER_BACKEND": report.profile.backend,
-        "ARGUS_SKILL_COPILOT_TRIAL": "0",
         AUTH_MODE_KNOB: report.profile.auth_mode,
         "ARGUS_SKILL_BACKEND_VALIDATED_VERSION": report.version,
     }
@@ -1050,7 +1049,9 @@ def persist_validated_profile(
         values["ARGUS_SKILL_MODEL"] = adopted
     if copilot_home is not None:
         values["ARGUS_SKILL_COPILOT_HOME"] = copilot_home
-    return write_persisted_knobs(values)
+    from .hosting import hosting
+
+    return write_persisted_knobs(hosting().provider_configured(values))
 
 
 def format_backend_readiness(report: BackendReadiness) -> str:

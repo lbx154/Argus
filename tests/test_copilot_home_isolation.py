@@ -31,7 +31,6 @@ from argus.agent_cli.copilot_home import (
     apply_copilot_account,
     apply_copilot_home,
     argus_copilot_home,
-    copilot_account_home,
     copilot_log_dir,
     prepare_copilot_home,
     prune_copilot_sessions,
@@ -154,15 +153,6 @@ def test_unavailable_dedicated_home_fails_instead_of_using_another_account(
     assert not argus_copilot_home(env).exists()
 
 
-def test_account_binding_does_not_override_an_explicit_trial(tmp_path: Path) -> None:
-    env = {
-        COPILOT_ACCOUNT_HOME_KNOB: str(tmp_path / "dedicated"),
-        "ARGUS_SKILL_COPILOT_TRIAL": "1",
-        "COPILOT_HOME": str(tmp_path / "trial"),
-        "COPILOT_PROVIDER_API_KEY": "fake-trial-key",
-    }
-    assert copilot_account_home(env) is None
-    assert apply_copilot_account(dict(env)) == env
 
 
 # --- wiring: the runner must actually use it -------------------------------

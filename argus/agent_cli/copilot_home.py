@@ -84,7 +84,7 @@ def copilot_account_home(env: Mapping[str, str] | None = None) -> Path | None:
     from ..core.paths import resolve_runtime_path
 
     source = os.environ if env is None else env
-    if hosting().enabled(source):
+    if hosting().provider_active("copilot", source):
         return None
     # An explicitly empty value lets setup validate removal before persisting it.
     raw = (
@@ -102,7 +102,7 @@ def copilot_token_from_env_enabled(env: Mapping[str, str] | None = None) -> bool
     from ..core.knob_store import persisted_knob
 
     source = os.environ if env is None else env
-    if hosting().enabled(source):
+    if hosting().provider_active("copilot", source):
         return False
     return persisted_knob(COPILOT_TOKEN_FROM_ENV_KNOB, env=source).strip().lower() in _TRUTHY
 
@@ -141,8 +141,8 @@ def copilot_auth_source(env: Mapping[str, str] | None = None) -> str:
     """Human-readable description of where Copilot children get credentials."""
 
     source = os.environ if env is None else env
-    if hosting().enabled(source):
-        return "trial provider"
+    if label := hosting().auth_source(source):
+        return label
     if copilot_token_from_env_enabled(source):
         if copilot_env_token(source):
             return f"{COPILOT_TOKEN_ENV} from environment ({COPILOT_TOKEN_FROM_ENV_KNOB}=1)"

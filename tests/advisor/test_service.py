@@ -137,7 +137,7 @@ def test_reported_different_model_is_explicit_failure(tmp_path):
 
 def test_backend_factory_never_uses_main_model_or_falls_back_to_another_runner(monkeypatch):
     from argus.agent_cli import runner_backend
-    from argus.trial import hosting
+    from argus.core.hosting import NO_HOSTING as hosting
 
     monkeypatch.setattr(runner_backend, "resolve_runner_bin", lambda *_args: None)
     config = AdvisorConfig(enabled=True, backend="codex", model="explicit-advisor")

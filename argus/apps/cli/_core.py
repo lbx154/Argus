@@ -10,8 +10,7 @@ it and, with no subcommand:
 
 It is not the only console script: ``pyproject.toml`` also installs
 ``argus`` (TUI launcher), ``argus-doctor`` and ``argus-plugin-server``
-(the hosted trial's ``argus-trial-server`` and ``argus-compute`` come with
-``trial_server/``); this module owns only ``argus``.
+This module owns only ``argus``.
 
 Top-level flags control daemon lifecycle and read-only operator help
 (``--daemon``, ``--daemon-fg``, ``--daemon-stop``, ``--status``,
@@ -439,14 +438,13 @@ def main(argv: list[str] | None = None) -> int:
         bool(getattr(args, "non_interactive", False))
         or getattr(args, "copilot_home", None) is not None
         or bool(getattr(args, "copilot_login", False))
-        or bool(getattr(args, "trial_url", None))
         or bool(getattr(args, "set_git_global", False))
         or bool(getattr(args, "configure_codex", False))
     )
     if setup_only and not args.setup:
         sys.stderr.write(
             "argus: --non-interactive / --set-git-global / "
-            "--configure-codex / --trial-url / --copilot-home / --copilot-login require --setup\n"
+            "--configure-codex / --copilot-home / --copilot-login require --setup\n"
         )
         return 2
     readiness_modifier = (
@@ -605,7 +603,6 @@ def main(argv: list[str] | None = None) -> int:
             api_url=getattr(args, "api_url", None),
             api_key=getattr(args, "api_key", None),
             api_model=getattr(args, "api_model", None),
-            trial_url=getattr(args, "trial_url", None),
             copilot_home=getattr(args, "copilot_home", None),
             copilot_login=bool(getattr(args, "copilot_login", False)),
         )

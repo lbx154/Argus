@@ -10,7 +10,6 @@ per-project chat-state/lock bookkeeping live in ``manager_dispatch.py`` /
 from __future__ import annotations
 
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -785,11 +784,7 @@ def manager_complete(sid: str, text: str, *, global_root: Path | str | None = No
     turn = _LATEST_COMPLETION[sid] = object()
     draft = text[-1500:]
     config = resolve_map_model()
-    # A hosted trial meters (the pi harness also captures) every call, and a failed Copilot
-    # one pauses the account; a suggestion is not worth that. A pasted key reaches a model
-    # only after sending has stored it in the vault.
-    hosted = hosting().enabled() or os.environ.get("ARGUS_TRIAL_HARNESS")
-    if hosted or not config.available or contains_secret(draft):
+    if not hosting().prompt_completion_enabled() or not config.available or contains_secret(draft):
         return {"completion": ""}
     mem = MemoryBundle.for_cwd(fingerprint=sid, global_root=Path(global_root) if global_root else None)
     if not mem.project_root.is_dir():

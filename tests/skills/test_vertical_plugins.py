@@ -225,7 +225,6 @@ def store_release(tmp_path, monkeypatch):
     from tests.verticals import fake_release as fake
 
     monkeypatch.delenv(store.HOST_ROOT_ENV, raising=False)
-    monkeypatch.delenv("ARGUS_TRIAL_HARNESS", raising=False)
     catalog = fake.build_release(tmp_path / "dist", [
         fake.spec("store_lab", purpose_zh="商店垂直"),
         fake.spec("store_child", requires=("store_lab",), parents=("store_lab",)),

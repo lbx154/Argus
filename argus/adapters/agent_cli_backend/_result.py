@@ -65,8 +65,6 @@ _PROVIDER_FENCE_PATTERNS = (
     "max budget usd",
     "max-budget-usd",
     "provider budget limit",
-    "trial_quota_exceeded",
-    "insufficient trial tokens for this request",
 )
 _TRANSIENT_ERROR_PATTERNS = (
     "timed out",
@@ -99,6 +97,10 @@ def _raw_backend_stop_kind(
         interrupt_kind = stop_kind_from_external_interrupt(fatal)
         if interrupt_kind is not None:
             return interrupt_kind
+    from ...core.hosting import hosting
+
+    if kind := hosting().failure_kind(fatal):
+        return kind
     if has_http_status(low, {402}) or any(pattern in low for pattern in _PROVIDER_FENCE_PATTERNS):
         return "provider_fence"
     if has_http_status(low, {429}) or any(
@@ -106,8 +108,6 @@ def _raw_backend_stop_kind(
     ):
         return "provider_cooldown"
     if looks_like_auth_failure([low]):
-        return "permanent_error"
-    if has_http_status(low, {400}) and "unsupported trial request" in low:
         return "permanent_error"
     if has_http_status(low, {502, 503, 504}) or any(
         pattern in low for pattern in _TRANSIENT_ERROR_PATTERNS

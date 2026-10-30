@@ -61,7 +61,7 @@ class Backend:
             exit_code=1 if failed else 0,
             thread_id=resume_thread_id or f"provider-{len(self.calls)}",
             agent_messages=[] if failed else ["Decision: keep the independent-group acceptance."],
-            fatal_error="402 trial_quota_exceeded" if failed else None,
+            fatal_error="HTTP 402: Payment Required" if failed else None,
             input_tokens=self.input_tokens if self.reported and not failed else 0,
             cached_input_tokens=self.input_tokens - 10 if self.reported and not failed else 0,
             output_tokens=25 if self.reported and not failed else 0,
@@ -106,7 +106,7 @@ def test_a_refused_or_uncertain_call_is_not_replayed(tmp_path, failure):
         with pytest.raises(RuntimeError, match="unknown outcome"):
             turn(tmp_path, backend)
     else:
-        assert turn(tmp_path, backend).fatal_error == "402 trial_quota_exceeded"
+        assert turn(tmp_path, backend).fatal_error == "HTTP 402: Payment Required"
     assert len(backend.calls) == 5
     assert state(tmp_path)["logical_manager_id"] == logical_id
 

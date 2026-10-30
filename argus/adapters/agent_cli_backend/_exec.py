@@ -28,7 +28,6 @@ from typing import TYPE_CHECKING
 
 from ...core.hosting import hosting
 from ...core.models import RunnerOptions, RunnerResult, may_act
-from ...core.secret_guard import redact_secrets_text
 from ._exec_admission import admit
 from ._exec_context import _ExecContext
 from ._exec_spawn import spawn_and_finish
@@ -50,18 +49,10 @@ def execute(
     # The generated command, reservation, and settled usage record therefore
     # share one model id instead of independently guessing after the call.
     options = backend._resolve_execution_options(options)
-    hosted = hosting()
-    hosted_trial = backend._runner.backend == "copilot" and hosted.enabled()
-    if hosted_trial:
-        from dataclasses import replace
-
-        try:
-            model, effort = hosted.model_options(options.model, options.reasoning_effort)
-        except ValueError as exc:
-            return RunnerResult(exit_code=1, stop_kind="permanent_error", fatal_error=str(exc))
-        options = replace(options, model=model, reasoning_effort=effort)
-        if blocked := hosted.attention_reason():
-            return RunnerResult(exit_code=1, fatal_error=blocked, stop_kind="permanent_error")
+    try:
+        options = hosting().prepare_call(backend._runner.backend, options)
+    except ValueError as exc:
+        return RunnerResult(exit_code=1, stop_kind="permanent_error", fatal_error=str(exc))
     from ...core.workbench_plugins import prepare_plugin_run
     usage_context = getattr(backend, "_usage_context_snapshot", None)
     project_root = usage_context()[0] if callable(usage_context) else None
@@ -73,33 +64,16 @@ def execute(
         backend=backend._runner.backend, run_label=run_label, project_root=project_root)
     backend._plugin_execution_options = options
     try:
-        if hosted_trial:
-            # A plugin may apply its own explicit model override while binding
-            # tools. Validate that final selection before accounting/spawn too.
-            try:
-                model, effort = hosted.model_options(options.model, options.reasoning_effort)
-            except ValueError as exc:
-                return RunnerResult(exit_code=1, stop_kind="permanent_error", fatal_error=str(exc))
-            options = replace(options, model=model, reasoning_effort=effort)
+        try:
+            options = hosting().prepare_call(backend._runner.backend, options)
+        except ValueError as exc:
+            return RunnerResult(exit_code=1, stop_kind="permanent_error", fatal_error=str(exc))
         backend._plugin_execution_options = options
         result = _execute_prepared(backend, prompt=prompt, options=options, run_label=run_label, resume_thread_id=resume_thread_id)
-        if (
-            hosted_trial
-            and (result.exit_code != 0 or result.fatal_error)
-            and result.stop_kind not in {
-                "budget_exhausted", "cost_unreconciled", "operator_pause", "operator_abort", "daemon_shutdown",
-            }
-        ):
-            # Actual provider or ambiguous request failures pause, but retain
-            # their cause.
-            diagnostic = redact_secrets_text(
-                str(result.fatal_error or ""),
-                known_values=getattr(backend, "_known_secret_values", ()),
-            ).strip()
-            result.fatal_error = hosted.record_failure(diagnostic)
-            if diagnostic:
-                result.fatal_error += "\n具体原因：" + diagnostic[:1200]
-            result.stop_kind = "permanent_error"
+        result = hosting().finish_call(
+            backend._runner.backend, result,
+            known_values=getattr(backend, "_known_secret_values", ()),
+        )
         return result
     finally:
         from ...core.workbench_plugins import finish_plugin_run

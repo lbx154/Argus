@@ -192,7 +192,9 @@ def user_state_path(root: str | Path | None = None) -> Path:
 def managed_by_host(env: Any = None) -> bool:
     """Hosted deployments own installation; the operator may only enable/disable."""
     environment = os.environ if env is None else env
-    return bool(environment.get("ARGUS_TRIAL_HARNESS")) or bool(environment.get(HOST_ROOT_ENV))
+    from ..core.hosting import hosted_runtime
+
+    return hosted_runtime().manages_verticals(environment) or bool(environment.get(HOST_ROOT_ENV))
 
 
 def preinstalled_names(env: Any = None) -> list[str]:

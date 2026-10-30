@@ -62,7 +62,6 @@ _PYTHON_PRE_ACTION_VALUE_OPTIONS = frozenset(
         "--backend",
         "--auth-mode",
         "--copilot-home",
-        "--trial-url",
         "--skills-dir",
         "--project-root",
     }
@@ -72,7 +71,6 @@ _PYTHON_PRE_ACTION_OPTIONAL_VALUE_OPTIONS = frozenset({"--resume"})
 
 _PYTHON_PRE_ACTION_BOOL_OPTIONS = frozenset(
     {
-        "--trial",
         "--drain",
         "--force",
         "--fix-safe",
