@@ -30,7 +30,7 @@ def test_windows_only_tags_cannot_trigger_the_all_platform_release():
     workflow = _workflow()
     tags = workflow["on"]["push"]["tags"]
     assert tags[0] == "v*"
-    for tag in ("v0.1.7", "v0.1.8"):
+    for tag in ("v0.1.7", "v0.1.8", "v0.1.10"):
         assert tags.index("!" + tag) > tags.index("v*")
     assert workflow["jobs"]["pypi"]["if"].startswith("false &&")
     assert "startsWith(github.ref, 'refs/tags/v')" in workflow["jobs"]["github"]["if"]
@@ -75,6 +75,14 @@ def test_windows_build_isolation_cannot_resolve_new_tools():
     frontend = _step("Install frontend build dependencies")["run"]
     for package in ("frontend/web", "frontend/tui", "desktop-tauri"):
         assert f"npm --prefix {package} ci" in frontend
+
+
+def test_release_build_refreshes_contracts_and_frontends_atomically():
+    frontend = _step("Install frontend build dependencies")["run"]
+    assert "npm ci\n" in frontend
+    generation = _step("Build release sources")
+    assert generation["run"] == "python -m argus.release_tools.build_release"
+    assert generation["env"]["ARGUS_WEB_BUILD_CLEAN"] == "${{ runner.os == 'Windows' && '1' || '0' }}"
 
 
 def test_windows_build_tool_pins_are_exact():
