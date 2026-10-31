@@ -1,6 +1,6 @@
 import { ErrorMessage } from './ErrorMessage';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
 import { api, type SkillCatalog, type SkillLibraryItem } from '../api';
 import { useI18n } from '../i18n';
@@ -15,11 +15,11 @@ const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => item.so
 const libraryQuery = { staleTime: 10_000, refetchInterval: 15_000 };
 
 /** What was learned lately, or everything the library holds. */
-export type LearningScope = 'feed' | 'global';
-const scopes: LearningScope[] = ['feed', 'global'];
+export type LearningScope = 'feed' | 'global' | 'store';
+const scopes: LearningScope[] = ['feed', 'global', 'store'];
 const learningScopeLabels = {
-  'zh-CN': { feed: '学习动态', global: '全局项目' },
-  en: { feed: 'Learning feed', global: 'Across projects' },
+  'zh-CN': { feed: '学习动态', global: '全局项目', store: '技能商店' },
+  en: { feed: 'Learning feed', global: 'Across projects', store: 'Skill store' },
 };
 type Entry = {
   id: string; title: string; description: string; path: string; updated: number; search: string;
@@ -68,8 +68,20 @@ function LearningBrowser({ sid, initialScope, onUse }: {
   const [search, setSearch] = useState('');
   const [selection, setSelection] = useState<string | null>(null);
   const skills = useQuery({ ...libraryQuery, queryKey: ['skill-library', sid], queryFn: ({ signal }) => api.skillLibrary(sid, signal) });
+  const client = useQueryClient();
+  const packs = useQuery({ queryKey: ['skill-packs'], queryFn: api.skillPacks, enabled: scope === 'store' });
+  const operation = useMutation({
+    mutationFn: ({ name, installed }: { name: string; installed: boolean }) => installed ? api.removeSkillPack(name) : api.addSkillPack(name),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['skill-packs'] }),
+        client.invalidateQueries({ queryKey: ['skill-library'] }),
+        client.invalidateQueries({ queryKey: ['skill-document'] }),
+      ]);
+    },
+  });
   const feed = useKnowledgeFeed(scope === 'feed');
-  const all = learningEntries(skills.data, scope);
+  const all = scope === 'store' ? [] : learningEntries(skills.data, scope);
   const selected = all.find(entry => entry.id === selection);
   const skill = selected?.item;
   const skillDocument = useQuery({
@@ -81,7 +93,7 @@ function LearningBrowser({ sid, initialScope, onUse }: {
   });
   const query = search.trim().toLocaleLowerCase();
   const entries = all.filter(entry => !query || entry.search.includes(query));
-  const location = (entry: Entry) => entry.item.source === 'bundled' ? (zh ? '自带' : 'Bundled') : (zh ? '团队' : 'Team');
+  const location = (entry: Entry) => ({ bundled: zh ? '自带' : 'Bundled', store: zh ? '商店' : 'Store', shared: zh ? '团队' : 'Team' })[entry.item.source];
   const kind = zh ? '技能' : 'Skill';
   const document = skillDocument;
   const body = document.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
@@ -94,7 +106,20 @@ function LearningBrowser({ sid, initialScope, onUse }: {
       {scopes.map(value => <button key={value} type="button" aria-pressed={scope === value} onClick={() => pick(value)}
         className={`shrink-0 border-b-2 px-3 py-2.5 text-sm ${scope === value ? 'border-blue text-ink' : 'border-transparent text-ink-faint hover:text-ink'}`}>{labels[value]}</button>)}
     </nav>
-    <div className="flex min-h-0 flex-1">
+    {scope === 'store' ? <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      {packs.isPending && <p>{zh ? '正在加载技能商店…' : 'Loading skill store…'}</p>}
+      {(packs.error || operation.error) && <div role="alert"><ErrorMessage error={packs.error || operation.error} /></div>}
+      {packs.isError && <button className="underline" onClick={() => void packs.refetch()}>{zh ? '重试' : 'Retry'}</button>}
+      {packs.data?.packs.map(pack => <section key={pack.name} className="mb-3 rounded-lg border border-line p-4">
+        <h3 className="font-medium">{pack.name}</h3>
+        <p className="mt-1 text-sm text-ink-dim">{zh ? pack.description_zh ?? pack.description : pack.description}</p>
+        <p className="mt-1 text-xs text-ink-faint">{zh ? '版本' : 'Version'} {pack.version} · {pack.installed_version === null ? (zh ? '未安装' : 'Not installed') : `${zh ? '已安装' : 'Installed'} ${pack.installed_version}`}</p>
+        <button type="button" disabled={operation.isPending} className="mt-3 rounded border border-line px-3 py-1 text-sm disabled:opacity-40"
+          onClick={() => operation.mutate({ name: pack.name, installed: pack.installed_version !== null })}>
+          {pack.installed_version !== null ? (zh ? '卸载' : 'Uninstall') : (zh ? '安装' : 'Install')}
+        </button>
+      </section>)}
+    </div> : <div className="flex min-h-0 flex-1">
       <aside className={`${selected ? 'hidden md:flex' : 'flex'} min-h-0 w-full flex-col md:w-80 md:shrink-0 md:border-r md:border-line/60`}>
         <div className="space-y-2 p-4">
           <input type="search" value={search} onChange={event => setSearch(event.target.value)}
@@ -119,7 +144,7 @@ function LearningBrowser({ sid, initialScope, onUse }: {
             <span className="flex items-baseline gap-2"><span className="shrink-0 rounded bg-line/60 px-1.5 text-[10px] text-ink-dim">{kind}</span>
               <span className="break-words text-sm font-medium text-ink">{entry.title}</span></span>
             {entry.description && <span className="mt-1 block line-clamp-2 text-xs text-ink-dim">{entry.description}</span>}
-            <span className="mt-1 block text-[11px] text-ink-faint">{location(entry)}</span>
+            <span className="mt-1 block text-[11px] text-ink-faint">{location(entry)}{entry.item.version && ` · ${entry.item.version}`}</span>
             {entry.updated > 0 && <time className="mt-1 block text-[11px] text-ink-faint" dateTime={new Date(entry.updated * 1000).toISOString()}>{new Date(entry.updated * 1000).toLocaleString(locale)}</time>}
           </button>)}
         </div>
@@ -147,6 +172,6 @@ function LearningBrowser({ sid, initialScope, onUse }: {
           </div>
         </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择一份资料查看。' : 'Select material to read it.'}</div>}
       </article>
-    </div>
+    </div>}
   </div>;
 }

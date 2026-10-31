@@ -38,7 +38,8 @@ export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
 export interface SkillLibraryItem {
   library: string;
-  source: 'bundled' | 'shared';
+  source: 'bundled' | 'store' | 'shared';
+  version?: string;
   path: string;
   name: string;
   description: string;
@@ -46,6 +47,10 @@ export interface SkillLibraryItem {
 }
 export interface SkillCatalog {
   items: SkillLibraryItem[];
+}
+export interface StorePack {
+  name: string; version: string; description: string; description_zh?: string;
+  needs: string[]; requires: string[]; installed_version: string | null;
 }
 export interface SkillDocument {
   content: string;
@@ -982,6 +987,9 @@ export const api = {
     postJson<{ ok: boolean }>(P(sid, '/reset')),
   skillLibrary: (sid: string | null, signal?: AbortSignal) =>
     getJson<SkillCatalog>(`/api/skill-library${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
+  skillPacks: () => getJson<{ packs: StorePack[] }>('/api/skill-packs'),
+  addSkillPack: (name: string) => postJson('/api/skill-packs/add', { name }),
+  removeSkillPack: (name: string) => postJson('/api/skill-packs/remove', { name }),
   skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>
