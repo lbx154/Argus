@@ -209,8 +209,9 @@ label (e.g. `https://js-trial1-*.argusbot.cn`); no credentials, path, query or f
 The entire matching namespace, including unknown, empty and non-label identifiers, is
 reserved for static previews. Keep the cockpit hostname outside it: for example, use
 `*.preview.example.com` with `argus.example.com`, rather than `*.example.com`.
-Likewise `argus.localhost` is reserved by the default `*.localhost` template. Unassigned
-preview hosts return 404 with a namespace explanation, never cockpit pages or API.
+Likewise `argus.localhost` is reserved by the default `*.localhost` template. Unknown or
+expired preview links (identifiers end when Argus restarts) return a plain-text 404 saying
+so, never cockpit pages or API.
 Assigned hosts serve only the identifier's workspace/delivery files. Absolute asset paths start
 at the workspace root. Project/delivery subdomains separate
 localStorage, IndexedDB and caches; iframe storage may be partitioned from top-level storage.

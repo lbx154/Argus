@@ -199,6 +199,17 @@ test('a failed LAN listener reports its port, clears state and binds on the next
   assert.equal((await request('localhost', '/api/meta', 'GET', { origin: url.origin })).status, 403);
 });
 
+// r25 review #1: a link from before a restart, a POST and a namespace host all get the same plain words.
+test('a preview host with nothing to serve says in plain text that links end when Argus restarts', async t => {
+  const { request } = await setup(t);
+  const url = new URL(JSON.parse((await request('localhost')).body).url);
+  const restarted = await setup(t);
+  for (const reply of [await request(url.host, url.pathname, 'POST'), await restarted.request(`${url.hostname}:${new URL(restarted.server.url).port}`, url.pathname)]) {
+    assert.equal(reply.status, 404);
+    assert.match(reply.body, /^No preview here: preview links stop working when Argus restarts/);
+  }
+});
+
 // r25 #4/#12: reserve the whole namespace, including empty and non-label identifiers.
 test('all matching preview hosts are static-only and explain cockpit namespace conflicts', async t => {
   for (const options of [{}, { previewUrl: 'https://js-trial1-*.argusbot.cn' }, { previewUrl: 'https://*.example.com' }]) {
@@ -210,7 +221,7 @@ test('all matching preview hosts are static-only and explain cockpit namespace c
       for (const path of ['/', '/api/meta', '/api/projects']) {
         const reply = await request(host, path);
         assert.equal(reply.status, 404, host);
-        assert.match(reply.body, /reserved for static previews.*cockpit/i);
+        assert.match(reply.body, /^No preview here.*only serves previews\.$/);
       }
       assert.equal((await request('localhost', '/api/meta', 'GET', { origin: `http://${host}` })).status, 403);
     }

@@ -59,7 +59,7 @@ export function preview(project: (id: string) => Project, result: (work: Project
       const key = keyedPath ? pathKey : keyOf(incoming.hostname);
       const path = keyedPath ? rest : url.pathname.slice(1);
       const site = key && sites.get(key);
-      if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'This hostname is reserved for static previews. Open the cockpit on a hostname outside the preview namespace.');
+      if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'No preview here: preview links stop working when Argus restarts, so open the result again in Argus. This address only serves previews.');
       const name = decodeURIComponent(path);
       const work = project(site.id);
       const directory = url.pathname.endsWith('/');
@@ -79,8 +79,8 @@ export function preview(project: (id: string) => Project, result: (work: Project
         if (response.statusCode === 200 || response.statusCode === 206) site.paths.add(found.path);
       });
     } catch (error) {
-      response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500, { 'content-type': 'application/json' })
-        .end(JSON.stringify({ detail: error instanceof Error ? error.message : String(error) }));
+      response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500, { 'content-type': 'text/plain; charset=utf-8' })
+        .end(error instanceof HttpError ? error.message : undefined);
     }
   };
   const html = ({ params: [id], url }: Context) => {
