@@ -1,4 +1,5 @@
 import { ErrorMessage } from './ErrorMessage';
+import { ApiError } from '../../../core/src/http';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
@@ -163,6 +164,8 @@ function LearningBrowser({ sid, initialScope, onUse }: {
           <h3 className="break-words text-lg font-semibold text-ink">{selected.title}</h3>
           <p className="mt-1 text-xs text-ink-faint">{kind(selected.path)} · {location(selected)}</p>
           <p className="mt-1 break-all text-xs text-ink-faint">{selected.path}</p>
+          {/* Only the team's own skills carry an offer, none or made. */}
+          {selected.item.contribution !== undefined && <StoreOffer key={selected.item.name} item={selected.item} zh={zh} />}
           {sid && onUse && <div className="mt-4 flex flex-wrap items-center gap-3">
             <button type="button" disabled={!document.data || document.isError || document.isPending}
               onClick={() => {
@@ -183,5 +186,34 @@ function LearningBrowser({ sid, initialScope, onUse }: {
         </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择一份资料查看。' : 'Select material to read it.'}</div>}
       </article>
     </div>}
+  </div>;
+}
+
+/** The team's skill offered to the store: only with the operator's consent, as a pull request the
+ * host opens and the store's maintainers review; then what the host answered. */
+function StoreOffer({ item, zh }: { item: SkillLibraryItem; zh: boolean }) {
+  const client = useQueryClient();
+  const offer = useMutation({
+    mutationFn: () => api.contributeSkill(item.name),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['skill-library'] }),
+  });
+  const sent = item.contribution;
+  const waiting = sent && sent.submitted_at == null;
+  const ask = () => {
+    if (window.confirm(zh
+      ? `「${item.name}」将作为 PR 公开提交到 GitHub 上的 argus-verticals 仓库；维护者审核合并后，所有用户都能在技能商店里安装它。确定贡献？`
+      : `"${item.name}" will be submitted publicly as a pull request to the argus-verticals repository on GitHub. Once the maintainers review and merge it, every user can install it from the skill store. Contribute it?`)) offer.mutate();
+  };
+  return <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-ink-faint">
+    {waiting ? <span>{zh ? '已记下，等待提交' : 'Recorded, waiting to be submitted'}</span>
+      : sent?.error ? <span role="alert" className="text-err">{sent.error}</span>
+      : sent?.url && <span>{zh ? '已提交 PR' : 'Pull request submitted'} (<a href={sent.url} target="_blank" rel="noreferrer" className="break-all text-blue underline">{sent.url}</a>){zh ? '，维护者审核合并后进入商店' : '; it joins the store once the maintainers review and merge it'}</span>}
+    {!waiting && <button type="button" disabled={offer.isPending} onClick={ask}
+      className="rounded-lg border border-line px-3 py-2 text-sm text-ink disabled:opacity-40">
+      {!sent ? (zh ? '贡献到技能商店' : 'Contribute to the skill store') : sent.error ? (zh ? '重试' : 'Retry') : (zh ? '重新提交' : 'Submit again')}
+    </button>}
+    {/* A skill the store would not take is refused with the reason, which the operator acts on. */}
+    {offer.error && <div role="alert" className="text-err">{offer.error instanceof ApiError && offer.error.status === 400 && offer.error.detail
+      ? offer.error.detail : <ErrorMessage error={offer.error} />}</div>}
   </div>;
 }

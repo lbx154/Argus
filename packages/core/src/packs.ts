@@ -1,8 +1,9 @@
 // The operator's skill store. Both entry points install through this transaction; roles only read it.
-import { lstatSync } from 'node:fs';
+// The operator may offer the team's own skills to it, which the host turns into a pull request.
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { packsHome, purpose, SKILL, SKILLS, skills } from './prompts.js';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from './prompts.js';
 
 const CATALOG = 'https://raw.githubusercontent.com/Argus-AiTeam/argus-verticals/main/packs/catalog.json';
 const MIB = 2 ** 20;
@@ -37,30 +38,34 @@ async function download(url: string, limit: number): Promise<Buffer> {
     return Buffer.concat(chunks);
   } finally { await reader.cancel(); }
 }
-/** Whether this version can install a pack. One it cannot is left out of the catalog, so that one
- * entry, or a field added later, never takes the whole store down. */
-function usable(pack: Pack): boolean {
-  if (!pack || typeof pack.name !== 'string' || !NAME.test(pack.name) || lstatSync(resolve(SKILLS, pack.name), { throwIfNoEntry: false })
-    || typeof pack.version !== 'string' || !pack.version.trim() || /[\r\n]/.test(pack.version)
-    || typeof pack.description !== 'string' || (pack.description_zh !== undefined && typeof pack.description_zh !== 'string')
+/** Why this version cannot install a pack, or null when it can: the store's one rule, for an entry of
+ * its catalog and for a folder offered to it alike. An entry it cannot install is left out of the
+ * catalog, so that one entry, or a field added later, never takes the whole store down. */
+function fault(pack: Pack): string | null {
+  if (!pack || typeof pack.name !== 'string' || !NAME.test(pack.name)) return `A store name is lowercase letters, digits, - and _, not ${JSON.stringify(pack?.name)}`;
+  if (lstatSync(resolve(SKILLS, pack.name), { throwIfNoEntry: false })) return `${pack.name} is the name of a skill Argus comes with`;
+  if (typeof pack.description !== 'string' || !pack.description.trim()) return `The front matter of ${SKILL} must say what the skill is for (description)`;
+  if (typeof pack.version !== 'string' || !pack.version.trim() || /[\r\n]/.test(pack.version)) return 'Invalid version';
+  if ((pack.description_zh !== undefined && typeof pack.description_zh !== 'string')
     || !Array.isArray(pack.requires) || pack.requires.some(item => typeof item !== 'string' || !NAME.test(item))
-    || !Array.isArray(pack.needs) || pack.needs.some(item => typeof item !== 'string') || !Array.isArray(pack.files)) return false;
+    || !Array.isArray(pack.needs) || pack.needs.some(item => typeof item !== 'string') || !Array.isArray(pack.files)) return 'Invalid pack entry';
   const paths = new Set<string>();
   let total = 0;
   for (const file of pack.files) {
     if (!file || typeof file.path !== 'string' || file.path.includes('\\') || /[\x00-\x1f:]/.test(file.path)
       || file.path.split('/').some(part => !part || part.startsWith('.')) || paths.has(file.path)
-      || !Number.isSafeInteger(file.size) || file.size < 0) return false;
+      || !Number.isSafeInteger(file.size) || file.size < 0) return `The store cannot hold ${JSON.stringify(file?.path)}: no part of a path may start with a dot or hold \\, : or a control character`;
     paths.add(file.path);
     total += file.size;
   }
-  return paths.has(SKILL) && total <= 8 * MIB;
+  if (!paths.has(SKILL)) return `A pack has a ${SKILL}`;
+  return total > 8 * MIB ? `A pack holds at most 8 MiB; this one holds ${(total / MIB).toFixed(1)} MiB` : null;
 }
 export async function catalog(): Promise<Pack[]> {
   const data = JSON.parse((await download(CATALOG, MIB)).toString('utf8')) as { packs?: Pack[] };
   if (!Array.isArray(data.packs)) throw new Error('Invalid pack catalog');
   const names = new Set<string>();
-  return data.packs.filter(pack => usable(pack) && !names.has(pack.name) && names.add(pack.name));
+  return data.packs.filter(pack => !fault(pack) && !names.has(pack.name) && names.add(pack.name));
 }
 export async function add(home: string, value: string): Promise<void> {
   name(value);
@@ -93,4 +98,33 @@ export async function add(home: string, value: string): Promise<void> {
 export async function remove(home: string, value: string): Promise<void> {
   name(value);
   await rm(resolve(packsHome(home), value), { recursive: true, force: true });
+}
+
+/** The operator's offer of a team skill to the store, kept as contributions/<name>.json; the host opens
+ * a pull request from it, which the store's maintainers review, and answers in the same file: the
+ * pull request's `url`, or an `error`, at `submitted_at`. */
+export interface Contribution { name: string; version: string; requested_at: number; submitted_at?: number; url?: string; error?: string }
+const offer = (home: string, value: string): string => resolve(home, 'contributions', `${value}.json`);
+/** The offer of the team's skill `value`; null when there is none, or it cannot be read. */
+export function contribution(home: string, value: string): Contribution | null {
+  try { return JSON.parse(readFileSync(offer(home, value), 'utf8')) as Contribution; } catch { return null; }
+}
+/** Offer the team's skill `value` to the store, once it meets the store's rule. Offering it again asks anew. */
+export async function contribute(home: string, value: string): Promise<void> {
+  const dir = resolve(skillsHome(home), value);
+  if (!skills(home).some(([, found]) => found === dir)) throw new Error(`No such team skill: ${value}`);
+  // The folder file by file, as the store would hold it: a link is refused, not followed.
+  const files = readdirSync(dir, { recursive: true, withFileTypes: true }).filter(entry => !entry.isDirectory()).map(entry => {
+    const file = join(entry.parentPath, entry.name);
+    const path = relative(dir, file).split(sep).join('/');
+    if (!entry.isFile()) throw new Error(`${path} is a link or not a regular file; the store holds only regular files`);
+    return { path, size: lstatSync(file).size };
+  });
+  const version = purpose(dir, 'version') || '0.1.0';
+  const reason = fault({ name: value, version, description: purpose(dir), requires: [], needs: [], files });
+  if (reason) throw new Error(reason);
+  const file = offer(home, value);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(`${file}.tmp`, JSON.stringify({ name: value, version, requested_at: Date.now() / 1000 }));
+  await rename(`${file}.tmp`, file);
 }

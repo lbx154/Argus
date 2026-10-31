@@ -44,6 +44,12 @@ export interface SkillLibraryItem {
   name: string;
   description: string;
   updated_at: number | null;
+  /** A team skill's offer to the store: null when none was made. */
+  contribution?: SkillContribution | null;
+}
+/** The operator's offer of a team skill to the store, and the host's answer: the pull request's `url`, or an `error`, at `submitted_at`. */
+export interface SkillContribution {
+  name: string; version: string; requested_at: number; submitted_at?: number; url?: string; error?: string;
 }
 export interface SkillCatalog {
   items: SkillLibraryItem[];
@@ -990,6 +996,7 @@ export const api = {
   skillPacks: () => getJson<{ packs: StorePack[] }>('/api/skill-packs'),
   addSkillPack: (name: string) => postJson('/api/skill-packs/add', { name }),
   removeSkillPack: (name: string) => postJson('/api/skill-packs/remove', { name }),
+  contributeSkill: (name: string) => postJson('/api/skill-library/contribute', { name }),
   skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>

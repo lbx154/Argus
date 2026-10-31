@@ -79,6 +79,10 @@ as they change. The **Skill store** tab installs and uninstalls community packs 
 `argus skills` lists catalog and installed versions and requirements, `argus skills add <name>`
 installs or replaces a pack, and `argus skills remove <name>` removes it. Packs live in
 `$ARGUS_HOME/skill-packs/` and the roles can only read them where they run in the Linux sandbox (bubblewrap). Argus does not reflect, score or curate; when to write or change a skill is the roles' decision.
+A team skill can be offered to the store from its page in **Skill library**: once you confirm, Argus checks it against the
+store's rules and records the request in `$ARGUS_HOME/contributions/<name>.json`. Argus itself never contacts GitHub: the host
+(argus-hosting) opens a pull request to `Argus-AiTeam/argus-verticals` from it and writes back the pull request's `url` or an `error`;
+the pack joins the store once the maintainers merge it.
 
 **Sandbox.** On Linux with bubblewrap (`bwrap`), every backend call runs in a sandbox:
 system directories read-only, the project directory writable (read-only for the Planner

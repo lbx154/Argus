@@ -1,14 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { api, type SkillLibraryItem } from '../api';
+import { api, type SkillContribution, type SkillLibraryItem } from '../api';
+import { ApiError } from '../../../core/src/http';
 import { LearningLibrary } from '../components/LearningLibrary';
 const state = vi.hoisted(() => ({ locale: 'zh-CN' }));
 vi.mock('../i18n', async importOriginal => {
   const actual = await importOriginal<typeof import('../i18n')>();
   return { ...actual, useI18n: () => ({ locale: state.locale, t: (key: string) => actual.translate(key, {}, state.locale as 'zh-CN' | 'en') }) };
 });
-vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), knowledgeFeed: vi.fn(), skillPacks: vi.fn(), addSkillPack: vi.fn(), removeSkillPack: vi.fn() } }));
+vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), knowledgeFeed: vi.fn(), skillPacks: vi.fn(), addSkillPack: vi.fn(), removeSkillPack: vi.fn(), contributeSkill: vi.fn() } }));
 vi.mock('../components/MarkdownContent', () => ({ MarkdownContent: ({ children }: { children: string }) => <pre data-original>{children}</pre> }));
 const builtin: SkillLibraryItem = { source: 'bundled', library: 'bundled',
   path: 'software/SKILL.md', name: 'software', description: 'Original English description',
@@ -91,7 +92,7 @@ it('renders the skill body without front matter and does not repeat the global s
   expect(content(view!.root.findByProps({ 'data-original': true }))).toBe('# Body\n\nKeep this method.\n');
 });
 
-afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; client.clear(); vi.useRealTimers(); });
+afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; client.clear(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 it('opens every feed path directly in the team library, including TSV and unlisted documents', async () => {
   vi.mocked(api.knowledgeFeed).mockResolvedValue({ events: [
@@ -155,4 +156,65 @@ it('shows operation errors without changing installed status', async () => {
   act(() => button('安装').props.onClick()); await settle();
   expect(content(view!.root.findByProps({ role: 'alert' }))).toContain('Download failed: HTTP 503');
   expect(button('安装').props.disabled).toBe(false);
+});
+
+const offered = (contribution: SkillContribution | null) => ({ ...custom, contribution });
+const openTeamSkill = async () => {
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(custom.name))!.props.onClick()); await settle();
+};
+
+it('offers a team skill to the store only once the operator confirms, then shows it waiting', async () => {
+  const confirm = vi.fn(() => false);
+  vi.stubGlobal('window', { confirm });
+  let contribution: SkillContribution | null = null;
+  vi.mocked(api.skillLibrary).mockImplementation(async () => ({ items: [builtin, offered(contribution)] }));
+  vi.mocked(api.contributeSkill).mockImplementation(async () => { contribution = { name: custom.name, version: '0.1.0', requested_at: 1 }; return { ok: true }; });
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
+  // Argus's own skills are not the team's to offer.
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes('software'))!.props.onClick()); await settle();
+  expect(view!.root.findAllByType('button').map(content)).not.toContain('贡献到技能商店');
+  act(() => view!.root.findAllByType('button').find(node => content(node).includes(custom.name))!.props.onClick()); await settle();
+  act(() => button('贡献到技能商店').props.onClick()); await settle();
+  expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/PR 公开提交到 GitHub 上的 argus-verticals 仓库.*所有用户都能在技能商店里安装/));
+  expect(api.contributeSkill).not.toHaveBeenCalled();
+  confirm.mockReturnValue(true);
+  act(() => button('贡献到技能商店').props.onClick()); await settle();
+  expect(api.contributeSkill).toHaveBeenCalledWith(custom.name);
+  expect(content(view!.root.findByType('article'))).toContain('已记下，等待提交');
+  expect(view!.root.findAllByType('button').map(content)).not.toContain('贡献到技能商店');
+});
+
+it.each([
+  { locale: 'zh-CN', labels: ['贡献到技能商店', '已记下，等待提交', '已提交 PR', '，维护者审核合并后进入商店', '重新提交', '重试'] },
+  { locale: 'en', labels: ['Contribute to the skill store', 'Recorded, waiting to be submitted', 'Pull request submitted', 'joins the store once the maintainers review and merge it', 'Submit again', 'Retry'] },
+])('shows where a team skill offered to the store stands, as the host answered, in $locale', async ({ locale, labels: [offer, waiting, submitted, review, again, retry] }) => {
+  state.locale = locale;
+  const asked = { name: custom.name, version: '0.1.0', requested_at: 1 };
+  const url = 'https://github.com/Argus-AiTeam/argus-verticals/pull/17';
+  for (const [contribution, shown, action] of [
+    [null, [], offer], [asked, [waiting], null],
+    [{ ...asked, url, submitted_at: 2 }, [submitted, url, review], again],
+    [{ ...asked, error: '商店里已有同名的包', submitted_at: 2 }, ['商店里已有同名的包'], retry],
+  ] as const) {
+    vi.mocked(api.skillLibrary).mockResolvedValue({ items: [offered(contribution)] });
+    await openTeamSkill();
+    const text = content(view!.root.findByType('article'));
+    for (const words of shown) expect(text).toContain(words);
+    const buttons = view!.root.findAllByType('button').map(content);
+    for (const label of [offer, again, retry]) expect(buttons.includes(label)).toBe(label === action);
+    if (contribution && 'url' in contribution) expect(view!.root.findByType('a').props.href).toBe(url);
+    act(() => view!.unmount()); view = undefined; client.clear();
+  }
+});
+
+it('says why the store would not take a team skill', async () => {
+  vi.stubGlobal('window', { confirm: () => true });
+  vi.mocked(api.skillLibrary).mockResolvedValue({ items: [offered(null)] });
+  const reason = 'A pack holds at most 8 MiB; this one holds 9.0 MiB';
+  vi.mocked(api.contributeSkill).mockRejectedValue(new ApiError(`POST /api/skill-library/contribute → 400: ${reason}`, 400, 'POST', '/api/skill-library/contribute', '', reason));
+  await openTeamSkill();
+  act(() => button('贡献到技能商店').props.onClick()); await settle();
+  expect(content(view!.root.findByProps({ role: 'alert' }))).toBe(reason);
+  expect(button('贡献到技能商店').props.disabled).toBe(false);
 });

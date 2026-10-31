@@ -4,7 +4,7 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { add, catalog, installed, remove } from '../packs.js';
+import { add, catalog, contribute, contribution, installed, remove } from '../packs.js';
 import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
@@ -17,10 +17,11 @@ export function library(store: Store): [string, RegExp, Handler][] {
       const packs = await catalog().catch(error => { throw new HttpError(502, `The skill store is unavailable: ${error instanceof Error ? error.message : error}`); });
       return { packs: packs.map(pack => ({ ...pack, installed_version: installed(store.home, pack.name) })) };
     }],
-    ...(['add', 'remove'] as const).map(action => ['POST', new RegExp(`^/api/skill-packs/${action}$`), async ({ body }) => {
+    // The operator's consent to offer a team skill to the store is kept; the host opens the pull request.
+    ...([['skill-packs/add', add], ['skill-packs/remove', remove], ['skill-library/contribute', contribute]] as const).map(([path, action]) => ['POST', new RegExp(`^/api/${path}$`), async ({ body }) => {
       const { name } = await body();
-      if (typeof name !== 'string') throw new HttpError(400, 'Pack name required');
-      try { await (action === 'add' ? add : remove)(store.home, name); }
+      if (typeof name !== 'string') throw new HttpError(400, 'Name required');
+      try { await action(store.home, name); }
       catch (error) { throw new HttpError(400, error instanceof Error ? error.message : String(error)); }
       return { ok: true };
     }] as [string, RegExp, Handler]),
@@ -31,6 +32,7 @@ export function library(store: Store): [string, RegExp, Handler][] {
         return {
           library: source, source, path: `${name}/${SKILL}`, name, description: purpose(dir), version: purpose(dir, 'version'),
           updated_at: source === 'bundled' ? null : statSync(join(dir, SKILL)).mtimeMs / 1000,
+          ...source === 'shared' ? { contribution: contribution(store.home, name) } : {},
         };
       }),
     })],

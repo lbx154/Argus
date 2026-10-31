@@ -846,7 +846,7 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   const item = (name: string) => catalog.items.find(item => item.name === name);
   assert.deepEqual(item('quant'), {
     library: 'shared', source: 'shared', path: 'quant/SKILL.md', name: 'quant',
-    description: 'Backtest a trading idea without lookahead', version: '', updated_at: at(1),
+    description: 'Backtest a trading idea without lookahead', version: '', updated_at: at(1), contribution: null,
   });
   // The team's research skill is listed beside Argus's, which it leaves as it is.
   assert.deepEqual(catalog.items.filter(item => item.name === 'research').map(item => item.source), ['bundled', 'shared']);

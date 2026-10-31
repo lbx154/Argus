@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, truncate, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { add, catalog, remove, type Pack } from '../src/packs.js';
+import { add, catalog, remove, type Contribution, type Pack } from '../src/packs.js';
 import { instructions, packsHome, purpose, skills, SKILLS } from '../src/prompts.js';
 import { confine } from '../src/agent/sandbox.js';
 import { Store } from '../src/store.js';
@@ -159,4 +160,62 @@ test('the pack root is read-only even for a writing role', { skip: process.platf
     readDirs: [SKILLS, packs], writeDirs: [team], callsDir: '', usageFile: '' });
   assert.equal(argv[argv.lastIndexOf(packs) - 2], '--ro-bind-try');
   assert.equal(argv[argv.lastIndexOf(team) - 2], '--bind-try');
+});
+
+test("a team skill offered to the store is checked by the store's rule, kept for the host, and shows what the host answered", async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-offer-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const served = await serve({ store: new Store(home), callAgent: async () => { throw new Error('No model calls expected'); }, backend: 'codex', model: null, port: 0, token: 'offer-token', web: home });
+  t.after(() => served.close());
+  const call = (path: string, value?: object) => fetch(served.url + path, { method: value ? 'POST' : 'GET',
+    headers: { authorization: 'Bearer offer-token', 'Content-Type': 'application/json' }, ...(value ? { body: JSON.stringify(value) } : {}) });
+  const offer = (name: unknown) => call('/api/skill-library/contribute', { name });
+  const items = async () => (await (await call('/api/skill-library')).json()).items as { name: string; source: string; contribution?: Contribution | null }[];
+  const shown = async (name: string) => (await items()).find(item => item.source === 'shared' && item.name === name)?.contribution;
+  const write = async (path: string, text: string) => { await mkdir(dirname(path), { recursive: true }); await writeFile(path, text); };
+  const skill = (name: string, text = body()) => write(join(home, 'skills', name, 'SKILL.md'), text);
+  const kept = join(home, 'contributions', 'materials.json');
+
+  await skill('materials');
+  await write(join(home, 'skills', 'materials', 'checks', 'check.mjs'), '{}');
+  assert.equal(await shown('materials'), null);
+  assert.equal((await offer('materials')).status, 200);
+  const asked = JSON.parse(await readFile(kept, 'utf8')) as Contribution;
+  assert.deepEqual({ ...asked, requested_at: 0 }, { name: 'materials', version: '1', requested_at: 0 });
+  assert.ok(Math.abs(asked.requested_at - Date.now() / 1000) < 60);
+  assert.deepEqual(await readdir(join(home, 'contributions')), ['materials.json']);
+  // What the host answered is shown as it wrote it; offering again asks anew, without the old answer.
+  const answered = { ...asked, url: 'https://github.com/Argus-AiTeam/argus-verticals/pull/17', submitted_at: asked.requested_at + 1 };
+  await writeFile(kept, JSON.stringify(answered));
+  assert.deepEqual(await shown('materials'), answered);
+  assert.equal((await offer('materials')).status, 200);
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(kept, 'utf8'))), ['name', 'version', 'requested_at']);
+  await skill('unversioned', body().replace('version: "1"\n', ''));
+  assert.equal((await offer('unversioned')).status, 200);
+  assert.equal((await shown('unversioned'))?.version, '0.1.0');
+  // Only Argus's skills and installed packs carry no offer.
+  await write(join(packsHome(home), 'installed', 'SKILL.md'), body());
+  assert.ok((await items()).filter(item => item.source !== 'shared').every(item => !('contribution' in item)));
+
+  // Refused with the reason, and nothing kept: what the store would not take, and what is not the team's.
+  await skill('learning');
+  await skill('linked');
+  await symlink(join(home, 'skills', 'materials', 'checks', 'check.mjs'), join(home, 'skills', 'linked', 'check.mjs'));
+  await skill('linked-folder');
+  await symlink(join(home, 'skills', 'materials', 'checks'), join(home, 'skills', 'linked-folder', 'checks'));
+  await skill('large');
+  await writeFile(join(home, 'skills', 'large', 'data.bin'), '');
+  await truncate(join(home, 'skills', 'large', 'data.bin'), 8 * 2 ** 20);
+  await skill('hidden');
+  await write(join(home, 'skills', 'hidden', '.env'), 'TOKEN=x');
+  await skill('Named');
+  await skill('undescribed', body().replace('description:', 'other:'));
+  for (const [name, reason] of [['learning', /name of a skill Argus comes with/], ['linked', /check\.mjs is a link/], ['linked-folder', /checks is a link/],
+    ['large', /at most 8 MiB; this one holds 8\.0 MiB/], ['hidden', /cannot hold "\.env"/], ['Named', /store name/], ['undescribed', /description/],
+    ['installed', /No such team skill/], ['research', /No such team skill/], ['../skills/materials', /store name/], [1, /Name required/]] as const) {
+    const refused = await offer(name);
+    assert.equal(refused.status, 400, String(name));
+    assert.match((await refused.json()).detail, reason);
+  }
+  assert.deepEqual((await readdir(join(home, 'contributions'))).sort(), ['materials.json', 'unversioned.json']);
 });

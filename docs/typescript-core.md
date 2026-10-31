@@ -102,7 +102,7 @@ The catalog contains `packs`, each with `name`, `version`, `description`, option
 
 Downloads reject redirects and catalogs larger than 1 MiB, and give up after 30 seconds. A pack
 this version cannot install is left out of the catalog, the rest still listed: one larger than
-8 MiB, without `SKILL.md`, named like a bundled skill, or with a file path that escapes the pack,
+8 MiB, without `SKILL.md` or a description, named like a bundled skill, or with a file path that escapes the pack,
 includes a backslash or has a segment starting with a dot. Fields it does not know are ignored.
 Every download must match its declared byte count.
 `SKILL.md` must contain a description and a front-matter version matching the catalog.
@@ -111,6 +111,17 @@ staged outside the listed roots, in `$ARGUS_HOME/skill-packs.tmp-<name>-*/`, bef
 installed directory; a failed download leaves the installed version intact and removes staging.
 In the Linux sandbox, all roles receive the pack root as read-only, alongside bundled skills; team write permissions
 stay in `$ARGUS_HOME/skills/`.
+
+The operator may offer a team skill to the store (`POST /api/skill-library/contribute {name}`, the
+**Skill library**'s button, after a confirmation). Argus holds the folder to the same rule, walking it
+without following links and refusing a link or anything not a regular file, and answers a skill the store
+would not take with 400 and the reason. One it would take is recorded, written whole, as
+`$ARGUS_HOME/contributions/<name>.json`: `{"name", "version" (its front matter's, else "0.1.0"),
+"requested_at" (Unix seconds)}`, a later offer replacing it. Argus does not contact GitHub: the host
+picks up a file without `submitted_at`, or with `requested_at` later than it, opens or updates a pull
+request to `Argus-AiTeam/argus-verticals`'s `packs/<name>/`, and rewrites the file whole with `url`
+or a one-sentence `error`, and `submitted_at`. `GET /api/skill-library` gives each team skill its
+file as `contribution`, null when there is none. In the sandbox the roles cannot write `contributions/`.
 
 A skill is what was learned about a kind of work, kept as a folder whose `SKILL.md` says in its
 front matter (`name`, `description`), as Codex and Claude Code write a skill, what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade
