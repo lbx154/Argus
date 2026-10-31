@@ -76,6 +76,16 @@ def _build_commit() -> str:
     return recorded
 
 
+def _build_epoch(commit: str) -> int:
+    if not commit:
+        return 0
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "show", "-s", "--format=%ct", commit],
+        capture_output=True, text=True, check=False,
+    )
+    return int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else 0
+
+
 def render(commit: str) -> tuple[str, str]:
     """The manifest and generated TypeScript for a build started at ``commit``."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -89,6 +99,7 @@ def render(commit: str) -> tuple[str, str]:
             "package_version": package_version,
             "git_commit": commit,
             "release_id": release_id,
+            "build_epoch": _build_epoch(commit),
             "source_files": source_files(ROOT),
         },
         indent=2,

@@ -2,7 +2,7 @@
 
 The actions are served over a call-bound bridge (``core.role_tool_bridge``)
 and reach the model as native tools: a Pi extension, or an MCP stdio server
-for Codex, Copilot, Claude and Qoder. A backend that can do neither cannot
+for Codex, Copilot, Claude, Qoder and DeepSeek Harness. A backend that can do neither cannot
 run a role, and ``core.backend_readiness`` refuses it before any call.
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 PREFIX = "ARGUS_PLUGIN_ACTION"
 SERVER = "argus_actions"
 #: The agent CLIs that can submit Argus actions.
-ACTION_BACKENDS = frozenset({"pi", "copilot", "codex", "claude", "qoder"})
+ACTION_BACKENDS = frozenset({"pi", "copilot", "codex", "claude", "qoder", "dsh"})
 
 
 @contextmanager
@@ -39,7 +39,10 @@ def role_actions(runner: Any, options: "RunnerOptions", actions: Any) -> Iterato
     ):
         names = [tool["name"] for tool in actions.tools]
         environment = {**bridge.environment, "PYTHONPATH": str(Path(__file__).resolve().parents[2])}
-        server = {"command": sys.executable, "args": ["-P", "-m", __name__]}
+        # The frozen entrypoint accepts -m but not CPython's -P switch.
+        server = {"command": sys.executable, "args": [
+            *([] if getattr(sys, "frozen", False) else ["-P"]), "-m", __name__,
+        ]}
         extra = list(options.extra_args or [])
         extensions = list(options.trusted_extensions or [])
         if backend == "pi":
@@ -51,6 +54,18 @@ def role_actions(runner: Any, options: "RunnerOptions", actions: Any) -> Iterato
                 "default_tools_approval_mode": "approve",
             }.items():
                 extra.extend(["-c", f"mcp_servers.{SERVER}.{key}={json.dumps(value)}"])
+        elif backend == "dsh":
+            path = Path(directory) / "actions.patch.yml"
+            descriptor = os.open(path, os.O_WRONLY | getattr(os, "O_BINARY", 0) | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump([{"insert": [{
+                    "id": "argus-actions", "name": "@deepseek-ai/dsh-mcp-client",
+                    "config": {"serverName": SERVER, "transport": "stdio", **server,
+                               "env": environment, "failOnStartupError": True,
+                               "reconnect": {"enabled": False}},
+                }]}], handle)
+            extra.extend(["--patch", str(path)])
+            names = [f"mcp__{SERVER}__{name}" for name in names]
         elif backend in {"copilot", "claude", "qoder"}:
             entry = {**server, "env": environment}
             if backend == "copilot":
@@ -64,8 +79,15 @@ def role_actions(runner: Any, options: "RunnerOptions", actions: Any) -> Iterato
                 else ["--mcp-config", str(path)]
             )
             names = [f"{SERVER}-{name}" if backend == "copilot" else f"mcp__{SERVER}__{name}" for name in names]
+        def interrupt_reason() -> str | None:
+            outer = options.external_interrupt_reason_provider
+            reason = outer() if outer else None
+            check = getattr(actions, "interrupt_reason", None)
+            return reason or (check() if callable(check) else None)
+
         yield replace(
             options, extra_args=extra, trusted_extensions=extensions,
+            external_interrupt_reason_provider=interrupt_reason,
             trusted_tool_names=[*(options.trusted_tool_names or []), *names],
             extension_env={**(options.extension_env or {}), **bridge.environment},
         )

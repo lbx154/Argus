@@ -29,7 +29,7 @@ const sandbox = mkdtempSync(join(tmpdir(), 'argus-preview-smoke-'));
 console.log(`Isolated native QA workspace: ${sandbox}`);
 const appData = join(sandbox, 'appdata');
 const localData = join(sandbox, 'localappdata');
-const previewData = join(appData, 'argus-desktop-preview-integration-20260913');
+const previewData = join(appData, 'argus-desktop-preview-repair-20261101');
 const home = join(previewData, 'argus-home');
 const workspace = join(sandbox, 'reading-workspace');
 createReadingFixture(workspace);
@@ -221,21 +221,29 @@ try {
     assert(transition < 0.001, 'Only the eye may override reduced motion, not the rest of the UI.');
   }
   assert.equal(await page.locator('.argus-loading-ring').count(), 0, 'Do not add arcs or other decorations to the original eye.');
-  await expect(page.locator('#trialOpen')).toBeVisible();
-  await page.locator('#trialOpen').click();
-  await page.locator('#trialKey').fill('invalid-preview-key');
-  await page.locator('#trialSubmit').click();
-  await expect(page.locator('#trialProgress')).toContainText('完整的内部测试 Key');
-  await page.locator('#ownOpen').click();
-  record('Original eye geometry retained under the real OS preference; malformed trial keys rejected');
+  await expect(page.locator('#trialOpen, #trialKey, #trialSubmit')).toHaveCount(0);
+  record('Original eye geometry retained; desktop trial entry points are absent');
   await page.screenshot({ path: join(stage, 'preview-onboarding.png'), animations: 'disabled' });
   await page.locator('[data-kind="codex"]').click();
   await page.locator('#wizardNext').click();
   await page.locator('#portInput').fill(String(apiPort));
   await page.locator('#wizardNext').click();
   await expect(page.locator('#summaryUrl')).toHaveText(`127.0.0.1:${apiPort}`);
+  // This suite isolates every account and spends no model credit. After
+  // inspecting first-run UI, use an explicitly synthetic returning-user
+  // fixture for rendering/ownership tests. Real setup and model calls are
+  // checked separately by the packaged backend acceptance, never claimed here.
+  const fixtureSettings = JSON.parse(readFileSync(join(previewData, 'settings.json'), 'utf8'));
+  const exited = once(child, 'exit');
+  await invoke(page, 'stop_backend_and_quit').catch(() => undefined);
+  await Promise.race([exited, delay(15_000).then(() => { throw new Error('First-run fixture did not exit.'); })]);
+  browser = undefined;
+  writeFileSync(join(previewData, 'settings.json'), JSON.stringify({ ...fixtureSettings,
+    port: apiPort, runnerKind: 'codex', runnerBins: { codex }, runnerConfigured: true,
+    setupComplete: true, runnerValidationRevision: 1,
+  }));
   const started = Date.now();
-  await page.locator('#wizardFinish').click();
+  page = await startHost();
   let frame = await cockpit(page);
   await expect(page.locator('#wizard')).toBeHidden();
   const remoteCanInvoke = await frame.evaluate(async () => {

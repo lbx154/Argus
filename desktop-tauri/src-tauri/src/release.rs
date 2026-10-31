@@ -21,7 +21,12 @@ pub struct ReleaseContext {
 struct ReleaseManifest {
     package_version: String,
     release_id: String,
+    #[serde(default)]
+    build_epoch: i64,
 }
+
+pub(crate) fn build_epoch() -> i64 { build_manifest().build_epoch }
+pub(crate) fn compiled_release_id() -> &'static str { &build_manifest().release_id }
 
 fn parse_manifest(raw: &str) -> Result<ReleaseManifest, String> {
     let manifest: ReleaseManifest = serde_json::from_str(raw)

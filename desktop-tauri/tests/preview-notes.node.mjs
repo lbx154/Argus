@@ -22,7 +22,7 @@ test('preview identity is bound to the actual clean commit, tree and frozen base
   const { root, base, git } = fixture();
   assert.deepEqual(capturePreviewIdentity(root, base), {
     base_sha: base, candidate_sha: base, source_tree_sha: git('rev-parse', 'HEAD^{tree}'),
-    identifier: PREVIEW_IDENTIFIER, data_directory: PREVIEW_DATA_DIRECTORY, reuses_previous_preview_profile: true,
+    identifier: PREVIEW_IDENTIFIER, data_directory: PREVIEW_DATA_DIRECTORY, reuses_previous_preview_profile: false,
   });
   assert.equal(capturePreviewIdentity(root).base_sha, base);
 });
@@ -48,7 +48,7 @@ test('preview base must be a real full ancestor SHA', () => {
 });
 
 const identity = { base_sha: 'b'.repeat(40), candidate_sha: 'c'.repeat(40), source_tree_sha: 'd'.repeat(40),
-  identifier: PREVIEW_IDENTIFIER, data_directory: PREVIEW_DATA_DIRECTORY, reuses_previous_preview_profile: true };
+  identifier: PREVIEW_IDENTIFIER, data_directory: PREVIEW_DATA_DIRECTORY, reuses_previous_preview_profile: false };
 const manifest = { release_id: '0.1.7+fixture', git_commit: 'a'.repeat(40) };
 const review = { ...identity, ...manifest, tasks: { A1: '完成', A5: '未合入：DEFERRED_NO_EQUIVALENCE' },
   checks: [{ name: 'Synthetic example only', result: 'not a real test result' }], pending: ['真实 Windows Toast 待手测'] };
@@ -59,7 +59,7 @@ for (const key of ['candidate_sha', 'base_sha', 'release_id', 'git_commit']) tes
 test('notes accurately disclose identities, reused profile and manual/native scope', () => {
   const notes = previewReadme({ version: '0.1.7', manifest, identity, manualPreview: true, review, builtAt: 'synthetic date' });
   for (const value of [identity.base_sha, identity.candidate_sha, identity.source_tree_sha, manifest.git_commit,
-    PREVIEW_IDENTIFIER, PREVIEW_DATA_DIRECTORY, '不能与旧预览并行运行', 'DEFERRED_NO_EQUIVALENCE', '真实 Windows Toast 待手测',
+    PREVIEW_IDENTIFIER, PREVIEW_DATA_DIRECTORY, '不读取或清空旧 integration 预览数据', 'DEFERRED_NO_EQUIVALENCE', '真实 Windows Toast 待手测',
     '不是正式安装包', 'A 输入草稿', 'B 时点击 A', '知识库入口', '停止本地后端并退出']) assert(notes.includes(value), value);
   assert(!notes.includes('5b25300287296c40a8d6c58306a3923dd26c2937'));
 });

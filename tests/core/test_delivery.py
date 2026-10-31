@@ -393,3 +393,5 @@ def test_a_manager_turn_delivers_every_file_it_changed(tmp_path: Path) -> None:
     assert paths[0] == "moneyfmt.py"
     assert all(path.startswith("tests/") for path in paths[1:])
     assert receipt["review_source"] == "solo_output"
+    assert receipt["kind"] == "work_saved"
+    assert receipt["status"] == "saved"

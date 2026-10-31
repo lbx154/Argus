@@ -8,12 +8,17 @@
 #   ARGUS_DSH_APPROVAL                   — approval policy override
 #   ARGUS_DSH_DISABLE_TOOLS               — tool-free Argus calls
 #
-# A patch row replaces the targeted row's whole config rather than merging,
-# which is why this file restates the full {provider, model} pair.
-- id: agent-default-model
-  config:
-    provider: !!js process.env.ARGUS_DSH_PROVIDER ?? "deepseek-official"
-    model: !!js process.env.ARGUS_DSH_MODEL ?? "deepseek-v4-flash"
+# Official headless stored-authentication opt-in. Let DSH itself resolve its
+# saved accounts; never copy credentials into Argus or another CLI's context.
+- id: credentials
+  disabled: false
+- id: authorization
+  disabled: false
+- id: deepseek-account
+  disabled: false
+
+# Leave agent-default-model untouched unless an explicit provider/model was
+# selected; _dsh_model.patch.yml is attached only for that case.
 
 # Manager fast-path calls explicitly disable tools. Mirror that contract in
 # dsh's plugin profile rather than relying on the prompt to avoid them.
@@ -40,19 +45,9 @@
 - id: tool-web
   disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
 
-# dsh subagents inherit their parent agent's model unless pinned here:
-# ARGUS_DSH_SUBAGENT_MODEL wins when set, otherwise the child follows the
-# parent's effective model (ARGUS_DSH_MODEL) and finally the deployment
-# default. The base values for provider / toolName / backgroundMode are
-# restated verbatim (a patch row replaces the whole config).
+# Preserve the user's subagent route and DSH's native parent-model inheritance.
 - id: tool-subagent
   disabled: !!js process.env.ARGUS_DSH_DISABLE_TOOLS === "1"
-  config:
-    provider: spawn
-    toolName: subagent
-    backgroundMode: continuable
-    agentOptions:
-      model: !!js process.env.ARGUS_DSH_SUBAGENT_MODEL ?? (process.env.ARGUS_DSH_MODEL ?? "deepseek-v4-flash")
 
 # Tool-free calls also hide native delegation. Read-only Planner and Reviewer
 # calls deliberately retain it: an operator may allow their DSH child agents to

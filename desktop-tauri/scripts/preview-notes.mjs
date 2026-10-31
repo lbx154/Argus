@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 
-export const PREVIEW_IDENTIFIER = 'cn.argusbot.desktop.preview.integration20260913';
-export const PREVIEW_DATA_DIRECTORY = 'argus-desktop-preview-integration-20260913';
+export const PREVIEW_IDENTIFIER = 'cn.argusbot.desktop.preview.repair20261101';
+export const PREVIEW_DATA_DIRECTORY = 'argus-desktop-preview-repair-20261101';
 
 /** Bind preview notes to a clean reviewed tree, not a stale hard-coded release. */
 export function capturePreviewIdentity(repo, requestedBase) {
@@ -17,7 +17,7 @@ export function capturePreviewIdentity(repo, requestedBase) {
     'frontend/tui/src', 'frontend/tui/bundle', 'desktop-tauri/src', 'desktop-tauri/scripts', 'desktop-tauri/src-tauri');
   if (untracked) throw new Error('Untracked product inputs or generated assets: review and commit before packaging.');
   return { base_sha: base, candidate_sha: candidate, source_tree_sha: git('rev-parse', 'HEAD^{tree}'),
-    identifier: PREVIEW_IDENTIFIER, data_directory: PREVIEW_DATA_DIRECTORY, reuses_previous_preview_profile: true };
+    identifier: PREVIEW_IDENTIFIER, data_directory: PREVIEW_DATA_DIRECTORY, reuses_previous_preview_profile: false };
 }
 
 export function validatePreviewReview(review, identity, manifest) {
@@ -47,9 +47,10 @@ Source commit：${manifest.git_commit}
 1. 完整解压到新目录，运行其中的 Argus.exe；不要仅移动 EXE，不要在 ZIP 内运行。
 2. 需要 Windows 10/11 x64 和 Microsoft Edge WebView2 Runtime。包内包含 Loader DLL，但不包含系统 Runtime。
    缺少 Runtime 时请从 Microsoft 官方安装：https://developer.microsoft.com/microsoft-edge/webview2/
-   无需另装 Python；真实任务需要你自己明确配置的 Agent CLI/登录，或获邀的内测 Key。
-   本包不含账号、Key、用户数据；自动验收未使用真实账户或付费任务。
-   内测试用首次连接可能联网下载 CLI 并消耗少量额度；不要把它当作离线检查。
+   无需另装 Python；选择本机已安装的 Agent CLI，复用该 CLI 自己的登录。
+   桌面不提供试用 Key、额度展示或自动安装 CLI，网页版试用保持不变。
+   选择或切换后端时会验证真实回复和动作工具，可能产生少量模型费用。
+   本包不含账号、Key、用户数据；最低宿主检查和真实模型验收分别记录，不混为一谈。
 3. 普通关闭隐藏到托盘，后台可能继续运行；托盘或再次运行 EXE 恢复窗口。
    明确退出请用“停止本地后端并退出”。不要按进程名称结束其他 Argus/Python。
 
@@ -58,8 +59,8 @@ Source commit：${manifest.git_commit}
 数据目录：%APPDATA%\\${identity.data_directory}\\
 运行时项目/配置位于其 argus-home 子目录，WebView 缓存位于 webview 子目录，默认端口 18799。
 与正式版 %APPDATA%\\argus-desktop\\ 隔离，不导入或迁移正式数据。
-但本包沿用 20260913 integration 预览命名空间：可能共享旧预览状态，不能与旧预览并行运行！
-新 ZIP 名称不代表新 profile；请先用旧预览的明确退出菜单结束它，再启动本包。不会清空旧目录。
+本次使用新的 repair-20261101 预览命名空间，不读取或清空旧 integration 预览数据。
+同一修复预览的后续包仍共用这一预览目录；请在替换包前正常退出该预览。
 外部 Agent CLI 登录由 CLI 自己管理。不要让两份应用同时写同一工作目录。
 本包编译期禁用发布更新；不安装、不签名、不上传、不发布，也不创建正式更新 manifest。
 
