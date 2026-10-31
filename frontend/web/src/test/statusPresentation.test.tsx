@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { NodeProps } from '@xyflow/react';
@@ -7,7 +8,7 @@ import { conversationRows, projectRecord, progressMap, readEvents, snapshot } fr
 import { I18nProvider, type Locale } from '../i18n';
 import { TopBar } from '../components/TopBar';
 import { DaemonManageModal } from '../components/DaemonManageModal';
-import { EventStream } from './serverSnapshot';
+import { EventStream, roleSnapshot } from './serverSnapshot';
 import { buildMap, type MapEvent } from '../map/model';
 import { layoutScene } from '../map/submap';
 import { MacroTaskNode, type MacroNode } from '../map/MacroTaskNode';
@@ -82,5 +83,45 @@ it.each([true, false])('keeps one work-status region even when the map hides the
     expect(top).not.toContain('<time');
     expect(top).not.toContain('session-workdir');
     expect(top).toMatch(/class="sr-only"[^>]*><span role="status"/);
+  }
+});
+
+it.each(['p-c855623c', 'p-0444b8d3'])('%s uses Chinese status when supplemented with the operator’s English thought heading', id => {
+  vi.stubGlobal('localStorage', { getItem: () => 'zh-CN' });
+  const records = readEvents(store, id);
+  const roleEvents = projectRecord(records).roleEvents;
+  const thought = { type: 'engineer.progress', agent_layer: 'manager', kind: 'reasoning',
+    text: '**Validating snapshot data and cutoff handling**', event_id: records.length, ts: Date.now() / 1000 };
+  const snap = roleSnapshot([...roleEvents, thought]);
+  const html = renderToStaticMarkup(<I18nProvider><EventStream snapshot={snap}
+    events={[{ type: 'ui.argus', status: 'running', ts: Date.now() / 1000 }]} connected showReasoning={false} /></I18nProvider>);
+  expect(html).toMatch(/data-manager-doing[^>]*>正在回复你的消息</);
+  expect(html).not.toContain(thought.text.slice(2, -2));
+});
+
+it('ticks live work once for overlapping calls and freezes on the completed server snapshot', () => {
+  vi.useFakeTimers();
+  const at = Date.now();
+  vi.setSystemTime(at);
+  const snap = snapshot(store, original, { since: at / 1000 - 12, requests: [], calls: [
+    { role: 'manager', task: undefined, started_ts: at / 1000 - 12 },
+    { role: 'engineer', task: 't1', started_ts: at / 1000 - 5 },
+  ] });
+  let view!: ReactTestRenderer;
+  const draw = (value: typeof snap) => <TopBar snap={value} streamOk onStart={vi.fn()} onStop={vi.fn()} onManage={vi.fn()} busy={false} />;
+  const duration = () => view.root.findByProps({ 'data-work-duration': true }).children.join('');
+  try {
+    act(() => { view = create(draw(snap)); });
+    expect(duration()).toBe('Worked 12s');
+    act(() => { vi.advanceTimersByTime(3000); });
+    expect(duration()).toBe('Worked 15s');
+    const done = { ...snap, read_at: at + 3000, daemon: { ...snap.daemon, calls: [] },
+      usage_summary: { ...snap.usage_summary!, work_duration_ms: 15000 } };
+    act(() => view.update(draw(done)));
+    act(() => { vi.advanceTimersByTime(10000); });
+    expect(duration()).toBe('Worked 15s');
+  } finally {
+    act(() => view?.unmount());
+    vi.useRealTimers();
   }
 });

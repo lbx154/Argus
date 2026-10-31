@@ -558,8 +558,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'ui.argus': {
       const body = stringField(event, 'text');
-      // A reply still to come, or one that never will, has a state before it has words.
-      return body.trim() || row(event).status
+      // A reply can contain an answer, process steps or its current state.
+      return body.trim() || row(event).status || (Array.isArray(row(event).steps) && (row(event).steps as unknown[]).length)
         ? model('manager', 'role.argus', '', body, 'bright', { expandable: context.density === 'full', rule: true })
         : hidden();
     }

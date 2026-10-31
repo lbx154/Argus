@@ -41,7 +41,7 @@ export interface AgentRequest {
   onStep?: (step: Step) => void;
   /** Told of the words the role is writing, as far as they have come (of its form, its letter's),
    * and of none once they are said. */
-  onWords?: (words: string) => void;
+  onWords?: (words: string, kind?: 'process' | 'answer') => void;
   /** Where the call's raw output and usage go. */
   callsDir: string;
   usageFile: string;

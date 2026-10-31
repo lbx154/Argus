@@ -82,7 +82,7 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         else if (method === 'item/completed' && item.type === 'fileChange' && Array.isArray(item.changes)) {
           for (const { path } of item.changes.filter(isJsonObject)) onStep(typeof path === 'string' ? { kind: 'edit', text: path } : null);
         } else if (!own) return false;
-        else if (method === 'item/agentMessage/delta') now.onWords?.(writing(words += String(params.delta ?? '')));
+        else if (method === 'item/agentMessage/delta') now.onWords?.(writing(words += String(params.delta ?? '')), words.trimStart().startsWith('{') ? 'answer' : 'process');
         else if (method === 'item/completed' && item.type === 'agentMessage') {
           words = '';
           // A message is said once it is a step; the form's letter shows as written till the turn ends.

@@ -139,3 +139,19 @@ it.each(surfaces)('%s preserves deliberate and encoded punctuation and Chinese U
   expect(html).toContain('href="https://example.com/%E4%B8%AD%E6%96%87?q=%E5%80%BC%EF%BC%81"');
   expect(html).toContain('</a>。');
 });
+
+// Operator's r23 example: punctuation inside strong followed immediately by Han text.
+it.each(surfaces)('%s renders Chinese strong boundaries through the shared parser', (_name, Surface) => {
+  for (const source of ['**主要慢在首次回复前。**首响', '开始**「中文」**结束', '中文**。强调。**中文']) {
+    const html = renderToStaticMarkup(<Surface>{source}</Surface>);
+    expect(html).toMatch(/<strong[^>]*>/);
+    expect(html).not.toContain('**');
+  }
+  const html = renderToStaticMarkup(<Surface>{'**主要慢在[首次](https://example.com)回复前。**首响'}</Surface>);
+  expect(html).toMatch(/<strong[^>]*>主要慢在<a[^>]*>首次/);
+  expect(html).toMatch(/回复前。<\/strong>首响/);
+  const literals = renderToStaticMarkup(<Surface>{String.raw`\*\*原样。\*\*中文` + ' `**代码。**中文` **unfinished。中文'}</Surface>);
+  expect(literals).not.toContain('<strong');
+  expect(literals).toContain('**原样。**中文');
+  expect(literals).toContain('**代码。**中文');
+});

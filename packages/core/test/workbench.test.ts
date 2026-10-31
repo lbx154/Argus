@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, statfs, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { crc32, inflateRawSync } from 'node:zlib';
@@ -11,6 +11,7 @@ import type { BacklogItem } from '@argus/contracts';
 import { Store, type Task } from '../src/store.js';
 import { keep } from '../src/serve/files.js';
 import { serve } from '../src/serve/index.js';
+import { previewFetch } from './helpers/preview-fetch.js';
 import { unified } from '../src/serve/versions.js';
 
 /** A server over one project made by hand, with these files in its workdir; no call is made. */
@@ -224,9 +225,10 @@ test('an HTML result and its modules, CSP and styles are served unchanged on a s
   const shown = await get<{ url: string }>(`${P}/artifact/preview?path=site/index.html`);
   const url = new URL(shown.url);
   assert.notEqual(url.origin, new URL((await call('/api/meta')).url).origin);
-  assert.match(url.pathname, /^\/[A-Za-z0-9_-]{32}\/site\/index.html$/);
+  assert.match(url.hostname, /^[a-z0-9]{32}\.localhost$/);
+  assert.equal(url.pathname, '/site/index.html');
   for (const [path, content] of Object.entries(files)) {
-    const response = await fetch(new URL(path.slice('site/'.length), shown.url));
+    const response = await previewFetch(new URL(path.slice('site/'.length), shown.url));
     if (path.includes('/.')) { assert.equal(response.status, 404); continue; }
     assert.equal(response.status, 200);
     assert.equal(await response.text(), content);
@@ -234,22 +236,22 @@ test('an HTML result and its modules, CSP and styles are served unchanged on a s
     assert.equal(response.headers.get('set-cookie'), null);
     assert.equal(response.headers.get('access-control-allow-origin'), null);
   }
-  assert.equal((await fetch(new URL('engine.mjs?v=1', shown.url))).headers.get('content-type'), 'text/javascript; charset=utf-8');
-  assert.equal((await fetch(shown.url, { method: 'HEAD' })).headers.get('content-length'), String(Buffer.byteLength(files['site/index.html']!)));
-  assert.equal(await (await fetch(shown.url, { method: 'HEAD' })).text(), '');
-  assert.equal((await fetch(shown.url, { headers: { range: 'bytes=0-8' } })).status, 206);
+  assert.equal((await previewFetch(new URL('engine.mjs?v=1', shown.url))).headers.get('content-type'), 'text/javascript; charset=utf-8');
+  assert.equal((await previewFetch(shown.url, { method: 'HEAD' })).headers.get('content-length'), String(Buffer.byteLength(files['site/index.html']!)));
+  assert.equal(await (await previewFetch(shown.url, { method: 'HEAD' })).text(), '');
+  assert.equal((await previewFetch(shown.url, { headers: { range: 'bytes=0-8' } })).status, 206);
   assert.equal((await call(`${P}/artifact/preview?path=site/style.css`)).status, 404);
   assert.equal((await call(`${P}/artifact/preview?path=site/index.html`)).headers.get('set-cookie'), null);
   assert.equal((await call(`${P}/artifact/preview/page?path=site/index.html`)).status, 404);
   await writeFile(join(project.workdir, '..', 'outside.txt'), 'outside');
   await symlink('../outside.txt', join(project.workdir, 'site/leak.txt'));
   for (const path of ['leak.txt', '../../../outside.txt', '%2e%2e%2f%2e%2e%2foutside.txt', '.env']) {
-    assert.equal((await fetch(new URL(path, shown.url))).status, 404, path);
+    assert.equal((await previewFetch(new URL(path, shown.url))).status, 404, path);
   }
   for (const path of ['/api/meta', P + '/snapshot', '/wrong/site/index.html']) {
-    assert.equal((await fetch(new URL(path, url))).status, 404);
+    assert.equal((await previewFetch(new URL(path, url))).status, 404);
   }
-  assert.equal((await fetch(shown.url, { method: 'POST' })).status, 404);
+  assert.equal((await previewFetch(shown.url, { method: 'POST' })).status, 404);
   // Preview requests cannot reach even a token-free cockpit's API.
   for (const path of ['/api/meta', '/api/daemons', P + '/snapshot']) {
     assert.equal((await call(path, { method: path === '/api/daemons' ? 'POST' : 'GET', headers: { origin: url.origin } })).status, 403);
@@ -293,15 +295,15 @@ test('website downloads include only the page and files served by that preview, 
   assert.deepEqual(await download(), { 'index.html': files['site/deep/index.html'] });
   const servedPaths = ['site/deep/index.html', 'site/style.css', 'site/app.js', 'site/engine.mjs', 'site/lib/formula.mjs', 'site/img/dot.svg'];
   for (const path of servedPaths) {
-    const response = await fetch(new URL('../' + path.slice(5), url));
+    const response = await previewFetch(new URL('../' + path.slice(5), url));
     assert.equal(response.status, 200);
     await response.arrayBuffer();
   }
   // HEAD and rejected/missing requests do not add a resource.
-  await fetch(new URL('page.html', url), { method: 'HEAD' });
-  assert.equal((await fetch(new URL('../.env', url))).status, 404);
-  assert.equal((await fetch(new URL('missing.js', url))).status, 404);
-  assert.equal((await fetch(new URL('page.html', url), { headers: { range: 'bytes=1000-' } })).status, 416);
+  await previewFetch(new URL('page.html', url), { method: 'HEAD' });
+  assert.equal((await previewFetch(new URL('../.env', url))).status, 404);
+  assert.equal((await previewFetch(new URL('missing.js', url))).status, 404);
+  assert.equal((await previewFetch(new URL('page.html', url), { headers: { range: 'bytes=1000-' } })).status, 416);
   const expected = Object.fromEntries(servedPaths.map(path => [path.slice(5), files[path]]));
   // Guard the real download entry point: no directory should be listed, however large the workspace.
   t.mock.method(fs, 'readdirSync', () => { throw new Error('website download must not walk the workspace'); });
@@ -321,26 +323,26 @@ test('static directories redirect to their slash URL only when the index passes 
   const { url } = await get<{ url: string }>(`/api/projects/${project.id}/artifact/preview?path=site/index.html`);
   const target = new URL('deep?from=link', url);
   for (const method of ['GET', 'HEAD']) {
-    const redirect = await fetch(target, { redirect: 'manual', method });
+    const redirect = await previewFetch(target, { redirect: 'manual', method });
     assert.equal(redirect.status, 301);
     assert.equal(redirect.headers.get('location'), target.pathname + '/?from=link');
     assert.equal(await redirect.text(), '');
   }
-  const followed = await fetch(target);
+  const followed = await previewFetch(target);
   assert.equal(followed.status, 200);
   assert.equal(followed.url, target.origin + target.pathname + '/?from=link');
   assert.equal(await followed.text(), '<p>nested</p>');
-  assert.equal(await (await fetch(new URL('file', url), { redirect: 'manual' })).text(), '<p>file</p>');
+  assert.equal(await (await previewFetch(new URL('file', url), { redirect: 'manual' })).text(), '<p>file</p>');
   const root = new URL('../', url);
   root.pathname = root.pathname.slice(0, -1);
-  assert.equal((await fetch(root, { redirect: 'manual' })).status, 301);
-  assert.equal(await (await fetch(root)).text(), '<p>root</p>');
+  assert.equal((await previewFetch(root, { redirect: 'manual' })).status, 200);
+  assert.equal(await (await previewFetch(root)).text(), '<p>root</p>');
   const outside = join(project.workdir, '..', 'outside');
   await mkdir(outside);
   await writeFile(join(outside, 'index.html'), 'outside');
   await symlink(outside, join(project.workdir, 'site/linked'));
   for (const name of ['linked', 'linked/', '.hidden', '.hidden/', 'missing', 'missing/']) {
-    assert.equal((await fetch(new URL(name, url), { redirect: 'manual' })).status, 404, name);
+    assert.equal((await previewFetch(new URL(name, url), { redirect: 'manual' })).status, 404, name);
   }
 });
 
@@ -354,7 +356,7 @@ test('a valid bearer still works when a development proxy changes Host but prese
   }
   const { url } = await get<{ url: string }>(`${P}/artifact/preview?path=index.html`);
   // The preview's real Origin survives the same proxy, including a different host spelling.
-  for (const origin of [new URL(url).origin, `http://localhost:${new URL(url).port}`, 'null']) {
+  for (const origin of [new URL(url).origin, 'null']) {
     const response = await call(`${P}/daemon/stop`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: '{}' });
     assert.equal(response.status, 403, origin);
   }
@@ -394,13 +396,13 @@ test('preview URLs need a bearer to obtain, never grant cookies, and confer no A
   assert.equal(granted.headers.get('set-cookie'), null);
   const { url } = await granted.json() as { url: string };
   assert.doesNotMatch(url, /secret|token=/);
-  assert.equal(await (await fetch(url)).text(), '<p>hi</p>');
+  assert.equal(await (await previewFetch(url)).text(), '<p>hi</p>');
   assert.deepEqual(await get(path), { url });
   const second = store.create({ workdir: join(project.workdir, '../other'), request: '', backend: 'codex', model: null });
   await mkdir(second.workdir, { recursive: true });
   await writeFile(join(second.workdir, 'index.html'), 'other');
   const secondUrl = (await get<{ url: string }>(`/api/projects/${second.id}/artifact/preview?path=index.html`)).url;
-  assert.notEqual(new URL(url).pathname.split('/')[1], new URL(secondUrl).pathname.split('/')[1]);
+  assert.notEqual(new URL(url).origin, new URL(secondUrl).origin);
   assert.equal((await call(P + '/snapshot', { headers: { authorization: '', cookie: 'argus_preview_access=secret' } })).status, 401);
 });
 
@@ -601,16 +603,18 @@ test('disk resources follow the selected workdir, report available bytes, and ne
   const { store, project, get, call } = await setup(t);
   const route = `/api/system/resources?sid=${project.id}`;
   type Disk = { workdir: string; total_bytes: number | null; available_bytes: number | null; low_space: boolean; detail: string };
+  const original = fs.promises.statfs;
+  t.after(() => { fs.promises.statfs = original; syncBuiltinESMExports(); });
+  fs.promises.statfs = (async (path: unknown) => {
+    assert.equal(path, project.workdir);
+    return { blocks: 10 * 1024 ** 2, bavail: 6 * 1024 ** 2, bfree: 8 * 1024 ** 2, bsize: 1024 };
+  }) as typeof fs.promises.statfs;
+  syncBuiltinESMExports();
   const initial = await get<{ disk: Disk }>(route);
-  const actual = await statfs(project.workdir);
-  assert.equal(initial.disk.workdir, project.workdir);
-  assert.equal(initial.disk.total_bytes, actual.blocks * actual.bsize);
-  assert.ok(Math.abs(initial.disk.available_bytes! - actual.bavail * actual.bsize) < 16 * 1024 ** 2);
+  assert.deepEqual(initial.disk, { workdir: project.workdir, total_bytes: 10 * 1024 ** 3, available_bytes: 6 * 1024 ** 3, low_space: false, detail: '' });
   assert.equal((await get('/api/system/resources')).disk, undefined);
   assert.equal((await call('/api/system/resources?sid=p-00000000')).status, 404);
 
-  const original = fs.promises.statfs;
-  t.after(() => { fs.promises.statfs = original; syncBuiltinESMExports(); });
   const other = store.create({ workdir: join(store.home, 'other'), request: '', backend: 'codex', model: null });
   store.save({ ...other, status: 'working' });
   fs.promises.statfs = (async (path: unknown) => {
@@ -751,11 +755,11 @@ test('delivered HTML, nested resources, model assets and downloads use their own
   const old = await get<{ url: string }>(`${P}/artifact/preview?path=index.html&delivery=d0`);
   const current = await get<{ url: string }>(`${P}/artifact/preview?path=index.html&delivery=d1`);
   assert.notEqual(old.url, current.url);
-  assert.match(await (await fetch(old.url)).text(), /Old page/);
-  assert.match(await (await fetch(current.url)).text(), /New page/);
-  assert.equal(await (await fetch(new URL('style.css', old.url))).text(), 'body { color: red }');
-  assert.equal(await (await fetch(new URL('style.css', current.url))).text(), 'body { color: blue }');
-  assert.equal(await (await fetch(new URL('unlisted.png', old.url))).text(), 'current image');
+  assert.match(await (await previewFetch(old.url)).text(), /Old page/);
+  assert.match(await (await previewFetch(current.url)).text(), /New page/);
+  assert.equal(await (await previewFetch(new URL('style.css', old.url))).text(), 'body { color: red }');
+  assert.equal(await (await previewFetch(new URL('style.css', current.url))).text(), 'body { color: blue }');
+  assert.equal(await (await previewFetch(new URL('unlisted.png', old.url))).text(), 'current image');
   const files = unzip(Buffer.from(await (await call(`${P}/artifact/bundle?path=index.html&delivery=d0`)).arrayBuffer()));
   assert.match(files['index.html']!, /Old page/);
   assert.equal(files['style.css'], 'body { color: red }');

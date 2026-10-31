@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import { request as httpRequest } from 'node:http';
+import { previewFetch } from './helpers/preview-fetch.js';
 import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -336,7 +337,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // The operator reads the Manager's letter to the team: the brief is its reply.
   // The reply is its row in the record, as the conversation shows it after a reload: whom it is to, and the message it answers.
   assert.deepEqual(reply[1], { type: 'delta', event: { type: 'ui.argus', ts: (reply[1]!.event as EventMsg).ts, event_id: 3,
-    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', request_id: 'r1', row_id: 'm0-argus', order: 3 } });
+    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', request_id: 'r1', row_id: 'm0-argus', order: 0.1 } });
   assert.deepEqual(reply[2], { type: 'done', result: { kind: 'task', reply: brief } });
 
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`),
@@ -816,7 +817,8 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   finish();
   const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.request_id === 'r1' && row.text === '42'));
   assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'],
-    ['ui.argus', 'Checking the original question'], ['ui.argus', '42']]);
+    ['ui.argus', '42']]);
+  assert.deepEqual(answered.rows.find(row => row.type === 'ui.argus')?.steps, ['Checking the original question']);
   assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
   assert.equal(answered.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r1')?.message_id, refreshed.rows[1]?.message_id);
   assert.equal(requests.length, 2);
@@ -896,7 +898,7 @@ test('a message typed while a reply is under way is answered after it', async t 
   await first;
   const { rows: turns } = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.text === 'Second answered.'));
   assert.deepEqual(turns.map(turn => [turn.type, turn.text]), [
-    ['ui.operator', 'first'], ['ui.operator', 'second'], ['ui.argus', 'First answered.'], ['ui.argus', 'Second answered.'],
+    ['ui.operator', 'first'], ['ui.argus', 'First answered.'], ['ui.operator', 'second'], ['ui.argus', 'Second answered.'],
   ]);
 });
 
@@ -1149,7 +1151,7 @@ test('an uploaded HTML file opens on the static origin and raw downloads stay sa
   const preview = await call(`${P}/artifact/preview?${query}`);
   assert.equal(preview.status, 200);
   const { url } = await preview.json() as { url: string };
-  const page = await fetch(url);
+  const page = await previewFetch(url);
   assert.equal(page.headers.get('content-security-policy'), null);
   assert.equal(await page.text(), '<h1>Material HTML</h1>');
   const raw = await call(`${P}/artifact/raw?${query}`);
@@ -1477,15 +1479,24 @@ test('rows SSE sends task progress and durable Manager messages without onWords 
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第二句实时文字。' });
   const received = await streamed;
   const managerStep = received.find(frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第一句实时文字。'))!;
-  assert.ok((managerStep.rows as EventMsg[]).some(row => row.type === 'ui.argus' && row.text === '经理的第一句实时文字。'));
+  const firstReply = (managerStep.rows as EventMsg[]).find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.deepEqual(firstReply.steps, ['经理的第一句实时文字。']);
+  assert.equal(firstReply.text, '');
   const progress = received.flatMap(frame => frame.rows as EventMsg[] ?? []).find(row => row.progress === '已核对输入，正在检查输出。')!;
   assert.equal(progress.title, title);
   const page = await get<ConversationPage>(`${P}/conversation`);
   assert.equal(page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, '');
   assert.equal(page.rows.find(row => row.type === 'ui.task')?.progress, progress.progress);
-  assert.ok(page.rows.some(row => row.type === 'ui.argus' && row.text === '经理的第二句实时文字。'));
+  const runningReply = page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.equal(runningReply.row_id, firstReply.row_id);
+  assert.deepEqual(runningReply.steps, ['经理的第一句实时文字。', '经理的第二句实时文字。']);
+  assert.equal(page.rows.filter(row => row.type === 'ui.argus' && row.request_id === 'r-live').length, 1);
   finishManager();
   await reply;
+  const completedReply = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.equal(completedReply.row_id, firstReply.row_id);
+  assert.equal(completedReply.text, '已核对你询问的状态。');
+  assert.deepEqual(completedReply.steps, runningReply.steps);
   finishEngineer();
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snap => snap.backlog[0]?.status === 'done' && !snap.daemon.alive);
   const done = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.task')!;
@@ -1515,8 +1526,8 @@ test('the words a role is writing reach the page as they come, the reply\'s in i
   const response = await call(`${P}/stream?view=rows`);
   const streamed = frames(response, frame => (frame.rows as EventMsg[])?.some(row => row.text === 'Training is under'));
   requests[1]!.onWords?.('Loading the data');
-  requests[2]!.onWords?.('Training is');
-  requests[2]!.onWords?.('Training is under');
+  requests[2]!.onWords?.('Training is', 'answer');
+  requests[2]!.onWords?.('Training is under', 'answer');
   const received = await streamed;
   const rows = received.flatMap(frame => frame.rows as EventMsg[] ?? []);
   assert.ok(rows.some(row => row.type === 'ui.task' && row.progress === 'Loading the data'));

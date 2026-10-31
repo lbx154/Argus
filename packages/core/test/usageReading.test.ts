@@ -197,3 +197,50 @@ test('one shared summary groups every call by role, model and UTC day, and union
   assert.equal(snapshot(store, project, live).usage_summary!.work_duration_ms, 105_000, 'out of order containing intervals count once');
   assert.equal(summary.call_count, 8, 'a previous response stays immutable');
 });
+
+test('snapshot unions live calls with ledger intervals without changing recorded counts or the cached summary', t => {
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-live-duration-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+  const at = Date.parse('2030-01-01T00:00:00Z');
+  t.mock.method(Date, 'now', () => at);
+  // Finished intervals [-120,-60] and [-40,-30]; 20 seconds of idle gap.
+  fs.writeFileSync(join(store.dir(project.id), 'usage.jsonl'), [
+    { ts: at / 1000 - 60, ms: 60000, cost_usd: 0.1 },
+    { ts: at / 1000 - 30, ms: 10000, cost_usd: null },
+  ].map(row => JSON.stringify(row) + '\n').join(''));
+  const idle = { since: null, calls: [], requests: [] };
+  const saved = snapshot(store, project, idle).usage_summary!;
+  const live = { since: at / 1000 - 35, requests: [], calls: [
+    { role: 'manager' as const, task: undefined, started_ts: at / 1000 - 35 },
+    { role: 'engineer' as const, task: 't1', started_ts: at / 1000 - 15 },
+    { role: 'reviewer' as const, task: 't2', started_ts: at / 1000 + 60 },
+  ] };
+  const snap = snapshot(store, project, live);
+  assert.equal(snap.usage_summary!.work_duration_ms, 100000 + snap.read_at! - at);
+  assert.deepEqual({ ...snap.usage_summary!, work_duration_ms: saved.work_duration_ms }, saved);
+  assert.equal(saved.work_duration_ms, 70000);
+  assert.equal(snapshot(store, project, idle).usage_summary, saved);
+  // With no ledger at all, ongoing work is still visible.
+  const fresh = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+  const running = snapshot(store, fresh, live);
+  assert.equal(running.usage_summary!.work_duration_ms, 35000 + running.read_at! - at);
+  assert.equal(running.usage_summary!.call_count, 0);
+});
+
+for (const id of ['p-c855623c', 'p-0444b8d3']) test(`${id} real replay includes in-progress work before usage arrives`, t => {
+  const home = fs.mkdtempSync(join(tmpdir(), 'argus-live-replay-'));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const dir = join(home, 'projects', id);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.cpSync(new URL(`../../../frontend/web/src/test/fixtures/home/projects/${id}/`, import.meta.url), dir, { recursive: true });
+  const store = new Store(home);
+  const project = store.load(id);
+  const at = Date.parse('2030-01-01T00:00:00Z');
+  t.mock.method(Date, 'now', () => at);
+  const snap = snapshot(store, project, { since: at / 1000 - 12, requests: [],
+    calls: [{ role: 'manager', task: undefined, started_ts: at / 1000 - 12 }] });
+  assert.equal(snap.usage_summary!.work_duration_ms, 12000 + snap.read_at! - at);
+  assert.equal(snap.usage_summary!.calls_without_duration, 0);
+});

@@ -16,6 +16,7 @@ import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './type
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
+import { nameLegacyInputs } from './inputs.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -31,7 +32,7 @@ const operatorText = ({ text, attachments }: OperatorMessage): string => text + 
 export interface FlowOptions {
   onEvent?: (event: FlowEvent) => void;
   /** The words a role's call is writing, as far as they have come; none once they are said. */
-  onWords?: (role: Role, task: string | undefined, words: string) => void;
+  onWords?: (role: Role, task: string | undefined, words: string, kind?: 'process' | 'answer') => void;
   /** Interrupts every call under way, and ends the work. */
   signal?: AbortSignal;
 }
@@ -56,7 +57,7 @@ export class Flow {
     // A message to a stopped project takes the place of the operator's the stop left unanswered, not
     // of one sent since that a Manager turn is taking; the team's letters wait for Resume.
     const taking = this.handing.get(project) ?? [];
-    const replaced = project.status === 'stopped' ? (project.forManager ?? []).filter(letter => typeof letter !== 'string' && !taking.includes(letter)) : [];
+    const replaced = project.status === 'stopped' ? (project.forManager ?? []).filter(letter => typeof letter !== 'string' && !letter.input_id && !taking.includes(letter)) : [];
     if (replaced.length) project.forManager = project.forManager!.filter(letter => !replaced.includes(letter));
     // The project's request is its first message, or the one that took that one's place.
     if (!project.request || replaced.some(letter => typeof letter !== 'string' && letter.request_id === project.requestId)) {
@@ -103,6 +104,11 @@ export class Flow {
   /** After a failed call the operator writes or resumes: the failed turns go on, and the letters a
    * failed or interrupted Manager turn left unread go to the Manager again. */
   private retry(project: Project): void {
+    // Pending team letters from older records acquire their identity before being called.
+    if (project.forManager?.some(letter => typeof letter === 'string')) {
+      project.forManager = nameLegacyInputs(this.store, project);
+      this.store.save(project);
+    }
     if (project.failures?.length) Object.assign(project, { failures: [], error: null });
     if (project.status === 'failed') this.status(project, 'working');
     const under = [...this.handing.get(project) ?? []];
@@ -188,11 +194,12 @@ export class Flow {
   }
 
   private async managerTurn(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
-    const first = typeof letter !== 'string' && letter.request_id === project.requestId;
+    const first = typeof letter !== 'string' && !letter.input_id && letter.request_id === project.requestId;
     const input = typeof letter === 'string' ? letter : operatorText(letter);
     const answers = typeof letter === 'string' ? undefined : letter.request_id;
+    const input_id = typeof letter === 'string' ? undefined : letter.input_id;
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(input, resumed), answers ? { answers } : {}))?.handoff ?? null;
+      resumed => managerPrompt(input, resumed), { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} }))?.handoff ?? null;
     // Only the first request's turn names the project, by the title of the work it hands the team;
     // answered directly, the project keeps its request's first line. Later turns keep that name, even
     // after a session reset.
@@ -244,6 +251,7 @@ export class Flow {
 
   /** A letter to the Manager stays in the record until a Manager turn takes it. */
   private writeToManager(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
+    if (typeof letter === 'string') letter = { text: letter, input_id: randomUUID() };
     (project.forManager ??= []).push(letter);
     this.store.save(project);
     return this.handOver(project, letter);
@@ -316,9 +324,9 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string } = {}): Promise<AgentResult | null> {
-    const { refused, answers } = turn;
-    const answering = answers ? { answers } : {};
+                     turn: { refused?: string; answers?: string; input_id?: string } = {}): Promise<AgentResult | null> {
+    const { refused, answers, input_id } = turn;
+    const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
     if (signal?.aborted) return null;
     const key = task ? `${task.id}.${role}` : role;
@@ -338,7 +346,7 @@ export class Flow {
         readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
-        onWords: words => this.options.onWords?.(role, task?.id, words), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+        onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
       // The call never ran to an end of its own: it is recorded as ended, failed.

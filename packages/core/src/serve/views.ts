@@ -10,6 +10,7 @@ import {
 import { summarizeUsage } from '@argus/runtime';
 import { firstLine, openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
+import { ManagerInputs } from '../inputs.js';
 import { asker, type FlowEvent, type Project, type Question, type Store } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
 
@@ -19,7 +20,7 @@ export interface Live {
   since: number | null;
   /** Each call under way, by its role and the task it is on: tasks run side by side; a Manager's
    * turn on an operator message names it. */
-  calls: Array<{ role: Role; task: string | undefined; started_ts: number; answers?: string; words?: string }>;
+  calls: Array<{ role: Role; task: string | undefined; started_ts: number; answers?: string; words?: string; wordsKind?: 'process' | 'answer' }>;
   /** Message requests whose Manager turn has not ended. */
   requests: string[];
 }
@@ -77,48 +78,76 @@ export const readEvents = (store: Store, id: string): Recorded[] =>
 
 /** Where a fold of the record has got to: the next line, the operator's messages to the Manager not
  * yet answered (by request, at their line), the call under way of each role on each task, and
- * how often each file has been delivered. Tasks run side by side. A Manager turn and its letter name the message they answer: nothing here is
- * inferred from the order of the record. */
-export interface Fold { line: number; asked: Map<string, number>; calls: Map<string, string>; deliveries: Map<string, number> }
+ * how often each file has been delivered. Calls bind to operator requests or incoming team
+ * letters; Planner letters and tasks carry the originating reply through later turns. */
+type FoldCall = { id: string; reply: string; order: number; handed: boolean; answers?: string };
+export interface Fold {
+  line: number;
+  asked: Map<string, number>;
+  // Calls retain their reply until an accepted handoff is recorded.
+  calls: Map<string, FoldCall>;
+  /** Team input identity, including pending legacy form corrections. */
+  manager: ManagerInputs;
+  deliveries: Map<string, number>;
+  plannerInbox: string[];
+  taskReplies: Map<string, string>;
+}
+const newFold = (): Fold => ({ line: 0, asked: new Map(), calls: new Map(), manager: new ManagerInputs(), deliveries: new Map(),
+  plannerInbox: [], taskReplies: new Map() });
 
 /** The record in the cockpit's event vocabulary, folded on from `fold`. `event_id` is the line,
  * so a replay and the live stream agree; a reply's message id names the operator message it answers. */
-export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }): EventMsg[] {
+export function webEvents(events: Recorded[], fold: Fold = newFold()): EventMsg[] {
   const rows: EventMsg[] = [];
   const { calls } = fold;
   const counts = fold.deliveries;
   for (const event of events) {
     const line = fold.line++;
+    const input = fold.manager.take(event, line);
     const row = (type: string, fields: Record<string, unknown>): void => {
       rows.push({ type, ts: seconds(event.ts), event_id: line, ...fields });
     };
     const where = 'task' in event && typeof event.task === 'string' ? { item_id: event.task } : {};
-    const caller = 'role' in event ? `${event.role}.${where.item_id ?? ''}` : '';
+    const caller = 'role' in event ? `${event.role}.${event.type === 'handoff' && (event.role === 'manager' || event.role === 'planner') ? '' : where.item_id ?? ''}` : '';
     switch (event.type) {
       case 'message':
         // A message to the Manager waits for its reply; an answer to another role's question does not.
         if (!event.to && event.request_id) fold.asked.set(event.request_id, line);
+        if (event.to === 'planner') {
+          const reply = event.task ? fold.taskReplies.get(event.task) : calls.get('planner.')?.reply;
+          if (reply) fold.plannerInbox.push(reply);
+        }
         row('ui.operator', { agent_layer: 'operator', text: event.text, message_id: `m${line}-operator`, ...(event.request_id ? { request_id: event.request_id } : {}),
           ...(event.attachments ? { attachments: event.attachments } : {}) });
         break;
-      case 'call.start':
-        calls.set(caller, `c${line}`);
+      case 'call.start': {
+        const previous = calls.get(caller);
+        const continuing = event.role === 'planner' && previous && !previous.handed ? previous : undefined;
+        const at = event.answers ? fold.asked.get(event.answers) : undefined;
+        const source = event.role === 'planner' ? fold.plannerInbox.splice(0)[0] : undefined;
+        calls.set(caller, { id: `c${line}`, reply: input ? `m${input.callLine}-argus` : continuing?.reply ?? source ?? `m${at ?? line}-argus`,
+          order: input ? input.line + 0.1 : continuing?.order ?? (at ?? line) + 0.1,
+          handed: false, ...event.answers ? { answers: event.answers } : {} });
         row('provider.request.started', { call_id: `c${line}`, run_label: event.role, agent_layer: event.role, ...where });
         break;
+      }
       case 'call.end':
         // An interrupted message stays unanswered; Resume takes it up again.
         row('provider.request.completed', {
-          call_id: calls.get(caller) ?? '', run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
+          call_id: calls.get(caller)?.id ?? '', run_label: event.role, agent_layer: event.role, success: event.completed, error: event.error ?? '', ...where,
         });
+        if (event.role !== 'manager' && event.role !== 'planner') calls.delete(caller);
         break;
       case 'handoff':
+        if (calls.has(caller)) calls.get(caller)!.handed = true;
         // Every letter of the Manager's is in the conversation: its reply, and what it hands the team, with whom to.
         if (event.role === 'manager') {
           const at = event.answers === undefined ? undefined : fold.asked.get(event.answers);
           row('ui.argus', {
-            agent_layer: 'manager', to: event.to, text: event.letter, message_id: `m${at ?? line}-argus`,
+            agent_layer: 'manager', to: event.to, text: event.letter, message_id: at === undefined ? calls.get(caller)?.reply ?? `m${line}-argus` : `m${at}-argus`,
             ...at === undefined ? {} : { request_id: event.answers }, ...event.open ? { delivery: delivered(event, line, counts) } : {},
           });
+          if (event.to === 'planner') fold.plannerInbox.push(String(rows.at(-1)!.message_id));
           if (event.answers) fold.asked.delete(event.answers);
         } else if (event.role === 'planner') {
           row('life.planner.verdict', { status: event.to, enqueued_tasks: event.to === 'engineer' ? 1 : 0 });
@@ -126,8 +155,20 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new
           // A letter between the team's roles reads as what its writer said: a verdict is in its words.
           row('engineer.progress', { kind: 'agent_message', agent_layer: event.role, text: event.letter, ...where });
         }
+        if (event.task && (event.role === 'manager' || event.role === 'planner')) {
+          const reply = calls.get(caller)?.reply;
+          if (reply) fold.taskReplies.set(event.task, reply);
+        }
+        if (event.task && event.to === 'planner') {
+          const reply = fold.taskReplies.get(event.task);
+          if (reply) fold.plannerInbox.push(reply);
+        }
         break;
       case 'task.added':
+        {
+          const reply = calls.get(`${event.task.from}.`)?.reply;
+          if (reply) fold.taskReplies.set(event.task.id, reply);
+        }
         // A Planner's task joins its plan; a task from the Manager starts at once.
         row(event.task.from === 'planner' ? 'life.planner.task_added' : 'life.mission.started',
           { item_id: event.task.id, title: event.task.title, objective: event.task.objective, deps: event.task.after ?? [] });
@@ -135,9 +176,12 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new
       case 'task.closed':
         row('life.mission.completed', { item_id: event.task, status: 'done', success: true });
         break;
-      case 'step':
-        row('engineer.progress', { kind: STEP_KINDS[event.kind], agent_layer: event.role, text: event.text, ...where });
+      case 'step': {
+        const request = event.role === 'manager' && event.kind === 'message' ? calls.get(caller)?.answers : undefined;
+        row('engineer.progress', { kind: STEP_KINDS[event.kind], agent_layer: event.role, text: event.text, ...where,
+          ...request ? { request_id: request } : {} });
         break;
+      }
       case 'status':
         if (event.status === 'failed') row('life.status', { operator_alert: true, text: event.error ?? 'The work stopped.' });
         break;
@@ -150,7 +194,7 @@ export function webEvents(events: Recorded[], fold: Fold = { line: 0, asked: new
  * cockpit events of the lines appended since the last, the first call those of all. */
 export function follow(store: Store, id: string): () => EventMsg[] {
   const path = join(store.dir(id), 'events.jsonl');
-  const fold: Fold = { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() };
+  const fold: Fold = newFold();
   let offset = 0;
   return () => {
     const { rows, end } = jsonLines(path, offset);
@@ -159,7 +203,7 @@ export function follow(store: Store, id: string): () => EventMsg[] {
   };
 }
 
-function usage(rows: Record<string, unknown>[]): ProjectUsageSummary {
+function usage(rows: Record<string, unknown>[], calls: Live['calls'] = [], now = 0): ProjectUsageSummary {
   const grouped = { by_role: new Map<string | null, UsageSummaryRecord[]>(), by_model: new Map<string | null, UsageSummaryRecord[]>(), by_date: new Map<string | null, UsageSummaryRecord[]>() };
   const intervals: Array<[number, number]> = [];
   let missing = 0;
@@ -186,6 +230,10 @@ function usage(rows: Record<string, unknown>[]): ProjectUsageSummary {
     } else missing++;
     return record;
   });
+  for (const call of calls) {
+    const start = call.started_ts * 1000;
+    if (Number.isFinite(start) && start <= now) intervals.push([start, now]);
+  }
   intervals.sort((a, b) => a[0] - b[0]);
   let duration = 0, end = -Infinity;
   for (const [start, stop] of intervals) {
@@ -211,7 +259,7 @@ const resumable = (project: Project): boolean => Boolean(project.forManager?.len
 
 /** Live calls joined to the request cards their answers belong to. */
 function requestCalls(calls: Live['calls'], qa?: MapReading['qa']) {
-  return calls.map(({ task, words: _, ...call }) => {
+  return calls.map(({ task, words: _, wordsKind: _kind, ...call }) => {
     const card = call.answers ? qa?.get(call.answers) : undefined;
     return { ...call, ...(task ? { task } : {}), ...(card ? { request_card_id: card.id } : {}) };
   });
@@ -283,7 +331,7 @@ export interface Reading {
 }
 
 export function projectRecord(events: Recorded[], reading: Reading = {
-  end: 0, usage: { end: 0, rows: [], summary: usage([]) }, fold: { line: 0, asked: new Map(), calls: new Map(), deliveries: new Map() }, rows: new Map(),
+  end: 0, usage: { end: 0, rows: [], summary: usage([]) }, fold: newFold(), rows: new Map(),
   roleEvents: [], round: 0, activityAt: null, lastReply: '', stateLine: 0, calls: new Set(), tasks: new Map(), edits: new Map(), questions: new Map(), delivered: new Map(),
   trace: { ended: new Map(), tasks: new Map() },
   map: { added: new Map(), closed: new Map(), actions: new Map(), opened: new Map(), letters: [], qa: new Map(),
@@ -320,11 +368,19 @@ export function projectRecord(events: Recorded[], reading: Reading = {
         if (!event.to && event.request_id) put({ type: 'ui.argus', agent_layer: 'manager', text: '', ts, event_id: line,
           message_id: `m${line}-argus`, request_id: event.request_id }, `m${line}-argus`, line + 0.1);
       }
+    } else if (event.type === 'call.start' && event.role === 'manager') {
+      const call = reading.fold.calls.get(`manager.${event.task ?? ''}`)!;
+      if (!reading.rows.has(call.reply)) put({ type: 'ui.argus', agent_layer: 'manager', text: '', ts,
+        event_id: line, message_id: call.reply }, call.reply, call.order);
     } else if (event.type === 'step' && event.kind === 'message' && (event.role === 'manager' || event.role === 'planner')) {
-      // These are words to the operator, including questions said while work goes on.
-      // Give each its own record identity: a later reply must not replace it.
-      const id = `m${line}-argus`;
-      put({ ...converted[0]!, type: 'ui.argus', message_id: id }, id);
+      // Call ownership is independent of the role log's individual message rows.
+      const call = reading.fold.calls.get(`${event.role}.${event.task ?? ''}`);
+      const id = call?.reply ?? `m${line}-argus`;
+      const reply = reading.rows.get(id);
+      put({ ...reply, type: 'ui.argus', agent_layer: 'manager', ts: reply?.ts ?? ts,
+        message_id: id, ...call?.answers ? { request_id: call.answers } : {},
+        text: reply?.text ?? '', event_id: line, steps: [...(reply?.steps as string[] | undefined ?? []), event.text] },
+        id, reply ? Number(reply.order) : call?.order ?? line);
     } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
       const row = { type: 'ui.question', ts, event_id: line, question_id: `q${line}`, agent_layer: event.role,
         item_id: event.task ?? '', text: event.letter, order: line };
@@ -333,7 +389,9 @@ export function projectRecord(events: Recorded[], reading: Reading = {
     } else if (event.type === 'handoff' && event.role === 'manager') {
       if (event.to === 'operator') reading.lastReply = firstLine(event.letter);
       const row = converted[0]!;
-      put(row, String(row.message_id));
+      const previous = reading.rows.get(String(row.message_id));
+      put({ ...row, ...previous?.steps ? { steps: previous.steps } : {} }, String(row.message_id),
+        previous ? Number(previous.order) : reading.fold.calls.get(`manager.${event.task ?? ''}`)?.order ?? line);
       const operatorId = String(row.message_id).replace(/-argus$/, '-operator');
       const operator = reading.rows.get(operatorId);
       if (operator) reading.rows.set(operatorId, { ...operator, answer: event.letter, event_id: line });
@@ -388,9 +446,23 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
     const liveReply = live.calls.find(call => call.answers === request);
     const status = liveReply ? 'running' : !pending.has(request) ? 'replaced' : live.requests.includes(request) ? 'waiting'
       : project.status === 'stopped' ? 'stopped' : failure ? 'failed' : 'waiting';
-    projected.set(`m${line}-argus`, { type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
-      request_id: operator.request_id, ts: Number(operator.ts), event_id: reading.stateLine, order: line + 0.1,
-      text: status === 'failed' ? failure!.error : liveReply?.words ?? '', live: status === 'running' || status === 'waiting', status });
+    projected.set(`m${line}-argus`, { ...reading.rows.get(`m${line}-argus`), type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
+      request_id: operator.request_id, ts: Number(operator.ts), event_id: Math.max(reading.stateLine, Number(reading.rows.get(`m${line}-argus`)?.event_id ?? line)), order: line + 0.1,
+      steps: [...(reading.rows.get(`m${line}-argus`)?.steps as string[] | undefined ?? []),
+        ...liveReply?.words && liveReply.wordsKind !== 'answer' ? [liveReply.words] : []],
+      text: status === 'failed' ? failure!.error : liveReply?.wordsKind === 'answer' ? liveReply.words ?? '' : '', live: status === 'running' || status === 'waiting', status });
+  }
+  for (const call of live.calls.filter(call => !call.answers && (call.role === 'manager' || call.role === 'planner'))) {
+    const owner = reading.fold.calls.get(`${call.role}.${call.task ?? ''}`);
+    if (!owner) continue;
+    const previous = projected.get(owner.reply);
+    if (call.role === 'planner' && !call.words) continue;
+    projected.set(owner.reply, { ...previous, type: 'ui.argus', agent_layer: 'manager', row_id: owner.reply,
+      message_id: owner.reply, order: previous?.order ?? owner.order, ts: previous?.ts ?? call.started_ts,
+      event_id: Math.max(reading.stateLine, Number(previous?.event_id ?? 0)),
+      steps: [...(previous?.steps as string[] | undefined ?? []), ...call.words && call.wordsKind !== 'answer' ? [call.words] : []],
+      text: call.role === 'manager' && call.wordsKind === 'answer' ? call.words ?? '' : previous?.text ?? '',
+      ...call.role === 'manager' ? { live: true, status: 'running' } : {} });
   }
   const rows = [...projected.values()];
   const items = backlog(project);
@@ -445,7 +517,8 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   // What was spent counts every call; what the project runs on, only its own.
   const reading = readRecord(store, id);
   const spent = reading.usage.rows;
-  const summary = reading.usage.summary;
+  const at = readAt();
+  const summary = live.calls.length ? usage(spent, live.calls, at) : reading.usage.summary;
   const { calls: made } = reading;
   const calls = spent.filter(call => made.has(String(call.callId)));
   // The model each role's last call ran on: with none chosen, the backend's own default.
@@ -453,7 +526,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
   const last = ran();
   return {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
-    read_at: readAt(),
+    read_at: at,
     session: {
       id, display_name: named(project), objective: project.request, created: seconds(project.created),
       last_active: lastActive(store, id), workdir,

@@ -1,10 +1,40 @@
 import type { Root } from 'hast';
 import type { Parent, Root as MarkdownRoot, Text } from 'mdast';
-import type { PluggableList } from 'unified';
+import type { PluggableList, Processor } from 'unified';
+import type { Token, Tokenizer } from 'micromark-util-types';
+import { attention } from 'micromark-core-commonmark';
+import { unicodePunctuation } from 'micromark-util-character';
 import type { VFile } from 'vfile';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math-extended';
 import rehypeKatex from 'rehype-katex';
+
+/** CommonMark cannot close `。**首响`: Han text may abut a strong marker
+ * whose inside edge is punctuation. Keep the parser's pairing, escaping and
+ * nested inline handling; only relax these two Chinese strong boundaries. */
+function remarkChineseStrong(this: Processor) {
+  const data = this.data();
+  const han = (code: number | null) => code !== null && code >= 0 && /\p{Script=Han}/u.test(String.fromCodePoint(code));
+  const tokenize: Tokenizer = function (effects, ok, nok) {
+    const previous = this.previous;
+    let sequence: Token;
+    return attention.tokenize.call(this, {
+      ...effects,
+      exit(type) {
+        const token = effects.exit(type);
+        if (type === 'attentionSequence') sequence = token;
+        return token;
+      },
+    }, code => {
+      if (sequence.end.offset - sequence.start.offset === 2) {
+        if (han(code) && unicodePunctuation(previous)) sequence._close = true;
+        if (han(previous) && unicodePunctuation(code)) sequence._open = true;
+      }
+      return ok(code);
+    }, nok);
+  };
+  (data.micromarkExtensions ??= []).push({ text: { 42: { ...attention, tokenize } } });
+}
 
 // What touches underscore emphasis that is part of a path: a separator
 // before it, a separator or a file extension after it.
@@ -63,6 +93,7 @@ function remarkUrlPunctuation() {
 
 export const markdownRemarkPlugins: PluggableList = [
   remarkGfm,
+  remarkChineseStrong,
   remarkUrlPunctuation,
   [remarkMath, { backslashDelimiters: true, singleDollarTextMath: false }],
   remarkPathUnderscores,

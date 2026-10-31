@@ -2602,9 +2602,7 @@
         "message_id": "message id",
         "payload_schema_version": 1,
         "steps": [
-          {
-            "value": "recorded"
-          }
+          "step"
         ],
         "text": "Renderer event detail",
         "ts": 1700000172,

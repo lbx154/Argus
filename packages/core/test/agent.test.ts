@@ -267,7 +267,10 @@ for (const backend of ['codex', 'claude'] as const) {
 
 test('codex: the words a role writes are told as they come, none once said, and of its form its letter so far', async () => {
   const words: string[] = [];
-  await call('codex', { output: handoff }, { onWords: text => words.push(text) });
+  const kinds: Array<string | undefined> = [];
+  await call('codex', { output: handoff }, { onWords: (text, kind) => { words.push(text); kinds.push(kind); } });
+  assert.deepEqual(kinds.slice(0, 2), ['process', 'process']);
+  assert.ok(kinds.slice(3).every(kind => kind === 'answer'));
   // Not a subagent's: its words are its own.
   assert.deepEqual(words.slice(0, 3), ['Work', 'Working on it.', '']);
   const letter = words.slice(3);

@@ -15,7 +15,10 @@ import { BACKENDS, type Backend } from './types.js';
 
 const USAGE = `Usage: argus [--host H] [--port N] [--preview-url URL] [--backend codex|claude|copilot|pi] [--model M] [--web DIR] [--version]
 Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), at the address it prints.
-Static previews use the next port; --preview-url sets their public origin behind a proxy.
+Local previews use <identifier>.localhost on the browser-facing cockpit port.
+LAN/mobile previews fall back to port + 1 with shared preview storage.
+--preview-url is an HTTP(S) origin template, e.g. https://js-trial1-*.argusbot.cn.
+Forwarding must preserve Host and Origin.
 The team works through the --backend CLI (codex unless chosen), which must be installed and signed in.
 Work stops when this process exits; the next start resumes projects that were running. Closing the browser leaves work running.
 ARGUS_WEB_TOKEN: the token the cockpit asks for; unset, the one kept in the state root. ARGUS_HOME: the state root (~/.argus).
@@ -42,7 +45,7 @@ async function main(): Promise<void> {
   const token = process.env.ARGUS_WEB_TOKEN || kept(join(store.home, 'web-token'));
   const served = await serve({
     store, callAgent, backend, model: values.model ?? null, host: values.host, port: Number(values.port), token,
-    ...(values['preview-url'] ? { previewUrl: values['preview-url'] } : {}),
+    ...(values['preview-url'] !== undefined ? { previewUrl: values['preview-url'] } : {}),
     web: resolve(values.web ?? fileURLToPath(new URL('../web', import.meta.url))),
   }).catch((error: unknown) => { release(); throw error; });
   process.stdout.write(`Argus is at ${served.url}/?token=${encodeURIComponent(token)}\n`);

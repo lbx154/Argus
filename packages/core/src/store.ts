@@ -55,7 +55,8 @@ export interface Failure {
 
 export interface OperatorMessage { text: string; request_id?: string; attachments?: UploadedAttachment[] }
 
-export type ManagerLetter = string | OperatorMessage;
+/** Team letters have a durable identity independent of their text or recipient's session. */
+export type ManagerLetter = string | (OperatorMessage & { input_id?: string });
 
 export interface Project {
   id: string;
@@ -96,11 +97,11 @@ export type FlowEvent =
   /** The operator's words: to the Manager, or to the role whose question they answer. */
   | ({ type: 'message'; from: 'operator'; to?: Role; task?: string } & OperatorMessage)
   /** A Manager turn on an operator message, and the letter that ends it, name the message they answer. */
-  | { type: 'call.start'; role: Role; task?: string; answers?: string }
+  | { type: 'call.start'; role: Role; task?: string; answers?: string; input_id?: string }
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }
   /** A delivered result's files (`open`), each as it was then (`snapshots`). */
-  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[]; title?: string; answers?: string }
+  | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[]; title?: string; answers?: string; input_id?: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
   | ({ type: 'step'; role: Role; task?: string } & Step)

@@ -1,10 +1,9 @@
 // HTML results are served unchanged on a separate origin. The cockpit alone grants an
-// unguessable project/delivery path; this listener has neither credentials nor API routes.
+// unguessable project/delivery hostname; this host has neither credentials nor API routes.
 
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { createServer, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import { pipeline, Readable } from 'node:stream';
 import { promisify } from 'node:util';
@@ -16,15 +15,43 @@ import { HttpError, requestOrigin, type Context, type Handler } from './index.js
 const BUNDLE_BYTES = 2 ** 31;
 const deflate = promisify(deflateRaw);
 
-export async function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, listenPort: number, publicUrl?: string) {
-  const source = publicUrl ? new URL(publicUrl) : undefined;
-  if (source && (!['http:', 'https:'].includes(source.protocol) || source.username || source.password
-    || source.pathname !== '/' || source.search || source.hash)) throw new Error('--preview-url must be an HTTP(S) origin, such as https://preview.example.com');
+export function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, publicUrl?: string) {
+  const source = publicUrl !== undefined ? new URL(publicUrl) : undefined;
+  // Validate the literal too: URL normalizes empty ?/#, encoded hosts and dot paths.
+  const template = /^https?:\/\/[a-z0-9*-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?\/?$/i.test(publicUrl ?? '');
+  const labels = source?.hostname.split('.') ?? [];
+  if (source && (!template || labels[0]!.split('*').length !== 2
+    || labels.some((label, i) => {
+      const filled = i ? label : label.replace('*', 'a'.repeat(32));
+      return !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(filled) || filled.length > 63;
+    }) || source.hostname.length + 31 > 253)) {
+    throw new Error('--preview-url must be an HTTP(S) origin template with one * in its first DNS label, such as https://js-trial1-*.argusbot.cn');
+  }
   const sites = new Map<string, { id: string; delivery: string | null; paths: Set<string> }>();
-  const server = createServer((request, response) => {
+  const [before, after] = (source?.hostname ?? '*.localhost').split('*') as [string, string];
+  // The entire template namespace is static-only, including unknown identifiers.
+  const keyOf = (hostname: string) => {
+    const name = hostname.replace(/\.$/, '');
+    return name.startsWith(before) && name.endsWith(after) ? name.slice(before.length, name.length - after.length) : '';
+  };
+  const isHost = (hostname: string) => /^[a-z0-9-]+$/.test(keyOf(hostname));
+  let fallback: ReturnType<typeof createServer> | undefined;
+  let fallbackPort: number | undefined;
+  let listening: Promise<void> | undefined;
+  const isOrigin = (origin: string) => {
     try {
+      const url = new URL(origin);
+      return !['http:', 'https:'].includes(url.protocol) || isHost(url.hostname)
+        || !!fallbackPort && Number(url.port || (url.protocol === 'https:' ? 443 : 80)) === fallbackPort;
+    } catch { return true; }
+  };
+  const handle = (request: IncomingMessage, response: ServerResponse, keyedPath = false) => {
+    try {
+      const incoming = requestOrigin(request);
       const url = new URL(request.url ?? '/', 'http://localhost');
-      const [, key, path = ''] = /^\/([^/]+)(?:\/(.*))?$/.exec(url.pathname) ?? [];
+      const [, pathKey, rest = ''] = /^\/([^/]+)(?:\/(.*))?$/.exec(url.pathname) ?? [];
+      const key = keyedPath ? pathKey : keyOf(incoming.hostname);
+      const path = keyedPath ? rest : url.pathname.slice(1);
       const site = key && sites.get(key);
       if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'Not Found');
       const name = decodeURIComponent(path);
@@ -48,13 +75,6 @@ export async function preview(project: (id: string) => Project, result: (work: P
     } catch (error) {
       response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500).end();
     }
-  });
-  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(listenPort, host, resolve))
-    .catch((error: unknown) => { throw new Error(`Preview server could not listen on ${host}:${listenPort}: ${error instanceof Error ? error.message : String(error)}`); });
-  const port = (server.address() as AddressInfo).port;
-  const close = async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   };
   const html = ({ params: [id], url }: Context) => {
     const work = project(id!);
@@ -62,16 +82,33 @@ export async function preview(project: (id: string) => Project, result: (work: P
     const delivery = url.searchParams.get('delivery');
     const found = result(work, path, delivery);
     if (!found || typeOf(found.file, found.path)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
-    return { work, path, delivery, found };
+    return { work, path, delivery };
   };
   const routes: [string, RegExp, Handler][] = [
-    ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, context => {
+    ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, async context => {
       const { work, path, delivery } = html(context);
       let key = [...sites].find(([, site]) => site.id === work.id && site.delivery === delivery)?.[0];
-      if (!key) { key = randomBytes(24).toString('base64url'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
-      const url = new URL(source?.origin ?? requestOrigin(context.request));
-      if (!source) url.port = String(port);
-      url.pathname = `/${key}/${path.split('/').map(encodeURIComponent).join('/')}`;
+      if (!key) { key = randomBytes(16).toString('hex'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
+      const incoming = requestOrigin(context.request);
+      const local = ['127.0.0.1', 'localhost', '[::1]'].includes(incoming.hostname);
+      const url = new URL(source?.origin ?? incoming.origin);
+      if (source || local) {
+        url.hostname = before + key + after;
+        if (!source) url.protocol = 'http:';
+      } else {
+        // LAN/mobile browsers resolve localhost to their own machine. Preserve the older
+        // keyed-path static listener there; its projects share storage, unlike subdomains.
+        if (!listening) {
+          fallbackPort = context.request.socket.localPort! + 1;
+          fallback = createServer((req, res) => handle(req, res, true));
+          listening = new Promise<void>((accept, reject) => fallback!.once('error', reject).listen(fallbackPort, host, accept));
+        }
+        await listening;
+        url.protocol = 'http:';
+        url.port = String(fallbackPort);
+      }
+      const name = relative(work.workdir, resolve(work.workdir, path)).split(sep).join('/');
+      url.pathname = `${source || local ? '' : '/' + key}/${name.split('/').map(encodeURIComponent).join('/')}`;
       return { url: url.href };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/bundle$/, context => {
@@ -116,7 +153,11 @@ export async function preview(project: (id: string) => Project, result: (work: P
       sendZip(response, zipName(String(name ?? '')), entries);
     }],
   ];
-  return { routes, close, port, origin: source?.origin };
+  return { routes, handle, isHost, isOrigin, close: async () => {
+    if (!fallback) return;
+    fallback.closeAllConnections();
+    await new Promise<void>(accept => fallback!.close(() => accept()));
+  } };
 }
 
 /** A zip's name from the one asked for: no character a file system refuses, at most 80 of them. */

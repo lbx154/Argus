@@ -1909,7 +1909,7 @@ export interface UiArgusEvent extends EventMsg {
   "agent_layer"?: string;
   "message_id": string;
   "text": string;
-  "steps"?: Array<Record<string, unknown>>;
+  "steps"?: Array<string>;
   "delivery"?: DeliveryReceiptPayload;
 }
 

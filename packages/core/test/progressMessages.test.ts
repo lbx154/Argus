@@ -21,10 +21,13 @@ test('new real-service reproduction retains every Manager/Planner message and qu
     const rows = conversationRows(reading, project, idle);
     assert.deepEqual(rows, conversationRows(projectRecord(prefix), project, idle));
     const expected = prefix.filter(event => messages.includes(event as typeof messages[number]));
-    const progress = rows.filter(row => row.type === 'ui.argus' && messages.some(event => event.text === row.text));
-    assert.deepEqual(progress.map(row => row.text), expected.map(event => (event as typeof messages[number]).text));
-    assert.equal(new Set(progress.map(row => row.row_id)).size, expected.length);
-    assert.ok(progress.every(row => !row.request_id && !row.live && !row.to));
+    const retained = rows.filter(row => row.type === 'ui.argus').flatMap(row => [
+      ...(row.steps as string[] | undefined ?? []),
+      ...messages.some(event => event.text === row.text) ? [String(row.text)] : [],
+    ]);
+    assert.deepEqual(retained.slice().sort(), expected.map(event => (event as typeof messages[number]).text).sort());
+    const replies = rows.filter(row => row.type === 'ui.argus' && row.request_id);
+    assert.equal(new Set(replies.map(row => row.request_id)).size, replies.length);
   }
   const rows = conversationRows(projectRecord(record), project, idle);
   const paged = [];
@@ -55,4 +58,12 @@ test('task card waits for the Manager and takes only the first selected result; 
   // A report with no selected files does not fall back to internal task files.
   const noFiles = record.map(event => event === record[delivery] ? { ...event, open: [] } : event) as Recorded[];
   assert.deepEqual(task(noFiles).result_paths, []);
+});
+
+test('entire recorded delivery uses one heading per Manager call, with all Planner words under the original brief', () => {
+  const replies = conversationRows(projectRecord(record), project, idle).filter(row => row.type === 'ui.argus');
+  assert.equal(replies.length, 2);
+  assert.deepEqual(replies[0]!.steps, messages.filter(event => event.role === 'planner' || record.indexOf(event) < 5).map(event => event.text));
+  assert.deepEqual(replies[1]!.steps, ['报告已整理好，可以带去讨论补岗试点。']);
+  assert.equal(replies[1]!.text, '客服分析已完成，建议试行工作日下午补岗。');
 });

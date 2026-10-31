@@ -168,10 +168,27 @@ and files; their original progress and closing letters stay available in the tas
 The code workspace is the workdir, read-only: its tree, which the composer's `@` completion lists
 too, a file's text or bytes, and what the system `git` says of it when the workdir is a
 repository of its own. A path there passes the check a result's does: inside the workdir, not
-hidden. An HTML result is served unchanged under an unguessable project/delivery path on a separate
-static origin, using the cockpit port plus one. Behind a proxy, `--preview-url` supplies its
-public origin; otherwise URLs use the request's protocol and hostname with the preview port.
-The static listener has no cockpit API or credentials, and the API rejects preview origins.
+hidden. An HTML result is served unchanged on a random project/delivery hostname. Identifiers are
+32 lowercase hexadecimal characters, regenerated on service restart. For cockpit requests
+at `127.0.0.1`, `localhost` or `[::1]`, the default is `http://<identifier>.localhost`
+on the browser-facing request Host port, sharing the cockpit listener. Bare loopback names
+always remain cockpit hosts. Chrome and Firefox resolve these subdomains locally; older
+Safari/macOS versions may require a configured preview domain.
+`--preview-url` supplies an HTTP(S) origin template with exactly one `*` in the first DNS
+label (e.g. `https://js-trial1-*.argusbot.cn`); no credentials, path, query or fragment.
+Matched hosts serve only the identifier's workspace/delivery files, without cockpit pages or
+API. Absolute asset paths start at the workspace root. Project/delivery subdomains separate
+localStorage, IndexedDB and caches; iframe storage may be partitioned from top-level storage.
+Without a template, LAN/mobile requests retain the independent static listener at the server's
+cockpit port + 1 and a keyed path. This fallback separates cockpit localStorage but **shares
+preview storage between projects/deliveries**; cookies do not separate by port. Forward that
+second port for remote access, or configure a wildcard template for full storage isolation.
+API Origin rejection uses the same preview hostname matcher and rejects the fallback port.
+Proxies must preserve Host and Origin. Hosted deployment additionally needs wildcard DNS/TLS,
+Host-based tenant routing for preview GET/HEAD without cookies or bearer credentials, and
+`__Host-` portal cookies (only accept that cookie name) against sibling-domain cookie injection.
+A proxy replacing Host with localhost is indistinguishable from local access: set the template
+at tenant startup. If it strips Origin, its own origin check must enforce the API boundary.
 Website downloads contain the page and files that preview has served, removing their common
 parent directories while preserving relative paths. Results chosen together download in a
 separate zip. A task
@@ -252,20 +269,40 @@ each); Pi from each assistant message's `usage`, with `cost.total` as the cost.
 The call ledger, `usage.jsonl`, records each call's end time (`ts`, epoch seconds),
 role, model, token counts, nullable cost and elapsed `ms`. The shared record reader folds
 complete appended lines and retains one summary until more usage arrives. The sidebar's
-project row and the snapshot's `usage_summary` use that same summary. Its `by_role`,
+project row and the snapshot's `usage_summary` share its recorded totals; the snapshot
+extends the duration with live calls. Its `by_role`,
 `by_model` and `by_date` arrays partition the calls (a missing identity is `null`);
 dates are UTC. Each group carries the same counts, known cost and pricing completeness
 as the total. An unknown price remains unknown; zero is a reported price.
 
 `usage_summary.work_duration_ms` is the union of intervals `[ts * 1000 - ms, ts * 1000]`.
-Parallel calls count once and gaps count zero. Only calls recorded in the usage ledger
-contribute; calls without usage, and older lines without a duration or valid timestamp,
-add no time. `calls_without_duration` counts the latter, so the page can mark the duration
-as a lower bound. Calls still running enter the total when their usage is recorded.
+Parallel calls count once and gaps count zero. Completed calls contribute through the
+usage ledger; each live call also contributes
+`[started_ts * 1000, read_at]` at snapshot time. Completed calls without usage, and older
+lines without a duration or valid timestamp, add no time. `calls_without_duration` counts
+the latter, so the page can mark the duration as a lower bound. The header reuses the
+elapsed clock to extend the union after `read_at` while live calls remain; a new snapshot replaces this reading when calls start or end.
 
-Manager and Planner message steps remain as Argus messages in the conversation,
-including questions said while work continues. Each keeps its event identity across
-completion, pagination and reload. Conversation and map task cards show only the
+A Manager call owns one reply row. Its `answers` names the operator request;
+team letters in `forManager` carry an `input_id` that their calls and handoffs
+retain across recovery and form correction. Each input owns a reply and its
+position beside the incoming letter, including when another input is handled
+before it resumes. Legacy pending strings are associated with their unaccepted
+incoming letters and original calls before they receive an input identity. Migration
+and projection share the input fold. A completed first attempt with a session
+retains its input for one form correction before taking queued letters. Message
+steps accumulate in the reply's `steps` string array,
+and the handoff supplies `text` and its addressee. Planner calls attach their
+message steps to the reply that briefed them, through incoming letters and task
+associations. Role logs retain each recorded step separately in record order.
+A call retains its reply association until its accepted handoff is recorded, including
+failure recovery and form correction. Reply positions and steps survive completion,
+interruption, paging and reload; a reply containing only steps remains visible.
+Live words carry their kind: process words append to `steps`, while form letter
+words supply `text`. A handoff to the Planner or Engineer folds its letter body;
+the reply heading and process questions remain visible. Search opens that body.
+
+Conversation and map task cards show only the
 first file in the Manager's delivery for the request that opened their work; they
 show no result before that delivery. The task detail reader retains the team's
 full file selections and original letters.

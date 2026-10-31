@@ -1,3 +1,4 @@
+import { useElapsed } from '../map/LiveLine';
 import { WorkspaceHeader } from './WorkspaceShell';
 import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot } from '../api';
@@ -66,10 +67,13 @@ export function TopBar({
   const statusWords = workStatusLabel(work, locale);
   const activityAt = work.activityAt ?? snap.session.last_active;
   const spendLabel = spendEstimateLabel({ spendUsd: snap.spend_usd ?? null, spendStatus: snap.spend_status }, locale === 'zh-CN');
+  // All live intervals reach read_at, so their union grows once per elapsed
+  // second, regardless of how many calls overlap. Reuse the reply's clock.
+  const elapsed = useElapsed(snap.daemon.calls?.length && snap.read_at != null ? snap.read_at / 1000 : null);
   const duration = snap.usage_summary && <span data-work-duration title={locale === 'zh-CN'
-    ? '合并有用量记录的调用区间；重叠只计一次，间歇不计；缺失时长的旧调用未计入。'
-    : 'Union of calls with usage records; overlaps count once, gaps and calls without durations add no time.'}>
-    {workDurationLabel(snap.usage_summary.work_duration_ms, locale === 'zh-CN', snap.usage_summary.calls_without_duration > 0)}
+    ? '合并有用量记录及正在进行的调用区间；重叠只计一次，间歇不计；缺失时长的旧调用未计入。'
+    : 'Union of calls with usage records and calls in progress; overlaps count once, gaps and calls without durations add no time.'}>
+    {workDurationLabel(snap.usage_summary.work_duration_ms + Math.max(0, elapsed ?? 0) * 1000, locale === 'zh-CN', snap.usage_summary.calls_without_duration > 0)}
   </span>;
   const healthTitle = snapshotStale
     ? t('common.stale')
