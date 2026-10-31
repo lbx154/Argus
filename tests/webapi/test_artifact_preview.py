@@ -2,6 +2,7 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
+import pytest
 from fastapi.testclient import TestClient
 
 from argus.core.session import SessionMeta, write_session_meta
@@ -23,33 +24,27 @@ def site(root: Path) -> Path:
     return entry
 
 
-def test_confines_assets_and_rejects_private_files_even_through_symlinks(tmp_path):
+@pytest.mark.parametrize("use_symlinks", [False, True])
+def test_confines_assets_and_rejects_private_files_even_through_symlinks(tmp_path, request, use_symlinks):
+    if use_symlinks:
+        request.getfixturevalue("require_symlink_support")
     root = tmp_path / "site"
     root.mkdir()
     (tmp_path / "outside.js").write_text("OUTSIDE_SECRET")
     (root / "secret.js").write_text("INSIDE_SECRET")
     (root / ".hidden").mkdir()
     (root / ".hidden" / "app.js").write_text("HIDDEN_SECRET")
-    (root / "linked.js").symlink_to(tmp_path / "outside.js")
-    (root / "innocent.js").symlink_to(root / ".hidden" / "app.js")
+    paths = ["../outside.js", "%2e%2e/outside.js", "secret.js", ".hidden/app.js"]
+    if use_symlinks:
+        (root / "linked.js").symlink_to(tmp_path / "outside.js")
+        (root / "innocent.js").symlink_to(root / ".hidden" / "app.js")
+        paths.extend(["linked.js", "innocent.js"])
     entry = root / "index.html"
-    entry.write_text(
-        "".join(
-            f'<script src="{path}"></script>'
-            for path in [
-                "../outside.js",
-                "%2e%2e/outside.js",
-                "linked.js",
-                "innocent.js",
-                "secret.js",
-                ".hidden/app.js",
-            ]
-        )
-    )
+    entry.write_text("".join(f'<script src="{path}"></script>' for path in paths))
     package = HtmlPackage(entry)
     result = package.build()
     assert set(package.files) == {"index.html"}
-    assert len(result["warnings"]) == 6
+    assert len(result["warnings"]) == len(paths)
     assert "SECRET" not in result["html"]
 
 
