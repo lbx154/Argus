@@ -4,18 +4,15 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { add, catalog, packsHome, remove } from '../packs.js';
-import { purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
+import { add, catalog, installed, remove } from '../packs.js';
+import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
 
 export function library(store: Store): [string, RegExp, Handler][] {
   return [
-    ['GET', /^\/api\/skill-packs$/, async () => ({ packs: (await catalog()).map(pack => {
-      const installed = skills(store.home).find(([name, dir]) => name === pack.name && dirname(dir) === packsHome(store.home));
-      return { ...pack, installed_version: installed ? purpose(installed[1], 'version') : null };
-    }) })],
+    ['GET', /^\/api\/skill-packs$/, async () => ({ packs: (await catalog()).map(pack => ({ ...pack, installed_version: installed(store.home, pack.name) })) })],
     ...(['add', 'remove'] as const).map(action => ['POST', new RegExp(`^/api/skill-packs/${action}$`), async ({ body }) => {
       const { name } = await body();
       if (typeof name !== 'string') throw new HttpError(400, 'Pack name required');

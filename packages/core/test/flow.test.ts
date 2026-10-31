@@ -1,4 +1,3 @@
-import { packsHome } from '../src/packs.js';
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
@@ -11,7 +10,7 @@ import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
 import { conversationRows, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
-import { SKILLS } from '../src/prompts.js';
+import { packsHome, SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */

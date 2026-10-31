@@ -2,15 +2,14 @@
 // `argus`: the web cockpit, where projects are started, talked to and followed. The work of its
 // projects runs in this process.
 import { randomBytes } from 'node:crypto';
-import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { callAgent } from './agent/call.js';
 import { notInstalled } from './agent/sandbox.js';
 import { serve } from './serve/index.js';
-import { add, catalog, packsHome, remove } from './packs.js';
-import { purpose, SKILL } from './prompts.js';
+import { add, catalog, installed, remove } from './packs.js';
 import { Store } from './store.js';
 import { BACKENDS, type Backend } from './types.js';
 
@@ -44,9 +43,7 @@ async function main(): Promise<void> {
     if (command !== 'skills' || positionals.length > 3) throw new Error(USAGE);
     if (!action) {
       for (const pack of await catalog()) {
-        const dir = resolve(packsHome(store.home), pack.name);
-        const version = lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile() ? purpose(dir, 'version') : '-';
-        process.stdout.write(`${pack.name}\t${pack.version}\t${version}\t${pack.description_zh ?? pack.description}\t${pack.needs.join(', ')}\n`);
+        process.stdout.write(`${pack.name}\t${pack.version}\t${installed(store.home, pack.name) ?? '-'}\t${pack.description_zh ?? pack.description}\t${pack.needs.join(', ')}\n`);
       }
     } else if (name && action === 'add') await add(store.home, name);
     else if (name && action === 'remove') await remove(store.home, name);
