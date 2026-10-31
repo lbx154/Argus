@@ -6,6 +6,7 @@ import { api, type SkillCatalog, type SkillLibraryItem } from '../api';
 import { useI18n } from '../i18n';
 import { skillPresentation, skillSearchText } from '../lib/libraryPresentation';
 import { KnowledgeFeedList, useKnowledgeFeed } from './KnowledgeFeed';
+import { TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 
@@ -66,11 +67,13 @@ function LearningBrowser({ sid, initialScope, onUse }: {
   const labels = learningScopeLabels[locale];
   const [scope, setScope] = useState(initialScope);
   const [search, setSearch] = useState('');
-  const [selection, setSelection] = useState<string | null>(null);
+  const [selection, setSelection] = useState<SkillLibraryItem | null>(null);
   const skills = useQuery({ ...libraryQuery, queryKey: ['skill-library', sid], queryFn: ({ signal }) => api.skillLibrary(sid, signal) });
   const feed = useKnowledgeFeed(scope === 'feed');
   const all = learningEntries(skills.data, scope);
-  const selected = all.find(entry => entry.id === selection);
+  const selected = selection && (all.find(entry => entry.id === `skill/${selection.library}/${selection.path}`)
+    ?? { item: selection, id: `skill/${selection.library}/${selection.path}`, title: selection.name,
+      description: selection.description, path: selection.path, updated: selection.updated_at ?? 0, search: '' });
   const skill = selected?.item;
   const skillDocument = useQuery({
     queryKey: ['skill-document', sid, skill?.library, skill?.path, skill?.updated_at],
@@ -81,8 +84,8 @@ function LearningBrowser({ sid, initialScope, onUse }: {
   });
   const query = search.trim().toLocaleLowerCase();
   const entries = all.filter(entry => !query || entry.search.includes(query));
-  const location = (entry: Entry) => entry.item.source === 'bundled' ? (zh ? '自带' : 'Bundled') : (zh ? '团队' : 'Team');
-  const kind = zh ? '技能' : 'Skill';
+  const location = (entry: Entry) => ({ bundled: zh ? 'Argus 自带' : 'Argus bundled', store: zh ? '商店' : 'Store', shared: zh ? '团队' : 'Team' })[entry.item.source];
+  const kind = (path: string) => path.endsWith('SKILL.md') ? (zh ? '技能' : 'Skill') : (zh ? '文档' : 'Document');
   const document = skillDocument;
   const body = document.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
   const pick = (next: LearningScope) => { setScope(next); setSelection(null); };
@@ -109,14 +112,14 @@ function LearningBrowser({ sid, initialScope, onUse }: {
             {feed.isPending && <p className="p-3 text-xs text-ink-faint">{zh ? '正在加载学习记录…' : 'Loading learning records…'}</p>}
             {feed.isError && <p role="alert" className="p-3 text-xs text-err">{zh ? '学习记录无法加载。' : 'Learning records could not load.'} <button className="underline" onClick={() => void feed.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
             {feed.data && <KnowledgeFeedList events={feed.data.events} items={skills.data?.items ?? []} query={search}
-              selected={skill} onSelect={item => { setScope('global'); setSelection(`skill/${item.library}/${item.path}`); }} />}
+              selected={skill} onSelect={setSelection} />}
             <h3 className="px-3 py-2 text-xs font-medium text-ink-faint">{zh ? '文件更新' : 'File updates'}</h3>
           </>}
           {skills.isPending && <p className="p-3 text-xs text-ink-faint">{zh ? '正在加载资料…' : 'Loading material…'}</p>}
           {!skills.isPending && !skills.isError && !entries.length && <p className="p-3 text-sm text-ink-faint">{zh ? '当前分类或筛选条件下没有资料。' : 'No material matches this category or filter.'}</p>}
-          {entries.map(entry => <button key={entry.id} type="button" onClick={() => setSelection(entry.id)} aria-pressed={selected?.id === entry.id}
+          {entries.map(entry => <button key={entry.id} type="button" onClick={() => setSelection(entry.item)} aria-pressed={selected?.id === entry.id}
             className={`block w-full rounded-md px-3 py-3 text-left ${selected?.id === entry.id ? 'bg-blue/10' : 'hover:bg-bg'}`}>
-            <span className="flex items-baseline gap-2"><span className="shrink-0 rounded bg-line/60 px-1.5 text-[10px] text-ink-dim">{kind}</span>
+            <span className="flex items-baseline gap-2"><span className="shrink-0 rounded bg-line/60 px-1.5 text-[10px] text-ink-dim">{kind(entry.path)}</span>
               <span className="break-words text-sm font-medium text-ink">{entry.title}</span></span>
             {entry.description && <span className="mt-1 block line-clamp-2 text-xs text-ink-dim">{entry.description}</span>}
             <span className="mt-1 block text-[11px] text-ink-faint">{location(entry)}</span>
@@ -128,7 +131,7 @@ function LearningBrowser({ sid, initialScope, onUse }: {
         {selected ? <>
           <button type="button" className="mb-4 text-sm text-blue md:hidden" onClick={() => setSelection(null)}>{zh ? '← 返回列表' : '← Back to the list'}</button>
           <h3 className="break-words text-lg font-semibold text-ink">{selected.title}</h3>
-          <p className="mt-1 text-xs text-ink-faint">{kind} · {location(selected)}</p>
+          <p className="mt-1 text-xs text-ink-faint">{kind(selected.path)} · {location(selected)}</p>
           <p className="mt-1 break-all text-xs text-ink-faint">{selected.path}</p>
           {sid && onUse && <div className="mt-4 flex flex-wrap items-center gap-3">
             <button type="button" disabled={!document.data || document.isError || document.isPending}
@@ -143,7 +146,9 @@ function LearningBrowser({ sid, initialScope, onUse }: {
           <div className="mt-5 border-t border-line/60 pt-5 text-sm text-ink">
               {document.isPending && <p>{zh ? '正在加载全文…' : 'Loading document…'}</p>}
               {document.isError && <div role="alert" className="text-err"><ErrorMessage error={document.error} /> <button className="underline" onClick={() => void document.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
-              {document.data && <MarkdownContent>{body ?? ''}</MarkdownContent>}
+              {document.data && (selected.path.endsWith('.tsv')
+                ? <TablePreview value={document.data.content} delimiter={'\t'} />
+                : <MarkdownContent>{body ?? ''}</MarkdownContent>)}
           </div>
         </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择一份资料查看。' : 'Select material to read it.'}</div>}
       </article>

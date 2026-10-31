@@ -92,3 +92,28 @@ it('renders the skill body without front matter and does not repeat the global s
 });
 
 afterEach(() => { if (view) act(() => view!.unmount()); view = undefined; client.clear(); vi.useRealTimers(); });
+
+it('opens every feed path directly in the team library, including TSV and unlisted documents', async () => {
+  vi.mocked(api.knowledgeFeed).mockResolvedValue({ events: [
+    { ts: 3, path: 'runs/p-one.tsv', title: 'runs/p-one.tsv' },
+    { ts: 2, path: 'notes/plain.txt', title: 'Plain document' },
+  ] });
+  vi.mocked(api.skillDocument).mockImplementation(async (_sid, _library, path) => ({ content: path.endsWith('.tsv')
+    ? 'run\tchange\nr1\tSay "hello"\n' : 'Exact plain document' }));
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
+  act(() => view!.root.findAllByProps({ 'data-feed-title': true }).find(node => content(node) === 'runs/p-one.tsv')!.props.onClick()); await settle();
+  expect(api.skillDocument).toHaveBeenLastCalledWith('s-A', 'shared', 'runs/p-one.tsv', expect.any(AbortSignal));
+  expect(view!.root.findAllByType('table')).toHaveLength(1);
+  expect(view!.root.findAllByType('td').map(content)).toEqual(['r1', 'Say "hello"']);
+  expect(view!.root.findByType('nav').findAllByType('button')[0].props['aria-pressed']).toBe(true);
+  act(() => view!.root.findAllByProps({ 'data-feed-title': true }).find(node => content(node) === 'Plain document')!.props.onClick()); await settle();
+  expect(api.skillDocument).toHaveBeenLastCalledWith('s-A', 'shared', 'notes/plain.txt', expect.any(AbortSignal));
+  expect(content(view!.root.findByProps({ 'data-original': true }))).toBe('Exact plain document');
+});
+
+it('shows each source label and the original English description in Chinese', async () => {
+  vi.mocked(api.skillLibrary).mockResolvedValue({ items: [builtin, custom, { ...builtin, name: 'installed', library: 'store', source: 'store' }] });
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
+  const text = content(view!.root.findByType('aside'));
+  for (const label of ['Argus 自带', '商店', '团队', 'Original English description']) expect(text).toContain(label);
+});

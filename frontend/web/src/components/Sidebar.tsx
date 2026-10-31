@@ -142,7 +142,7 @@ export function Sidebar({
   // The skill library is under Advanced.
   const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
   const toggleAdvanced = () => setAdvancedOpen((open) => { writeLocalStorage(ADVANCED_KEY, open ? 'closed' : 'open'); return !open; });
-  const openKnowledge = onOpenLearning ? () => onOpenLearning('global') : undefined;
+  const openKnowledge = onOpenLearning;
   const resultsLabel = zh ? '本项目成果' : 'This project’s results';
   const spendHint = `${SPEND_ESTIMATE_HINT[zh ? 'zh' : 'en']} ${zh ? '不含进行中的调用。' : 'Excludes calls in progress.'}`;
   const totalSpend = spendEstimateLabel(projectSpendTotal(projects), zh, true) || '—';

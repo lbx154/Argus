@@ -622,3 +622,9 @@ describe('shared frontend core', () => {
 
 
 });
+
+it('preserves literal quotes and blank cells in tab-separated documents', () => {
+  for (const newline of ['\n', '\r\n', '\r']) expect(parseDelimited(`run\tchange\tparent${newline}r1\tSay "hello"\t${newline}`, '\t')).toEqual([
+    ['run', 'change', 'parent'], ['r1', 'Say "hello"', ''],
+  ]);
+});
