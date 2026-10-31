@@ -35,7 +35,7 @@ describe('sidebar skill entry', () => {
       });
       const entry = view!.root.findAll((node) => node.type === 'button' && node.props['aria-label'] === 'Skill library')[0];
       act(() => entry.props.onClick());
-      expect(onOpenLearning).toHaveBeenCalledWith('global');
+      expect(onOpenLearning).toHaveBeenCalledWith('feed');
     } finally {
       act(() => view!.unmount());
       client.clear();

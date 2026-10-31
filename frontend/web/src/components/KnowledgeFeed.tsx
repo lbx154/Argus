@@ -16,7 +16,7 @@ export function useKnowledgeFeed(enabled = true, limit = KNOWLEDGE_FEED_LIMIT) {
   });
 }
 
-/** The team's changed skill files, newest first. */
+/** The team's changed files, newest first. */
 export function KnowledgeFeedList({ events, items, query = '', onSelect, selected }: {
   events: KnowledgeEvent[];
   items: SkillLibraryItem[];
@@ -36,17 +36,16 @@ export function KnowledgeFeedList({ events, items, query = '', onSelect, selecte
   }
   return <ol className="space-y-1" aria-label={zh ? '学习动态' : 'Learning feed'}>
     {rows.map(event => {
-      const item = items.find(item => item.source !== 'bundled' && item.path === event.path);
-      const active = Boolean(item && selected && item.library === selected.library && item.path === selected.path);
+      const item = items.find(item => item.library === 'shared' && item.path === event.path)
+        ?? { library: 'shared', source: 'shared' as const, path: event.path, name: event.title || event.path, description: '', updated_at: event.ts };
+      const active = Boolean(selected && item.library === selected.library && item.path === selected.path);
       const label = event.title || event.path;
       return <li key={`${event.ts}/${event.path}`} className="rounded-md px-3 py-2.5" data-feed-row>
         <time className="text-[11px] text-ink-faint" dateTime={new Date(event.ts * 1000).toISOString()}>
           {formatCalendarTime(event.ts, zh ? 'zh-CN' : 'en')}
         </time>
-        {item
-          ? <button type="button" onClick={() => onSelect(item)} aria-pressed={active} data-feed-title
+        <button type="button" onClick={() => onSelect(item)} aria-pressed={active} data-feed-title
             className={`mt-1 block w-full break-words text-left text-sm font-medium hover:text-blue ${active ? 'text-blue' : 'text-ink'}`}>{label}</button>
-          : <span data-feed-title className="mt-1 block break-words text-sm font-medium text-ink" title={event.path}>{label}</span>}
       </li>;
     })}
   </ol>;

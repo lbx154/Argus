@@ -38,7 +38,7 @@ export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
 export interface SkillLibraryItem {
   library: string;
-  source: 'bundled' | 'shared';
+  source: 'bundled' | 'store' | 'shared';
   path: string;
   name: string;
   description: string;
