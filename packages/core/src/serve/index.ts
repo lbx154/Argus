@@ -455,8 +455,10 @@ export function requestOrigin(request: IncomingMessage): URL {
   const forwarded = request.headers['x-forwarded-proto']?.toString().split(',')[0]?.trim();
   const protocol = forwarded === 'http' || forwarded === 'https' ? forwarded
     : 'encrypted' in request.socket && request.socket.encrypted ? 'https' : 'http';
-  const host = request.headers.host;
-  if (!host || !/^(?:\[[0-9a-fA-F:]+\]|[a-zA-Z0-9._-]+)(?::[0-9]+)?$/.test(host)) throw new HttpError(400, 'invalid Host header');
+  const localAddress = request.socket.localAddress ?? '127.0.0.1';
+  const host = request.headers.host ?? (request.httpVersion === '1.0'
+    ? `${localAddress.includes(':') ? `[${localAddress}]` : localAddress}:${request.socket.localPort}` : undefined);
+  if (!host || !/^(?:\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9._-]+)(?::[0-9]+)?$/.test(host)) throw new HttpError(400, 'invalid Host header');
   try { return new URL(`${protocol}://${host}`); }
   catch { throw new HttpError(400, 'invalid Host header'); }
 }

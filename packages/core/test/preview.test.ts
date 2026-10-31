@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { request as httpRequest } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 
-async function setup(t: test.TestContext, options: { host?: string; previewUrl?: string } = {}) {
+async function setup(t: test.TestContext, options: { host?: string; previewUrl?: string; token?: string } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'argus-preview-host-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const store = new Store(home);
@@ -20,7 +21,7 @@ async function setup(t: test.TestContext, options: { host?: string; previewUrl?:
   t.after(() => server.close());
   const path = `/api/projects/${project.id}/artifact/preview?path=index.html`;
   const request = (host: string, pathName = path, method = 'GET', headers = {}) => new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const req = httpRequest(server.url + pathName, { method, setHost: false, headers: { host, ...headers } }, response => {
+    const req = httpRequest(server.url + pathName, { method, setHost: false, headers: { host, ...(options.token ? { authorization: `Bearer ${options.token}` } : {}), ...headers } }, response => {
       let body = '';
       response.on('data', chunk => { body += String(chunk); });
       response.on('end', () => resolve({ status: response.statusCode!, body }));
@@ -30,7 +31,7 @@ async function setup(t: test.TestContext, options: { host?: string; previewUrl?:
   return { server, path, request, store, project };
 }
 
-for (const host of ['127.0.0.1', 'localhost', '[::1]']) test(`cockpit Host ${host} without Origin retains cockpit and selects an isolated preview`, async t => {
+for (const host of ['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', '[::]', '[::ffff:127.0.0.1]']) test(`cockpit Host ${host} without Origin retains cockpit and selects an isolated preview`, async t => {
   const { server, path, request, store, project } = await setup(t);
   const port = new URL(server.url).port;
   const plain = new URL(JSON.parse((await request(`${host}:${port}`)).body).url);
@@ -109,7 +110,8 @@ test('malformed Host returns 400 without stack output and does not affect subseq
 
 test('HTTP(S) templates support full and partial first-label wildcards up to the DNS limit', async t => {
   for (const previewUrl of ['http://*.localhost:8799', 'https://*.preview.example.com',
-    'https://js-trial1-*.argusbot.cn', 'https://prefix*suffix.example.com', 'https://' + 'a'.repeat(31) + '*.example.com']) {
+    'https://js-trial1-*.argusbot.cn', 'https://prefix*suffix.example.com',
+    'https://*.' + [63, 63, 63, 28].map(n => 'a'.repeat(n)).join('.'), 'https://' + 'a'.repeat(31) + '*.example.com']) {
     const { request } = await setup(t, { previewUrl });
     const url = new URL(JSON.parse((await request('localhost')).body).url);
     assert.equal(url.hostname.split('.')[0]!.length <= 63, true);
@@ -129,8 +131,9 @@ test('--preview-url rejects credentials, non-HTTP protocols, paths, queries and 
     'https://*.example.com?key=secret', 'https://*.example.com#fragment', 'invalid', 'https://preview.example.com',
     'https://*.*.example.com', 'https://preview.*.example.com', 'https://**.example.com', 'https://*.example.com.',
     'https://foo_*.example.com', 'https://-*.example.com', 'https://*.example.com:99999', 'https://' + 'a'.repeat(32) + '*.example.com',
-    'https://%2a.example.com', 'http://*.localhost:', 'http://*.localhost:bad', 'https://*.example.com\t']) {
-    await assert.rejects(serve({ store: new Store(home), callAgent: () => assert.fail('no backend call'), backend: 'codex', model: null, port: 0, web: home, previewUrl }));
+    'https://*.' + [63, 63, 63, 29].map(n => 'a'.repeat(n)).join('.'),
+    'https://*-.example.com', 'https://%2a.example.com', 'http://*.localhost:', 'http://*.localhost:bad', 'https://*.example.com\t']) {
+    await assert.rejects(serve({ store: new Store(home), callAgent: () => assert.fail('no backend call'), backend: 'codex', model: null, port: 0, web: home, previewUrl }), /--preview-url must be an HTTP\(S\) origin template with one \* in its first DNS label/);
   }
 });
 
@@ -167,4 +170,80 @@ test('the CLI accepts --preview-url and rejects that origin at the cockpit API, 
   assert.equal((await fetch(`${url}/api/projects/${sid}/daemon/stop`, { method: 'POST', headers: { ...headers, origin: new URL(preview).origin, 'content-type': 'text/plain' }, body: '{}' })).status, 403);
   assert.equal((await fetch(url + '/api/meta', { headers: { ...headers, origin: new URL(preview).origin } })).status, 403);
   assert.equal((await fetch(`${url}/api/projects/${sid}/daemon/stop`, { method: 'POST', headers: { ...headers, origin: 'https://cockpit.example.com' } })).status, 200);
+});
+
+// Replays r25 input #3/#11: a real occupied P+1, followed by explicit requests after release.
+test('a failed LAN listener reports its port, clears state and binds on the next explicit request', async t => {
+  const { request, server } = await setup(t, { token: 'preview-test' });
+  const port = Number(new URL(server.url).port) + 1;
+  const blocker = createServer();
+  await new Promise<void>((resolve, reject) => blocker.once('error', reject).listen(port, '127.0.0.1', resolve));
+  t.after(() => blocker.close());
+  let errors = '';
+  t.mock.method(process.stderr, 'write', (text: string | Uint8Array) => { errors += text; return true; });
+  const failed = await Promise.all([request('192.168.1.2'), request('192.168.1.2')]);
+  for (const reply of failed) {
+    assert.equal(reply.status, 503);
+    const body = JSON.parse(reply.body);
+    assert.equal(body.code, 'preview_unavailable');
+    assert.match(body.detail, new RegExp(`Preview server could not listen on 127.0.0.1:${port}`));
+  }
+  assert.equal(errors, '');
+  assert.equal((await request('localhost')).status, 200);
+  // The failed port is not classified as an active preview origin.
+  assert.equal((await request('localhost', '/api/meta', 'GET', { origin: `http://localhost:${port}` })).status, 200);
+  await new Promise<void>(resolve => blocker.close(() => resolve()));
+  const url = new URL(JSON.parse((await request('192.168.1.2')).body).url);
+  assert.equal(url.port, String(port));
+  assert.equal(await (await fetch(`http://127.0.0.1:${port}${url.pathname}`)).text(), '<p>preview</p>');
+  assert.equal((await request('localhost', '/api/meta', 'GET', { origin: url.origin })).status, 403);
+});
+
+// r25 #4/#12: reserve the whole namespace, including empty and non-label identifiers.
+test('all matching preview hosts are static-only and explain cockpit namespace conflicts', async t => {
+  for (const options of [{}, { previewUrl: 'https://js-trial1-*.argusbot.cn' }, { previewUrl: 'https://*.example.com' }]) {
+    const { request } = await setup(t, options);
+    const hosts = options.previewUrl?.includes('js-trial1-')
+      ? ['js-trial1-.argusbot.cn', 'js-trial1-a.b.argusbot.cn', 'js-trial1-a_b.argusbot.cn']
+      : options.previewUrl ? ['argus.example.com'] : ['argus.localhost', 'x.abc.localhost', 'a_b.localhost', '.localhost'];
+    for (const host of hosts) {
+      for (const path of ['/', '/api/meta', '/api/projects']) {
+        const reply = await request(host, path);
+        assert.equal(reply.status, 404, host);
+        assert.match(reply.body, /reserved for static previews.*cockpit/i);
+      }
+      assert.equal((await request('localhost', '/api/meta', 'GET', { origin: `http://${host}` })).status, 403);
+    }
+    assert.equal((await request('localhost', '/api/meta')).status, 200);
+  }
+});
+
+// r25 #8: use the actual wire protocol so Node does not invent a Host header.
+test('HTTP/1.0 probes without Host use the local socket; mapped IPv6 Host remains legal', async t => {
+  const { server, request } = await setup(t);
+  const port = Number(new URL(server.url).port);
+  const raw = await new Promise<string>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1', () => socket.write('GET /api/meta HTTP/1.0\r\n\r\n'));
+    let data = '';
+    socket.on('data', chunk => { data += chunk; });
+    socket.on('end', () => resolve(data)); socket.on('error', reject);
+  });
+  assert.match(raw, /^HTTP\/1\.1 200/);
+  assert.equal((await request('[::ffff:192.168.1.2]', '/api/meta')).status, 200);
+  const bad = await request('[::ffff:999.1.2.3]', '/api/meta');
+  assert.equal(bad.status, 400);
+  assert.match(bad.body, /invalid Host header/);
+});
+
+test('invalid --preview-url CLI arguments all return the same format explanation', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-preview-cli-invalid-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  for (const value of ['', 'https//*.example.com', '://bad', 'https://*.example.com:99999', 'https://*.example.com/path']) {
+    const cli = spawnSync(process.execPath, ['packages/core/dist/argus.mjs', '--preview-url', value], {
+      env: { ...process.env, ARGUS_HOME: home, PATH: '' }, encoding: 'utf8',
+    });
+    assert.equal(cli.status, 1);
+    assert.match(cli.stderr, /--preview-url must be an HTTP\(S\) origin template with one \* in its first DNS label/);
+    assert.equal(cli.stderr.includes('Invalid URL'), false);
+  }
 });
