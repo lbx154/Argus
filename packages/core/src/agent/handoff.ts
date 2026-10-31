@@ -16,7 +16,7 @@ const OPERATOR = 'a question only the operator can decide';
 const TO: Record<Form, Record<string, string>> = {
   manager: {
     engineer: 'work one person can finish, including several related requests; the first line names the task',
-    planner: 'work needing several Engineers or dependent tasks; or a letter about the Planner’s work',
+    planner: 'work needing several Engineers; or a letter about the Planner’s work',
     operator: 'your answer, report or question',
   },
   plan: {
