@@ -97,5 +97,6 @@ for (const locale of ['en-US', 'zh-CN']) it(`gives a localized actionable port f
   const html = render();
   expect(html).toContain(locale === 'zh-CN' ? '释放该端口' : 'Free that port');
   expect(html).toContain(locale === 'zh-CN' ? '重试' : 'Retry');
-  expect(html).toMatch(/<details[^>]*><summary[^>]*>[^<]+<\/summary><pre[^>]*>Preview server could not listen on \[::\]:8800: EADDRINUSE<\/pre>/);
+  // The raw text breaks anywhere, so a long request path stays inside a phone-width panel.
+  expect(html).toMatch(/<details[^>]*><summary[^>]*>[^<]+<\/summary><pre class="[^"]*\[overflow-wrap:anywhere\][^"]*">Preview server could not listen on \[::\]:8800: EADDRINUSE<\/pre>/);
 });

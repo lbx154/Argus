@@ -236,7 +236,7 @@ test('a preview host with nothing to serve says in plain text that links end whe
 });
 
 // r25 #4/#12: reserve the whole namespace, including empty and non-label identifiers.
-test('all matching preview hosts are static-only and explain cockpit namespace conflicts', async t => {
+test('all matching preview hosts are static-only and say they only serve previews', async t => {
   for (const options of [{}, { previewUrl: 'https://js-trial1-*.argusbot.cn' }, { previewUrl: 'https://*.example.com' }]) {
     const { request } = await setup(t, options);
     const hosts = options.previewUrl?.includes('js-trial1-')
