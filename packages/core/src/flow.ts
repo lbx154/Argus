@@ -203,8 +203,8 @@ export class Flow {
     // Only the first request's turn names the project, by the title of the work it hands the team;
     // answered directly, the project keeps its request's first line. Later turns keep that name, even
     // after a session reset.
-    const title = !first || !handoff || project.name || handoff.to === 'operator' ? '' : firstLine(read(handoff));
-    if (title) project.name = title;
+    const name = !first || !handoff || project.name || handoff.to === 'operator' ? '' : title(read(handoff));
+    if (name) project.name = name;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
       const brief = read(handoff) + (typeof letter === 'string' || letter.input_id ? '' : `\n\n## Operator message\n${input}`);
@@ -400,13 +400,13 @@ export class Flow {
     else this.status(project, 'failed', error);
   }
 
-  /** A letter to the Engineer opens a task; its first line names it. It waits only for tasks opened
+  /** A letter to the Engineer opens a task; its first sentence names it. It waits only for tasks opened
    * before it, so no tasks wait for each other in a circle. */
   private open(project: Project, from: Task['from'], letter: string, after: string[] = []): Task {
-    const title = firstLine(letter);
+    const named = title(letter);
     const waits = [...new Set(after)].filter(id => project.tasks.some(task => task.id === id));
     const task: Task = {
-      id: `t${project.tasks.length + 1}`, title, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},
+      id: `t${project.tasks.length + 1}`, title: named, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},
     };
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
@@ -455,6 +455,13 @@ export const openTasks = ({ tasks }: Project): Task[] => tasks.filter(task => ta
  * task the letter opens. */
 export const firstLine = (text: string): string => text.split('\n')
   .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
+
+/** What names a project or task: the first sentence of a letter's first line, as a letter that opens
+ * with a whole paragraph would otherwise put that paragraph in the heading. */
+export const title = (text: string): string => {
+  const line = firstLine(text);
+  return line.match(/^.+?(?:[。！？](?=.)|[.!?](?=\s))/u)?.[0] ?? line;
+};
 
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
-import { Flow } from '../src/flow.js';
+import { Flow, title } from '../src/flow.js';
 import { conversationRows, daemon, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
 import { words } from './helpers/words.js';
 import { packsHome, SKILLS } from '../src/prompts.js';
@@ -78,6 +78,14 @@ const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.
 const withOperator = (brief: string, text: string) => `${brief}\n\n## Operator message\n${text}`;
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
+
+test('a project or task is named by the first sentence of its letter, not the paragraph it opens with', () => {
+  assert.equal(title('撰写《一瞬与一地》硕士论文初稿，用户要求3万字以上。研究概要：以游客为主体；我已向用户询问材料。\n第二行'),
+    '撰写《一瞬与一地》硕士论文初稿，用户要求3万字以上。');
+  assert.equal(title('t1：整理文献包并建立证据库\n请读取 research 技能'), 't1：整理文献包并建立证据库');
+  assert.equal(title('## Write the report. Then send it.'), 'Write the report.');
+  assert.equal(title('Release v1.2 notes'), 'Release v1.2 notes');
+});
 
 test('a follow-up first handed to the team keeps the initial request as the project name', async t => {
   const record = JSON.parse(readFileSync(new URL('./fixtures/project-name/record.json', import.meta.url), 'utf8')) as {
