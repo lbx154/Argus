@@ -312,9 +312,17 @@ incoming letters and original calls before they receive an input identity. Migra
 and projection share the input fold. A completed first attempt with a session
 retains its input for one form correction before taking queued letters. Message
 steps accumulate in the reply's `steps` string array,
-and the handoff supplies `text` and its addressee. Planner calls attach their
-message steps to the reply that briefed them, through incoming letters and task
-associations. Role logs retain each recorded step separately in record order.
+and the handoff supplies `text` and its addressee. Non-request turns retain their
+process; their running/stopped state is expressed by the project status bar.
+Planner calls record `planner_inputs`, the count of inbox letters actually read.
+The projection consumes that prefix only at the accepted handoff, once even for
+multiple outgoing letters; form corrections keep the original read count. A batch
+whose letters all trace to one reply attaches its process there. Mixed or unknown
+sources have an independent process row; newly opened tasks inherit that row for
+later Planner turns, while existing tasks retain their originating association.
+Older records consider pending recorded sources at call start and consume them at
+the accepted letter; ambiguous batches stay independent. Role logs retain each
+recorded step separately in record order.
 A call retains its reply association until its accepted handoff is recorded, including
 failure recovery and form correction. Reply positions and steps survive completion,
 interruption, paging and reload; a reply containing only steps remains visible.

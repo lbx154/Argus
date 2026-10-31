@@ -154,9 +154,9 @@ export function MarkdownContent({
   live.current = { artifacts, onOpenArtifact, basePath, sid, delivery, locale, t };
   const rehypePlugins = useMemo(() => markdownRehypePlugins(locale === 'zh-CN'), [locale]);
   const components = useMemo((): Components => ({
-    h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
-    h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,
-    h3: ({ children: value }) => <h3 className="mb-1 mt-2 text-sm font-medium text-ink first:mt-0">{value}</h3>,
+    h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold first:mt-0">{value}</h1>,
+    h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold first:mt-0">{value}</h2>,
+    h3: ({ children: value }) => <h3 className="mb-1 mt-2 text-sm font-medium first:mt-0">{value}</h3>,
     p: ({ children: value }) => <p className="my-1.5 whitespace-pre-wrap break-words leading-[1.625] first:mt-0 last:mb-0">{value}</p>,
     ul: ({ children: value }) => <ul className="my-2 list-disc space-y-1 pl-5">{value}</ul>,
     ol: ({ children: value }) => <ol className="my-2 list-decimal space-y-1 pl-5">{value}</ol>,
@@ -212,8 +212,8 @@ export function MarkdownContent({
         <code
           {...props}
           className={block
-            ? `block min-w-0 whitespace-pre-wrap break-words font-mono text-xs text-ink ${className ?? ''}`
-            : 'break-words rounded bg-bg px-1.5 py-0.5 font-mono text-xs text-ink'}
+            ? `block min-w-0 whitespace-pre-wrap break-words font-mono text-xs ${className ?? ''}`
+            : 'break-words rounded bg-bg px-1.5 py-0.5 font-mono text-xs'}
         >
           {value}
         </code>
@@ -242,9 +242,9 @@ export function MarkdownContent({
       </details>;
     },
     table: ({ children: value }) => <table className="my-2 w-full table-fixed border-collapse text-left text-xs">{value}</table>,
-    th: ({ children: value }) => <th className="break-words border border-line/60 bg-bg px-2 py-1.5 font-semibold text-ink">{value}</th>,
+    th: ({ children: value }) => <th className="break-words border border-line/60 bg-bg px-2 py-1.5 font-semibold">{value}</th>,
     td: ({ children: value }) => <td className="break-words border border-line/60 px-2 py-1.5 align-top">{value}</td>,
-    strong: ({ children: value }) => <strong className="font-semibold text-ink">{value}</strong>,
+    strong: ({ children: value }) => <strong className="font-semibold">{value}</strong>,
     img: ({ src, alt }) => {
       // A workspace-relative image the artifact list has not caught up with
       // yet is still a workspace file, not a path on this web server.
