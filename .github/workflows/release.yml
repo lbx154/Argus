@@ -127,7 +127,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}
-          cache: pip
+          # Windows uses uv; no pip cache directory is produced on the runner.
+          cache: ${{ runner.os != 'Windows' && 'pip' || '' }}
           cache-dependency-path: |
             pyproject.toml
             desktop-tauri/scripts/windows-build-requirements.txt
