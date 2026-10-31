@@ -72,6 +72,7 @@ const say = async (flow: Flow, id: string, text: string) => { await flow.say(id,
 const answer = (flow: Flow, id: string, question: Question, text: string) => { flow.answer(id, question, text); return flow.settled(id); };
 
 const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.';
+const withOperator = (brief: string, text: string) => `${brief}\n\n## Operator message\n${text}`;
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
 
@@ -248,7 +249,7 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   ]);
   const [, engineer, reviewer, manager] = requests;
   assert.deepEqual([engineer?.form, engineer?.access], ['engineer', 'write']);
-  assert.equal(engineer?.prompt, '## Task t1, from the Manager\nBuild the CSV summary tool.\nsummary.py prints the column totals.');
+  assert.equal(engineer?.prompt, '## Task t1, from the Manager\nBuild the CSV summary tool.\nsummary.py prints the column totals.\n\n## Operator message\nMake me a CSV summary tool');
   assert.match(engineer?.instructions ?? '', /^You are the Argus Engineer[\s\S]*## Where things are\n/);
   assert.deepEqual([reviewer?.form, reviewer?.access], ['review', 'read']);
   assert.match(reviewer?.prompt ?? '', /^## Task t1[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
@@ -368,7 +369,7 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
     [['t1', 'Parse data.csv', 'planner', 'closed'], ['t2', 'Write the totals report', 'planner', 'closed']]);
   const [, planner, parse, , replan, report2, , , manager] = requests;
   assert.deepEqual([planner?.form, planner?.access], ['plan', 'read']);
-  assert.match(planner?.prompt ?? '', /## Tasks\nThe next task opened is t1\.\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.$/);
+  assert.match(planner?.prompt ?? '', /## Tasks\nThe next task opened is t1\.\n\n## Since your last turn\nFrom the Manager:\nBuild the CSV summary tool\.\nsummary\.py prints the column totals\.\n\n## Operator message\nSummarise data.csv, in stages$/);
   assert.match(parse?.prompt ?? '', /## Task t1, from the Planner\nParse data\.csv\nCheck: the parser tests pass\.$/);
   assert.equal(replan?.resume, 'planner-2');
   assert.equal(replan?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\nThe next task opened is t2.\n\n## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted: the parser reads every row.');
@@ -540,11 +541,11 @@ test('replay the recorded Manager supplement: an explicit task target delivers t
     await flow.say(id, messages[1]!.text, { request_id: messages[1]!.request_id! });
     const project = store.load(id);
     assert.deepEqual(project.tasks.map(task => [task.id, task.objective]),
-      added.slice(0, target ? 1 : 2).map(task => [task.id, task.objective]));
-    assert.deepEqual(steered, target ? [[`${id}/t1.engineer`, `## From the Manager, during your turn\n${letters[1]!.letter}`]] : []);
+      added.slice(0, target ? 1 : 2).map((task, i) => [task.id, withOperator(task.objective, messages[i]!.text)]));
+    assert.deepEqual(steered, target ? [[`${id}/t1.engineer`, `## From the Manager, during your turn\n${withOperator(letters[1]!.letter, messages[1]!.text)}`]] : []);
     assert.equal(events().filter(event => event.type === 'task.added').length, target ? 1 : 2);
     if (target) {
-      assert.deepEqual(project.tasks[0]!.unread, [{ from: 'manager', text: letters[1]!.letter }]);
+      assert.deepEqual(project.tasks[0]!.unread, [{ from: 'manager', text: withOperator(letters[1]!.letter, messages[1]!.text) }]);
       assert.ok(events().some(event => event.type === 'handoff' && event.role === 'manager' && event.task === 't1'
         && event.letter === letters[1]!.letter && event.answers === messages[1]!.request_id));
     }
@@ -573,17 +574,17 @@ for (const holder of ['engineer', 'reviewer'] as const) for (const steer of [fal
     await flow.say(id, 'Build the CSV summary tool');
     while (!requests.some(request => request.role === holder && request.session === `${id}/t1.${holder}`)) await tick();
     await flow.say(id, '使用新模型');
-    assert.deepEqual(steered, [[`${id}/t1.${holder}`, `## From the Manager, during your turn\n${letter}`]]);
-    assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: letter }]);
+    assert.deepEqual(steered, [[`${id}/t1.${holder}`, `## From the Manager, during your turn\n${withOperator(letter, '使用新模型')}`]]);
+    assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: withOperator(letter, '使用新模型') }]);
     assert.equal(taskTrace(store, store.load(id), 't1').groups.at(-1)?.role, 'manager');
     held.open();
     const project = await flow.settled(id);
-    assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.objective, project.tasks[0]?.unread], ['idle', 1, brief, undefined]);
+    assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.objective, project.tasks[0]?.unread], ['idle', 1, withOperator(brief, 'Build the CSV summary tool'), undefined]);
     assert.equal(events().filter(event => event.type === 'task.added').length, 1);
     assert.ok(events().some(event => event.type === 'handoff' && event.role === 'manager' && event.task === 't1' && event.letter === letter));
     const next = requests.find(request => request.role === 'engineer' && request.prompt.startsWith(`## From the ${holder === 'engineer' ? 'Engineer' : 'Reviewer'}\nCarry on.`));
     assert.ok(next);
-    assert.equal(next.prompt.includes(`## From the Manager, since the task's last turn\n${letter}`), !steer);
+    assert.equal(next.prompt.includes(`## From the Manager, since the task's last turn\n${withOperator(letter, '使用新模型')}`), !steer);
   });
 }
 
@@ -701,7 +702,7 @@ for (const timing of ['before delivery', 'after delivery']) {
     while (requests.length < 3) await tick();
     if (timing === 'after delivery') {
       await supplement;
-      assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: letter }]);
+      assert.deepEqual(store.load(id).tasks[0]?.unread, [{ from: 'manager', text: withOperator(letter, 'Also log the loss') }]);
     }
     engineer.open();
     if (timing === 'before delivery') {
@@ -711,7 +712,7 @@ for (const timing of ['before delivery', 'after delivery']) {
     await supplement;
     const project = await flow.settled(id);
     assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.status, project.tasks[0]?.unread, project.inbox], ['idle', 1, 'closed', undefined, []]);
-    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which is not open, was not read:\n${letter}`).length, 1);
+    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which is not open, was not read:\n${withOperator(letter, 'Also log the loss')}`).length, 1);
     assert.ok(!requests.some(request => request.role === 'planner'));
     assert.equal(events().filter(event => event.type === 'task.added').length, 1);
   });
@@ -958,6 +959,32 @@ test('a new session whose turn did work before it failed is gone on in, though n
   assert.equal(store.load(id).sessions.manager, 'worked');
   await say(flow, id, 'go on');
   assert.equal(requests[1]?.resume, 'worked');
+});
+
+test('concurrent operator requests keep their own verbatim briefs; team mail supplies no operator message', async t => {
+  const held = gate();
+  t.after(held.open);
+  const { flow, id, requests, store } = await setup(t, [
+    { ...toEngineer, waits: held.shut },
+    { role: 'engineer', to: 'operator', letter: 'Which format?' },
+    { role: 'manager', to: 'planner', letter: 'Plan the second request' },
+    { role: 'planner', to: 'manager', letter: 'Team result' },
+    { role: 'manager', to: 'engineer', letter: 'Follow up on the team result' },
+    { role: 'engineer', to: 'operator', letter: 'Which output?' },
+  ]);
+  const firstText = '第一条原话  \n\n保留空格、标点。\n';
+  const secondText = '第二条要求：不能混入第一条！';
+  const first = flow.say(id, firstText, { request_id: 'first' });
+  while (requests.length < 1) await tick();
+  const second = flow.say(id, secondText, { request_id: 'second', attachments: [{ relative_path: 'input.csv', attachment_id: 'a', original_name: 'input.csv', stored_name: 'input.csv', size_bytes: 2, mime: 'text/csv' }] });
+  held.open();
+  await Promise.all([first, second]);
+  await flow.settled(id);
+  assert.equal(store.load(id).tasks[0]!.objective, withOperator(brief, firstText));
+  const planner = requests.find(request => request.role === 'planner')!;
+  assert.ok(planner.prompt.endsWith(`## Operator message\n${secondText}\n\nAttached, in the workdir:\n- input.csv`));
+  assert.ok(!planner.prompt.includes(firstText));
+  assert.equal(store.load(id).tasks[1]!.objective, 'Follow up on the team result');
 });
 
 test('review rounds end their processes and ignore stored review sessions after restart', async t => {
