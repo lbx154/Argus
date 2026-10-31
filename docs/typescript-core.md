@@ -16,7 +16,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 |---|---|---|
 | M1 | One sentence to a reviewed delivery: Manager, Engineer, Reviewer, back to the Manager, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min); a grokking replication handed whole to one Engineer took 24.6 min and $2.05 against 15 min and $1.40 for Codex alone, with the same findings |
 | M2 | Planner for work too large for one task, its independent tasks side by side; operator questions and answers; the operator writes to the Manager at any time | built and tested with a scripted backend; a real Manager answered in 19 s while an Engineer worked; a real multi-task Planner run is still to come |
-| M3 | `argus`: the web cockpit as the way in (no subcommands), its progress map, drafts, attachments, settings, trash, the code workspace, search, resources and the skill library | built; the milestone check runs a project through the web API; the trial ran on it with real Codex projects |
+| M3 | `argus`: the web cockpit as the way in (including operator skill-store commands), its progress map, drafts, attachments, settings, trash, the code workspace, search, resources and the skill library | built; the milestone check runs a project through the web API; the trial ran on it with real Codex projects |
 | M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to the Manager's report (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap; desktop sidecar: the desktop app carries the package and runs it with the system's Node, in place of the frozen Python backend; CI (`desktop.yml`) builds its unsigned installers on Windows, macOS and Linux and its tests start the shipped Argus with Node |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
@@ -90,9 +90,29 @@ finish a small request in its own turn.
 
 ## The skill library
 
+The operator installs community packs through `argus skills add <name>` or the cockpit's
+Skill store tab, and removes them with `argus skills remove <name>` or Uninstall. `argus skills`
+lists each catalog version, installed version, description and `needs`. Both entry points use
+`packs.ts`'s catalog/add/remove functions; the HTTP routes require the cockpit bearer token.
+The catalog address is fixed in that module, and file addresses derive from its directory.
+The catalog contains `packs`, each with `name`, `version`, `description`, optional
+`description_zh`, `requires`, `needs`, and `files` (`path`, `size` in bytes). `requires` and
+`needs` are arrays of strings. This first version rejects packs with nonempty `requires`;
+`needs` describes requirements without installing them.
+
+Downloads reject redirects, catalogs larger than 1 MiB and packs larger than 8 MiB. Names
+cannot conflict with bundled skills; file paths cannot escape the pack, include backslashes
+or contain a segment starting with a dot. Every download must match its declared byte count.
+`SKILL.md` must contain a description and a front-matter version matching the catalog.
+That front matter is the only installed-version record. A complete validated download is
+staged outside the listed roots, under `$ARGUS_HOME/skill-packs.tmp/`, before replacing the
+installed directory; a failed download leaves the installed version intact and removes staging.
+All roles receive the pack root as read-only, alongside bundled skills; team write permissions
+stay in `$ARGUS_HOME/skills/`.
+
 A skill is what was learned about a kind of work, kept as a folder whose `SKILL.md` says in its
 front matter (`name`, `description`), as Codex and Claude Code write a skill, what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade
-replaces, and the team's (the roles' and the operator's) in `$ARGUS_HOME/skills/<name>/`, listed
+replaces, installed community packs in `$ARGUS_HOME/skill-packs/<name>/`, and the team's (the roles' and the operator's) in `$ARGUS_HOME/skills/<name>/`, listed
 beside Argus's, a name shared or not, so that an upgrade of Argus's own reaches every project. It
 holds where good work starts, what past runs measured and what good work looks like, not steps,
 files or who does what, and nothing a capable model already knows: Codex on
@@ -101,10 +121,10 @@ spent 46% of its tool-output tokens rereading the research skill's manuals.
 
 The library is the roles'. Argus gives it a place, lists it and shows it, and nothing else: every
 role's standing instructions list each skill by its description and path and tells the role the library
-is its own, every call reads the skills, and a role that writes (the Manager, the Engineer) may
-write `$ARGUS_HOME/skills/`. When to write a skill, what to change in one and whether to install a
-plugin are the roles' to decide: there is no reflection after a task, no scoring, curating, recall
-or approval, and nothing records which skill a project used. Argus's own are `research`,
+is its own, every call reads the skills, and the Engineer may write `$ARGUS_HOME/skills/`;
+the Manager, Planner and Reviewer read it. When to write a skill and what to change in one
+are the roles' to decide: there is no reflection after a task, no scoring, curating, recall
+or approval, and nothing records which skill a project used. Argus's own are `research`, `rl`, `argus-http`,
 `software` (a change that builds, whose tests ran, and that does what was asked),
 `argus-maintenance` (changing this core) and `learning`, on writing a skill worth keeping: what an
 agent can run or recheck, proven on a real case.

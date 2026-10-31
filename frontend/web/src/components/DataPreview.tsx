@@ -14,6 +14,7 @@ export function formatStructuredData(raw: string): string {
 }
 
 export function parseDelimited(raw: string, delimiter: ',' | '\t'): string[][] {
+  if (delimiter === '\t') return raw.split(/\r\n|\n|\r/).filter(line => line.length > 0).map(line => line.split('\t'));
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';

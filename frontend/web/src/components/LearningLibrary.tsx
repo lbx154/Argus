@@ -1,38 +1,38 @@
 import { ErrorMessage } from './ErrorMessage';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
 import { api, type SkillCatalog, type SkillLibraryItem } from '../api';
-import { useI18n, type Locale } from '../i18n';
-import { libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
+import { useI18n } from '../i18n';
+import { skillPresentation, skillSearchText } from '../lib/libraryPresentation';
 import { KnowledgeFeedList, useKnowledgeFeed } from './KnowledgeFeed';
+import { TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 
 const skillIdentity = (item: SkillLibraryItem) => `${item.library}/${item.path}`;
-const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => !item.is_default && item.updated_at != null)
+const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => item.source !== 'bundled' && item.updated_at != null)
   .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0) || skillIdentity(a).localeCompare(skillIdentity(b)));
 const libraryQuery = { staleTime: 10_000, refetchInterval: 15_000 };
 
 /** What was learned lately, or everything the library holds. */
-export type LearningScope = 'feed' | 'global';
-const scopes: LearningScope[] = ['feed', 'global'];
+export type LearningScope = 'feed' | 'global' | 'store';
+const scopes: LearningScope[] = ['feed', 'global', 'store'];
 const learningScopeLabels = {
-  'zh-CN': { feed: '学习动态', global: '全局项目' },
-  en: { feed: 'Learning feed', global: 'Across projects' },
+  'zh-CN': { feed: '学习动态', global: '全局项目', store: '技能商店' },
+  en: { feed: 'Learning feed', global: 'Across projects', store: 'Skill store' },
 };
 type Entry = {
-  id: string; title: string; description: string; path: string; scope: SkillLibraryItem['scope'];
-  vertical: string; updated: number; search: string;
+  id: string; title: string; description: string; path: string; updated: number; search: string;
 } & { item: SkillLibraryItem };
 
-function learningEntries(skills: SkillCatalog | undefined, scope: LearningScope, locale: Locale): Entry[] {
+function learningEntries(skills: SkillCatalog | undefined, scope: LearningScope): Entry[] {
   const methods: Entry[] = (scope === 'feed' ? recentSkills(skills?.items ?? []) : skills?.items ?? [])
     .map(item => {
-      const presentation = skillPresentation(item, locale);
+      const presentation = skillPresentation(item);
       return { item, id: `skill/${item.library}/${item.path}`,
-        title: presentation.title, description: presentation.summary, path: item.path, scope: item.scope,
-        vertical: item.vertical, updated: item.updated_at ?? 0, search: skillSearchText(item, locale) };
+        title: presentation.title, description: presentation.summary, path: item.path,
+        updated: item.updated_at ?? 0, search: skillSearchText(item) };
     });
   return methods.sort((a, b) => b.updated - a.updated || a.id.localeCompare(b.id));
 }
@@ -50,18 +50,16 @@ export function LearningLibraryEntry({ onOpen, compact = false }: {
   </section>;
 }
 
-export function LearningLibrary({ sid, initialScope = 'feed', projectNames = {}, onUse }: {
+export function LearningLibrary({ sid, initialScope = 'feed', onUse }: {
   sid: string | null; initialScope?: LearningScope;
-  projectNames?: Record<string, string>;
   onUse?: (title: string, content: string, scope: string) => void;
 }) {
   return <LearningBrowser key={sid ?? 'no-project'} sid={sid} initialScope={initialScope}
-    projectNames={projectNames} onUse={onUse} />;
+    onUse={onUse} />;
 }
 
-function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
+function LearningBrowser({ sid, initialScope, onUse }: {
   sid: string | null; initialScope: LearningScope;
-  projectNames: Record<string, string>;
   onUse?: (title: string, content: string, scope: string) => void;
 }) {
   const { locale } = useI18n();
@@ -69,11 +67,25 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
   const labels = learningScopeLabels[locale];
   const [scope, setScope] = useState(initialScope);
   const [search, setSearch] = useState('');
-  const [selection, setSelection] = useState<string | null>(null);
+  const [selection, setSelection] = useState<SkillLibraryItem | null>(null);
   const skills = useQuery({ ...libraryQuery, queryKey: ['skill-library', sid], queryFn: ({ signal }) => api.skillLibrary(sid, signal) });
+  const client = useQueryClient();
+  const packs = useQuery({ queryKey: ['skill-packs'], queryFn: api.skillPacks, enabled: scope === 'store' });
+  const operation = useMutation({
+    mutationFn: ({ name, installed }: { name: string; installed: boolean }) => installed ? api.removeSkillPack(name) : api.addSkillPack(name),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ['skill-packs'] }),
+        client.invalidateQueries({ queryKey: ['skill-library'] }),
+        client.invalidateQueries({ queryKey: ['skill-document'] }),
+      ]);
+    },
+  });
   const feed = useKnowledgeFeed(scope === 'feed');
-  const all = learningEntries(skills.data, scope, locale);
-  const selected = all.find(entry => entry.id === selection);
+  const all = scope === 'store' ? [] : learningEntries(skills.data, scope);
+  const selected = selection && (all.find(entry => entry.id === `skill/${selection.library}/${selection.path}`)
+    ?? { item: selection, id: `skill/${selection.library}/${selection.path}`, title: selection.name,
+      description: selection.description, path: selection.path, updated: selection.updated_at ?? 0, search: '' });
   const skill = selected?.item;
   const skillDocument = useQuery({
     queryKey: ['skill-document', sid, skill?.library, skill?.path, skill?.updated_at],
@@ -83,9 +95,9 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
     }, enabled: Boolean(skill),
   });
   const query = search.trim().toLocaleLowerCase();
-  const entries = all.filter(entry => !query || `${entry.search} ${entry.vertical}`.toLocaleLowerCase().includes(query));
-  const location = (entry: Entry) => `${labels.global}${entry.vertical ? ` · ${libraryVertical(entry.vertical, locale)}` : ''}`;
-  const kind = zh ? '技能' : 'Skill';
+  const entries = all.filter(entry => !query || entry.search.includes(query));
+  const location = (entry: Entry) => ({ bundled: zh ? 'Argus 自带' : 'Argus bundled', store: zh ? '商店' : 'Store', shared: zh ? '团队' : 'Team' })[entry.item.source];
+  const kind = (path: string) => path.endsWith('SKILL.md') ? (zh ? '技能' : 'Skill') : (zh ? '文档' : 'Document');
   const document = skillDocument;
   const body = document.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
   const pick = (next: LearningScope) => { setScope(next); setSelection(null); };
@@ -97,7 +109,20 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
       {scopes.map(value => <button key={value} type="button" aria-pressed={scope === value} onClick={() => pick(value)}
         className={`shrink-0 border-b-2 px-3 py-2.5 text-sm ${scope === value ? 'border-blue text-ink' : 'border-transparent text-ink-faint hover:text-ink'}`}>{labels[value]}</button>)}
     </nav>
-    <div className="flex min-h-0 flex-1">
+    {scope === 'store' ? <div className="min-h-0 flex-1 overflow-y-auto p-5">
+      {packs.isPending && <p>{zh ? '正在加载技能商店…' : 'Loading skill store…'}</p>}
+      {(packs.error || operation.error) && <div role="alert"><ErrorMessage error={packs.error || operation.error} /></div>}
+      {packs.isError && <button className="underline" onClick={() => void packs.refetch()}>{zh ? '重试' : 'Retry'}</button>}
+      {packs.data?.packs.map(pack => <section key={pack.name} className="mb-3 rounded-lg border border-line p-4">
+        <h3 className="font-medium">{pack.name}</h3>
+        <p className="mt-1 text-sm text-ink-dim">{zh ? pack.description_zh ?? pack.description : pack.description}</p>
+        <p className="mt-1 text-xs text-ink-faint">{zh ? '版本' : 'Version'} {pack.version} · {pack.installed_version === null ? (zh ? '未安装' : 'Not installed') : `${zh ? '已安装' : 'Installed'} ${pack.installed_version}`}</p>
+        <button type="button" disabled={operation.isPending} className="mt-3 rounded border border-line px-3 py-1 text-sm disabled:opacity-40"
+          onClick={() => operation.mutate({ name: pack.name, installed: pack.installed_version !== null })}>
+          {pack.installed_version !== null ? (zh ? '卸载' : 'Uninstall') : (zh ? '安装' : 'Install')}
+        </button>
+      </section>)}
+    </div> : <div className="flex min-h-0 flex-1">
       <aside className={`${selected ? 'hidden md:flex' : 'flex'} min-h-0 w-full flex-col md:w-80 md:shrink-0 md:border-r md:border-line/60`}>
         <div className="space-y-2 p-4">
           <input type="search" value={search} onChange={event => setSearch(event.target.value)}
@@ -107,23 +132,22 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
           {skills.isError && <p role="alert" className="p-3 text-xs text-err">{zh ? '技能无法加载。' : 'Skills could not load.'} <button className="underline" onClick={() => void skills.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
-          {skills.data?.errors.length ? <p role="status" className="p-3 text-xs text-err">{zh ? '部分资料无法读取；已加载的内容仍可查看。' : 'Some sources could not be read; loaded material remains available.'}</p> : null}
           {scope === 'feed' && <>
             <h3 className="px-3 py-2 text-xs font-medium text-ink-faint">{zh ? '学习记录' : 'Learning records'}</h3>
             {feed.isPending && <p className="p-3 text-xs text-ink-faint">{zh ? '正在加载学习记录…' : 'Loading learning records…'}</p>}
             {feed.isError && <p role="alert" className="p-3 text-xs text-err">{zh ? '学习记录无法加载。' : 'Learning records could not load.'} <button className="underline" onClick={() => void feed.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
-            {feed.data && <KnowledgeFeedList events={feed.data.events} items={skills.data?.items ?? []} projectNames={projectNames} query={search}
-              selected={skill} onSelect={item => { setScope('global'); setSelection(`skill/${item.library}/${item.path}`); }} />}
+            {feed.data && <KnowledgeFeedList events={feed.data.events} items={skills.data?.items ?? []} query={search}
+              selected={skill} onSelect={setSelection} />}
             <h3 className="px-3 py-2 text-xs font-medium text-ink-faint">{zh ? '文件更新' : 'File updates'}</h3>
           </>}
           {skills.isPending && <p className="p-3 text-xs text-ink-faint">{zh ? '正在加载资料…' : 'Loading material…'}</p>}
           {!skills.isPending && !skills.isError && !entries.length && <p className="p-3 text-sm text-ink-faint">{zh ? '当前分类或筛选条件下没有资料。' : 'No material matches this category or filter.'}</p>}
-          {entries.map(entry => <button key={entry.id} type="button" onClick={() => setSelection(entry.id)} aria-pressed={selected?.id === entry.id}
+          {entries.map(entry => <button key={entry.id} type="button" onClick={() => setSelection(entry.item)} aria-pressed={selected?.id === entry.id}
             className={`block w-full rounded-md px-3 py-3 text-left ${selected?.id === entry.id ? 'bg-blue/10' : 'hover:bg-bg'}`}>
-            <span className="flex items-baseline gap-2"><span className="shrink-0 rounded bg-line/60 px-1.5 text-[10px] text-ink-dim">{kind}</span>
+            <span className="flex items-baseline gap-2"><span className="shrink-0 rounded bg-line/60 px-1.5 text-[10px] text-ink-dim">{kind(entry.path)}</span>
               <span className="break-words text-sm font-medium text-ink">{entry.title}</span></span>
             {entry.description && <span className="mt-1 block line-clamp-2 text-xs text-ink-dim">{entry.description}</span>}
-            {entry.vertical && <span className="mt-1 block text-[11px] text-ink-faint">{libraryVertical(entry.vertical, locale)}</span>}
+            <span className="mt-1 block text-[11px] text-ink-faint">{location(entry)}{entry.item.version && ` · ${entry.item.version}`}</span>
             {entry.updated > 0 && <time className="mt-1 block text-[11px] text-ink-faint" dateTime={new Date(entry.updated * 1000).toISOString()}>{new Date(entry.updated * 1000).toLocaleString(locale)}</time>}
           </button>)}
         </div>
@@ -132,7 +156,7 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
         {selected ? <>
           <button type="button" className="mb-4 text-sm text-blue md:hidden" onClick={() => setSelection(null)}>{zh ? '← 返回列表' : '← Back to the list'}</button>
           <h3 className="break-words text-lg font-semibold text-ink">{selected.title}</h3>
-          <p className="mt-1 text-xs text-ink-faint">{kind} · {location(selected)}</p>
+          <p className="mt-1 text-xs text-ink-faint">{kind(selected.path)} · {location(selected)}</p>
           <p className="mt-1 break-all text-xs text-ink-faint">{selected.path}</p>
           {sid && onUse && <div className="mt-4 flex flex-wrap items-center gap-3">
             <button type="button" disabled={!document.data || document.isError || document.isPending}
@@ -147,10 +171,12 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
           <div className="mt-5 border-t border-line/60 pt-5 text-sm text-ink">
               {document.isPending && <p>{zh ? '正在加载全文…' : 'Loading document…'}</p>}
               {document.isError && <div role="alert" className="text-err"><ErrorMessage error={document.error} /> <button className="underline" onClick={() => void document.refetch()}>{zh ? '重试' : 'Retry'}</button></div>}
-              {document.data && <MarkdownContent>{body ?? ''}</MarkdownContent>}
+              {document.data && (selected.path.endsWith('.tsv')
+                ? <TablePreview value={document.data.content} delimiter={'\t'} />
+                : <MarkdownContent>{body ?? ''}</MarkdownContent>)}
           </div>
         </> : <div className="flex items-start gap-2 text-sm text-ink-faint"><BookOpen size={18} aria-hidden="true" />{zh ? '选择一份资料查看。' : 'Select material to read it.'}</div>}
       </article>
-    </div>
+    </div>}
   </div>;
 }
