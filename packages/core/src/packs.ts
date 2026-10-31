@@ -1,8 +1,8 @@
 // The operator's skill store. Both entry points install through this transaction; roles only read it.
-import { mkdirSync, lstatSync } from 'node:fs';
+import { lstatSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { purpose, SKILL, SKILLS } from './prompts.js';
+import { packsHome, purpose, SKILL, SKILLS, skills } from './prompts.js';
 
 const CATALOG = 'https://raw.githubusercontent.com/Argus-AiTeam/argus-verticals/main/packs/catalog.json';
 const MIB = 2 ** 20;
@@ -10,10 +10,10 @@ export interface Pack {
   name: string; version: string; description: string; description_zh?: string;
   requires: string[]; needs: string[]; files: { path: string; size: number }[];
 }
-export function packsHome(home: string): string {
-  const dir = resolve(home, 'skill-packs');
-  mkdirSync(dir, { recursive: true });
-  return dir;
+/** The version of the pack `value` installed under `home`; null when it is not. */
+export function installed(home: string, value: string): string | null {
+  const dir = resolve(packsHome(home), value);
+  return skills(home).some(([, found]) => found === dir) ? purpose(dir, 'version') : null;
 }
 const NAME = /^[a-z0-9][a-z0-9_-]*$/;
 function name(value: string): void {

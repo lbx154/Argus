@@ -98,28 +98,8 @@ export const PLAIN_BY_KIND: Record<string, Pair> = {
   knowledge_retired: ['一条知识已退役。', 'A piece of knowledge was retired.'],
   'event.model_call.started': ['开始调用模型', 'Model call started'],
   'event.model_call.completed': ['模型调用完成', 'Model call completed'],
-  'event.model_call.failed': ['模型调用失败', 'Model call failed'],
   'event.budget.reserved': ['已预留预算', 'Budget reserved'],
   'event.budget.settled': ['预算已结算', 'Budget settled'],
-  'event.model_turn': ['与模型完成一次往返', 'One exchange with the model'],
-  'event.instruction.received': ['收到你的指令', 'Your instruction was received'],
-  'event.instruction.done': ['指令已执行', 'Instruction carried out'],
-  'event.inbox.processed': ['已处理收件箱', 'Inbox processed'],
-  'event.round.started': ['新的一轮开始', 'A new round started'],
-  'event.round.finished': ['工程师完成了这一轮', 'The Engineer finished the round'],
-  'event.review.finished': ['这一轮的审阅结束', 'Review of the round finished'],
-  'event.retry.waiting': ['等待后重试', 'Waiting before retrying'],
-  'event.retry.interrupted': ['等待被打断', 'The wait was interrupted'],
-  'event.status': ['状态更新', 'Status update'],
-  'event.planning.started': ['开始规划', 'Planning started'],
-  'event.planning.failed': ['规划没有完成', 'Planning did not complete'],
-  'event.planning.tidied': ['计划已整理', 'Plan tidied'],
-  'event.planning.decided': ['规划结论', 'Planning decision'],
-  'event.task.started': ['开始执行任务', 'Task execution started'],
-  'event.task.ended': ['任务执行结束', 'Task execution ended'],
-  'event.skills.ready': ['技能库已就绪', 'Skill library ready'],
-  'event.lessons.skipped': ['本次没有总结经验', 'No lessons recorded this time'],
-  'event.argus.reply': ['Argus 的回复', 'Reply from Argus'],
 };
 
 /** @deprecated Kept for callers written against the first draft; use PLAIN_BY_KIND. */
@@ -183,36 +163,6 @@ const CAUSES: Record<string, Pair> = {
   sign_in_failed: ['模型服务的登录没有成功。', 'Signing in to the model service did not succeed.'],
   paused: ['任务被暂停了。', 'The task was paused.'],
   unknown: ['原因暂时不明。', 'The reason is not known yet.'],
-};
-
-/** Raw event types that are pure bookkeeping, named for people. */
-const EVENT_TYPES: Record<string, string> = {
-  'provider.request.started': 'event.model_call.started',
-  'provider.request.completed': 'event.model_call.completed',
-  'provider.request.failed': 'event.model_call.failed',
-  'agent.io.start': 'event.model_call.started',
-  'agent.io.complete': 'event.model_call.completed',
-  'budget.reservation.created': 'event.budget.reserved',
-  'budget.reservation.settled': 'event.budget.settled',
-  'role.session.turn': 'event.model_turn',
-  'daemon.command.submitted': 'event.instruction.received',
-  'daemon.command.completed': 'event.instruction.done',
-  'life.inbox.drained': 'event.inbox.processed',
-  'round.start': 'event.round.started',
-  'round.main.completed': 'event.round.finished',
-  'round.review.completed': 'event.review.finished',
-  'round.backend_failure.backoff': 'event.retry.waiting',
-  'round.backend_failure.hold_interrupted': 'event.retry.interrupted',
-  'life.status': 'event.status',
-  'life.planner.start': 'event.planning.started',
-  'life.planner.error': 'event.planning.failed',
-  'life.planner.normalized': 'event.planning.tidied',
-  'life.planner.verdict': 'event.planning.decided',
-  'loop.start': 'event.task.started',
-  'loop.done': 'event.task.ended',
-  'skill.library.available': 'event.skills.ready',
-  'team.learning.review.skipped': 'event.lessons.skipped',
-  'ui.argus': 'event.argus.reply',
 };
 
 /** A stop kind or park reason; an older `paused_*` status names its reason. */
@@ -360,17 +310,6 @@ export function plainRouteStatus(status: string | null | undefined, locale: Loca
   const key = String(status ?? '').trim().toLowerCase();
   const pair = STATUSES[key];
   return pair ? pick(pair, locale) : key;
-}
-
-/** A raw event type as a plain name, or null when it is not a known bookkeeping event. */
-export function plainEventName(type: string | null | undefined, locale: Locale): string | null {
-  const code = EVENT_TYPES[String(type ?? '').trim()];
-  return code ? pick(PLAIN_BY_KIND[code], locale) : null;
-}
-
-/** Events that only record accounting and model traffic, not research work. */
-export function isBookkeepingEvent(type: string | null | undefined): boolean {
-  return /^(?:provider\.|agent\.io\.|usage\.|budget\.|role\.session\.turn$)/.test(String(type ?? ''));
 }
 
 export interface PlainDetail {

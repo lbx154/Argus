@@ -4,8 +4,8 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { add, catalog, packsHome, remove } from '../packs.js';
-import { purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
+import { add, catalog, installed, remove } from '../packs.js';
+import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
@@ -15,10 +15,7 @@ export function library(store: Store): [string, RegExp, Handler][] {
     ['GET', /^\/api\/skill-packs$/, async () => {
       // The catalog is on GitHub: when it cannot be read, say so rather than fail as Argus's own error.
       const packs = await catalog().catch(error => { throw new HttpError(502, `The skill store is unavailable: ${error instanceof Error ? error.message : error}`); });
-      return { packs: packs.map(pack => {
-        const installed = skills(store.home).find(([name, dir]) => name === pack.name && dirname(dir) === packsHome(store.home));
-        return { ...pack, installed_version: installed ? purpose(installed[1], 'version') : null };
-      }) };
+      return { packs: packs.map(pack => ({ ...pack, installed_version: installed(store.home, pack.name) })) };
     }],
     ...(['add', 'remove'] as const).map(action => ['POST', new RegExp(`^/api/skill-packs/${action}$`), async ({ body }) => {
       const { name } = await body();

@@ -589,6 +589,13 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'daemon.command.submitted': case 'daemon.command.completed': case 'daemon.command.rejected':
     case 'idea.search.started': case 'idea.search.completed': case 'idea.search.skipped':
     case 'venue.research.started': case 'venue.research.completed': case 'research.achievement.certified':
+    // Only the Python version still writes these; they stay while it shares this contract.
+    case 'skill.library.available': case 'skill.created': case 'skill.updated': case 'skill.archived':
+    case 'skill.tidied': case 'skill.history.compressed': case 'skill.evolution.completed':
+    case 'wiki.initialized': case 'wiki.hook.warning': case 'wiki.created': case 'wiki.updated':
+    case 'wiki.retired': case 'wiki.promotion.promoted': case 'wiki.promotion.demoted':
+    case 'wiki.retired.compressed': case 'wiki.evolution.completed':
+    case 'knowledge.learned': case 'knowledge.recalled':
     // Bookkeeping a reader of the feed does not need: retries, receipts, and
     // state the sidebar or a later message already shows.
     case 'life.planner.verdict.discarded': case 'life.manager.feedback.unresolved':
@@ -601,8 +608,10 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'project.canvas.updated':
     case 'manager.turn.started': case 'manager.turn.cancelled': case 'life.config.parse_failed':
       return fallback(event, context);
-    default:
-      return fallback(event, context);
+    default: {
+      const exhaustive: never = event;
+      return fallback(exhaustive, context);
+    }
   }
 }
 

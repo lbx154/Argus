@@ -6,7 +6,6 @@ import { lstatSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { packsHome } from './packs.js';
 import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
 
@@ -23,6 +22,12 @@ export const SKILL = 'SKILL.md';
 /** The state root's skills/, made when missing so that a role can write there. */
 export function skillsHome(home: string): string {
   const dir = resolve(home, 'skills');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+/** The state root's skill-packs/, where the operator installs packs; made when missing. */
+export function packsHome(home: string): string {
+  const dir = resolve(home, 'skill-packs');
   mkdirSync(dir, { recursive: true });
   return dir;
 }

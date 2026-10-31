@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  isBookkeepingEvent,
   plainDetail,
-  plainEventName,
   plainProgress,
   plainRouteStatus,
   plainStatus,
@@ -74,7 +72,7 @@ describe('plainStatus', () => {
       .toBe('正在使用工具');
   });
 
-  it('renders statuses, stop kinds, progress and bookkeeping events', () => {
+  it('renders statuses, stop kinds and progress', () => {
     expect(plainRouteStatus('failed', 'zh-CN')).toBe('失败');
     expect(plainRouteStatus('pending', 'en')).toBe('Waiting');
     expect(plainRouteStatus('mystery', 'en')).toBe('mystery');
@@ -84,12 +82,7 @@ describe('plainStatus', () => {
     expect(plainStopSentence('budget_exhausted', 'en')).toBe('The work stopped because the project reached its budget limit.');
     expect(plainProgress(0, 0, 'zh-CN')).toBe('尚未规划');
     expect(plainProgress(1, 3, 'en')).toBe('1 of 3 done');
-    expect(plainEventName('provider.request.started', 'zh-CN')).toBe('开始调用模型');
-    expect(plainEventName('daemon.command.completed', 'zh-CN')).toBe('指令已执行');
     expect(plainStatus('using a tool', 'zh-CN')).toBe('正在使用工具');
-    expect(plainEventName('life.mission.started', 'zh-CN')).toBeNull();
-    expect(isBookkeepingEvent('budget.reservation.settled')).toBe(true);
-    expect(isBookkeepingEvent('round.review.completed')).toBe(false);
   });
 
   it('keeps the reason and moves counters and receipts into the technical remainder', () => {
