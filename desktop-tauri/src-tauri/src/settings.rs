@@ -389,8 +389,20 @@ mod tests {
         assert_eq!(super::available_backend_port(&store.snapshot()).unwrap_err().kind(), io::ErrorKind::AddrInUse);
         assert_eq!(store.snapshot().port, port);
         assert_eq!(std::fs::read(&store.settings_path).unwrap(), original);
-        drop(listener);
-        assert_eq!(super::available_backend_port(&store.snapshot()).unwrap(), port);
+        // Keep owning the occupied port through all assertions. Once released,
+        // another concurrent test/process may acquire it before a second bind.
+    }
+
+    #[test]
+    fn successful_port_probe_does_not_rewrite_settings() {
+        // Port zero is test-only OS allocation, not a wizard port choice. Bind
+        // directly instead of assuming a released ephemeral port stayed free.
+        let (_directory, store) = port_store(0);
+        let original = std::fs::read(&store.settings_path).unwrap();
+        let available = super::available_backend_port(&store.snapshot()).unwrap();
+        assert_ne!(available, 0);
+        assert_eq!(store.snapshot().port, 0);
+        assert_eq!(std::fs::read(&store.settings_path).unwrap(), original);
     }
 
     #[test]
