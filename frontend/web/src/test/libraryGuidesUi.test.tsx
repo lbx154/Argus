@@ -208,12 +208,17 @@ it.each([
   }
 });
 
-it('says why the store would not take a team skill', async () => {
+it("says why the store would not take a team skill, and words any other error itself", async () => {
   vi.stubGlobal('window', { confirm: () => true });
   vi.mocked(api.skillLibrary).mockResolvedValue({ items: [offered(null)] });
-  const reason = 'A pack holds at most 8 MiB; this one holds 9.0 MiB';
-  vi.mocked(api.contributeSkill).mockRejectedValue(new ApiError(`POST /api/skill-library/contribute → 400: ${reason}`, 400, 'POST', '/api/skill-library/contribute', '', reason));
+  const refused = (detail: string, code: string) => new ApiError(`POST /api/skill-library/contribute → 400: ${detail}`, 400, 'POST', '/api/skill-library/contribute', code, detail);
+  const failure = "ENOENT: no such file or directory, rename '/home/argus/contributions/materials.json.tmp'";
+  vi.mocked(api.contributeSkill).mockRejectedValue(refused(failure, 'request_failed'));
   await openTeamSkill();
+  act(() => button('贡献到技能商店').props.onClick()); await settle();
+  expect(content(view!.root.findByProps({ role: 'alert' }))).toMatch(/^当前状态还不能执行这个操作。.*错误详情/);
+  const reason = 'A pack holds at most 8 MiB; this one holds 9.0 MiB';
+  vi.mocked(api.contributeSkill).mockRejectedValue(refused(reason, 'not_for_store'));
   act(() => button('贡献到技能商店').props.onClick()); await settle();
   expect(content(view!.root.findByProps({ role: 'alert' }))).toBe(reason);
   expect(button('贡献到技能商店').props.disabled).toBe(false);

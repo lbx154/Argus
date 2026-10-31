@@ -178,8 +178,14 @@ test("a team skill offered to the store is checked by the store's rule, kept for
 
   await skill('materials');
   await write(join(home, 'skills', 'materials', 'checks', 'check.mjs'), '{}');
+  // Compiled Python is left out, as the store's catalog leaves it out: it counts toward nothing.
+  for (const compiled of ['__pycache__/check.cpython-312.pyc', 'check.pyc']) {
+    await write(join(home, 'skills', 'materials', 'checks', compiled), '');
+    await truncate(join(home, 'skills', 'materials', 'checks', compiled), 8 * 2 ** 20);
+  }
   assert.equal(await shown('materials'), null);
-  assert.equal((await offer('materials')).status, 200);
+  // Two offers at once, from two tabs say, are both kept, one after the other.
+  assert.deepEqual((await Promise.all([offer('materials'), offer('materials')])).map(answer => answer.status), [200, 200]);
   const asked = JSON.parse(await readFile(kept, 'utf8')) as Contribution;
   assert.deepEqual({ ...asked, requested_at: 0 }, { name: 'materials', version: '1', requested_at: 0 });
   assert.ok(Math.abs(asked.requested_at - Date.now() / 1000) < 60);
@@ -210,12 +216,16 @@ test("a team skill offered to the store is checked by the store's rule, kept for
   await write(join(home, 'skills', 'hidden', '.env'), 'TOKEN=x');
   await skill('Named');
   await skill('undescribed', body().replace('description:', 'other:'));
+  // Only the store's rule answers with its code, whose reason the page shows; not the team's skill, or no name, is another error.
+  const other = new Set<unknown>(['installed', 'research', 1]);
   for (const [name, reason] of [['learning', /name of a skill Argus comes with/], ['linked', /check\.mjs is a link/], ['linked-folder', /checks is a link/],
     ['large', /at most 8 MiB; this one holds 8\.0 MiB/], ['hidden', /cannot hold "\.env"/], ['Named', /store name/], ['undescribed', /description/],
     ['installed', /No such team skill/], ['research', /No such team skill/], ['../skills/materials', /store name/], [1, /Name required/]] as const) {
     const refused = await offer(name);
     assert.equal(refused.status, 400, String(name));
-    assert.match((await refused.json()).detail, reason);
+    const { detail, code } = await refused.json();
+    assert.match(detail, reason);
+    assert.equal(code, other.has(name) ? 'request_failed' : 'not_for_store', String(name));
   }
   assert.deepEqual((await readdir(join(home, 'contributions'))).sort(), ['materials.json', 'unversioned.json']);
 });

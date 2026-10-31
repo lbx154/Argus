@@ -114,10 +114,11 @@ stay in `$ARGUS_HOME/skills/`.
 
 The operator may offer a team skill to the store (`POST /api/skill-library/contribute {name}`, the
 **Skill library**'s button, after a confirmation). Argus holds the folder to the same rule, walking it
-without following links and refusing a link or anything not a regular file, and answers a skill the store
-would not take with 400 and the reason. One it would take is recorded, written whole, as
+without following links and refusing a link or anything not a regular file, and leaving out `__pycache__/`
+and `.pyc` files as the store's catalog does; it answers a skill the store would not take with 400, code
+`not_for_store`, and the reason. One it would take is recorded, written whole, as
 `$ARGUS_HOME/contributions/<name>.json`: `{"name", "version" (its front matter's, else "0.1.0"),
-"requested_at" (Unix seconds)}`, a later offer replacing it. Argus does not contact GitHub: the host
+"requested_at" (Unix seconds)}`, a later offer replacing it. Argus opens no pull request itself: the host
 picks up a file without `submitted_at`, or with `requested_at` later than it, opens or updates a pull
 request to `Argus-AiTeam/argus-verticals`'s `packs/<name>/`, and rewrites the file whole with `url`
 or a one-sentence `error`, and `submitted_at`. `GET /api/skill-library` gives each team skill its

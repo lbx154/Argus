@@ -4,7 +4,7 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { add, catalog, contribute, contribution, installed, remove } from '../packs.js';
+import { add, catalog, contribute, contribution, installed, Refused, remove } from '../packs.js';
 import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
@@ -18,11 +18,12 @@ export function library(store: Store): [string, RegExp, Handler][] {
       return { packs: packs.map(pack => ({ ...pack, installed_version: installed(store.home, pack.name) })) };
     }],
     // The operator's consent to offer a team skill to the store is kept; the host opens the pull request.
+    // What the store's rule refuses is told by its code, so the page shows that reason and no other error's words.
     ...([['skill-packs/add', add], ['skill-packs/remove', remove], ['skill-library/contribute', contribute]] as const).map(([path, action]) => ['POST', new RegExp(`^/api/${path}$`), async ({ body }) => {
       const { name } = await body();
       if (typeof name !== 'string') throw new HttpError(400, 'Name required');
       try { await action(store.home, name); }
-      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : String(error)); }
+      catch (error) { throw new HttpError(400, error instanceof Error ? error.message : String(error), error instanceof Refused ? 'not_for_store' : ''); }
       return { ok: true };
     }] as [string, RegExp, Handler]),
     // Argus's own skills are the page's 'bundled' library, the roles' and the operator's its 'shared' one.

@@ -1,6 +1,6 @@
 // The operator's skill store. Both entry points install through this transaction; roles only read it.
 // The operator may offer the team's own skills to it, which the host turns into a pull request.
-import { lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from './prompts.js';
@@ -109,22 +109,26 @@ const offer = (home: string, value: string): string => resolve(home, 'contributi
 export function contribution(home: string, value: string): Contribution | null {
   try { return JSON.parse(readFileSync(offer(home, value), 'utf8')) as Contribution; } catch { return null; }
 }
-/** Offer the team's skill `value` to the store, once it meets the store's rule. Offering it again asks anew. */
-export async function contribute(home: string, value: string): Promise<void> {
+/** A team skill the store would not take, with the reason, which the operator acts on. */
+export class Refused extends Error {}
+/** Offer the team's skill `value` to the store, once it meets the store's rule. Offering it again asks anew.
+ * It runs synchronously and writes aside under its process's id, so no two offers ever share the file written aside. */
+export function contribute(home: string, value: string): void {
   const dir = resolve(skillsHome(home), value);
   if (!skills(home).some(([, found]) => found === dir)) throw new Error(`No such team skill: ${value}`);
-  // The folder file by file, as the store would hold it: a link is refused, not followed.
-  const files = readdirSync(dir, { recursive: true, withFileTypes: true }).filter(entry => !entry.isDirectory()).map(entry => {
+  // The folder file by file, as the store would hold it, which leaves out compiled Python: a link is refused, not followed.
+  const files = readdirSync(dir, { recursive: true, withFileTypes: true }).flatMap(entry => {
     const file = join(entry.parentPath, entry.name);
     const path = relative(dir, file).split(sep).join('/');
-    if (!entry.isFile()) throw new Error(`${path} is a link or not a regular file; the store holds only regular files`);
-    return { path, size: lstatSync(file).size };
+    if (entry.isDirectory() || path.endsWith('.pyc') || path.split('/').includes('__pycache__')) return [];
+    if (!entry.isFile()) throw new Refused(`${path} is a link or not a regular file; the store holds only regular files`);
+    return [{ path, size: lstatSync(file).size }];
   });
   const version = purpose(dir, 'version') || '0.1.0';
   const reason = fault({ name: value, version, description: purpose(dir), requires: [], needs: [], files });
-  if (reason) throw new Error(reason);
+  if (reason) throw new Refused(reason);
   const file = offer(home, value);
-  await mkdir(dirname(file), { recursive: true });
-  await writeFile(`${file}.tmp`, JSON.stringify({ name: value, version, requested_at: Date.now() / 1000 }));
-  await rename(`${file}.tmp`, file);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(`${file}.${process.pid}.tmp`, JSON.stringify({ name: value, version, requested_at: Date.now() / 1000 }));
+  renameSync(`${file}.${process.pid}.tmp`, file);
 }

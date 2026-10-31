@@ -212,8 +212,8 @@ function StoreOffer({ item, zh }: { item: SkillLibraryItem; zh: boolean }) {
       className="rounded-lg border border-line px-3 py-2 text-sm text-ink disabled:opacity-40">
       {!sent ? (zh ? '贡献到技能商店' : 'Contribute to the skill store') : sent.error ? (zh ? '重试' : 'Retry') : (zh ? '重新提交' : 'Submit again')}
     </button>}
-    {/* A skill the store would not take is refused with the reason, which the operator acts on. */}
-    {offer.error && <div role="alert" className="text-err">{offer.error instanceof ApiError && offer.error.status === 400 && offer.error.detail
+    {/* A skill the store would not take is refused with the reason, which the operator acts on; any other error is the UI's to word. */}
+    {offer.error && <div role="alert" className="text-err">{offer.error instanceof ApiError && offer.error.code === 'not_for_store'
       ? offer.error.detail : <ErrorMessage error={offer.error} />}</div>}
   </div>;
 }

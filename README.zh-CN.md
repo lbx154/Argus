@@ -72,7 +72,7 @@
 已装版本和运行要求；`argus skills add <name>` 安装或替换，`argus skills remove <name>` 卸载。
 包存放在 `$ARGUS_HOME/skill-packs/`，在 Linux 沙箱（bubblewrap）里运行时，各角色对它只有读取权限。
 团队技能可以在**技能库**里它自己的页面贡献到商店：你确认后，Argus 按商店规则检查一遍，把请求记在
-`$ARGUS_HOME/contributions/<name>.json`。Argus 本身不连 GitHub：托管端（argus-hosting）据此向 `Argus-AiTeam/argus-verticals`
+`$ARGUS_HOME/contributions/<name>.json`。Argus 自己不开 PR：托管端（argus-hosting）据此向 `Argus-AiTeam/argus-verticals`
 开 PR，并把 PR 地址（`url`）或失败原因（`error`）写回；维护者审核合并后，它才进入商店。
 
 **沙箱。**在装有 bubblewrap（`bwrap`）的 Linux 上，每次后端调用都在沙箱里运行：系统目录
