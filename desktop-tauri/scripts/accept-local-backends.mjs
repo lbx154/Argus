@@ -10,6 +10,8 @@ import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from '@playwright/test';
 import { PREVIEW_DATA_DIRECTORY } from './preview-notes.mjs';
+import { cockpitFrame, connectionSnapshot, observeConnection } from './connection-evidence.mjs';
+import { preserveConversation, assertConversation, verifyReadFaults } from './connection-acceptance.mjs';
 
 const args = process.argv.slice(2);
 const option = name => { const i = args.indexOf(name); return i < 0 ? '' : args[i + 1] || ''; };
@@ -56,7 +58,8 @@ Object.assign(env, {
 const checks = [];
 const record = value => { checks.push(value); console.log(JSON.stringify(value)); };
 const child = spawn(binary, [], { cwd: stage, env, stdio: 'ignore', windowsHide: false });
-let browser, page, apiBase, credential, sid, failure;
+let browser, page, apiBase, credential, sid, failure, connectionObserver, preserved;
+const projectName = `CLI connection acceptance ${randomUUID().slice(0, 8)}`;
 const invoke = (name, input = {}) => page.evaluate(({ name, input }) => window.__TAURI_INTERNALS__.invoke(name, input), { name, input });
 async function api(path, body, method = body === undefined ? 'GET' : 'POST', timeout = 240000) {
   const response = await fetch(`${apiBase}${path}`, { method, signal: AbortSignal.timeout(timeout),
@@ -91,6 +94,7 @@ try {
   assert(page, 'Actual native desktop shell not found');
   page.on('dialog', dialog => dialog.accept());
   await page.waitForFunction(() => Boolean(window.__TAURI_INTERNALS__));
+  connectionObserver = observeConnection(page, invoke, () => apiBase);
   assert.equal(await page.locator('#trialOpen, #trialKey, #trialShortcut').count(), 0);
   const initial = await invoke('get_setup');
   assert.equal(initial.releaseIdentity.releaseId, manifest.release_id);
@@ -128,7 +132,27 @@ try {
     assert(credential, 'Authenticated cockpit URL missing');
     const meta = await api('/api/meta');
     assert.equal(meta.runtime.release_id, manifest.release_id);
-    if (!sid) sid = await createProject('Pi → DSH → Pi 成品验收', join(output, 'switch-workspace'));
+    if (!sid) sid = await createProject(projectName, join(output, 'switch-workspace'));
+    const connectionReadyAt = Date.now();
+    let view;
+    for (let n = 0; n < 200; n++) {
+      const frame = await cockpitFrame(page, apiBase);
+      view = frame && await connectionSnapshot(frame);
+      const notification = preserved && frame && await frame.evaluate(() => window.__connectionAcceptance?.notifications.at(-1));
+      const fresh = !preserved || (notification?.at >= started && view?.queries.every(q => q.dataAt >= notification.at));
+      if (fresh && view?.queries.length === 2 && view.queries.every(q => q.status === 'success') && !view.unreachable && !view.pairing) break;
+      await delay(100);
+    }
+    assert(view?.queries.length === 2 && view.queries.every(q => q.status === 'success') && !view.unreachable && !view.pairing,
+      `${backend}: packaged UI connection did not recover after native ready`);
+    if (preserved) {
+      const document = await assertConversation(page, apiBase, preserved);
+      const notification = document.notifications.at(-1);
+      assert(notification?.at >= started && view.queries.every(q => q.dataAt >= notification.at), 'Ready did not refresh BOTH actual read queries');
+      assert(Date.now() - notification.at < 2000, 'Desktop recovery waited for polling rather than native ready');
+      record({ check: 'native ready immediately refreshes both reads and preserves document/draft/attachment/project', backend, ok: true, recovery_ms: Date.now() - notification.at });
+    }
+    record({ check: 'packaged connection queries and banner recovered', backend, elapsed_ms: Date.now() - connectionReadyAt, view });
     const config = await api(`/api/projects/${sid}/config`);
     assert.equal(config.trial_mode, false);
     assert(config.roles.every(role => role.backend === backend), 'Role backend differs from native selection');
@@ -140,7 +164,10 @@ try {
     record({ check: 'native selection/switch and real Manager reply', backend, index: index + 1,
       ok: true, reply: expected, sid, model: snapshot.last_call?.model || 'CLI native default', elapsed_ms: Date.now() - started });
     await page.screenshot({ path: join(output, `switch-${index + 1}-${backend}.png`) });
+    if (index === 0 && args.includes('--connection-faults')) preserved = await preserveConversation(page, apiBase, projectName, sid);
   }
+
+  if (args.includes('--connection-faults')) await verifyReadFaults({ page, origin: apiBase, invoke, record, output, preserved });
 
   if (configBefore) {
     assert.equal(createHash('sha256').update(fs.readFileSync(sharedConfig)).digest('hex'), configBefore,
@@ -189,6 +216,8 @@ try {
   if (credential) failure = failure.replaceAll(credential, '***');
   console.error(failure);
 } finally {
+  connectionObserver?.stop();
+  fs.writeFileSync(join(output, 'connection-timeline.json'), JSON.stringify(connectionObserver?.timeline || [], null, 2), { flag: 'wx' });
   if (page && child.exitCode === null) {
     const exited = once(child, 'exit');
     await invoke('stop_backend_and_quit').catch(() => undefined);

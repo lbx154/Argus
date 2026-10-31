@@ -9,6 +9,7 @@ import { I18nProvider, useI18n } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
 import { PageUpdateNotice } from './components/PageUpdateNotice';
 import { queryRetryPolicy } from './hooks';
+import { installDesktopConnectionRecovery } from './lib/desktopRecovery';
 import { installStaleChunkRecovery } from './lib/preloadRecovery';
 import { RELEASE_ID } from '../../core/src/release.generated';
 import { persistQueryCache, restoreQueryCache } from './lib/queryPersistence';
@@ -44,6 +45,8 @@ const queryClient = new QueryClient({
     queries: { staleTime: 3_000, gcTime: 30 * 60_000, retry: queryRetryPolicy, refetchOnWindowFocus: false },
   },
 });
+// No-op outside a loopback cockpit with a trusted Tauri parent.
+if (!isAdminData) installDesktopConnectionRecovery(queryClient);
 // A reload in this tab starts from the views it last showed.
 if (!isAdminData) {
   const storage = () => window.sessionStorage;

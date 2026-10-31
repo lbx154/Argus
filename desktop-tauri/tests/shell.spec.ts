@@ -275,6 +275,30 @@ test('a pending save cannot be double-submitted or cancelled', async ({ page }) 
   await expect(page.locator('#wizard')).toBeHidden();
 });
 
+test('ready reaches a retained listening cockpit once per backend, including the visible early-return path', async ({ page }) => {
+  await launch(page, true);
+  await expect(page.locator('#splash')).toBeHidden();
+  const frame = page.frames().find(frame => frame.url().startsWith('http://127.0.0.1:18880/'))!;
+  await frame.locator('#draft').fill('preserve across recovery');
+  await frame.evaluate(() => {
+    (window as any).readyMessages = [];
+    window.addEventListener('message', event => {
+      if (event.data?.type === 'argus:backend-ready') (window as any).readyMessages.push(event.data);
+    });
+    parent.postMessage({ type: 'argus:connection-listening', version: 1 }, '*');
+  });
+  await page.evaluate(() => {
+    const state = (window as any).desktopTest;
+    state.emit({ state: 'starting', message: 'restart' });
+    state.emit({ state: 'ready', message: 'ready', url: state.url, pid: 2 });
+    state.emit({ state: 'ready', message: 'ready', url: state.url, pid: 2 });
+  });
+  await expect.poll(() => frame.evaluate(() => (window as any).readyMessages.length)).toBe(1);
+  expect(await frame.evaluate(() => (window as any).readyMessages[0])).toMatchObject({ version: 1, origin: 'http://127.0.0.1:18880' });
+  await expect(frame.locator('#draft')).toHaveValue('preserve across recovery');
+  await expect(page.locator('#splash')).toBeHidden();
+});
+
 test('recovery at the same URL retains the React document and unsent draft', async ({ page }) => {
   await launch(page, true);
   await page.frameLocator('#cockpitFrame').locator('#draft').fill('preserve me');

@@ -1036,9 +1036,9 @@ export const api = {
   mapDatasets: (signal?: AbortSignal) => getJson<{ datasets: import('./map/model').DatasetSummary[] }>('/api/map-datasets', signal),
   mapDataset: (id: string, signal?: AbortSignal) => getJson<import('./map/model').Dataset>(`/api/map-datasets/${encodeURIComponent(id)}`, signal),
   meta: compatibleApiMeta,
-  projectIndex: async () => {
+  projectIndex: async (signal?: AbortSignal) => {
     await compatibleApiMeta();
-    return getJson<ProjectIndex>('/api/projects', undefined, API_LOCAL_READ_TIMEOUT_MS);
+    return getJson<ProjectIndex>('/api/projects', signal, API_LOCAL_READ_TIMEOUT_MS);
   },
   listProjects: async () => {
     await compatibleApiMeta();

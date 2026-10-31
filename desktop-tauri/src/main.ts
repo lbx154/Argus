@@ -2,6 +2,7 @@ import './style.css';
 import { applicationName, hasApplicationBrand } from './product';
 import { visibleEyeCycle } from './startup';
 import { nativePathRequests } from './nativePaths';
+import { backendRecoveryNotifications } from './backendRecovery';
 import {
   desktopBridge,
   type AppearanceTheme,
@@ -150,6 +151,9 @@ function newEyeCycle() {
 }
 let eyeCycle = newEyeCycle();
 const pathRequests = nativePathRequests(cockpitFrame, cockpitOrigin);
+const backendRecovery = backendRecoveryNotifications((generation, origin) => {
+  cockpitFrame.contentWindow?.postMessage({ type: 'argus:backend-ready', version: 1, generation, origin }, origin);
+}, cockpitOrigin);
 
 function cancelSplashTransition(): void {
   splashGeneration++;
@@ -285,8 +289,8 @@ function mountCockpit(url: string): void {
   cockpitEl.hidden = false;
 
   // A runner-only settings change restarts the backend at the same URL. Keep
-  // the already-mounted React cockpit alive so it can reconnect through its
-  // normal WebSocket/query recovery instead of paying for a full WebView reload.
+  // the already-mounted React cockpit alive. Native readiness also refreshes
+  // its read queries, without waiting for the idle polling interval.
   if (cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)) {
     void hideSplashAfterCockpitLoad();
     return;
@@ -298,6 +302,7 @@ function mountCockpit(url: string): void {
   cockpitLoaded = false;
   splashEl.classList.remove('is-ready');
   cockpitMounted = true;
+  backendRecovery.navigating();
   cockpitFrame.src = url;
 }
 
@@ -344,6 +349,8 @@ function replayLaunchEye(): void {
 }
 
 function render(status: DesktopStatus): void {
+  // This must precede handleReady's visible-cockpit/settings early returns.
+  backendRecovery.observe(status);
   document.body.dataset.state = status.state;
   runtimeNotice.hidden = !status.warning;
   runtimeNoticeDetail.textContent = status.warning || '';
@@ -977,6 +984,7 @@ window.addEventListener('message', (event) => {
   if (!data || typeof data !== 'object') return;
   const type = (data as { type?: unknown }).type;
   const payload = (data as { payload?: unknown }).payload;
+  if (type === 'argus:connection-listening' && data.version === 1) backendRecovery.listening();
   if (type === 'argus:show-setup') void reopenWizard();
   if (type === 'argus:request-new-chat' && !wizardOpen) postToCockpit('argus:new-chat');
   if (type === 'argus:cockpit-interaction') closeDesktopMenus();

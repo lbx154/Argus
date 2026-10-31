@@ -76,7 +76,7 @@ export function useDesktopDeliveryNavigation(options: Options): () => void {
       // Use the existing authenticated index/query cache and selection path.
       // Index reads are shared with normal UI refreshes, so cancelling a toast
       // does not abort the shared query or another session's background work.
-      void latest.current.queryClient.fetchQuery({ queryKey: ['projects'], queryFn: api.projectIndex, staleTime: 0 }).then(index => {
+      void latest.current.queryClient.fetchQuery({ queryKey: ['projects'], queryFn: ({ signal }) => api.projectIndex(signal), staleTime: 0 }).then(index => {
         if (pending.current !== intent) return;
         if (!index.projects.some(project => project.id === target)) throw new Error('the target session is unavailable or no longer accessible');
         intent.target = target;
