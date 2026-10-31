@@ -347,6 +347,18 @@ test('a CLI not on PATH says how to install it', async () => {
   }
 });
 
+test('an Engineer whose workdir holds Argus home writes the workdir, not the record it is given to read', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
+  // The test's root holds ARGUS_HOME; the project's record is given to read, as every turn's is.
+  const record = join(root, 'argus', 'projects', 'p-held');
+  mkdirSync(record, { recursive: true });
+  const [kept, own] = [join(record, 'project.json'), join(work, 'own.txt')];
+  writeFileSync(kept, 'record');
+  writeFileSync(own, 'work');
+  const result = await call('codex', { attackPaths: [kept, own], output: handoff }, { cwd: root, readDirs: [record] });
+  assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), [{ content: 'record', changed: false }, { content: 'work', changed: true }]);
+  assert.equal(readFileSync(kept, 'utf8'), 'record');
+});
+
 test('a review uses disk /tmp under Argus home and cleans it when the CLI ends', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
   const { readdirSync } = await import('node:fs');
   const temps = privatePath('/tmp', work);

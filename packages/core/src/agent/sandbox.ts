@@ -160,7 +160,9 @@ export function confine(argv: string[], request: AgentRequest, temp?: string): s
   const { login, settings } = cliSetup(request.backend);
   const cwd = resolve(request.cwd);
   const given = [cwd, ...request.readDirs ?? [], ...request.writeDirs ?? []].map(path => resolve(path));
-  const writes = request.access === 'write' ? [cwd, ...request.writeDirs ?? []].map(real) : [];
+  // Writable: the workdir and the directories given to write, to a role that writes. A directory given
+  // to read inside one is mounted after it, being deeper, and read-only: Argus's record stays put.
+  const writes = request.access === 'write' ? [cwd, ...request.writeDirs ?? []].map(path => resolve(path)) : [];
   // Files and directories the arguments name, such as the schema or extension a call writes.
   const passed = args.filter(arg => isAbsolute(arg) && existsSync(arg)).map(real);
   const readable = outermost([
@@ -188,7 +190,7 @@ export function confine(argv: string[], request: AgentRequest, temp?: string): s
   };
   for (const file of login) bind(file, true);
   for (const file of settings) bind(file, false);
-  for (const dir of given) bind(dir, writes.some(outer => within(real(dir), outer)));
+  for (const dir of given) bind(dir, writes.includes(dir));
   // A linked worktree's pointer stays put.
   if (isFile(join(cwd, '.git'))) bind(join(cwd, '.git'), false);
   const ordered = [...new Map(mounts.map(mount => [mount.join('\0'), mount])).values()]
