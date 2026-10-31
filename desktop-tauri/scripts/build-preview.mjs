@@ -24,6 +24,7 @@ const env = {
   PATH: `${dirname(python)}${delimiter}${process.env.PATH || ''}`,
   PYTHONUTF8: '1',
   PYTHONIOENCODING: 'utf-8',
+  ARGUS_WEB_BUILD_CLEAN: '1',
   CARGO_TARGET_DIR: join(desktop, 'build', 'preview-target'),
   ARGUS_SKILL_HOME: join(repo, '.integration', 'build-runtime-home'),
   ARGUS_WORKBENCH_HOST_ROOT: join(repo, '.integration', 'build-runtime-home'),

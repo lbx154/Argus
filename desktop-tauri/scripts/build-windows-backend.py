@@ -25,7 +25,10 @@ def isolated_environment(work: Path) -> dict[str, str]:
     }
     for directory in ("home", "tmp", "roaming", "local", "state"):
         (work / directory).mkdir()
+    native_temp = REPO / ".integration" / "nt"
+    native_temp.mkdir(parents=True, exist_ok=True)
     env.update({
+        "ARGUS_WEB_BUILD_CLEAN": "1", "ARGUS_NATIVE_TEST_TEMP": str(native_temp),
         "HOME": str(work / "home"), "USERPROFILE": str(work / "home"),
         "APPDATA": str(work / "roaming"), "LOCALAPPDATA": str(work / "local"),
         "TEMP": str(work / "tmp"), "TMP": str(work / "tmp"), "TMPDIR": str(work / "tmp"),
