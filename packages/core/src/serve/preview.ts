@@ -16,25 +16,31 @@ const BUNDLE_BYTES = 2 ** 31;
 const deflate = promisify(deflateRaw);
 
 export function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, publicUrl?: string) {
-  const source = publicUrl !== undefined ? new URL(publicUrl) : undefined;
-  // Validate the literal too: URL normalizes empty ?/#, encoded hosts and dot paths.
-  const template = /^https?:\/\/[a-z0-9*-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?\/?$/i.test(publicUrl ?? '');
-  const labels = source?.hostname.split('.') ?? [];
-  if (source && (!template || labels[0]!.split('*').length !== 2
-    || labels.some((label, i) => {
-      const filled = i ? label : label.replace('*', 'a'.repeat(32));
-      return !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(filled) || filled.length > 63;
-    }) || source.hostname.length + 31 > 253)) {
-    throw new Error('--preview-url must be an HTTP(S) origin template with one * in its first DNS label, such as https://js-trial1-*.argusbot.cn');
+  let source: URL | undefined;
+  if (publicUrl !== undefined) {
+    try {
+      source = new URL(publicUrl);
+      // Check the literal: URL normalizes empty ?/#, encoded hosts and dot paths.
+      const labels = source.hostname.split('.');
+      if (!/^https?:\/\/[a-z0-9*-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?\/?$/i.test(publicUrl)
+        || labels[0]!.split('*').length !== 2
+        || labels.some((label, i) => {
+          const filled = i ? label : label.replace('*', 'a'.repeat(32));
+          return !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(filled) || filled.length > 63;
+        }) || source.hostname.length + 31 > 253) throw new Error();
+    } catch {
+      throw new Error('--preview-url must be an HTTP(S) origin template with one * in its first DNS label, such as https://js-trial1-*.argusbot.cn');
+    }
   }
   const sites = new Map<string, { id: string; delivery: string | null; paths: Set<string> }>();
   const [before, after] = (source?.hostname ?? '*.localhost').split('*') as [string, string];
   // The entire template namespace is static-only, including unknown identifiers.
-  const keyOf = (hostname: string) => {
-    const name = hostname.replace(/\.$/, '');
-    return name.startsWith(before) && name.endsWith(after) ? name.slice(before.length, name.length - after.length) : '';
+  const keyOf = (hostname: string): string | undefined => {
+    const name = hostname.toLowerCase().replace(/\.$/, '');
+    return name.startsWith(before) && name.endsWith(after) && name.length >= before.length + after.length
+      ? name.slice(before.length, name.length - after.length) : undefined;
   };
-  const isHost = (hostname: string) => /^[a-z0-9-]+$/.test(keyOf(hostname));
+  const isHost = (hostname: string) => keyOf(hostname) !== undefined;
   let fallback: ReturnType<typeof createServer> | undefined;
   let fallbackPort: number | undefined;
   let listening: Promise<void> | undefined;
@@ -53,7 +59,7 @@ export function preview(project: (id: string) => Project, result: (work: Project
       const key = keyedPath ? pathKey : keyOf(incoming.hostname);
       const path = keyedPath ? rest : url.pathname.slice(1);
       const site = key && sites.get(key);
-      if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'Not Found');
+      if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'This hostname is reserved for static previews. Open the cockpit on a hostname outside the preview namespace.');
       const name = decodeURIComponent(path);
       const work = project(site.id);
       const directory = url.pathname.endsWith('/');
@@ -73,7 +79,8 @@ export function preview(project: (id: string) => Project, result: (work: Project
         if (response.statusCode === 200 || response.statusCode === 206) site.paths.add(found.path);
       });
     } catch (error) {
-      response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500).end();
+      response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ detail: error instanceof Error ? error.message : String(error) }));
     }
   };
   const html = ({ params: [id], url }: Context) => {
@@ -90,7 +97,8 @@ export function preview(project: (id: string) => Project, result: (work: Project
       let key = [...sites].find(([, site]) => site.id === work.id && site.delivery === delivery)?.[0];
       if (!key) { key = randomBytes(16).toString('hex'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
       const incoming = requestOrigin(context.request);
-      const local = ['127.0.0.1', 'localhost', '[::1]'].includes(incoming.hostname);
+      const local = ['localhost', '0.0.0.0', '[::]', '[::1]'].includes(incoming.hostname.replace(/\.$/, ''))
+        || /^127(?:\.\d{1,3}){3}$/.test(incoming.hostname) || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]+\]$/.test(incoming.hostname);
       const url = new URL(source?.origin ?? incoming.origin);
       if (source || local) {
         url.hostname = before + key + after;
@@ -101,7 +109,18 @@ export function preview(project: (id: string) => Project, result: (work: Project
         if (!listening) {
           fallbackPort = context.request.socket.localPort! + 1;
           fallback = createServer((req, res) => handle(req, res, true));
-          listening = new Promise<void>((accept, reject) => fallback!.once('error', reject).listen(fallbackPort, host, accept));
+          const listener = fallback;
+          const port = fallbackPort;
+          listening = new Promise<void>((accept, reject) => {
+            listener.once('error', reject).listen(port, host, () => {
+              listener.removeListener('error', reject);
+              accept();
+            });
+          }).catch(() => {
+            listener.close();
+            listening = fallback = fallbackPort = undefined;
+            throw new HttpError(503, `Preview server could not listen on ${host}:${port}. Free this port, then request the preview again.`, 'preview_unavailable');
+          });
         }
         await listening;
         url.protocol = 'http:';

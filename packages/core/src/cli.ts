@@ -20,6 +20,7 @@ Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), at t
 Local previews use <identifier>.localhost on the browser-facing cockpit port.
 LAN/mobile previews fall back to port + 1 with shared preview storage.
 --preview-url is an HTTP(S) origin template, e.g. https://js-trial1-*.argusbot.cn.
+Its entire hostname namespace is static-only; the cockpit hostname must be outside it.
 Forwarding must preserve Host and Origin.
 The team works through the --backend CLI (codex unless chosen), which must be installed and signed in.
 Work stops when this process exits; the next start resumes projects that were running. Closing the browser leaves work running.

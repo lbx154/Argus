@@ -22,5 +22,15 @@ function AuthenticatedHtmlPreview({ html, title, className, sid, path, delivery 
     {errorText(preview.error, locale)}
     <button type="button" className="ml-3 underline" onClick={() => void preview.refetch()}>{zh ? '重试' : 'Retry'}</button>
   </div>;
-  return <iframe title={title} src={preview.data?.url} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups" referrerPolicy="no-referrer" className={`min-h-0 w-full flex-1 border-0 bg-white ${className}`} />;
+  const url = preview.data?.url;
+  const localDomain = url && new URL(url).hostname.endsWith('.localhost');
+  return <>
+    <div className="shrink-0 px-3 py-2 text-xs text-ink-dim">
+      {localDomain && <p>{zh
+        ? 'macOS 15 及更早系统上的 Safari/WKWebView（含桌面版）可能无法解析本地域名，请用 Chrome/Firefox 打开。此处 iframe 与驾驶舱跨站，浏览器可能限制 cookie；需要 cookie 的网页请在新标签打开核对。'
+        : 'Safari/WKWebView (including the desktop app) on macOS 15 and earlier may not resolve local domains; use Chrome/Firefox. This iframe is cross-site with the cockpit, so browsers may restrict cookies. Check websites that need cookies in a new tab.'}</p>}
+      <a href={url} target="_blank" rel="noopener noreferrer" className="underline">{zh ? '新标签打开' : 'Open in a new tab'}</a>
+    </div>
+    <iframe title={title} src={url} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups" referrerPolicy="no-referrer" className={`min-h-0 w-full flex-1 border-0 bg-white ${className}`} />
+  </>;
 }
