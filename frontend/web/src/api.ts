@@ -35,6 +35,15 @@ export type {
 } from '../../core/src/types';
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
+/** A command running in the project's folder that writes to a log there or holds a GPU (GET /api/system/experiments). */
+export interface Experiment {
+  pid: number; command: string; seconds: number;
+  /** nvidia-smi's index of each GPU its processes hold. */
+  gpus: string[];
+  /** Its output file, relative to the project folder. */
+  log: string | null; log_age_seconds: number | null; tail: string[];
+}
+
 
 export interface SkillLibraryItem {
   library: string;
@@ -787,6 +796,8 @@ export const api = {
       P(sid, `/delivery-diff?${new URLSearchParams(change)}`), signal),
   resources: (sid: string, signal?: AbortSignal) =>
     getJson<ResourceStatus>(`/api/system/resources?sid=${encodeURIComponent(sid)}`, signal),
+  experiments: (sid: string, signal?: AbortSignal) =>
+    getJson<{ experiments: Experiment[] }>(`/api/system/experiments?sid=${encodeURIComponent(sid)}`, signal),
   setup: (signal?: AbortSignal) => getJson<SetupStatus>('/api/system/setup', signal),
   trash: (query = '', offset = 0, signal?: AbortSignal) =>
     getJson<{ entries: { trash_id: string; sid: string; label: string; launch_cwd: string; trashed_at: number }[]; total: number; offset: number; limit: number }>(
