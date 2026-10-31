@@ -20,15 +20,21 @@ async function setup(t: test.TestContext, options: { host?: string; previewUrl?:
   const server = await serve({ store, callAgent: () => assert.fail('no backend call'), backend: 'codex', model: null, port: 0, web: home, ...options });
   t.after(() => server.close());
   const path = `/api/projects/${project.id}/artifact/preview?path=index.html`;
-  const request = (host: string, pathName = path, method = 'GET', headers = {}) => new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const req = httpRequest(server.url + pathName, { method, setHost: false, headers: { host, ...(options.token ? { authorization: `Bearer ${options.token}` } : {}), ...headers } }, response => {
+  const request = (host: string, pathName = path, method = 'GET', headers = {}) =>
+    send(server.url, host, pathName, method, { ...(options.token ? { authorization: `Bearer ${options.token}` } : {}), ...headers });
+  return { server, path, request, store, project };
+}
+
+/** A request to the server at `base` for the hostname `host`. */
+function send(base: string, host: string, path: string, method = 'GET', headers = {}) {
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const req = httpRequest(base + path, { method, setHost: false, headers: { host, ...headers } }, response => {
       let body = '';
       response.on('data', chunk => { body += String(chunk); });
       response.on('end', () => resolve({ status: response.statusCode!, body }));
     });
     req.on('error', reject); req.end();
   });
-  return { server, path, request, store, project };
 }
 
 for (const host of ['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', '[::]', '[::ffff:127.0.0.1]']) test(`cockpit Host ${host} without Origin retains cockpit and selects an isolated preview`, async t => {
@@ -94,6 +100,21 @@ test('--preview-url preserves a template hostname on real reading requests; Orig
   assert.equal((await request('localhost', '/api/meta', 'GET', { origin: 'https://js-trial1-unknown.argusbot.cn' })).status, 403);
   for (const origin of [url.origin, `https://${url.hostname}.:9443`, `http://${unknown}:80`]) assert.equal((await request('localhost', '/api/meta', 'GET', { origin })).status, 403);
   for (const host of ['localhost', '127.0.0.1', 'cockpit.argusbot.cn']) assert.equal((await request(host, '/api/meta')).status, 200);
+});
+
+// The live audit of 2026-10-31: each deploy or restart of a hosted cockpit broke every preview open or shared.
+test('a preview link outlives its server: after a restart the same project and delivery keep their key', async t => {
+  const previewUrl = 'https://js-trial1-*.argusbot.cn';
+  const { request, server, store, path } = await setup(t, { previewUrl });
+  const links = [path, `${path}&delivery=d-new`];
+  const granted = await Promise.all(links.map(async link => new URL(JSON.parse((await request('localhost', link)).body).url)));
+  await server.close();
+  const again = await serve({ store, callAgent: () => assert.fail('no backend call'), backend: 'codex', model: null, port: 0, web: store.home, previewUrl });
+  t.after(() => again.close());
+  for (const url of granted) assert.deepEqual(await send(again.url, url.host, url.pathname), { status: 200, body: '<p>preview</p>' });
+  for (const [at, link] of links.entries()) assert.equal(JSON.parse((await send(again.url, 'localhost', link)).body).url, granted[at]!.href);
+  assert.notEqual(granted[0]!.host, granted[1]!.host);
+  assert.equal((await send(again.url, 'js-trial1-' + 'a'.repeat(32) + '.argusbot.cn', '/index.html')).status, 404);
 });
 
 test('malformed Host returns 400 without stack output and does not affect subsequent requests', async t => {

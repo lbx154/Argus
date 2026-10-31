@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
-import { conversationRows, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
+import { conversationRows, daemon, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
 import { SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 
@@ -342,6 +342,21 @@ test('a new session whose turn failed before the model answered is not gone on i
   assert.deepEqual([reply?.status, reply?.text], ['failed', 'unexpected status 401 Unauthorized']);
   assert.equal((await say(flow, id, 'hello again')).status, 'idle');
   assert.deepEqual([requests[1]?.resume, store.load(id).sessions.manager], [undefined, 'signed']);
+});
+
+test('a model service that wants paying holds the work in its own words; Resume is not offered, and a message once paid goes on', async t => {
+  const { store, id } = await setup(t, []);
+  let paid = false;
+  const callAgent: CallAgent = async request => paid
+    ? { callId: 'c2', threadId: 'm', completed: true, error: null, handoff: { form: request.form, to: 'operator', letters: ['Hello.'] }, model: 'fake', usage: null, ms: 1 }
+    : { callId: 'c1', threadId: 'm', completed: false, error: '试用额度已用完。', unpaid: true, handoff: null, model: null, usage: null, ms: 1 };
+  const flow = new Flow(store, callAgent);
+  await flow.say(id, 'hello', { request_id: 'A' });
+  const failed = await flow.settled(id);
+  assert.deepEqual([failed.status, failed.error, failed.failures], ['failed', '试用额度已用完。', [{ role: 'manager', task: null, error: '试用额度已用完。', unpaid: true }]]);
+  assert.equal(daemon(failed, { since: null, calls: [], requests: [] }).resumable, false);
+  paid = true;
+  assert.equal((await say(flow, id, 'hello again')).status, 'idle');
 });
 
 test('the Planner hands out tasks as earlier ones end, and writes to the Manager when the goal is met', async t => {

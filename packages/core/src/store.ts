@@ -51,6 +51,8 @@ export interface Failure {
   role: Role;
   task: string | null;
   error: string;
+  /** The model service wants paying before it serves another turn: resuming waits for that. */
+  unpaid?: true;
 }
 
 export interface OperatorMessage { text: string; request_id?: string; attachments?: UploadedAttachment[] }

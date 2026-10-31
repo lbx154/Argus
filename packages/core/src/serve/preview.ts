@@ -2,20 +2,22 @@
 // unguessable project/delivery hostname; this host has neither credentials nor API routes.
 
 import { randomBytes } from 'node:crypto';
+import { appendFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { pipeline, Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { crc32, deflateRaw } from 'node:zlib';
-import type { Project } from '../store.js';
+import type { Project, Store } from '../store.js';
 import { sendFile, typeOf, under } from './files.js';
 import { HttpError, requestOrigin, type Context, type Handler } from './index.js';
+import { jsonLines } from './views.js';
 
 const BUNDLE_BYTES = 2 ** 31;
 const deflate = promisify(deflateRaw);
 
-export function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, publicUrl?: string) {
+export function preview(store: Store, project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, publicUrl?: string) {
   let source: URL | undefined;
   if (publicUrl !== undefined) {
     try {
@@ -32,7 +34,17 @@ export function preview(project: (id: string) => Project, result: (work: Project
       throw new Error('--preview-url must be an HTTP(S) origin template with one * in its first DNS label, such as https://js-trial1-*.argusbot.cn');
     }
   }
+  /** The sites a project has granted, each a key and the delivery it shows: previews.jsonl in its
+   * directory is the one record of a key, so that a link lasts as long as its project. */
+  const granted = (id: string) => jsonLines(join(store.dir(id), 'previews.jsonl')).rows as { key: string; delivery: string | null }[];
+  /** The sites read from the record, each with the files it has served. */
   const sites = new Map<string, { id: string; delivery: string | null; paths: Set<string> }>();
+  const siteOf = (key: string) => {
+    if (!sites.has(key)) for (const { id } of store.list()) {
+      for (const row of granted(id)) if (!sites.has(row.key)) sites.set(row.key, { id, delivery: row.delivery, paths: new Set() });
+    }
+    return sites.get(key);
+  };
   const [before, after] = (source?.hostname ?? '*.localhost').split('*') as [string, string];
   // The entire template namespace is static-only, including unknown identifiers.
   const keyOf = (hostname: string): string | undefined => {
@@ -58,7 +70,7 @@ export function preview(project: (id: string) => Project, result: (work: Project
       const [, pathKey, rest = ''] = /^\/([^/]+)(?:\/(.*))?$/.exec(url.pathname) ?? [];
       const key = keyedPath ? pathKey : keyOf(incoming.hostname);
       const path = keyedPath ? rest : url.pathname.slice(1);
-      const site = key && sites.get(key);
+      const site = key && siteOf(key);
       if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'This hostname is reserved for static previews. Open the cockpit on a hostname outside the preview namespace.');
       const name = decodeURIComponent(path);
       const work = project(site.id);
@@ -94,8 +106,8 @@ export function preview(project: (id: string) => Project, result: (work: Project
   const routes: [string, RegExp, Handler][] = [
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, async context => {
       const { work, path, delivery } = html(context);
-      let key = [...sites].find(([, site]) => site.id === work.id && site.delivery === delivery)?.[0];
-      if (!key) { key = randomBytes(16).toString('hex'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
+      let key = granted(work.id).find(row => row.delivery === delivery)?.key;
+      if (!key) appendFileSync(join(store.dir(work.id), 'previews.jsonl'), `${JSON.stringify({ key: key = randomBytes(16).toString('hex'), delivery })}\n`);
       const incoming = requestOrigin(context.request);
       const local = ['localhost', '0.0.0.0', '[::]', '[::1]'].includes(incoming.hostname.replace(/\.$/, ''))
         || /^127(?:\.\d{1,3}){3}$/.test(incoming.hostname) || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]+\]$/.test(incoming.hostname);

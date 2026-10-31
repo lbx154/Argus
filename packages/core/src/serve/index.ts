@@ -139,7 +139,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
   };
   const authorized = (request: IncomingMessage): boolean => !token
     || same(request.headers.authorization, `Bearer ${token}`);
-  const sites = preview(project, result, host, options.previewUrl);
+  const sites = preview(store, project, result, host, options.previewUrl);
   const meta = (authenticated: boolean): ApiMeta => ({
     service: API_SERVICE,
     protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
