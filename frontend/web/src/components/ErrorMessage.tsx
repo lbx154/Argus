@@ -7,7 +7,7 @@ export function ErrorDetails({ error }: { error: unknown }) {
   const raw = rawErrorText(error);
   return raw ? <details className="mt-1 text-xs text-ink-dim">
     <summary className="cursor-pointer">{t('error.details')}</summary>
-    <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words font-mono">{raw}</pre>
+    <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] font-mono">{raw}</pre>
   </details> : null;
 }
 

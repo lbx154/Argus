@@ -3,14 +3,15 @@ import test, { type TestContext } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
-import { Flow } from '../src/flow.js';
-import { conversationRows, named, progressMap, readRecord, taskTrace } from '../src/serve/views.js';
-import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
+import { Flow, title } from '../src/flow.js';
+import { conversationRows, daemon, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
+import { words } from './helpers/words.js';
+import { packsHome, SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
@@ -32,6 +33,7 @@ interface Step {
   interrupt?: boolean;
   /** The agent layer throws this instead of returning. */
   throws?: string;
+  says?: string;
 }
 
 function agent(steps: Step[], controller?: AbortController): { callAgent: CallAgent; requests: AgentRequest[] } {
@@ -42,6 +44,7 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     assert.ok(step, `no turn scripted for the ${request.role}`);
     assert.equal(request.role, step.role);
     if (step.later) await new Promise(resolve => setImmediate(resolve));
+    if (step.says) request.onStep?.({ kind: 'message', text: step.says });
     await step.waits;
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
@@ -75,6 +78,14 @@ const brief = 'Build the CSV summary tool.\nsummary.py prints the column totals.
 const withOperator = (brief: string, text: string) => `${brief}\n\n## Operator message\n${text}`;
 const toEngineer: Step = { role: 'manager', to: 'engineer', letter: brief };
 const report: Step = { role: 'manager', to: 'operator', letter: 'summary.py prints the totals; checked against data.csv.' };
+
+test('a project or task is named by the first sentence of its letter, not the paragraph it opens with', () => {
+  assert.equal(title('撰写《一瞬与一地》硕士论文初稿，用户要求3万字以上。研究概要：以游客为主体；我已向用户询问材料。\n第二行'),
+    '撰写《一瞬与一地》硕士论文初稿，用户要求3万字以上。');
+  assert.equal(title('t1：整理文献包并建立证据库\n请读取 research 技能'), 't1：整理文献包并建立证据库');
+  assert.equal(title('## Write the report. Then send it.'), 'Write the report.');
+  assert.equal(title('Release v1.2 notes'), 'Release v1.2 notes');
+});
 
 test('a follow-up first handed to the team keeps the initial request as the project name', async t => {
   const record = JSON.parse(readFileSync(new URL('./fixtures/project-name/record.json', import.meta.url), 'utf8')) as {
@@ -175,7 +186,7 @@ test('the Manager answers directly', async t => {
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
   assert.deepEqual([request?.form, request?.access, request?.readDirs, request?.writeDirs],
-    ['manager', 'read', [store.dir(id), SKILLS], [join(home, 'skills')]]);
+    ['manager', 'read', [store.dir(id), SKILLS, packsHome(store.home)], [join(home, 'skills')]]);
   // The role's standing instructions go apart from the turn's message, with every turn.
   assert.equal(request?.prompt, '## Message\nWhat is 6 times 7?');
   assert.match(request?.instructions ?? '', /^You are the Argus Manager[\s\S]*## Where things are\n/);
@@ -187,17 +198,6 @@ test('the Manager answers directly', async t => {
   // A project with no work rests, and an answer leaves it resting.
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
-});
-
-test('a skill from before SKILL.md, a README.md whose first line said what it was for, becomes one, once', async t => {
-  const { home } = await setup(t, []);
-  const dir = join(home, 'skills', 'quant');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'README.md'), '# Backtest a trading idea: without lookahead\n\nRun check.mjs.\n');
-  renameSkills(home);
-  renameSkills(home);
-  assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), '---\nname: quant\ndescription: "Backtest a trading idea: without lookahead"\n---\n\nRun check.mjs.\n');
-  assert.deepEqual([existsSync(join(dir, 'README.md')), purpose(dir)], [false, 'Backtest a trading idea: without lookahead']);
 });
 
 test("every role is shown Argus's skills and the team's beside them, without rules to write skills", async t => {
@@ -217,11 +217,12 @@ test("every role is shown Argus's skills and the team's beside them, without rul
   assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'read'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
   for (const { instructions: prompt = '', readDirs, writeDirs } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
-    assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
+    assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS, packsHome(store.home)], [own]]);
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
-    assert.ok(prompt.includes(`\n- software: `) && prompt.includes(join(SKILLS, 'research')));
-    assert.ok(prompt.includes(`Skills (Argus's own, then the team's in ${own}):`));
+    assert.ok(prompt.includes(`
+- learning: `) && prompt.includes(join(SKILLS, 'research')));
+    assert.ok(prompt.includes(`Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${own}):`));
     assert.doesNotMatch(prompt, /write it there|read its SKILL.md whole|Keep in the workspace|call nothing the latest/);
   }
 });
@@ -349,6 +350,21 @@ test('a new session whose turn failed before the model answered is not gone on i
   assert.deepEqual([reply?.status, reply?.text], ['failed', 'unexpected status 401 Unauthorized']);
   assert.equal((await say(flow, id, 'hello again')).status, 'idle');
   assert.deepEqual([requests[1]?.resume, store.load(id).sessions.manager], [undefined, 'signed']);
+});
+
+test('a model service that wants paying holds the work in its own words; Resume is not offered, and a message once paid goes on', async t => {
+  const { store, id } = await setup(t, []);
+  let paid = false;
+  const callAgent: CallAgent = async request => paid
+    ? { callId: 'c2', threadId: 'm', completed: true, error: null, handoff: { form: request.form, to: 'operator', letters: ['Hello.'] }, model: 'fake', usage: null, ms: 1 }
+    : { callId: 'c1', threadId: 'm', completed: false, error: '试用额度已用完。', unpaid: true, handoff: null, model: null, usage: null, ms: 1 };
+  const flow = new Flow(store, callAgent);
+  await flow.say(id, 'hello', { request_id: 'A' });
+  const failed = await flow.settled(id);
+  assert.deepEqual([failed.status, failed.error, failed.failures], ['failed', '试用额度已用完。', [{ role: 'manager', task: null, error: '试用额度已用完。', unpaid: true }]]);
+  assert.equal(daemon(failed, { since: null, calls: [], requests: [] }).resumable, false);
+  paid = true;
+  assert.equal((await say(flow, id, 'hello again')).status, 'idle');
 });
 
 test('the Planner hands out tasks as earlier ones end, and writes to the Manager when the goal is met', async t => {
@@ -629,7 +645,7 @@ test("a letter for the Manager outlasts its failed turn, and reaches it when the
     { role: 'manager', throws: 'the relay is down' },
   ]);
   const failed = await say(flow, id, 'Make me a CSV summary tool');
-  assert.deepEqual([failed.status, failed.forManager], ['failed', ['From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted.']]);
+  assert.deepEqual([failed.status, failed.forManager?.map(letter => typeof letter === 'string' ? letter : letter.text)], ['failed', ['From the Reviewer, on task t1 (Build the CSV summary tool.):\nAccepted.']]);
   // The failed call is recorded as ended, so nothing shows it as under way.
   assert.deepEqual(events().filter(event => event.type === 'call.end').at(-1), { ...events().filter(event => event.type === 'call.end').at(-1),
     role: 'manager', completed: false, error: 'the relay is down' });
@@ -1031,4 +1047,149 @@ test('a refused review form keeps the full task brief when it opens a fresh corr
   assert.ok(reviews.every(request => request.resume === undefined));
   assert.ok(reviews[1]!.prompt.startsWith(reviews[0]!.prompt));
   assert.ok(reviews[1]!.prompt.includes('Argus refused your hand-off:'));
+});
+
+for (const role of ['planner', 'manager'] as const) {
+  test(`${role} failure and restart Resume keep process in the same reply at the original position`, async t => {
+    const steps: Step[] = role === 'planner' ? [
+      { role: 'manager', to: 'planner', letter: 'Arrange the work' },
+      { role: 'planner', says: 'Process before failure', throws: 'relay failed' },
+    ] : [
+      toEngineer, { role: 'engineer', to: 'manager', letter: 'Team result' },
+      { role: 'manager', says: 'Process before failure', throws: 'relay failed' },
+    ];
+    const { home, flow, id, store } = await setup(t, steps);
+    await say(flow, id, 'Do the work');
+    const idle = { since: null, calls: [], requests: [] };
+    const before = conversationRows(readRecord(store, id), store.load(id), idle);
+    const original = before.find(row => words(row).includes('Process before failure'))!;
+    assert.ok(original);
+    assert.equal(store.load(id).status, 'failed');
+    // A queued operator message must not steal the resumed team's reply position.
+    store.append(id, { type: 'message', from: 'operator', text: 'Queued B', request_id: 'queued-B' });
+    const next = agent(role === 'planner' ? [
+      { role, says: 'Process after Resume', to: 'manager', letter: 'Planned' },
+      { role: 'manager', to: 'operator', letter: 'Final answer' },
+    ] : [{ role, says: 'Process after Resume', to: 'operator', letter: 'Final answer' }]);
+    const again = new Flow(new Store(home), next.callAgent);
+    again.resume(id);
+    await again.settled(id);
+    const rows = conversationRows(readRecord(store, id), store.load(id), idle);
+    const resumed = rows.find(row => row.row_id === original.row_id)!;
+    assert.equal(resumed.order, original.order);
+    assert.deepEqual(words(resumed), ['Process before failure', 'Process after Resume']);
+    assert.ok(rows.indexOf(resumed) < rows.findIndex(row => row.text === 'Queued B'));
+    assert.equal(rows.filter(row => words(row).includes('Process after Resume')).length, 1);
+    if (role === 'manager') assert.equal(resumed.text, 'Final answer');
+  });
+
+  test(`${role} form correction keeps the original process reply rather than creating a new call row`, async t => {
+    const starts: Step[] = role === 'planner' ? [{ role: 'manager', to: 'planner', letter: 'Arrange the work' }]
+      : [toEngineer, { role: 'engineer', to: 'manager', letter: 'Team result' }];
+    const { flow, id, store } = await setup(t, [...starts,
+      { role, says: 'Before form correction' },
+      { role, says: 'After form correction', to: role === 'planner' ? 'manager' : 'operator', letter: 'Corrected' },
+      ...role === 'planner' ? [{ role: 'manager' as const, to: 'operator', letter: 'Final answer' }] : [],
+    ]);
+    await say(flow, id, 'Do the work');
+    const rows = conversationRows(readRecord(store, id), store.load(id), { since: null, calls: [], requests: [] });
+    const reply = rows.find(row => words(row).includes('Before form correction'))!;
+    assert.deepEqual(words(reply), ['Before form correction', 'After form correction']);
+    assert.equal(rows.filter(row => words(row).includes('After form correction')).length, 1);
+    assert.equal(rows.filter(row => row.type === 'ui.argus').length, 2);
+  });
+}
+
+for (const legacy of [false, true]) test(`${legacy ? 'legacy' : 'named'} parallel task letters keep separate Manager replies when A fails, B delivers and A resumes`, async t => {
+  let releaseA!: () => void, releaseB!: () => void;
+  const a = new Promise<void>(resolve => { releaseA = resolve; });
+  const b = new Promise<void>(resolve => { releaseB = resolve; });
+  const { home, flow, id, store, requests, events } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: 'Run A and B' },
+    { role: 'planner', to: 'engineer', letters: ['Task A', 'Task B'] },
+    { role: 'engineer', to: 'manager', letter: 'Report A', waits: a },
+    { role: 'engineer', to: 'manager', letter: 'Report B', waits: b },
+    { role: 'manager', says: 'A process before failure', throws: 'A failed' },
+    { role: 'manager', says: 'B process', to: 'operator', letter: 'B answer' },
+  ]);
+  t.after(() => { releaseA(); releaseB(); });
+  const idle = { since: null, calls: [], requests: [] };
+  const rows = () => conversationRows(projectRecord(readEvents(store, id)), store.load(id), idle);
+  await flow.say(id, 'Run both tasks');
+  while (requests.length < 4) await new Promise(resolve => setImmediate(resolve));
+  releaseA();
+  while (!store.load(id).failures?.length) await new Promise(resolve => setImmediate(resolve));
+  const original = rows().find(row => words(row).includes('A process before failure'))!;
+  releaseB(); await flow.settled(id);
+  if (legacy) {
+    // Actual Flow output restored to the self/r23 representation before Resume.
+    const old = store.load(id);
+    old.forManager = old.forManager!.map(letter => typeof letter === 'string' ? letter : letter.text);
+    store.save(old);
+    const record = readEvents(store, id).map(event => { if (event.type === 'call.start' || event.type === 'handoff') delete event.input_id; return event; });
+    writeFileSync(join(store.dir(id), 'events.jsonl'), record.map(event => JSON.stringify(event)).join('\n') + '\n');
+  }
+  const afterB = rows();
+  const bReply = afterB.find(row => row.text === 'B answer')!;
+  assert.notEqual(bReply.row_id, original.row_id);
+  assert.deepEqual(words(bReply), ['B process']);
+  assert.deepEqual(words(afterB.find(row => row.row_id === original.row_id)), ['A process before failure']);
+  assert.equal(afterB.find(row => row.row_id === original.row_id)?.text, '');
+  assert.ok(Number(original.order) < Number(bReply.order));
+  const teamCalls = events().filter((event): event is Extract<FlowEvent, { type: 'call.start' }> => event.type === 'call.start' && event.role === 'manager' && !event.answers);
+  assert.equal(teamCalls.length, 2);
+  if (!legacy) { assert.ok(teamCalls[0]!.input_id); assert.notEqual(teamCalls[0]!.input_id, teamCalls[1]!.input_id); }
+  const pending = store.load(id).forManager![0]!;
+  if (!legacy) assert.equal(typeof pending === 'string' ? undefined : pending.input_id, teamCalls[0]!.input_id);
+  else assert.equal(typeof pending, 'string');
+  const next = agent([{ role: 'manager', says: 'A process after Resume', to: 'operator', letter: 'A answer' }]);
+  const again = new Flow(new Store(home), next.callAgent); again.resume(id); await again.settled(id);
+  const resumed = rows().find(row => row.row_id === original.row_id)!;
+  assert.equal(resumed.order, original.order); assert.equal(resumed.text, 'A answer');
+  assert.deepEqual(words(resumed), ['A process before failure', 'A process after Resume']);
+  assert.deepEqual(rows().find(row => row.row_id === bReply.row_id), bReply);
+  const last = events().filter((event): event is Extract<FlowEvent, { type: 'call.start' }> => event.type === 'call.start' && event.role === 'manager').at(-1)!;
+  assert.equal(last.input_id, legacy ? `legacy-c${String(original.row_id).match(/^m(\d+)/)![1]}` : teamCalls[0]!.input_id);
+});
+
+for (const legacy of [false, true]) test(`${legacy ? 'legacy' : 'named'} A form correction retains A while B is queued, then B failure resumes its original reply`, async t => {
+  let releaseB!: () => void, finishA!: () => void;
+  const b = new Promise<void>(resolve => { releaseB = resolve; });
+  const a = new Promise<void>(resolve => { finishA = resolve; });
+  const { home, flow, id, store, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: 'Run A and B' },
+    { role: 'planner', to: 'engineer', letters: ['Task A', 'Task B'] },
+    { role: 'engineer', to: 'manager', letter: 'Report A' },
+    { role: 'engineer', to: 'manager', letter: 'Report B', waits: b },
+    { role: 'manager', says: 'A before correction', waits: a },
+    { role: 'manager', says: 'A after correction', to: 'operator', letter: 'A answer' },
+    { role: 'manager', says: 'B before failure', throws: 'B failed' },
+  ]);
+  t.after(() => { releaseB(); finishA(); });
+  await flow.say(id, 'Run both tasks');
+  while (requests.length < 5) await new Promise(resolve => setImmediate(resolve));
+  releaseB();
+  while (store.load(id).forManager!.length < 2) await new Promise(resolve => setImmediate(resolve));
+  finishA(); await flow.settled(id);
+  if (legacy) {
+    const old = store.load(id);
+    old.forManager = old.forManager!.map(letter => typeof letter === 'string' ? letter : letter.text); store.save(old);
+    const record = readEvents(store, id).map(event => { if (event.type === 'call.start' || event.type === 'handoff') delete event.input_id; return event; });
+    writeFileSync(join(store.dir(id), 'events.jsonl'), record.map(event => JSON.stringify(event)).join('\n') + '\n');
+  }
+  const idle = { since: null, calls: [], requests: [] };
+  const rows = () => conversationRows(projectRecord(readEvents(store, id)), store.load(id), idle);
+  const aReply = rows().find(row => row.text === 'A answer')!;
+  const bReply = rows().find(row => words(row).includes('B before failure'))!;
+  assert.deepEqual(words(aReply), ['A before correction', 'A after correction']);
+  assert.deepEqual(words(bReply), ['B before failure']);
+  assert.equal(rows().filter(row => row.type === 'ui.argus').length, 3);
+  assert.ok(Number(aReply.order) < Number(bReply.order));
+  const next = agent([{ role: 'manager', says: 'B after Resume', to: 'operator', letter: 'B answer' }]);
+  const again = new Flow(new Store(home), next.callAgent); again.resume(id); await again.settled(id);
+  const resumed = rows().find(row => row.row_id === bReply.row_id)!;
+  assert.deepEqual(words(resumed), ['B before failure', 'B after Resume']);
+  assert.equal(resumed.text, 'B answer'); assert.equal(resumed.order, bReply.order);
+  assert.deepEqual(rows().find(row => row.row_id === aReply.row_id), aReply);
+  assert.equal(rows().filter(row => row.type === 'ui.argus').length, 3);
 });

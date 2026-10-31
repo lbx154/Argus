@@ -50,6 +50,7 @@ const en: Record<string, string> = {
   'error.reader_source_unavailable': "The source of this explanation has changed or is unavailable. Select the content to ask about again.",
   'error.details': "Error details (raw information)",
   'error.notification_failed': "This notification could not be opened. Find the project or file in the project list.",
+  'error.preview_unavailable': 'The adjacent port needed for LAN preview could not be opened. Free that port, then retry; local loopback previews still work.',
   'error.preview_failed': "The preview could not be loaded. Retry, or download the file to view it.",
   'error.workbench_failed': "The workbench could not be loaded. Check that the Argus service is running, then refresh the page.",
   'language.english': 'English',
@@ -381,7 +382,6 @@ const en: Record<string, string> = {
   'operations.unavailableHere': 'This is not available on this Argus.',
   'operations.requestFailed': 'That did not go through.',
   'operations.technicalDetails': 'Technical details',
-  // --- Vertical store 2026-09-14 ---
   'models.title': 'Choose a model',
   'models.subtitle': 'Every role in this project runs on the model chosen here.',
   'models.price': '{input} in · {output} out per 1M tokens',
@@ -442,6 +442,7 @@ const zhCN: Record<string, string> = {
   'error.reader_source_unavailable': "这段说明的来源已经变化或不可用。请重新选择要追问的内容。",
   'error.details': "错误详情（原始信息）",
   'error.notification_failed': "无法打开这条通知。请在项目列表中查找对应的项目或文件。",
+  'error.preview_unavailable': '局域网预览所需的相邻端口无法监听。请释放该端口后重试；本机回环预览仍可使用。',
   'error.preview_failed': "预览未能加载。请重试，或下载文件后查看。",
   'error.workbench_failed': "工作台未能加载。请检查 Argus 服务是否正在运行，然后刷新页面。",
   'language.english': 'English',
@@ -773,7 +774,6 @@ const zhCN: Record<string, string> = {
   'operations.unavailableHere': '这项功能在当前的 Argus 上不提供。',
   'operations.requestFailed': '这次操作没有成功。',
   'operations.technicalDetails': '技术细节',
-  // --- Vertical store 2026-09-14 ---
   'models.title': '选择模型',
   'models.subtitle': '这个项目的所有角色都用这里选的模型。',
   'models.price': '每百万 token：输入 {input}，输出 {output}',

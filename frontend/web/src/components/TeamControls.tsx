@@ -53,8 +53,8 @@ export function RunControl({ snapshot, pending = false, busy = false, onStop, on
   const title = (id: string) => snapshot.backlog.find(item => item.id === id)?.title || id;
   const active = running ? snapshot.roles.filter(role => role.active) : [];
   const affected = [
-    ...pending || active.some(role => role.role === 'manager') ? [zh ? '经理正在写的回复' : 'The reply the Manager is writing'] : [],
-    ...active.filter(role => role.role !== 'manager').flatMap(({ role, tasks = [] }) => {
+    ...pending ? [zh ? '经理正在写的回复' : 'The reply the Manager is writing'] : [],
+    ...active.filter(role => !pending || role.role !== 'manager').flatMap(({ role, tasks = [] }) => {
       const name = roleLabel(role, t);
       return tasks.length
         ? tasks.map(task => zh ? `${name}在「${title(task)}」上的工作` : `The ${name}'s work on “${title(task)}”`)

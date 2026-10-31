@@ -3,6 +3,7 @@ import { create, act, type ReactTestRenderer } from 'react-test-renderer';
 import { expect, it, vi } from 'vitest';
 import { UsageBreakdown } from '../components/UsageBreakdown';
 import { TaskLetters } from '../components/TaskLetters';
+import { I18nProvider } from '../i18n';
 import { workDurationLabel } from '../lib/projectOverview';
 import { snapshot } from '../../../../packages/core/src/serve/views';
 import { Store } from '../../../../packages/core/src/store';
@@ -22,10 +23,15 @@ it('renders snapshot dimensions, known spend and missing-duration bounds without
 it('renders the original return reason, latest-turn files and only the first result image with the existing viewer', () => {
   const open = vi.fn();
   const item = { id: 't1', title: 'Chart', status: 'done', objective: '', priority: 0,
-    notes: 'Reviewer to the Engineer:\n退回：缺少坐标单位。\n\nEngineer to the Reviewer:\n已修正。',
+    letters: [{ role: 'reviewer', to: 'engineer', text: '退回：缺少坐标单位。' }, { role: 'engineer', to: 'reviewer', text: '已修正。' }],
     changed_files: ['plot.ts'], result_paths: ['result.md', 'first.png', 'second.png'] };
   const html = renderToStaticMarkup(<TaskLetters item={item} sid="p-fixture" onOpenArtifact={open} />);
   expect(html).toContain('退回：缺少坐标单位。');
+  // Who wrote to whom reads in the page's language.
+  expect(html).toContain('Reviewer → Engineer');
+  vi.stubGlobal('localStorage', { getItem: () => 'zh-CN' });
+  expect(renderToStaticMarkup(<I18nProvider><TaskLetters item={item} sid="p-fixture" /></I18nProvider>)).toContain('审阅者 → 工程师');
+  vi.unstubAllGlobals();
   expect(html).toContain('Files changed this turn');
   expect(html).toContain('plot.ts');
   expect(html).toContain('data-task-thumbnail="first.png"');

@@ -558,8 +558,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'ui.argus': {
       const body = stringField(event, 'text');
-      // A reply still to come, or one that never will, has a state before it has words.
-      return body.trim() || row(event).status
+      // A reply can contain an answer, words on the way, its folded process or its current state.
+      return body.trim() || row(event).status || [row(event).steps, row(event).process].some(words => Array.isArray(words) && words.length)
         ? model('manager', 'role.argus', '', body, 'bright', { expandable: context.density === 'full', rule: true })
         : hidden();
     }
@@ -589,6 +589,7 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     case 'daemon.command.submitted': case 'daemon.command.completed': case 'daemon.command.rejected':
     case 'idea.search.started': case 'idea.search.completed': case 'idea.search.skipped':
     case 'venue.research.started': case 'venue.research.completed': case 'research.achievement.certified':
+    // Only the Python version still writes these; they stay while it shares this contract.
     case 'skill.library.available': case 'skill.created': case 'skill.updated': case 'skill.archived':
     case 'skill.tidied': case 'skill.history.compressed': case 'skill.evolution.completed':
     case 'wiki.initialized': case 'wiki.hook.warning': case 'wiki.created': case 'wiki.updated':

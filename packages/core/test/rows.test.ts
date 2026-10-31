@@ -3,6 +3,8 @@ import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { replyReplay } from './replyReplay.js';
+import { words } from './helpers/words.js';
 import { ROLE_LOG, type EventMsg } from '@argus/contracts';
 import { firstLine } from '../src/flow.js';
 import { Store, type Project } from '../src/store.js';
@@ -116,7 +118,8 @@ test('real stopped conversation: refresh retains the original request and Resume
   const asked = stoppedRecord.find(event => event.type === 'message')!;
   const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [{ text: asked.type === 'message' ? asked.text : '', request_id: 'stop-request-1' }] };
   const stopped = rowsOf(stoppedRecord.slice(0, stop + 1), work);
-  assert.equal(stopped.length, 2 + stoppedRecord.slice(0, stop + 1).filter(event => event.type === 'step' && event.kind === 'message').length);
+  assert.equal(stopped.length, 2);
+  assert.deepEqual(stopped[1]?.steps, stoppedRecord.slice(0, stop + 1).flatMap(event => event.type === 'step' && event.kind === 'message' ? [event.text] : []));
   assert.match(String(stopped[0]?.text), /不要丢掉这条消息/);
   assert.equal(stopped[1]?.status, 'stopped');
   const resumed = rowsOf(stoppedRecord, { ...work, status: 'working' }, { since: 1, calls: [{ started_ts: 1, role: 'manager', task: undefined, answers: 'stop-request-1' }], requests: [] });
@@ -145,6 +148,8 @@ test('a queued operator message keeps its own reply and a letter from the team d
   const rows = rowsOf(events, { ...project, tasks: [], status: 'working', forManager: [{ text: 'One more question', request_id: 'r-more' }] }, live);
   assert.equal(rows.find(row => row.text === 'On the team report')?.request_id, undefined);
   assert.equal(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.text, '');
+  assert.deepEqual(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.steps, ['Checking your question']);
+  assert.equal(rows.filter(row => row.type === 'ui.argus').length, 3);
   assert.equal(rows.find(row => row.request_id === 'r-more' && row.type === 'ui.argus')?.status, 'waiting');
 });
 
@@ -205,4 +210,127 @@ test('real task fragments: progress and files share the map projection; incoming
   assert.equal(done.progress, firstLine(map.latest_action!.text));
   assert.equal(map.latest_action!.role, 'reviewer');
   assert.deepEqual(taskTrace(store, work, 't3').groups.map(group => group.role), ['planner', 'engineer', 'reviewer', 'planner']);
+});
+
+// Replay the supplied GPU dialogue through the actual fold and page projection.
+test('GPU replies retain their process in one request row while running, completed and replayed', () => {
+  let reading: Reading | undefined;
+  let active: string | undefined;
+  const expected = new Map<string, { text: string; steps: string[] }>();
+  replyReplay.forEach((event, line) => {
+    if (event.type === 'message') expected.set(event.request_id!, { text: '', steps: [] });
+    if (event.type === 'call.start') active = event.answers;
+    if (event.type === 'step' && event.kind === 'message') expected.get(active!)!.steps.push(event.text);
+    if (event.type === 'call.end') active = undefined;
+    if (event.type === 'handoff') expected.get(event.answers!)!.text = event.letter;
+    const live: Live = { since: active ? 1 : null, requests: [], calls: active ? [{ role: 'manager', task: undefined, answers: active, started_ts: 1 }] : [] };
+    const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [...expected].filter(([, reply]) => !reply.text).map(([request_id]) => ({ text: '', request_id })) };
+    reading = projectRecord([event], reading);
+    const rows = conversationRows(reading, work, live);
+    assert.deepEqual(rows, rowsOf(replyReplay.slice(0, line + 1), work, live), `reload at ${line}`);
+    const replies = rows.filter(row => row.type === 'ui.argus');
+    assert.equal(replies.length, expected.size, `one reply per request at ${line}`);
+    for (const [request, reply] of expected) {
+      const row = replies.find(row => row.request_id === request)!;
+      assert.equal(row.text, reply.text);
+      assert.deepEqual(words(row), reply.steps);
+      // Answered, the words said on the way are the answer's folded process.
+      if (reply.text) assert.equal(row.steps, undefined);
+      if (event.type === 'handoff' && event.answers === request || event.type === 'step' && active === request) assert.equal(row.event_id, line);
+    }
+    const page = conversationPage(rows, line, 1);
+    assert.equal(page.rows.at(-1)?.request_id, [...expected.keys()].at(-1));
+    if (event.type === 'step') assert.equal(replies.at(-1)?.status, 'running');
+  });
+});
+
+test('call identity retains multiple process questions across interruption and prevents adjacent-request guesses', () => {
+  const events: Recorded[] = [
+    replyReplay[0]!, replyReplay[1]!,
+    { type: 'message', from: 'operator', text: 'A queued question', request_id: 'queued', ts: at(1) },
+    { type: 'step', role: 'manager', kind: 'message', text: 'Which GPU should I check?', ts: at(2) },
+    { type: 'step', role: 'manager', kind: 'message', text: 'I will retain this question.', ts: at(3) },
+    { ...replyReplay[3]!, completed: false } as Recorded,
+  ];
+  const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [{ text: '', request_id: 'gpu-request-1' }, { text: '', request_id: 'queued' }] };
+  const stopped = rowsOf(events, work);
+  assert.equal(stopped.filter(row => row.type === 'ui.argus').length, 2);
+  assert.deepEqual(stopped.find(row => row.request_id === 'gpu-request-1' && row.type === 'ui.argus')?.steps, ['Which GPU should I check?', 'I will retain this question.']);
+  assert.deepEqual(stopped.find(row => row.request_id === 'queued' && row.type === 'ui.argus')?.steps, []);
+  const completed = rowsOf([...events, replyReplay[1]!, replyReplay[4]!], work);
+  const reply = completed.find(row => row.request_id === 'gpu-request-1' && row.type === 'ui.argus')!;
+  assert.deepEqual(reply.process, stopped[1]!.steps);
+  assert.equal(reply.text, replyReplay[4]!.type === 'handoff' ? replyReplay[4]!.letter : '');
+  assert.equal(reply.row_id, stopped[1]!.row_id);
+});
+
+test('whole real team replay: Planner steps fold under the brief and a team-triggered Manager call owns one delivery reply', () => {
+  const rows = rowsOf(record);
+  const replies = rows.filter(row => row.type === 'ui.argus');
+  assert.equal(replies.length, record.filter(event => event.type === 'call.start' && event.role === 'manager').length);
+  assert.equal(replies.length, 2);
+  const brief = replies[0]!;
+  assert.equal(brief.row_id, 'm0-argus');
+  const planned = record.filter(event => event.type === 'step' && event.kind === 'message' && event.role === 'planner');
+  for (const event of planned) if (event.type === 'step') assert.ok((brief.process as string[]).includes(event.text));
+  const delivery = replies[1]!;
+  assert.equal(delivery.row_id, 'm97-argus');
+  assert.deepEqual(delivery.process, ['我会核对 result.md 和两个脚本的运行结果，再把文件交给你。']);
+  assert.match(String(delivery.text), /计算结果/);
+});
+
+test('real team letter followed by a queued B: the team reply stays before B and Planner speech never joins B', () => {
+  const queued: Recorded = { type: 'message', from: 'operator', text: 'B', request_id: 'rB', ts: record[98]!.ts };
+  const events = [...record.slice(0, 97), queued, ...record.slice(97)];
+  const rows = rowsOf(events, { ...project, forManager: [{ text: 'B', request_id: 'rB' }], status: 'working' });
+  const b = rows.findIndex(row => row.type === 'ui.operator' && row.text === 'B');
+  const team = rows.findIndex(row => String(row.text).startsWith('计算结果'));
+  assert.ok(team < b);
+  assert.equal(rows[team]!.row_id, 'm98-argus');
+  assert.equal(rows[team]!.request_id, undefined);
+  assert.equal(rows[b + 1]!.request_id, 'rB');
+  assert.deepEqual(rows[b + 1]!.steps, []);
+});
+
+test('ordinary live words remain in steps before and after completion; form letter words remain in text', () => {
+  const prefix = record.slice(0, 3);
+  const reading = projectRecord(prefix);
+  const work = { ...project, tasks: [], status: 'working' as const, forManager: [{ text: '', request_id: 'r0' }] };
+  const call: Live['calls'][number] = { role: 'manager', task: undefined, started_ts: 1, answers: 'r0', words: 'Still checking', wordsKind: 'process' };
+  const writing = conversationRows(reading, work, { since: 1, requests: [], calls: [call] })[1]!;
+  assert.equal(writing.text, '');
+  assert.deepEqual((writing.steps as string[]).at(-1), 'Still checking');
+  const said = projectRecord([{ type: 'step', role: 'manager', kind: 'message', text: 'Still checking', ts: at(1) }], reading);
+  const complete = conversationRows(said, work, { since: 1, requests: [], calls: [{ ...call, words: '' }] })[1]!;
+  assert.equal(complete.text, '');
+  assert.deepEqual(complete.steps, writing.steps);
+  const answer = conversationRows(said, work, { since: 1, requests: [], calls: [{ ...call, words: 'The answer', wordsKind: 'answer' }] })[1]!;
+  assert.equal(answer.text, 'The answer');
+  assert.deepEqual(answer.steps, complete.steps);
+});
+
+test('Planner speech and live words during Manager reply B stay with the original brief', () => {
+  const start = record.findIndex(event => event.type === 'call.start' && event.role === 'planner');
+  const end = record.findIndex((event, index) => index > start && event.type === 'call.end' && event.role === 'planner');
+  const events: Recorded[] = [...record.slice(0, start + 1),
+    { type: 'message', from: 'operator', text: 'B during planning', request_id: 'rB', ts: at(0) },
+    { type: 'call.start', role: 'manager', answers: 'rB', ts: at(1) },
+    { type: 'step', role: 'manager', kind: 'message', text: 'Checking B', ts: at(2) },
+    ...record.slice(start + 1, end)];
+  const rows = rowsOf(events, { ...project, tasks: [], status: 'working', forManager: [{ text: '', request_id: 'rB' }] }, {
+    since: 1, requests: [], calls: [
+      { role: 'manager', task: undefined, answers: 'rB', started_ts: 1 },
+      { role: 'planner', task: undefined, started_ts: 1, words: 'Planner still arranging tasks', wordsKind: 'process' },
+    ],
+  });
+  const first = rows.find(row => row.row_id === 'm0-argus')!;
+  const b = rows.find(row => row.request_id === 'rB' && row.type === 'ui.argus')!;
+  assert.equal(rows.filter(row => row.type === 'ui.argus').length, 2);
+  assert.deepEqual(b.steps, ['Checking B']);
+  for (const event of record.slice(start + 1, end)) if (event.type === 'step' && event.kind === 'message') {
+    assert.ok((first.process as string[]).includes(event.text));
+  }
+  assert.equal((first.process as string[]).at(-1), 'Planner still arranging tasks');
+  const brief = record.find(event => event.type === 'handoff' && event.role === 'manager');
+  assert.equal(first.text, brief?.type === 'handoff' ? brief.letter : '');
 });

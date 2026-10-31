@@ -41,7 +41,7 @@ export interface AgentRequest {
   onStep?: (step: Step) => void;
   /** Told of the words the role is writing, as far as they have come (of its form, its letter's),
    * and of none once they are said. */
-  onWords?: (words: string) => void;
+  onWords?: (words: string, kind?: 'process' | 'answer') => void;
   /** Where the call's raw output and usage go. */
   callsDir: string;
   usageFile: string;
@@ -85,6 +85,8 @@ export interface AgentResult {
   completed: boolean;
   /** Why the turn did not complete, in the backend's words; for a completed turn, why its form was refused. */
   error: string | null;
+  /** The model service wants paying (HTTP 402) before it serves another turn. */
+  unpaid?: true;
   /** The form the turn ended with, once accepted. */
   handoff: HandOff | null;
   model: string | null;

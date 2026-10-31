@@ -13,7 +13,7 @@ export function UsageBreakdown({ usage }: { usage: ProjectUsageSummary }) {
     <h3 className="font-semibold text-ink">{zh ? '花费分项' : 'Usage breakdown'}</h3>
     <p className="mt-2 text-ink-dim" data-usage-total>{zh ? '合计' : 'Total'} · {usage.call_count} {zh ? '次调用' : 'calls'} · {price(usage)}</p>
     <p className="mt-1 text-ink-dim">{workDurationLabel(usage.work_duration_ms, zh, usage.calls_without_duration > 0)}</p>
-    <p className="mt-1 text-ink-faint">{zh ? '仅计有用量记录的调用；重叠只计一次，间歇不计。' : 'Only calls with usage records contribute; overlaps count once and gaps add no time.'}</p>
+    <p className="mt-1 text-ink-faint">{zh ? '计入有用量记录及正在进行的调用；重叠只计一次，间歇不计。' : 'Calls with usage records and calls in progress contribute; overlaps count once and gaps add no time.'}</p>
     {!!usage.calls_without_duration && <p data-duration-incomplete className="mt-1 text-ink-faint">{zh
       ? `${usage.calls_without_duration} 次调用缺少时长或有效时间戳，未计入时长。`
       : `${usage.calls_without_duration} calls lack a duration or valid timestamp and add no time.`}</p>}

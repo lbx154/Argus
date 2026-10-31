@@ -62,13 +62,18 @@
 310 小时**才需要人做一次研究判断，占空比 **95–99%**。其余内容都在
 **[技术报告](https://arxiv.org/pdf/2608.05144)**里。
 
-**技能。**Argus 自带四个技能，在 [`packages/core/skills/`](packages/core/skills)：
-`research`、`software`、`argus-maintenance` 和 `learning`。一个技能就是一个文件夹，它的
-`SKILL.md` 开头的 frontmatter 写明它适用于哪类工作（和 Codex、Claude Code 的技能格式相同）；每个角色的提示词里都列出了全部技能。经理和工程师
-（还有你）可以在 `~/.argus/skills/` 里写新技能、改进已有技能，同名时这里的技能取代自带的；
-网页的**知识与技能**里能看到它们的变化。插件是一个带 `plugin.json`（`name`、`description`、
-`version`、`url`）的技能文件夹：谁装的谁启动，网页列出它并打开它的 `url`。Argus 不复盘、
+**技能。**Argus 自带六个技能，在 [`packages/core/skills/`](packages/core/skills)：
+`research`、`rl`、`software`、`argus-maintenance`、`argus-http` 和 `learning`。一个技能就是一个文件夹，
+`SKILL.md` 开头的 frontmatter 写明它适用于哪类工作（和 Codex、Claude Code 的技能格式相同）；每个角色的提示词里都列出了全部技能。
+工程师（还有你）可以在 `~/.argus/skills/` 里写新技能、改进已有技能，即使同名也与自带技能并列；
+经理、规划者和审查者可以读取。网页的**技能库**和学习动态里能看到它们的变化。Argus 不复盘、
 不打分、不整理；什么时候写技能、改哪里，由角色自己决定。
+技能库里的**技能商店**支持同步安装、卸载社区技能包。`argus skills` 列出目录版本、
+已装版本和运行要求；`argus skills add <name>` 安装或替换，`argus skills remove <name>` 卸载。
+包存放在 `$ARGUS_HOME/skill-packs/`，在 Linux 沙箱（bubblewrap）里运行时，各角色对它只有读取权限。
+在有托管端接手的地方（比如试用站），团队技能可以在**技能库**里它自己的页面贡献到商店：你确认后，Argus 按商店规则检查一遍，把请求记在
+`$ARGUS_HOME/contributions/<name>.json`。Argus 自己不开 PR：托管端（argus-hosting）据此向 `Argus-AiTeam/argus-verticals`
+开 PR，并把 PR 地址（`url`）或失败原因（`error`）写回；维护者审核合并后，它才进入商店。
 
 **沙箱。**在装有 bubblewrap（`bwrap`）的 Linux 上，每次后端调用都在沙箱里运行：系统目录
 只读，项目目录可写（对规划者和审查者只读），家目录是私有的，只带入该 CLI 的登录信息和设置。没有

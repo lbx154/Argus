@@ -36,55 +36,39 @@ export type {
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
 
-export type SkillScope = 'global' | 'vertical' | 'project';
 export interface SkillLibraryItem {
   library: string;
-  scope: SkillScope;
-  vertical: string;
-  source: 'bundled' | 'shared' | 'project' | 'native';
+  source: 'bundled' | 'store' | 'shared';
+  version?: string;
   path: string;
   name: string;
   description: string;
-  role: string;
-  is_default: boolean;
   updated_at: number | null;
+  /** A team skill's offer to the store: null when none was made. */
+  contribution?: SkillContribution | null;
+}
+/** The operator's offer of a team skill to the store, and the host's answer: the pull request's `url`, or an `error`, at `submitted_at`. */
+export interface SkillContribution {
+  name: string; version: string; requested_at: number; submitted_at?: number; url?: string; error?: string;
 }
 export interface SkillCatalog {
-  scopes: SkillScope[];
   items: SkillLibraryItem[];
-  verticals: string[];
-  active_vertical: string;
-  errors: string[];
+}
+export interface StorePack {
+  name: string; version: string; description: string; description_zh?: string;
+  needs: string[]; requires: string[]; installed_version: string | null;
 }
 export interface SkillDocument {
-  name: string;
-  description: string;
   content: string;
-  markdown: string;
-  path: string;
-  source: SkillLibraryItem['source'];
-  scope: SkillScope;
-  vertical: string;
-  role: string;
 }
 
-/** One line of the host's knowledge journal: something learned, recalled into a prompt, promoted to a shared level, corrected or retired. */
-export type KnowledgeEventKind = 'learned' | 'recalled' | 'promoted' | 'corrected' | 'retired';
+/** A changed file in the team's skill library. */
 export interface KnowledgeEvent {
   ts: number;
-  kind: KnowledgeEventKind;
-  scope: SkillScope;
-  vertical: string;
-  /** Page path relative to its library root, e.g. "pages/lessons/20260917-torch-search.md" or "principles.md". */
   path: string;
   title: string;
-  source_project: string;
-  mission_id: string;
-  role: string;
-  page_kind: string;
-  note: string;
 }
-/** The knowledge journal, newest first. */
+/** Changed files, newest first. */
 export interface KnowledgeFeed {
   events: KnowledgeEvent[];
 }
@@ -1009,6 +993,10 @@ export const api = {
     postJson<{ ok: boolean }>(P(sid, '/reset')),
   skillLibrary: (sid: string | null, signal?: AbortSignal) =>
     getJson<SkillCatalog>(`/api/skill-library${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`, signal),
+  skillPacks: () => getJson<{ packs: StorePack[] }>('/api/skill-packs'),
+  addSkillPack: (name: string) => postJson('/api/skill-packs/add', { name }),
+  removeSkillPack: (name: string) => postJson('/api/skill-packs/remove', { name }),
+  contributeSkill: (name: string) => postJson('/api/skill-library/contribute', { name }),
   skillDocument: (sid: string | null, library: string, path: string, signal?: AbortSignal) =>
     getJson<SkillDocument>(`/api/skill-library/document?${new URLSearchParams({ library, path, ...(sid ? { sid } : {}) })}`, signal),
   knowledgeFeed: (limit = 50, signal?: AbortSignal) =>

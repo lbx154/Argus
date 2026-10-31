@@ -267,12 +267,31 @@ for (const backend of ['codex', 'claude'] as const) {
 
 test('codex: the words a role writes are told as they come, none once said, and of its form its letter so far', async () => {
   const words: string[] = [];
-  await call('codex', { output: handoff }, { onWords: text => words.push(text) });
+  const kinds: Array<string | undefined> = [];
+  await call('codex', { output: handoff }, { onWords: (text, kind) => { words.push(text); kinds.push(kind); } });
+  assert.deepEqual(kinds.slice(0, 2), ['process', 'process']);
+  assert.ok(kinds.slice(3).every(kind => kind === 'answer'));
   // Not a subagent's: its words are its own.
   assert.deepEqual(words.slice(0, 3), ['Work', 'Working on it.', '']);
   const letter = words.slice(3);
   assert.equal(letter.at(-1), handoff.letter);
   assert.ok(letter.every((text, at) => handoff.letter.startsWith(text) && text.length >= (letter[at - 1]?.length ?? 0)));
+});
+
+test('codex: a model service refusing a turn is reported in its own words, without the HTTP wrapping', async () => {
+  // As trial1's project p-e2c4302b recorded them (2026-10-30), from its billing proxy.
+  const quota = '试用额度已用完：这个邀请码的 50 美元已经用完，任务已暂停，已有文件都保留着。需要继续请联系提供邀请码的人加额度。';
+  const url = ', url: http://127.0.0.1:9011/v1/responses';
+  for (const [fail, error, unpaid] of [
+    [`unexpected status 402 Payment Required: ${quota}${url}`, quota, true],
+    [`unexpected status 413 Payload Too Large: 输入内容太长，请缩短后重试。${url}`, '输入内容太长，请缩短后重试。', undefined],
+    // A body with no message in it leaves the status.
+    [`unexpected status 502 Bad Gateway: Unknown error${url}, request id: req-1`, '502 Bad Gateway', undefined],
+    [`unexpected status 503 Service Unavailable: <html><body>down</body></html>${url}`, '503 Service Unavailable', undefined],
+  ] as const) {
+    const result = await call('codex', { fail });
+    assert.deepEqual([result.completed, result.error, result.unpaid], [false, error, unpaid]);
+  }
 });
 
 test('the words of a form being written are its letter so far, an escape cut short left for the next', () => {
@@ -342,6 +361,18 @@ test('a CLI not on PATH says how to install it', async () => {
   } finally {
     process.env.PATH = path;
   }
+});
+
+test('an Engineer whose workdir holds Argus home writes the workdir, not the record it is given to read', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
+  // The test's root holds ARGUS_HOME; the project's record is given to read, as every turn's is.
+  const record = join(root, 'argus', 'projects', 'p-held');
+  mkdirSync(record, { recursive: true });
+  const [kept, own] = [join(record, 'project.json'), join(work, 'own.txt')];
+  writeFileSync(kept, 'record');
+  writeFileSync(own, 'work');
+  const result = await call('codex', { attackPaths: [kept, own], output: handoff }, { cwd: root, readDirs: [record] });
+  assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), [{ content: 'record', changed: false }, { content: 'work', changed: true }]);
+  assert.equal(readFileSync(kept, 'utf8'), 'record');
 });
 
 test('a review uses disk /tmp under Argus home and cleans it when the CLI ends', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {

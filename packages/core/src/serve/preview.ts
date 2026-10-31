@@ -1,32 +1,72 @@
 // HTML results are served unchanged on a separate origin. The cockpit alone grants an
-// unguessable project/delivery path; this listener has neither credentials nor API routes.
+// unguessable project/delivery hostname; this host has neither credentials nor API routes.
 
 import { randomBytes } from 'node:crypto';
+import { appendFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { createServer, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 import { pipeline, Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { crc32, deflateRaw } from 'node:zlib';
-import type { Project } from '../store.js';
+import type { Project, Store } from '../store.js';
 import { sendFile, typeOf, under } from './files.js';
-import { HttpError, requestOrigin, type Context, type Handler } from './index.js';
+import { HttpError, hostPort, requestOrigin, type Context, type Handler } from './index.js';
+import { jsonLines } from './views.js';
 
 const BUNDLE_BYTES = 2 ** 31;
 const deflate = promisify(deflateRaw);
 
-export async function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, listenPort: number, publicUrl?: string) {
-  const source = publicUrl ? new URL(publicUrl) : undefined;
-  if (source && (!['http:', 'https:'].includes(source.protocol) || source.username || source.password
-    || source.pathname !== '/' || source.search || source.hash)) throw new Error('--preview-url must be an HTTP(S) origin, such as https://preview.example.com');
+export function preview(store: Store, project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, publicUrl?: string) {
+  const source = publicUrl !== undefined ? URL.parse(publicUrl) : undefined;
+  // Check the literal too: URL normalizes empty ?/#, encoded hosts and dot paths.
+  const labels = source?.hostname.split('.') ?? [];
+  if (source !== undefined && (!source || !/^https?:\/\/[a-z0-9*-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?\/?$/i.test(publicUrl!)
+    || labels[0]!.split('*').length !== 2
+    || labels.some((label, i) => {
+      const filled = i ? label : label.replace('*', 'a'.repeat(32));
+      return !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(filled) || filled.length > 63;
+    }) || source.hostname.length + 31 > 253)) {
+    throw new Error('--preview-url must be an HTTP(S) origin template with one * in its first DNS label, such as https://js-trial1-*.argusbot.cn');
+  }
+  /** The sites a project has granted, each a key and the delivery it shows: previews.jsonl in its
+   * directory is the one record of a key, so that a link lasts as long as its project. */
+  const granted = (id: string) => jsonLines(join(store.dir(id), 'previews.jsonl')).rows as { key: string; delivery: string | null }[];
+  /** The sites read from the record, each with the files it has served. */
   const sites = new Map<string, { id: string; delivery: string | null; paths: Set<string> }>();
-  const server = createServer((request, response) => {
+  const siteOf = (key: string) => {
+    if (!sites.has(key)) for (const { id } of store.list()) {
+      for (const row of granted(id)) if (!sites.has(row.key)) sites.set(row.key, { id, delivery: row.delivery, paths: new Set() });
+    }
+    return sites.get(key);
+  };
+  const [before, after] = (source?.hostname ?? '*.localhost').split('*') as [string, string];
+  // The entire template namespace is static-only, including unknown identifiers.
+  const keyOf = (hostname: string): string | undefined => {
+    const name = hostname.replace(/\.$/, '');
+    return name.startsWith(before) && name.endsWith(after) && name.length >= before.length + after.length
+      ? name.slice(before.length, name.length - after.length) : undefined;
+  };
+  const isHost = (hostname: string) => keyOf(hostname) !== undefined;
+  let fallback: ReturnType<typeof createServer> | undefined;
+  let fallbackPort: number | undefined;
+  let listening: Promise<void> | undefined;
+  const isOrigin = (origin: string) => {
     try {
+      const url = new URL(origin);
+      return !['http:', 'https:'].includes(url.protocol) || isHost(url.hostname)
+        || !!fallbackPort && Number(url.port || (url.protocol === 'https:' ? 443 : 80)) === fallbackPort;
+    } catch { return true; }
+  };
+  const handle = (request: IncomingMessage, response: ServerResponse, keyedPath = false) => {
+    try {
+      const incoming = requestOrigin(request);
       const url = new URL(request.url ?? '/', 'http://localhost');
-      const [, key, path = ''] = /^\/([^/]+)(?:\/(.*))?$/.exec(url.pathname) ?? [];
-      const site = key && sites.get(key);
-      if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'Not Found');
+      const [, pathKey, rest = ''] = /^\/([^/]+)(?:\/(.*))?$/.exec(url.pathname) ?? [];
+      const key = keyedPath ? pathKey : keyOf(incoming.hostname);
+      const path = keyedPath ? rest : url.pathname.slice(1);
+      const site = key && siteOf(key);
+      if (!site || !['GET', 'HEAD'].includes(request.method ?? '')) throw new HttpError(404, 'No preview here: open the result again in Argus. This address only serves previews.');
       const name = decodeURIComponent(path);
       const work = project(site.id);
       const directory = url.pathname.endsWith('/');
@@ -46,15 +86,9 @@ export async function preview(project: (id: string) => Project, result: (work: P
         if (response.statusCode === 200 || response.statusCode === 206) site.paths.add(found.path);
       });
     } catch (error) {
-      response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500).end();
+      response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500, { 'content-type': 'text/plain; charset=utf-8' })
+        .end(error instanceof HttpError ? error.message : undefined);
     }
-  });
-  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(listenPort, host, resolve))
-    .catch((error: unknown) => { throw new Error(`Preview server could not listen on ${host}:${listenPort}: ${error instanceof Error ? error.message : String(error)}`); });
-  const port = (server.address() as AddressInfo).port;
-  const close = async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   };
   const html = ({ params: [id], url }: Context) => {
     const work = project(id!);
@@ -62,16 +96,37 @@ export async function preview(project: (id: string) => Project, result: (work: P
     const delivery = url.searchParams.get('delivery');
     const found = result(work, path, delivery);
     if (!found || typeOf(found.file, found.path)[0] !== 'html') throw new HttpError(404, 'no such HTML result');
-    return { work, path, delivery, found };
+    return { work, path, delivery };
   };
   const routes: [string, RegExp, Handler][] = [
-    ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, context => {
+    ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, async context => {
       const { work, path, delivery } = html(context);
-      let key = [...sites].find(([, site]) => site.id === work.id && site.delivery === delivery)?.[0];
-      if (!key) { key = randomBytes(24).toString('base64url'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
-      const url = new URL(source?.origin ?? requestOrigin(context.request));
-      if (!source) url.port = String(port);
-      url.pathname = `/${key}/${path.split('/').map(encodeURIComponent).join('/')}`;
+      let key = granted(work.id).find(row => row.delivery === delivery)?.key;
+      if (!key) appendFileSync(join(store.dir(work.id), 'previews.jsonl'), `${JSON.stringify({ key: key = randomBytes(16).toString('hex'), delivery })}\n`);
+      const incoming = requestOrigin(context.request);
+      // Where *.localhost resolves: a browser on this machine. Another loopback address keeps the keyed port.
+      const local = ['localhost', '127.0.0.1', '0.0.0.0', '[::]', '[::1]'].includes(incoming.hostname.replace(/\.$/, ''));
+      const url = new URL(source?.origin ?? incoming.origin);
+      if (source || local) {
+        url.hostname = before + key + after;
+        if (!source) url.protocol = 'http:';
+      } else {
+        // LAN/mobile browsers resolve localhost to their own machine. Preserve the older
+        // keyed-path static listener there; its projects share storage, unlike subdomains.
+        if (!listening) {
+          const port = fallbackPort = context.request.socket.localPort! + 1;
+          fallback = createServer((req, res) => handle(req, res, true));
+          listening = new Promise<void>((accept, reject) => fallback!.once('error', reject).listen(port, host, accept)).catch((error: NodeJS.ErrnoException) => {
+            listening = fallback = fallbackPort = undefined;
+            throw new HttpError(503, `Preview server could not listen on ${hostPort(host, port)}: ${error.code ?? error.message}`, 'preview_unavailable');
+          });
+        }
+        await listening;
+        url.protocol = 'http:';
+        url.port = String(fallbackPort);
+      }
+      const name = relative(work.workdir, resolve(work.workdir, path)).split(sep).join('/');
+      url.pathname = `${source || local ? '' : '/' + key}/${name.split('/').map(encodeURIComponent).join('/')}`;
       return { url: url.href };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/bundle$/, context => {
@@ -116,7 +171,11 @@ export async function preview(project: (id: string) => Project, result: (work: P
       sendZip(response, zipName(String(name ?? '')), entries);
     }],
   ];
-  return { routes, close, port, origin: source?.origin };
+  return { routes, handle, isHost, isOrigin, close: async () => {
+    if (!fallback) return;
+    fallback.closeAllConnections();
+    await new Promise<void>(accept => fallback!.close(() => accept()));
+  } };
 }
 
 /** A zip's name from the one asked for: no character a file system refuses, at most 80 of them. */

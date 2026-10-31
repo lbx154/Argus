@@ -1,3 +1,4 @@
+import { ReplyChoiceContext } from '../components/ReplyOptions';
 import { roleSnapshot, setRoleLog } from './serverSnapshot';
 import type { ReactNode } from 'react';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
@@ -374,7 +375,7 @@ it('restores an opted-in conversation reading position without jumping to the la
 it('waits for ready history before choosing search over the saved position, then keeps it through updates', () => {
   const { snapshot } = runtimeFixture(false);
   vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ top: 140, following: false }), setItem: vi.fn() });
-  const target = { dataset: {} as Record<string, string>, closest: () => null, focus: vi.fn(),
+  const target = { dataset: {} as Record<string, string>, querySelector: () => null, focus: vi.fn(),
     scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
   content = { querySelector: () => target, querySelectorAll: () => [] };
   const events: EventMsg[] = [{ type: 'ui.argus', text: 'Search hit', ts: 1 }];
@@ -399,7 +400,7 @@ it('waits for ready history before choosing search over the saved position, then
 });
 
 it('clears a consumed search without restoring again, and can locate the same row on a later search', () => {
-  const target = { dataset: {}, closest: () => null, focus: vi.fn(), scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
+  const target = { dataset: {}, querySelector: () => null, focus: vi.fn(), scrollIntoView: vi.fn(() => { outer.scrollTop = 260; }) };
   content = { querySelector: () => target, querySelectorAll: () => [] };
   const located = vi.fn();
   const show = (requestedMessageTs?: number) => <EventStream events={[]} connected showReasoning={false}
@@ -419,10 +420,14 @@ it('clears a consumed search without restoring again, and can locate the same ro
 it('loads older conversation pages until the requested visible row exists and opens a folded brief', () => {
   const load = vi.fn();
   const brief = { open: false };
-  const target = { dataset: {}, closest: () => brief, focus: vi.fn(), scrollIntoView: vi.fn() };
+  const target = { dataset: {}, closest: () => null, querySelector: (selector: string) => {
+    const article = renderer!.root.findByProps({ 'data-conversation-ts': 1 });
+    const descendants = article.findAllByProps({ 'data-testid': 'conversation-brief' });
+    return selector === 'details[data-testid="conversation-brief"]' && descendants.length ? brief : null;
+  }, focus: vi.fn(), scrollIntoView: vi.fn() };
   let found = false;
   content = { querySelector: () => found ? target : null, querySelectorAll: () => [] };
-  const show = (loadingOlder: boolean) => <EventStream events={[]} connected showReasoning={false}
+  const show = (loadingOlder: boolean) => <EventStream events={[{ type: 'ui.argus', ts: 1, to: 'planner', text: 'A folded brief' }]} connected showReasoning={false}
     requestedMessageTs={1} hasOlder loadingOlder={loadingOlder} onLoadOlder={load} />;
   act(() => { renderer = create(show(false), { createNodeMock: nodeMock }); });
   expect(load).toHaveBeenCalledOnce();
@@ -585,7 +590,7 @@ describe('result cards in the conversation', () => {
   });
 });
 
-it("shows a brief the Manager hands the team by its title, folded, and a reply to the operator as it is", () => {
+it("shows a brief the Manager hands the team with its role summary, folded, and a reply to the operator as it is", () => {
   mount([
     { type: 'ui.operator', text: 'Compare the two sorts', ts: 1, message_id: 'm0-operator' },
     { type: 'ui.argus', agent_layer: 'manager', to: 'planner', text: '# Compare the two sorts\nSplit it into two tasks that run side by side.', ts: 2, message_id: 'm0-argus' },
@@ -596,16 +601,18 @@ it("shows a brief the Manager hands the team by its title, folded, and a reply t
   expect(briefs).toHaveLength(1);
   expect(briefs[0]!.type).toBe('details');
   const summary = briefs[0]!.findByType('summary');
-  expect(summary.children.join('')).toContain('Handed to the Planner: ');
-  expect(summary.findByType('span').children).toEqual(['Compare the two sorts']);
+  expect(visibleText(summary)).toBe('Handed to the Planner');
+  expect(visibleText(briefs[0]!.findByProps({ 'data-manager-answer': true }))).toContain('Compare the two sorts');
+  expect(visibleText(briefs[0]! ).match(/Compare the two sorts/g)).toHaveLength(1);
 });
 
-it('renders a stopped request and the current Manager sentence without a phase-step display', () => {
+it('renders a stopped request and only that reply’s recorded Manager sentences', () => {
   mount([{ type: 'ui.operator', text: 'Keep my request', ts: 1 }, { type: 'ui.argus', status: 'stopped', text: '', ts: 1 }]);
   expect(visibleText(renderer!.root)).toContain('Stopped. Click Resume to continue the reply.');
-  update([{ type: 'ui.argus', text: '', ts: 1, live: true, status: 'running' },
-    { type: 'engineer.progress', agent_layer: 'manager', kind: 'agent_message', text: 'The latest recorded sentence', ts: 2 }]);
-  expect(visibleText(renderer!.root)).toContain('The latest recorded sentence');
+  update([{ type: 'ui.argus', text: '', steps: ['This reply’s recorded sentence'], ts: 1, live: true, status: 'running' },
+    { type: 'engineer.progress', agent_layer: 'manager', kind: 'agent_message', text: 'Another reply’s sentence', ts: 2 }]);
+  expect(visibleText(renderer!.root)).toContain('This reply’s recorded sentence');
+  expect(visibleText(renderer!.root)).not.toContain('Another reply’s sentence');
   expect(renderer!.root.findAllByProps({ 'aria-label': 'View work progress' })).toHaveLength(0);
 });
 
@@ -646,4 +653,32 @@ it('keeps the mounted operator message when its recorded row arrives', () => {
   const row = renderer!.root.findByType('article');
   update([{ ...local, row_id: 'operator:m15', message_id: 'm15-operator', event_id: 15 }]);
   expect(renderer!.root.findByType('article')).toBe(row);
+});
+
+it('keeps process questions and their options above the answer under the same Argus heading', () => {
+  const question = 'Which GPU should I check?\n\nOptions (reply with a number):\n1. First GPU\n2. Second GPU';
+  const reply: EventMsg = { type: 'ui.argus', message_id: 'm0-argus', request_id: 'r', steps: [question, 'Checking the selected GPU.'], text: '', ts: 1, status: 'running', live: true };
+  const choose = vi.fn();
+  act(() => { renderer = create(<ReplyChoiceContext.Provider value={choose}>{feed([reply])}</ReplyChoiceContext.Provider>, { createNodeMock: nodeMock }); });
+  const article = renderer!.root.findByType('article');
+  const process = article.findByProps({ 'data-manager-progress': true });
+  expect(visibleText(process)).toContain('Which GPU should I check?');
+  expect(visibleText(process)).toContain('First GPU');
+  const options = process.findByProps({ 'data-testid': 'reply-options' }).findAllByType('button');
+  expect(options).toHaveLength(2);
+  act(() => options[1]!.props.onClick());
+  expect(choose).toHaveBeenCalledWith('Second GPU');
+  expect(article.findAllByProps({ className: 'argus-reply-name' })).toHaveLength(1);
+  update([{ ...reply, text: 'The GPU passed its check.', live: false, status: undefined }]);
+  const completed = renderer!.root.findByType('article');
+  expect(completed.findAllByProps({ className: 'argus-reply-name' })).toHaveLength(1);
+  expect(visibleText(completed)).toContain('Which GPU should I check?');
+  expect(visibleText(completed).indexOf('Checking the selected GPU.')).toBeLessThan(visibleText(completed).indexOf('The GPU passed its check.'));
+});
+
+it('retains process questions when a later message replaces an interrupted reply', () => {
+  mount([{ type: 'ui.argus', message_id: 'm0-argus', request_id: 'r', steps: ['Which GPU should I check?'], text: '', ts: 1, status: 'replaced' }]);
+  expect(visibleText(renderer!.root)).toContain('Which GPU should I check?');
+  expect(visibleText(renderer!.root)).toContain('Your later message took its place.');
+  expect(renderer!.root.findAllByProps({ className: 'argus-reply-name' })).toHaveLength(1);
 });

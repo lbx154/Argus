@@ -69,15 +69,20 @@ and 1,548 hours on the earlier Python runtime it needed a human research decisio
 **95–99%** duty cycle. Everything else is in the
 **[technical report](https://arxiv.org/pdf/2608.05144)**.
 
-**Skills.** Argus ships four skills in [`packages/core/skills/`](packages/core/skills):
-`research`, `software`, `argus-maintenance` and `learning`. A skill is a folder whose
+**Skills.** Argus ships six skills in [`packages/core/skills/`](packages/core/skills):
+`research`, `rl`, `software`, `argus-maintenance`, `argus-http` and `learning`. A skill is a folder whose
 `SKILL.md` says in its front matter what kind of work it is for, as Codex and Claude Code write
-a skill, and every role's prompt lists them. The Manager and the Engineer (and you) may write new skills and improve existing ones
-in `~/.argus/skills/`, where a skill replaces the bundled one of the same name; the web page
-shows them under **Knowledge & skills** as they change. A plugin is a skill folder that
-holds a `plugin.json` (`name`, `description`, `version`, `url`): whoever installs it starts
-it, and the page lists it and opens its `url`. Argus does not reflect, score or curate;
-when to write or change a skill is the roles' decision.
+a skill, and every role's prompt lists them. The Engineer (and you) may write new skills and improve existing ones
+in `~/.argus/skills/`, listed beside the bundled skills even when they share a name. The Manager,
+Planner and Reviewer can read them. The web page shows them in **Skill library** and its learning feed
+as they change. The **Skill store** tab installs and uninstalls community packs synchronously;
+`argus skills` lists catalog and installed versions and requirements, `argus skills add <name>`
+installs or replaces a pack, and `argus skills remove <name>` removes it. Packs live in
+`$ARGUS_HOME/skill-packs/` and the roles can only read them where they run in the Linux sandbox (bubblewrap). Argus does not reflect, score or curate; when to write or change a skill is the roles' decision.
+Where a host answers offers (the hosted trial), a team skill can be offered to the store from its page in **Skill library**: once you confirm, Argus checks it against the
+store's rules and records the request in `$ARGUS_HOME/contributions/<name>.json`. Argus itself opens no pull request: the host
+(argus-hosting) opens one to `Argus-AiTeam/argus-verticals` from it and writes back the pull request's `url` or an `error`;
+the pack joins the store once the maintainers merge it.
 
 **Sandbox.** On Linux with bubblewrap (`bwrap`), every backend call runs in a sandbox:
 system directories read-only, the project directory writable (read-only for the Planner

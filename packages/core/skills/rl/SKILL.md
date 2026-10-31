@@ -5,12 +5,7 @@ description: "Post-training language models with reinforcement learning (RLVR, G
 
 ## The ledger
 
-Every RL run the team makes adds one line to `rl/runs.jsonl` in the team's skills folder (Where
-things are names it; make the folder if it is missing): the model, the framework and its version,
-the GPUs, the hours, the throughput, the evaluation before and after training with its benchmark
-and protocol, and the path to the run. A new run starts from the closest line that worked, and
-says in its brief why it departs from it. When a run, or the operator, teaches something the ledger
-cannot hold, write it into the team's `rl` skill beside this one, as a check where you can.
+Every RL run the team makes adds one line to its project's ledger, `runs/<project id>.tsv` in the team's skills folder (Where things are names both), with `node <this folder>/ledger.mjs <that file> add '<row as JSON>'`, which names the columns and refuses a line that lacks one; `show` prints the project's table, and `near <benchmark>` other projects' baselines, best runs and setup defects on it. A new run starts from the closest line that worked, its project's or one `near` prints, named as its `parent`, and says in its brief why it departs from it. When a run, or the operator, teaches something the ledger cannot hold, write it into the team's `rl` skill beside this one, as a check where you can.
 
 ## A strong start
 

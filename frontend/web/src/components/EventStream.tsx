@@ -1,4 +1,4 @@
-import { questionSentence, latestManagerMessage, managerDoing, thoughtHeading } from '../lib/taskLanguage';
+import { questionSentence, managerDoing, thoughtHeading, roleActionLabel } from '../lib/taskLanguage';
 import { useRoleLog } from '../useRoleLog';
 import { TaskDetailModal } from './TaskDetailModal';
 import { TaskLetters } from './TaskLetters';
@@ -314,15 +314,15 @@ const ConversationRow = memo(function ConversationRow({
   artifacts,
   onOpenArtifact,
   rewritePrompt,
-  manager,
+  doing,
 }: {
   ev: EventMsg;
   fallbackText: string;
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   rewritePrompt?: string;
-  /** The Manager's call under way: what it is at, and the last thing it said. */
-  manager?: { doing: string; said: string };
+  /** The Manager's call under way: what it is at. */
+  doing?: string;
 }) {
   const { t, locale } = useI18n();
   const sessionId = useContext(SessionIdContext);
@@ -335,12 +335,28 @@ const ConversationRow = memo(function ConversationRow({
   const draft = operator ? splitDraft(reportText) : null;
   const references = draft?.refs ?? [];
   const text = draft && references.length ? draft.text : reportText;
+  // What the Manager said to the operator on the way shows; the turn's process stays folded.
+  const steps = !operator && Array.isArray(ev.steps) ? ev.steps as string[] : [];
+  const process = !operator && Array.isArray(ev.process) ? ev.process as string[] : [];
+  const to = String(ev.to ?? '');
+  const handed = to === 'planner' || to === 'engineer';
   // A question's numbered options become buttons; typing a free answer still works.
-  const asked = !operator ? splitReplyOptions(reportText) : null;
+  const say = (words: string, delivery?: string) => {
+    const question = splitReplyOptions(words);
+    return <><MarkdownContent delivery={delivery} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(question ? readableQuestions(question.body) : words)}</MarkdownContent>
+      {question?.options.length ? <ReplyOptionButtons options={question.options} zh={locale === 'zh-CN'} /> : null}</>;
+  };
+  const answer = reportText ? <div data-manager-answer>{say(reportText, deliveryFromEvent(ev)?.delivery_id)}</div> : null;
+  // The turn's process, kept folded: before the answer it led to, after a brief it followed.
+  const folded = process.length ? <details data-manager-process className="conversation-process py-1.5">
+    <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">{locale === 'zh-CN' ? '过程' : 'Process'}</summary>
+    <div className="mt-1.5 space-y-2 border-l-2 border-line pl-3 text-ink-dim [&_:is(strong,code,h1,h2,h3,th)]:text-inherit">{process.map((text, index) => <div key={index}>{say(text)}</div>)}</div>
+  </details> : null;
+  const replaced = <p className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>;
   const rewriteLabel = locale === 'zh-CN' ? '编辑后重发' : 'Edit and resend';
-  if (!operator && ev.status === 'replaced') return (
+  if (!operator && ev.status === 'replaced' && !steps.length && !process.length) return (
     <article tabIndex={-1} data-operator={operator} data-conversation-ts={ev.ts} className="conversation-row mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
-      <p className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
+      {replaced}
     </article>
   );
   return (
@@ -371,18 +387,29 @@ const ConversationRow = memo(function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
+            {steps.length ? <div data-manager-progress className="mb-4 space-y-2 border-b border-line/50 pb-3 text-ink-dim [&_:is(strong,code,h1,h2,h3,th)]:text-inherit">
+              {steps.map((text, index) => <div key={index}>{say(text)}</div>)}
+            </div> : null}
+            {!handed && folded}
             {ev.status === 'running' ? <div data-manager-reply="running">
               <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim">
                 <span className="status-dot" data-tone="running" aria-hidden="true" />
-                <span className="min-w-0 truncate" data-manager-doing>{manager?.doing || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
+                <span className="min-w-0 truncate" data-manager-doing>{doing || roleActionLabel('manager', locale === 'zh-CN')}</span>
                 {Number(ev.ts) ? <Underway since={Number(ev.ts)} zh={locale === 'zh-CN'} /> : null}
               </div>
-              {/* Its words as they are written, else the last thing it said. */}
-              {reportText || manager?.said ? <div className="mt-1"><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(reportText || manager!.said)}</MarkdownContent></div> : null}
-            </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
+              {/* The answer as it is written; recorded steps stay above it. */}
+              {answer}
+            </div> : ev.status === 'replaced' ? replaced
+              : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
               : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
               : ev.status === 'failed' ? <p className="whitespace-pre-wrap break-words text-sm text-err">{locale === 'zh-CN' ? '回复中断：' : 'Reply interrupted: '}{reportText}</p>
-              : reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
+              : answer && handed ? <details className="conversation-brief py-1.5" data-testid="conversation-brief">
+                <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
+                  {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}` : `Handed to the ${roleLabel(to, t)}`}
+                </summary><div className="mt-1.5 border-l-2 border-line pl-3">{answer}</div>
+              </details> : answer}
+            {/* What the team made of a brief follows it. */}
+            {handed && folded}
           </div>
         </div>
       )}
@@ -403,12 +430,15 @@ function RoleLogGroup({
   rows,
   open,
   active,
+  replying,
   onToggle,
 }: {
   role: typeof ROLE_ORDER[number];
   rows: ActivityRow[];
   open: boolean;
   active: boolean;
+  /** The Manager is answering the operator, as the server says (`work_status.foreground`). */
+  replying: boolean;
   onToggle: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -442,7 +472,7 @@ function RoleLogGroup({
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
         {!open && thought ? <>
-          <span data-role-thought className="min-w-0 flex-1 truncate text-xs italic text-ink-dim">{thoughtHeading(String(thought.ev.text ?? ''))}</span>
+          <span data-role-thought className="min-w-0 flex-1 truncate text-xs italic text-ink-dim">{thoughtHeading(String(thought.ev.text ?? ''), zh) || roleActionLabel(role, zh, '', '', replying)}</span>
           <time className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">{conversationTime(thought.ev)}</time>
         </> : null}
       </button>
@@ -510,10 +540,11 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active }: {
+function RoleLogCollection({ rows, active, replying }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
+  replying: boolean;
 }) {
   const { roleRows, systemRows } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(() => new Set());
@@ -528,6 +559,7 @@ function RoleLogCollection({ rows, active }: {
           rows={roleRows[role]}
           open={openRoles.has(role)}
           active={active(role)}
+          replying={replying}
           onToggle={() => {
             setOpenRoles((current) => {
               const next = new Set(current);
@@ -563,7 +595,7 @@ export function ProjectRoleLogs({ snapshot, connected, details = false, taskId }
       className={details ? '' : 'mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]'}>
       <div className="overflow-hidden rounded-lg border border-line/70">
         <RoleLogCollection rows={rows} key={`${snapshot.session.id}:${log.round}:${taskId ?? ''}`}
-          active={role => working.includes(role)} />
+          active={role => working.includes(role)} replying={snapshot.work_status?.foreground === true} />
         {details && !rows.length && !working.length ? <p className="px-4 py-3 text-xs text-ink-faint">{locale === 'zh-CN' ? '本轮暂无工作记录' : 'No work recorded this round'}</p> : null}
       </div>
     </section>
@@ -685,7 +717,7 @@ const TASK_RUNNING_LABEL: Record<string, [string, string]> = {
 };
 
 /**
- * A task in the conversation: one line on where it stands, and its results.
+ * A task in the conversation: one line on who has it and where it stands, and its results.
  */
 function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; onOpenArtifact?: (path: string) => void; onInspect: (id: string) => void }) {
   const { locale } = useI18n();
@@ -707,10 +739,11 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
         {label}{locale === 'zh-CN' ? '：' : ': '}{title}
       </button>
     </div>
-    {state !== 'done' && progress && <p data-task-progress className="mt-1 break-words pl-4 text-xs leading-relaxed text-ink-dim">{progress}</p>}
     {!expanded && path ? <div className="mt-1 pl-4"><button type="button"
       className="max-w-full break-all text-left text-xs text-blue hover:underline" onClick={() => onOpenArtifact?.(path)}>{path}</button></div> : null}
+    {/* What the team says on it is theirs: it reads with its letters, once opened. */}
     {expanded && <div id={`task-record-${event.item_id}`} className="mt-3 min-w-0 border-l border-line pl-4">
+      {state !== 'done' && progress && <p data-task-progress className="mb-3 break-words text-xs leading-relaxed text-ink-dim">{progress}</p>}
       <InlineTaskRecord sid={sid} id={String(event.item_id)} onOpenArtifact={onOpenArtifact} />
       <button type="button" className="my-2 text-xs text-ink-faint hover:text-ink" onClick={() => onInspect(String(event.item_id))}>
         {locale === 'zh-CN' ? '查看任务详情' : 'View task details'}
@@ -729,27 +762,19 @@ function InlineTaskRecord({ sid, id, onOpenArtifact }: { sid: string | null; id:
 }
 
 /** Render one row in the order supplied by the server. */
-function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDelivery, manager }: {
-  manager: { doing: string; said: string };
+function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDelivery, doing }: {
+  doing: string;
   row: ActivityRow;
   deliveries: DeliveryReceipt[];
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
-  const { locale, t } = useI18n();
   const delivery = deliveryFromEvent(row.ev);
   const openArtifact = delivery && onOpenDelivery ? (path: string) => onOpenDelivery(delivery, path) : onOpenArtifact;
-  const reply = <ConversationRow manager={row.ev.status === 'running' ? manager : undefined} ev={row.ev} fallbackText={row.r.text} artifacts={artifacts} onOpenArtifact={openArtifact}
-    rewritePrompt={row.ev.type === 'ui.operator' && !row.ev.answer_to ? row.r.text : undefined} />;
-  const to = String(row.ev.to ?? '');
   return <section className="conversation-thread">
-    {to === 'planner' || to === 'engineer' ? <details className="conversation-brief mx-auto w-full max-w-full px-6 py-1.5 lg:max-w-[808px]" data-testid="conversation-brief">
-      <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
-        {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}：` : `Handed to the ${roleLabel(to, t)}: `}
-        <span className="text-ink">{row.r.text.split('\n')[0]!.replace(/^#+\s*/, '')}</span>
-      </summary>{reply}
-    </details> : reply}
+    <ConversationRow doing={row.ev.status === 'running' ? doing : undefined} ev={row.ev} fallbackText={row.r.text} artifacts={artifacts} onOpenArtifact={openArtifact}
+      rewritePrompt={row.ev.type === 'ui.operator' && !row.ev.answer_to ? row.r.text : undefined} />
     {delivery && <DeliveryCard delivery={delivery} deliveries={deliveries} onOpen={onOpenDelivery} />}
   </section>;
 }
@@ -807,7 +832,7 @@ export function EventStream({
   const { locale, t } = useI18n();
   const sessionId = useContext(SessionIdContext);
   const log = useRoleLog(snapshot?.session.id ?? sessionId);
-  const manager = useMemo(() => ({ doing: managerDoing(log.events), said: latestManagerMessage(log.events) }), [log.events]);
+  const doing = useMemo(() => managerDoing(log.events, locale === 'zh-CN'), [log.events, locale]);
   const [following, setFollowing] = useState(true);
   const [inspectingTask, setInspectingTask] = useState<string | null>(null);
   const followingRef = useRef(true);
@@ -875,7 +900,7 @@ export function EventStream({
           return;
         }
         content.current?.querySelectorAll<HTMLElement>('[data-search-hit]').forEach(previous => { delete previous.dataset.searchHit; });
-        const brief = target.closest('details');
+        const brief = target.querySelector<HTMLDetailsElement>('details[data-testid="conversation-brief"]');
         if (brief) brief.open = true;
         target.dataset.searchHit = 'true';
         target.scrollIntoView({ block: 'center' });
@@ -1025,7 +1050,7 @@ export function EventStream({
                 <MarkdownContent>{questionSentence(roleLabel(String(event.agent_layer), t), taskTitle(eventTaskId(event)) || undefined, String(event.text), locale === 'zh-CN')}</MarkdownContent>
               </section>;
               const row = rowById.get(event);
-              return row ? <ConversationItem key={key} manager={manager} row={row} deliveries={deliveries}
+              return row ? <ConversationItem key={key} doing={doing} row={row} deliveries={deliveries}
                 artifacts={artifacts} onOpenArtifact={onOpenArtifact} onOpenDelivery={onOpenDelivery} /> : null;
             })}
 

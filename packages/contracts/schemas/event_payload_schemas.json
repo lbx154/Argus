@@ -5541,7 +5541,7 @@
         "steps": {
           "type": "array",
           "items": {
-            "type": "object"
+            "type": "string"
           }
         },
         "delivery": {

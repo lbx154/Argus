@@ -2,7 +2,7 @@ import { act, create } from "react-test-renderer";
 import { describe, expect, it } from "vitest";
 import { CardNow, LiveLine } from "../map/LiveLine";
 import { renderToStaticMarkup } from 'react-dom/server';
-import { latestManagerMessage, managerDoing, roleActionLabel } from '../lib/taskLanguage';
+import { latestManagerMessage, managerDoing, roleActionLabel, thoughtHeading } from '../lib/taskLanguage';
 
 const text = (root: ReturnType<typeof create>) =>
   root.root.findAllByType("span").map((s) => s.children.join("")).join(" ");
@@ -54,8 +54,17 @@ it('says what the Manager is at since it last spoke: its latest thought\'s headi
   const said = step('agent_message', '我先看看。');
   const thought = step('reasoning', '**Inspecting the logs**\n\nThe loss is flat.');
   const ran = step('command_execution', "/usr/bin/bash -lc 'tail -n 5 train.log'");
-  expect(managerDoing([started, said, thought])).toBe('Inspecting the logs');
-  expect(managerDoing([started, thought, ran])).toBe('tail -n 5 train.log');
-  expect(managerDoing([started, thought, said])).toBe('');
-  expect(managerDoing([thought, started])).toBe('');
+  expect(managerDoing([started, said, thought], false)).toBe('Inspecting the logs');
+  expect(managerDoing([started, thought, ran], false)).toBe('tail -n 5 train.log');
+  expect(managerDoing([started, thought, said], false)).toBe('');
+  expect(managerDoing([thought, started], false)).toBe('');
+});
+
+it('uses only a heading available in the reader language without translating reasoning', () => {
+  const heading = '**Validating snapshot data and cutoff handling**\n\n正在检查快照。';
+  const event = { type: 'engineer.progress', agent_layer: 'manager', kind: 'reasoning', text: heading };
+  expect(thoughtHeading(heading, true)).toBe('');
+  expect(managerDoing([event], true)).toBe('');
+  expect(managerDoing([event], false)).toBe('Validating snapshot data and cutoff handling');
+  expect(thoughtHeading('**正在核对 snapshot 截止点**', true)).toBe('正在核对 snapshot 截止点');
 });

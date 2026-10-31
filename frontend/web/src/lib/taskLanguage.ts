@@ -12,10 +12,12 @@ export function shortWorkText(text: string, max = 120): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
-export function roleActionLabel(role: string | undefined, zh: boolean, title = '', message = ''): string {
+export function roleActionLabel(role: string | undefined, zh: boolean, title = '', message = '', replying = true): string {
   const task = shortWorkText(title, 70);
   switch (role) {
-    case 'manager': return shortWorkText(message) || (zh ? '正在回复你的消息' : 'Replying to your message');
+    case 'manager': return shortWorkText(message) || (replying
+      ? zh ? '正在回复你的消息' : 'Replying to your message'
+      : zh ? '正在处理团队工作' : 'Working with the team');
     case 'planner': return zh ? '正在安排接下来要做的事' : 'Planning what to do next';
     case 'reviewer': return task
       ? zh ? `正在检查结果：${task}` : `Checking the result: ${task}`
@@ -39,19 +41,20 @@ export function latestManagerMessage(events: readonly EventMsg[]): string {
 }
 
 /** A thought as a status line says it: its summary's heading, as codex's screen shows it. */
-export function thoughtHeading(text: string): string {
-  return shortWorkText(text.trim().split('\n')[0]!);
+export function thoughtHeading(text: string, zh: boolean): string {
+  const heading = shortWorkText(text.trim().split('\n')[0]!);
+  return zh && !/\p{Script=Han}/u.test(heading) ? '' : heading;
 }
 
 /** What the current Manager call is at since it last said anything, as codex's status line says
  * it: the heading of its latest thought, as its backend sums it up, or the command it runs. */
-export function managerDoing(events: readonly EventMsg[]): string {
+export function managerDoing(events: readonly EventMsg[], zh: boolean): string {
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index];
     if (event.agent_layer !== 'manager') continue;
     if (event.type === 'provider.request.started' || event.kind === 'agent_message') break;
     const text = typeof event.text === 'string' ? event.text.trim() : '';
-    if (event.kind === 'reasoning' && text) return thoughtHeading(text);
+    if (event.kind === 'reasoning' && text) return thoughtHeading(text, zh);
     if (event.kind === 'command_execution' && text) return plainCommand(text);
   }
   return '';

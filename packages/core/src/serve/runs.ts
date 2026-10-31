@@ -135,9 +135,9 @@ export class Runs {
         else if (event.type === 'call.end') calls.splice(calls.findIndex(call => call.role === event.role && call.task === event.task), 1);
         this.changed(id, event);
       },
-      onWords: (role, task, words) => {
+      onWords: (role, task, words, kind) => {
         const call = calls.find(call => call.role === role && call.task === task);
-        if (call) { call.words = words; this.changed(id, 'words'); }
+        if (call) { call.words = words; call.wordsKind = kind ?? 'process'; this.changed(id, 'words'); }
       },
     });
     const entry: Active = { flow, controller, since: Date.now() / 1000, calls, settled: Promise.resolve() };

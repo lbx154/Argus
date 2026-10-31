@@ -1,5 +1,5 @@
 import { type QueryClient } from '@tanstack/react-query';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { api, type ProjectRow } from './api';
 
 interface UseCreateDaemonSessionOptions {
@@ -8,7 +8,6 @@ interface UseCreateDaemonSessionOptions {
   queryClient: QueryClient;
   refetchProjects: () => Promise<unknown>;
   selectProject: (id: string) => void;
-  onCreated?: (sid: string, draft: string) => void;
 }
 
 export function useCreateDaemonSession({
@@ -17,21 +16,12 @@ export function useCreateDaemonSession({
   queryClient,
   refetchProjects,
   selectProject,
-  onCreated,
 }: UseCreateDaemonSessionOptions) {
-  const [creatingDaemon, setCreatingDaemon] = useState(false);
   const [createError, setCreateError] = useState<unknown>(null);
   const clearCreateError = useCallback(() => setCreateError(null), []);
-  const creatingDaemonRef = useRef(false);
 
-  const createDaemon = async (
-    name: string,
-    workdir: string,
-    draft = '',
-  ): Promise<boolean> => {
-    if (creatingDaemonRef.current) return false;
-    creatingDaemonRef.current = true;
-    setCreatingDaemon(true);
+  /** The new project, listed and selected; null when it could not be made, the error kept. */
+  const createDaemon = async (name: string, workdir: string): Promise<string | null> => {
     setCreateError(null);
     try {
       const result = await api.createDaemon('', name, workdir);
@@ -54,23 +44,18 @@ export function useCreateDaemonSession({
           ...(current?.projects ?? []).filter((project) => project.id !== result.sid),
         ],
       }));
-      onCreated?.(result.sid, draft);
       selectProject(result.sid);
       void refetchProjects();
       window.setTimeout(onFocusComposer, 0);
-      return true;
+      return result.sid;
     } catch (error) {
       setCreateError(error);
-      return false;
-    } finally {
-      creatingDaemonRef.current = false;
-      setCreatingDaemon(false);
+      return null;
     }
   };
 
   return {
     createDaemon,
-    creatingDaemon,
     createError,
     clearCreateError,
   };

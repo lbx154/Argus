@@ -16,7 +16,7 @@ happened. Whatever the Python runtime does beyond that is left out rather than p
 |---|---|---|
 | M1 | One sentence to a reviewed delivery: Manager, Engineer, Reviewer, back to the Manager, on Codex and Claude Code | done: a real Codex run went from one sentence to a reviewed delivery (3 calls, $0.42, 5.7 min); a grokking replication handed whole to one Engineer took 24.6 min and $2.05 against 15 min and $1.40 for Codex alone, with the same findings |
 | M2 | Planner for work too large for one task, its independent tasks side by side; operator questions and answers; the operator writes to the Manager at any time | built and tested with a scripted backend; a real Manager answered in 19 s while an Engineer worked; a real multi-task Planner run is still to come |
-| M3 | `argus`: the web cockpit as the way in (no subcommands), its progress map, drafts, attachments, settings, trash, the code workspace, search, resources and the skill library | built; the milestone check runs a project through the web API; the trial ran on it with real Codex projects |
+| M3 | `argus`: the web cockpit as the way in (including operator skill-store commands), its progress map, drafts, attachments, settings, trash, the code workspace, search, resources and the skill library | built; the milestone check runs a project through the web API; the trial ran on it with real Codex projects |
 | M4 | one npm package (no runtime dependencies), Copilot and Pi, macOS and Windows, desktop sidecar | the package: `npm i -g` on a machine with only Node runs a project to the Manager's report (with a scripted codex); on Linux, macOS and Windows, CI (`core.yml`) runs the core's tests and installs it with npm to run a project; Copilot and Pi: real Engineer and Reviewer turns, resumed, under bubblewrap; desktop sidecar: the desktop app carries the package and runs it with the system's Node, in place of the frozen Python backend; CI (`desktop.yml`) builds its unsigned installers on Windows, macOS and Linux and its tests start the shipped Argus with Node |
 | M5 | new projects default to the TS core; Python serves old projects until they end, then goes | |
 
@@ -90,9 +90,44 @@ finish a small request in its own turn.
 
 ## The skill library
 
+The operator installs community packs through `argus skills add <name>` or the cockpit's
+Skill store tab, and removes them with `argus skills remove <name>` or Uninstall. `argus skills`
+lists each catalog version, installed version, description and `needs`. Both entry points use
+`packs.ts`'s catalog/add/remove functions; the HTTP routes require the cockpit bearer token.
+The catalog address is fixed in that module, and file addresses derive from its directory.
+The catalog contains `packs`, each with `name`, `version`, `description`, optional
+`description_zh`, `requires`, `needs`, and `files` (`path`, `size` in bytes). `requires` and
+`needs` are arrays of strings. This first version rejects packs with nonempty `requires`;
+`needs` describes requirements without installing them.
+
+Downloads reject redirects and catalogs larger than 1 MiB, and give up after 30 seconds. A pack
+this version cannot install is left out of the catalog, the rest still listed: one larger than
+8 MiB, without `SKILL.md` or a description, named like a bundled skill, or with a file path that escapes the pack,
+includes a backslash or has a segment starting with a dot. Fields it does not know are ignored.
+Every download must match its declared byte count.
+`SKILL.md` must contain a description and a front-matter version matching the catalog.
+That front matter is the only installed-version record. A complete validated download is
+staged outside the listed roots, in `$ARGUS_HOME/skill-packs.tmp-<name>-*/`, before replacing the
+installed directory; a failed download leaves the installed version intact and removes staging.
+In the Linux sandbox, all roles receive the pack root as read-only, alongside bundled skills; team write permissions
+stay in `$ARGUS_HOME/skills/`.
+
+Where a host answers offers, which it shows by making `$ARGUS_HOME/contributions/`, the operator may offer a team
+skill to the store (`POST /api/skill-library/contribute {name}`, the **Skill library**'s button, after a confirmation);
+without that folder nobody would answer, so the page offers nothing and the request is refused. Argus holds the folder to the same rule, walking it
+without following links and refusing a link or anything not a regular file, and leaving out `__pycache__/`
+and `.pyc` files as the store's catalog does; it answers a skill the store would not take with 400, code
+`not_for_store`, and the reason. One it would take is recorded, written whole, as
+`$ARGUS_HOME/contributions/<name>.json`: `{"name", "version" (its front matter's, else "0.1.0"),
+"requested_at" (Unix seconds)}`, a later offer replacing it. Argus opens no pull request itself: the host
+picks up a file without `submitted_at`, or with `requested_at` later than it, opens or updates a pull
+request to `Argus-AiTeam/argus-verticals`'s `packs/<name>/`, and rewrites the file whole with `url`
+or a one-sentence `error`, and `submitted_at`. `GET /api/skill-library` gives each team skill its
+file as `contribution`, null when there is none, and no `contribution` where no host answers. In the sandbox the roles cannot write `contributions/`.
+
 A skill is what was learned about a kind of work, kept as a folder whose `SKILL.md` says in its
 front matter (`name`, `description`), as Codex and Claude Code write a skill, what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade
-replaces, and the team's (the roles' and the operator's) in `$ARGUS_HOME/skills/<name>/`, listed
+replaces, installed community packs in `$ARGUS_HOME/skill-packs/<name>/`, and the team's (the roles' and the operator's) in `$ARGUS_HOME/skills/<name>/`, listed
 beside Argus's, a name shared or not, so that an upgrade of Argus's own reaches every project. It
 holds where good work starts, what past runs measured and what good work looks like, not steps,
 files or who does what, and nothing a capable model already knows: Codex on
@@ -101,10 +136,10 @@ spent 46% of its tool-output tokens rereading the research skill's manuals.
 
 The library is the roles'. Argus gives it a place, lists it and shows it, and nothing else: every
 role's standing instructions list each skill by its description and path and tells the role the library
-is its own, every call reads the skills, and a role that writes (the Manager, the Engineer) may
-write `$ARGUS_HOME/skills/`. When to write a skill, what to change in one and whether to install a
-plugin are the roles' to decide: there is no reflection after a task, no scoring, curating, recall
-or approval, and nothing records which skill a project used. Argus's own are `research`,
+is its own, every call reads the skills, and the Engineer may write `$ARGUS_HOME/skills/`;
+the Manager, Planner and Reviewer read it. When to write a skill and what to change in one
+are the roles' to decide: there is no reflection after a task, no scoring, curating, recall
+or approval, and nothing records which skill a project used. Argus's own are `research`, `rl`, `argus-http`,
 `software` (a change that builds, whose tests ran, and that does what was asked),
 `argus-maintenance` (changing this core) and `learning`, on writing a skill worth keeping: what an
 agent can run or recheck, proven on a real case.
@@ -168,10 +203,54 @@ and files; their original progress and closing letters stay available in the tas
 The code workspace is the workdir, read-only: its tree, which the composer's `@` completion lists
 too, a file's text or bytes, and what the system `git` says of it when the workdir is a
 repository of its own. A path there passes the check a result's does: inside the workdir, not
-hidden. An HTML result is served unchanged under an unguessable project/delivery path on a separate
-static origin, using the cockpit port plus one. Behind a proxy, `--preview-url` supplies its
-public origin; otherwise URLs use the request's protocol and hostname with the preview port.
-The static listener has no cockpit API or credentials, and the API rejects preview origins.
+hidden. An HTML result is served unchanged on a random project/delivery hostname. Identifiers are
+32 lowercase hexadecimal characters, regenerated on service restart. For cockpit requests
+at `127.0.0.1`, `[::1]`, `localhost`, `0.0.0.0` or `[::]`, the
+default is `http://<identifier>.localhost`
+on the browser-facing request Host port, sharing the cockpit listener. Bare loopback names
+always remain cockpit hosts. Chrome and Firefox resolve these subdomains locally.
+On macOS 15 and earlier, Safari/WKWebView may not resolve `.localhost` subdomains; the fix
+is in OS frameworks, not the Safari version ([WebKit bug 160504](https://bugs.webkit.org/show_bug.cgi?id=160504)).
+The macOS desktop app uses WKWebView, starts the core without `--preview-url`, and currently
+has no preview-domain setting. Its local HTML previews have the same restriction. In Safari
+and the macOS desktop app the UI says to use Chrome/Firefox; every preview also links its URL
+to a new tab (the desktop app hands it to the default browser).
+Opening the same URL in Safari on an affected OS does not fix DNS resolution. CLI users may
+configure a resolvable preview template. No DNS probing or automatic shared-storage fallback
+is performed.
+`--preview-url` supplies an HTTP(S) origin template with exactly one `*` in the first DNS
+label (e.g. `https://js-trial1-*.argusbot.cn`); no credentials, path, query or fragment.
+The entire matching namespace, including unknown, empty and non-label identifiers, is
+reserved for static previews. Keep the cockpit hostname outside it: for example, use
+`*.preview.example.com` with `argus.example.com`, rather than `*.example.com`.
+Likewise `argus.localhost` is reserved by the default `*.localhost` template. Unknown or
+expired preview links (identifiers end when Argus restarts) return a plain-text 404 saying
+so, never cockpit pages or API.
+Assigned hosts serve only the identifier's workspace/delivery files. Absolute asset paths start
+at the workspace root. Project/delivery subdomains separate
+localStorage, IndexedDB and caches; iframe storage may be partitioned from top-level storage.
+Local `.localhost` iframes are cross-site with the cockpit: Chromium restricts default/Lax
+cookies (explicit `SameSite=None; Secure` may work), while WebKit can block all third-party
+cookies. Check cookie-dependent websites using the UI's new-tab link. The same-site LAN
+fallback and same-site hosted templates avoid this particular restriction; other configured
+cross-site domains remain subject to the browser's cookie policy.
+Without a template, LAN/mobile requests retain the independent static listener at the server's
+cockpit port + 1 and a keyed path. This fallback separates cockpit localStorage but **shares
+preview storage between projects/deliveries**; cookies do not separate by port. Forward that
+second port for remote access, or configure a wildcard template for full storage isolation.
+The fallback port is bound on the first LAN preview request. If listening fails, the request
+returns 503 `preview_unavailable` naming the address and the reason, and the failed listener
+state is released. After
+freeing the port, a new preview request can bind it; loopback previews keep working.
+API Origin rejection uses the same preview hostname matcher and rejects an active fallback port.
+HTTP/1.0 probes without Host, and requests with an empty Host, use the socket's local address and
+port; malformed Host headers return a readable 400. Valid IPv4-mapped IPv6 Host headers are
+accepted.
+Proxies must preserve Host and Origin. Hosted deployment additionally needs wildcard DNS/TLS,
+Host-based tenant routing for preview GET/HEAD without cookies or bearer credentials, and
+`__Host-` portal cookies (only accept that cookie name) against sibling-domain cookie injection.
+A proxy replacing Host with localhost is indistinguishable from local access: set the template
+at tenant startup. If it strips Origin, its own origin check must enforce the API boundary.
 Website downloads contain the page and files that preview has served, removing their common
 parent directories while preserving relative paths. Results chosen together download in a
 separate zip. A task
@@ -252,20 +331,48 @@ each); Pi from each assistant message's `usage`, with `cost.total` as the cost.
 The call ledger, `usage.jsonl`, records each call's end time (`ts`, epoch seconds),
 role, model, token counts, nullable cost and elapsed `ms`. The shared record reader folds
 complete appended lines and retains one summary until more usage arrives. The sidebar's
-project row and the snapshot's `usage_summary` use that same summary. Its `by_role`,
+project row and the snapshot's `usage_summary` share its recorded totals; the snapshot
+extends the duration with live calls. Its `by_role`,
 `by_model` and `by_date` arrays partition the calls (a missing identity is `null`);
 dates are UTC. Each group carries the same counts, known cost and pricing completeness
 as the total. An unknown price remains unknown; zero is a reported price.
 
 `usage_summary.work_duration_ms` is the union of intervals `[ts * 1000 - ms, ts * 1000]`.
-Parallel calls count once and gaps count zero. Only calls recorded in the usage ledger
-contribute; calls without usage, and older lines without a duration or valid timestamp,
-add no time. `calls_without_duration` counts the latter, so the page can mark the duration
-as a lower bound. Calls still running enter the total when their usage is recorded.
+Parallel calls count once and gaps count zero. Completed calls contribute through the
+usage ledger; each live call also contributes
+`[started_ts * 1000, read_at]` at snapshot time. Completed calls without usage, and older
+lines without a duration or valid timestamp, add no time. `calls_without_duration` counts
+the latter, so the page can mark the duration as a lower bound. The header reuses the
+elapsed clock to extend the union after `read_at` while live calls remain; a new snapshot replaces this reading when calls start or end.
 
-Manager and Planner message steps remain as Argus messages in the conversation,
-including questions said while work continues. Each keeps its event identity across
-completion, pagination and reload. Conversation and map task cards show only the
+A Manager call owns one reply row. Its `answers` names the operator request;
+team letters in `forManager` carry an `input_id` that their calls and handoffs
+retain across recovery and form correction. Each input owns a reply and its
+position beside the incoming letter, including when another input is handled
+before it resumes. Legacy pending strings are associated with their unaccepted
+incoming letters and original calls before they receive an input identity. Migration
+and projection share the input fold. A completed first attempt with a session
+retains its input for one form correction before taking queued letters. Message
+steps accumulate in the reply's `steps` string array,
+and the handoff supplies `text` and its addressee. Non-request turns retain their
+process; their running/stopped state is expressed by the project status bar.
+Planner calls record `planner_inputs`, the count of inbox letters actually read.
+The projection consumes that prefix only at the accepted handoff, once even for
+multiple outgoing letters; form corrections keep the original read count. A batch
+whose letters all trace to one reply attaches its process there. Mixed or unknown
+sources have an independent process row; newly opened tasks inherit that row for
+later Planner turns, while existing tasks retain their originating association.
+Older records consider pending recorded sources at call start and consume them at
+the accepted letter; ambiguous batches stay independent. Role logs retain each
+recorded step separately in record order.
+A call retains its reply association until its accepted handoff is recorded, including
+failure recovery and form correction. Reply positions and steps survive completion,
+interruption, paging and reload; a reply containing only steps remains visible.
+Live words carry their kind: process words append to `steps`, while form letter
+words supply `text`. A handoff to the Planner or Engineer folds its letter body;
+the reply heading and process questions remain visible. Search opens that body.
+
+Conversation and map task cards show only the
 first file in the Manager's delivery for the request that opened their work; they
 show no result before that delivery. The task detail reader retains the team's
 full file selections and original letters.

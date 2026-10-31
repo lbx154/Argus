@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import { request as httpRequest } from 'node:http';
+import { previewFetch } from './helpers/preview-fetch.js';
 import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -336,7 +337,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // The operator reads the Manager's letter to the team: the brief is its reply.
   // The reply is its row in the record, as the conversation shows it after a reload: whom it is to, and the message it answers.
   assert.deepEqual(reply[1], { type: 'delta', event: { type: 'ui.argus', ts: (reply[1]!.event as EventMsg).ts, event_id: 3,
-    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', request_id: 'r1', row_id: 'm0-argus', order: 3 } });
+    agent_layer: 'manager', to: 'engineer', text: brief, message_id: 'm0-argus', request_id: 'r1', row_id: 'm0-argus', order: 0.1 } });
   assert.deepEqual(reply[2], { type: 'done', result: { kind: 'task', reply: brief } });
 
   const asking = await eventually(() => get<Snapshot>(`${P}/snapshot`),
@@ -816,7 +817,9 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   finish();
   const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.request_id === 'r1' && row.text === '42'));
   assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'],
-    ['ui.argus', 'Checking the original question'], ['ui.argus', '42']]);
+    ['ui.argus', '42']]);
+  // Answered, what it said on the way is the answer's folded process.
+  assert.deepEqual(answered.rows.find(row => row.type === 'ui.argus')?.process, ['Checking the original question']);
   assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
   assert.equal(answered.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r1')?.message_id, refreshed.rows[1]?.message_id);
   assert.equal(requests.length, 2);
@@ -838,23 +841,23 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   await write('quant/SKILL.md', `${skill('Backtest a trading idea without lookahead')}\nRun check.mjs.\n`, 1);
   await write('quant/check.mjs', 'console.log("no lookahead");\n', 2);
   await write('research/SKILL.md', skill('Research as this operator wants it'), 3);
-  const catalog = await get<{ items: Record<string, unknown>[]; errors: unknown }>('/api/skill-library?sid=p-1');
-  assert.deepEqual(catalog.errors, []);
+  const catalog = await get<{ items: Record<string, unknown>[] }>('/api/skill-library?sid=p-1');
+  assert.deepEqual(Object.keys(catalog), ['items']);
   const item = (name: string) => catalog.items.find(item => item.name === name);
   assert.deepEqual(item('quant'), {
-    library: 'shared', source: 'shared', scope: 'global', vertical: '', role: '', path: 'quant/SKILL.md', name: 'quant',
-    description: 'Backtest a trading idea without lookahead', is_default: false, updated_at: at(1),
+    library: 'shared', source: 'shared', path: 'quant/SKILL.md', name: 'quant',
+    description: 'Backtest a trading idea without lookahead', version: '', updated_at: at(1),
   });
   // The team's research skill is listed beside Argus's, which it leaves as it is.
   assert.deepEqual(catalog.items.filter(item => item.name === 'research').map(item => item.source), ['bundled', 'shared']);
   assert.equal(catalog.items.filter(item => item.name === 'research')[1]?.description, 'Research as this operator wants it');
-  assert.deepEqual([item('software')?.library, item('software')?.path, item('software')?.is_default, item('software')?.updated_at],
-    ['bundled', 'software/SKILL.md', true, null]);
+  assert.deepEqual([item('learning')?.library, item('learning')?.path, item('learning')?.source, item('learning')?.updated_at],
+    ['bundled', 'learning/SKILL.md', 'bundled', null]);
 
   const document = (library: string, path: string) => call(`/api/skill-library/document?${new URLSearchParams({ library, path })}`);
   assert.equal((await (await document('shared', 'quant/check.mjs')).json() as { content: string }).content, 'console.log("no lookahead");\n');
-  assert.equal((await (await document('bundled', 'software/SKILL.md')).json() as { content: string }).content,
-    await readFile(join(SKILLS, 'software', 'SKILL.md'), 'utf8'));
+  assert.equal((await (await document('bundled', 'learning/SKILL.md')).json() as { content: string }).content,
+    await readFile(join(SKILLS, 'learning', 'SKILL.md'), 'utf8'));
   // Only the files of the skills can be read.
   for (const [library, path] of [['shared', `../projects/${id}/project.json`], ['shared', join(home, 'projects', id, 'project.json')],
     ['bundled', '../package.json'], ['shared', 'quant'], ['wiki', 'quant/SKILL.md']]) {
@@ -864,14 +867,13 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   assert.equal((await call('/api/wiki')).status, 404);
   assert.equal((await call('/api/wiki/page?scope=global&vertical=&path=x.md')).status, 404);
   const { events } = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=2');
-  const learned = { kind: 'learned', scope: 'global', vertical: '', source_project: '', role: '', note: '' };
   assert.deepEqual(events, [
-    { ...learned, ts: at(3), path: 'research/SKILL.md', title: 'Research as this operator wants it' },
-    { ...learned, ts: at(2), path: 'quant/check.mjs', title: 'quant/check.mjs' },
+    { ts: at(3), path: 'research/SKILL.md', title: 'Research as this operator wants it' },
+    { ts: at(2), path: 'quant/check.mjs', title: 'quant/check.mjs' },
   ]);
   await write('quant/check.mjs', 'console.log("no lookahead, checked");\n', 60);
   const updated = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=1');
-  assert.deepEqual(updated.events, [{ ...learned, ts: at(60), path: 'quant/check.mjs', title: 'quant/check.mjs' }]);
+  assert.deepEqual(updated.events, [{ ts: at(60), path: 'quant/check.mjs', title: 'quant/check.mjs' }]);
 
   await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
   assert.equal((await call('/api/plugins')).status, 404);
@@ -896,7 +898,7 @@ test('a message typed while a reply is under way is answered after it', async t 
   await first;
   const { rows: turns } = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.text === 'Second answered.'));
   assert.deepEqual(turns.map(turn => [turn.type, turn.text]), [
-    ['ui.operator', 'first'], ['ui.operator', 'second'], ['ui.argus', 'First answered.'], ['ui.argus', 'Second answered.'],
+    ['ui.operator', 'first'], ['ui.argus', 'First answered.'], ['ui.operator', 'second'], ['ui.argus', 'Second answered.'],
   ]);
 });
 
@@ -1149,7 +1151,7 @@ test('an uploaded HTML file opens on the static origin and raw downloads stay sa
   const preview = await call(`${P}/artifact/preview?${query}`);
   assert.equal(preview.status, 200);
   const { url } = await preview.json() as { url: string };
-  const page = await fetch(url);
+  const page = await previewFetch(url);
   assert.equal(page.headers.get('content-security-policy'), null);
   assert.equal(await page.text(), '<h1>Material HTML</h1>');
   const raw = await call(`${P}/artifact/raw?${query}`);
@@ -1477,15 +1479,24 @@ test('rows SSE sends task progress and durable Manager messages without onWords 
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第二句实时文字。' });
   const received = await streamed;
   const managerStep = received.find(frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第一句实时文字。'))!;
-  assert.ok((managerStep.rows as EventMsg[]).some(row => row.type === 'ui.argus' && row.text === '经理的第一句实时文字。'));
+  const firstReply = (managerStep.rows as EventMsg[]).find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.deepEqual(firstReply.steps, ['经理的第一句实时文字。']);
+  assert.equal(firstReply.text, '');
   const progress = received.flatMap(frame => frame.rows as EventMsg[] ?? []).find(row => row.progress === '已核对输入，正在检查输出。')!;
   assert.equal(progress.title, title);
   const page = await get<ConversationPage>(`${P}/conversation`);
   assert.equal(page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, '');
   assert.equal(page.rows.find(row => row.type === 'ui.task')?.progress, progress.progress);
-  assert.ok(page.rows.some(row => row.type === 'ui.argus' && row.text === '经理的第二句实时文字。'));
+  const runningReply = page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.equal(runningReply.row_id, firstReply.row_id);
+  assert.deepEqual(runningReply.steps, ['经理的第一句实时文字。', '经理的第二句实时文字。']);
+  assert.equal(page.rows.filter(row => row.type === 'ui.argus' && row.request_id === 'r-live').length, 1);
   finishManager();
   await reply;
+  const completedReply = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.equal(completedReply.row_id, firstReply.row_id);
+  assert.equal(completedReply.text, '已核对你询问的状态。');
+  assert.deepEqual(completedReply.process, runningReply.steps);
   finishEngineer();
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snap => snap.backlog[0]?.status === 'done' && !snap.daemon.alive);
   const done = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.task')!;
@@ -1515,8 +1526,8 @@ test('the words a role is writing reach the page as they come, the reply\'s in i
   const response = await call(`${P}/stream?view=rows`);
   const streamed = frames(response, frame => (frame.rows as EventMsg[])?.some(row => row.text === 'Training is under'));
   requests[1]!.onWords?.('Loading the data');
-  requests[2]!.onWords?.('Training is');
-  requests[2]!.onWords?.('Training is under');
+  requests[2]!.onWords?.('Training is', 'answer');
+  requests[2]!.onWords?.('Training is under', 'answer');
   const received = await streamed;
   const rows = received.flatMap(frame => frame.rows as EventMsg[] ?? []);
   assert.ok(rows.some(row => row.type === 'ui.task' && row.progress === 'Loading the data'));
@@ -1707,8 +1718,8 @@ test('task details expose recorded return reasons, operator letters and only the
   const { item } = await get<{ item: import('@argus/contracts').BacklogItem }>(`/api/projects/${work.id}/backlog/${task.id}`);
   assert.deepEqual(item.changed_files, ['chart.ts', 'chart.png']);
   assert.deepEqual(item.result_paths, ['chart.ts', 'chart.png', 'second.png']);
-  assert.ok(item.notes!.includes('退回：缺少坐标单位。'));
-  assert.ok(item.notes!.includes('请用秒为单位。'));
+  assert.deepEqual(item.letters!.map(({ role, to, text }) => [role, to, text]), [['reviewer', 'engineer', '退回：缺少坐标单位。'],
+    ['operator', 'engineer', '请用秒为单位。'], ['reviewer', 'planner', '已经修正。']]);
 });
 
 test('expanded task files come from its explicit letter before review completes, without marking the task done', async t => {

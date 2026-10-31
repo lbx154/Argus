@@ -14,8 +14,9 @@ import { join } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
+import { nameLegacyInputs } from './inputs.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -31,7 +32,7 @@ const operatorText = ({ text, attachments }: OperatorMessage): string => text + 
 export interface FlowOptions {
   onEvent?: (event: FlowEvent) => void;
   /** The words a role's call is writing, as far as they have come; none once they are said. */
-  onWords?: (role: Role, task: string | undefined, words: string) => void;
+  onWords?: (role: Role, task: string | undefined, words: string, kind?: 'process' | 'answer') => void;
   /** Interrupts every call under way, and ends the work. */
   signal?: AbortSignal;
 }
@@ -56,7 +57,7 @@ export class Flow {
     // A message to a stopped project takes the place of the operator's the stop left unanswered, not
     // of one sent since that a Manager turn is taking; the team's letters wait for Resume.
     const taking = this.handing.get(project) ?? [];
-    const replaced = project.status === 'stopped' ? (project.forManager ?? []).filter(letter => typeof letter !== 'string' && !taking.includes(letter)) : [];
+    const replaced = project.status === 'stopped' ? (project.forManager ?? []).filter(letter => typeof letter !== 'string' && !letter.input_id && !taking.includes(letter)) : [];
     if (replaced.length) project.forManager = project.forManager!.filter(letter => !replaced.includes(letter));
     // The project's request is its first message, or the one that took that one's place.
     if (!project.request || replaced.some(letter => typeof letter !== 'string' && letter.request_id === project.requestId)) {
@@ -103,6 +104,11 @@ export class Flow {
   /** After a failed call the operator writes or resumes: the failed turns go on, and the letters a
    * failed or interrupted Manager turn left unread go to the Manager again. */
   private retry(project: Project): void {
+    // Pending team letters from older records acquire their identity before being called.
+    if (project.forManager?.some(letter => typeof letter === 'string')) {
+      project.forManager = nameLegacyInputs(this.store, project);
+      this.store.save(project);
+    }
     if (project.failures?.length) Object.assign(project, { failures: [], error: null });
     if (project.status === 'failed') this.status(project, 'working');
     const under = [...this.handing.get(project) ?? []];
@@ -188,19 +194,20 @@ export class Flow {
   }
 
   private async managerTurn(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
-    const first = typeof letter !== 'string' && letter.request_id === project.requestId;
+    const first = typeof letter !== 'string' && !letter.input_id && letter.request_id === project.requestId;
     const input = typeof letter === 'string' ? letter : operatorText(letter);
     const answers = typeof letter === 'string' ? undefined : letter.request_id;
+    const input_id = typeof letter === 'string' ? undefined : letter.input_id;
     const handoff = (await this.call(project, 'manager', null,
-      resumed => managerPrompt(input, resumed), answers ? { answers } : {}))?.handoff ?? null;
+      resumed => managerPrompt(input, resumed), { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} }))?.handoff ?? null;
     // Only the first request's turn names the project, by the title of the work it hands the team;
     // answered directly, the project keeps its request's first line. Later turns keep that name, even
     // after a session reset.
-    const title = !first || !handoff || project.name || handoff.to === 'operator' ? '' : firstLine(read(handoff));
-    if (title) project.name = title;
+    const name = !first || !handoff || project.name || handoff.to === 'operator' ? '' : title(read(handoff));
+    if (name) project.name = name;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
-      const brief = read(handoff) + (typeof letter === 'string' ? '' : `\n\n## Operator message\n${input}`);
+      const brief = read(handoff) + (typeof letter === 'string' || letter.input_id ? '' : `\n\n## Operator message\n${input}`);
       if (handoff.to === 'engineer') {
         const id = handoff.tasks?.[0]?.task;
         if (id) await this.taskLetter(project, 'manager', id, brief);
@@ -244,6 +251,7 @@ export class Flow {
 
   /** A letter to the Manager stays in the record until a Manager turn takes it. */
   private writeToManager(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
+    if (typeof letter === 'string') letter = { text: letter, input_id: randomUUID() };
     (project.forManager ??= []).push(letter);
     this.store.save(project);
     return this.handOver(project, letter);
@@ -277,7 +285,7 @@ export class Flow {
     const taken = project.inbox.length;
     // The ids the Planner was told its tasks take, though the Manager may open tasks meanwhile.
     const base = project.tasks.length;
-    const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project)))?.handoff;
+    const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project), { planner_inputs: taken }))?.handoff;
     if (!handoff) return;
     project.inbox.splice(0, taken);
     const { to, letters, tasks } = handoff;
@@ -316,9 +324,9 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string } = {}): Promise<AgentResult | null> {
-    const { refused, answers } = turn;
-    const answering = answers ? { answers } : {};
+                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number } = {}): Promise<AgentResult | null> {
+    const { refused, answers, input_id } = turn;
+    const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
     if (signal?.aborted) return null;
     const key = task ? `${task.id}.${role}` : role;
@@ -328,17 +336,17 @@ export class Flow {
     let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
-    this.record(project, { type: 'call.start', role, ...where, ...answering });
+    this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
     let result: AgentResult;
     try {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, project, this.store),
         prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
-        readDirs: [dir, SKILLS], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
+        readDirs: [dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
-        onWords: words => this.options.onWords?.(role, task?.id, words), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+        onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
       // The call never ran to an end of its own: it is recorded as ended, failed.
@@ -349,7 +357,7 @@ export class Flow {
     } finally {
       if (role === 'reviewer') await this.callAgent.close?.(`${project.id}/${key}`);
     }
-    const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
+    const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid } = result;
     // A turn goes on next time in the session its backend reported, whether it ended, was cut off
     // or failed: its work is not done again. With none reported, or a new one whose turn failed before
     // a step, which holds no work and may hold the settings it failed on, the role starts afresh; and
@@ -380,25 +388,25 @@ export class Flow {
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
-    if (!signal?.aborted) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`);
+    if (!signal?.aborted) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
     return null;
   }
 
   /** A failed turn holds up its role, on its task if it was on one, and the rest of the work goes
    * on; the project shows it failed once nothing else does, unless the operator stopped it. */
-  private fail(project: Project, role: Role, task: Task | null, error: string): void {
-    Object.assign(project, { failures: [...project.failures ?? [], { role, task: task?.id ?? null, error }], error });
+  private fail(project: Project, role: Role, task: Task | null, error: string, unpaid?: true): void {
+    Object.assign(project, { failures: [...project.failures ?? [], { role, task: task?.id ?? null, error, ...unpaid && { unpaid } }], error });
     if (this.works.has(project.id) || project.status === 'stopped') this.store.save(project);
     else this.status(project, 'failed', error);
   }
 
-  /** A letter to the Engineer opens a task; its first line names it. It waits only for tasks opened
+  /** A letter to the Engineer opens a task; its first sentence names it. It waits only for tasks opened
    * before it, so no tasks wait for each other in a circle. */
   private open(project: Project, from: Task['from'], letter: string, after: string[] = []): Task {
-    const title = firstLine(letter);
+    const named = title(letter);
     const waits = [...new Set(after)].filter(id => project.tasks.some(task => task.id === id));
     const task: Task = {
-      id: `t${project.tasks.length + 1}`, title, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},
+      id: `t${project.tasks.length + 1}`, title: named, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},
     };
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
@@ -447,6 +455,13 @@ export const openTasks = ({ tasks }: Project): Task[] => tasks.filter(task => ta
  * task the letter opens. */
 export const firstLine = (text: string): string => text.split('\n')
   .map(line => line.replace(/^#+\s*/, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*|`/g, '').trim()).find(Boolean) ?? '';
+
+/** What names a project or task: the first sentence of a letter's first line, as a letter that opens
+ * with a whole paragraph would otherwise put that paragraph in the heading. */
+export const title = (text: string): string => {
+  const line = firstLine(text);
+  return line.match(/^.+?(?:[。！？](?=.)|[.!?](?=\s))/u)?.[0] ?? line;
+};
 
 /** A hand-off's letters, read as one: there is more than one only when the Planner opens tasks. */
 const read = ({ letters }: HandOff): string => letters.join('\n\n');

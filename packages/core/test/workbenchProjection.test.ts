@@ -49,7 +49,7 @@ test('snapshot and map carry task summaries; on-demand details retain the record
   const request = await get('backlog/q0');
   assert.equal(request.item.objective, source.request);
   assert.equal(detail.item.objective, source.tasks[2]!.objective);
-  assert.ok(detail.item.notes.includes('result.md'));
+  assert.ok(detail.item.letters.some((letter: { text: string }) => letter.text.includes('result.md')));
 });
 
 test('recorded task: dialogue and map share hidden progress while asking, closing files, and the original added time', t => {
@@ -140,11 +140,11 @@ test('real task record: details and traces share the incremental reading as call
   const request = await get('backlog/q0');
   assert.equal(detail.item.objective, source.tasks[2]!.objective);
   assert.equal(request.item.objective, source.request);
-  assert.ok(detail.item.notes.includes('result.md'));
+  assert.ok(detail.item.letters.some((letter: { text: string }) => letter.text.includes('result.md')));
   const closing = record.find(event => event.type === 'handoff' && event.role === 'reviewer' && event.task === 't3');
   assert.ok(closing?.type === 'handoff');
   assert.equal(detail.item.latest_action.text, closing.letter);
-  assert.equal(request.item.notes, '');
+  assert.deepEqual(request.item.letters, []);
   assert.deepEqual(await get('map-trace?task=t3'), expectedTrace);
   assert.ok(reads.mock.calls.every(call => call.arguments[1].byteLength === 0), 'warm requests read no old event bytes');
   // A modern delivery joins its original request by answers. Full progress must not
