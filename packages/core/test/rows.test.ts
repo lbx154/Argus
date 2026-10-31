@@ -3,6 +3,7 @@ import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { replyReplay } from './replyReplay.js';
 import { ROLE_LOG, type EventMsg } from '@argus/contracts';
 import { firstLine } from '../src/flow.js';
 import { Store, type Project } from '../src/store.js';
@@ -116,7 +117,8 @@ test('real stopped conversation: refresh retains the original request and Resume
   const asked = stoppedRecord.find(event => event.type === 'message')!;
   const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [{ text: asked.type === 'message' ? asked.text : '', request_id: 'stop-request-1' }] };
   const stopped = rowsOf(stoppedRecord.slice(0, stop + 1), work);
-  assert.equal(stopped.length, 2 + stoppedRecord.slice(0, stop + 1).filter(event => event.type === 'step' && event.kind === 'message').length);
+  assert.equal(stopped.length, 2);
+  assert.deepEqual(stopped[1]?.progress, stoppedRecord.slice(0, stop + 1).flatMap(event => event.type === 'step' && event.kind === 'message' ? [event.text] : []));
   assert.match(String(stopped[0]?.text), /不要丢掉这条消息/);
   assert.equal(stopped[1]?.status, 'stopped');
   const resumed = rowsOf(stoppedRecord, { ...work, status: 'working' }, { since: 1, calls: [{ started_ts: 1, role: 'manager', task: undefined, answers: 'stop-request-1' }], requests: [] });
@@ -145,6 +147,8 @@ test('a queued operator message keeps its own reply and a letter from the team d
   const rows = rowsOf(events, { ...project, tasks: [], status: 'working', forManager: [{ text: 'One more question', request_id: 'r-more' }] }, live);
   assert.equal(rows.find(row => row.text === 'On the team report')?.request_id, undefined);
   assert.equal(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.text, '');
+  assert.deepEqual(rows.find(row => row.request_id === 'r-new' && row.type === 'ui.argus')?.progress, ['Checking your question']);
+  assert.equal(rows.filter(row => row.type === 'ui.argus').length, 3);
   assert.equal(rows.find(row => row.request_id === 'r-more' && row.type === 'ui.argus')?.status, 'waiting');
 });
 
@@ -205,4 +209,54 @@ test('real task fragments: progress and files share the map projection; incoming
   assert.equal(done.progress, firstLine(map.latest_action!.text));
   assert.equal(map.latest_action!.role, 'reviewer');
   assert.deepEqual(taskTrace(store, work, 't3').groups.map(group => group.role), ['planner', 'engineer', 'reviewer', 'planner']);
+});
+
+// Replay the supplied GPU dialogue through the actual fold and page projection.
+test('GPU replies retain their process in one request row while running, completed and replayed', () => {
+  let reading: Reading | undefined;
+  let active: string | undefined;
+  const expected = new Map<string, { text: string; progress: string[] }>();
+  replyReplay.forEach((event, line) => {
+    if (event.type === 'message') expected.set(event.request_id!, { text: '', progress: [] });
+    if (event.type === 'call.start') active = event.answers;
+    if (event.type === 'step' && event.kind === 'message') expected.get(active!)!.progress.push(event.text);
+    if (event.type === 'call.end') active = undefined;
+    if (event.type === 'handoff') expected.get(event.answers!)!.text = event.letter;
+    const live: Live = { since: active ? 1 : null, requests: [], calls: active ? [{ role: 'manager', task: undefined, answers: active, started_ts: 1 }] : [] };
+    const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [...expected].filter(([, reply]) => !reply.text).map(([request_id]) => ({ text: '', request_id })) };
+    reading = projectRecord([event], reading);
+    const rows = conversationRows(reading, work, live);
+    assert.deepEqual(rows, rowsOf(replyReplay.slice(0, line + 1), work, live), `reload at ${line}`);
+    const replies = rows.filter(row => row.type === 'ui.argus');
+    assert.equal(replies.length, expected.size, `one reply per request at ${line}`);
+    for (const [request, reply] of expected) {
+      const row = replies.find(row => row.request_id === request)!;
+      assert.equal(row.text, reply.text);
+      assert.deepEqual(row.progress ?? [], reply.progress);
+      if (event.type === 'handoff' && event.answers === request || event.type === 'step' && active === request) assert.equal(row.event_id, line);
+    }
+    const page = conversationPage(rows, line, 1);
+    assert.equal(page.rows.at(-1)?.request_id, [...expected.keys()].at(-1));
+    if (event.type === 'step') assert.equal(replies.at(-1)?.status, 'running');
+  });
+});
+
+test('call identity retains multiple process questions across interruption and prevents adjacent-request guesses', () => {
+  const events: Recorded[] = [
+    replyReplay[0]!, replyReplay[1]!,
+    { type: 'message', from: 'operator', text: 'A queued question', request_id: 'queued', ts: at(1) },
+    { type: 'step', role: 'manager', kind: 'message', text: 'Which GPU should I check?', ts: at(2) },
+    { type: 'step', role: 'manager', kind: 'message', text: 'I will retain this question.', ts: at(3) },
+    { ...replyReplay[3]!, completed: false } as Recorded,
+  ];
+  const work = { ...project, tasks: [], status: 'stopped' as const, forManager: [{ text: '', request_id: 'gpu-request-1' }, { text: '', request_id: 'queued' }] };
+  const stopped = rowsOf(events, work);
+  assert.equal(stopped.filter(row => row.type === 'ui.argus').length, 2);
+  assert.deepEqual(stopped.find(row => row.request_id === 'gpu-request-1' && row.type === 'ui.argus')?.progress, ['Which GPU should I check?', 'I will retain this question.']);
+  assert.equal(stopped.find(row => row.request_id === 'queued' && row.type === 'ui.argus')?.progress, undefined);
+  const completed = rowsOf([...events, replyReplay[1]!, replyReplay[4]!], work);
+  const reply = completed.find(row => row.request_id === 'gpu-request-1' && row.type === 'ui.argus')!;
+  assert.deepEqual(reply.progress, stopped[1]!.progress);
+  assert.equal(reply.text, replyReplay[4]!.type === 'handoff' ? replyReplay[4]!.letter : '');
+  assert.equal(reply.row_id, stopped[1]!.row_id);
 });

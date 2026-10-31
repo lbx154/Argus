@@ -222,7 +222,7 @@ it('keeps first-frame and appended role logs independent of snapshots and isolat
   expect(log.events).toHaveLength(1);
 });
 
-it('a running reply shows the words its row brings as they come, and with none the Manager\'s latest message from the role log', async () => {
+it('a running reply retains process from its own row above the words being written', async () => {
   vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn(), requestAnimationFrame: vi.fn(() => 1), cancelAnimationFrame: vi.fn() });
   const { openConversation } = await import('../api');
   const { EventStream } = await import('../components/EventStream');
@@ -234,7 +234,7 @@ it('a running reply shows the words its row brings as they come, and with none t
   const message = reading.roleEvents.slice().reverse().find(row => row.agent_layer === 'manager' && row.kind === 'agent_message')!;
   const snap = roleSnapshot([], { session: { id: 'b', display_name: '', objective: '', workdir: '', last_active: 1 } });
   client.setQueryData(['conversation', 'b'], { pages: [{ rows: [{ type: 'ui.argus', row_id: 'reply', event_id: 1, order: 1,
-    text: '', live: true, status: 'running' }], before: null, cursor: 1 }], pageParams: [undefined] });
+    text: '', progress: reading.rows.get('m0-argus')?.progress, live: true, status: 'running' }], before: null, cursor: 1 }], pageParams: [undefined] });
   function Conversation() {
     const history = useConversationHistory('b', true, [], null);
     return <EventStream events={history.events} snapshot={snap} connected showReasoning={false} />;
@@ -244,15 +244,17 @@ it('a running reply shows the words its row brings as they come, and with none t
   act(() => receive({ type: 'ui.projection', cursor: reading.fold.line - 1, round: reading.round, rows: [], role_events: reading.roleEvents }));
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
   const text = (node: import('react-test-renderer').ReactTestInstance): string => node.children.map(child => typeof child === 'string' ? child : text(child)).join('');
-  const replyText = () => text(renderer!.root.findByProps({ 'data-manager-reply': 'running' }));
+  const replyText = () => text(renderer!.root.findByType('article'));
   expect(replyText()).toContain(message.text);
   act(() => receive({ type: 'ui.projection', cursor: reading.fold.line, round: reading.round, rows: [], role_events: [{ ...message, event_id: reading.fold.line, text: '经理下一句实时记录。' }] }));
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
-  expect(replyText()).toContain('经理下一句实时记录。');
-  // The words being written come in the reply's row, and show in place of what was last said.
+  expect(replyText()).not.toContain('经理下一句实时记录。');
+  // Partial answer text arrives in the same row and preserves its process.
   act(() => receive({ type: 'ui.projection', cursor: reading.fold.line, round: reading.round, rows: [{ type: 'ui.argus', row_id: 'reply', event_id: 1, order: 1,
-    text: '正在写的回复', live: true, status: 'running' }], role_events: [] }));
+    text: '正在写的回复', progress: reading.rows.get('m0-argus')?.progress, live: true, status: 'running' }], role_events: [] }));
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
   expect(replyText()).toContain('正在写的回复');
+  expect(replyText()).toContain(message.text);
+  expect(replyText().indexOf(String(message.text))).toBeLessThan(replyText().indexOf('正在写的回复'));
   expect(replyText()).not.toContain('经理下一句实时记录。');
 });

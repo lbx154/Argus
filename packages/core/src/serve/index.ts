@@ -38,7 +38,7 @@ export interface ServeOptions {
   model: string | null;
   /** 0 picks a free port. */
   port: number;
-  /** The preview listener's public origin when served through a proxy. */
+  /** The static preview's public origin; forwarded requests must preserve Host. */
   previewUrl?: string;
   /** The built web cockpit: the package's web/, the files of frontend/web/dist its page reaches. */
   web: string;
@@ -139,7 +139,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
   };
   const authorized = (request: IncomingMessage): boolean => !token
     || same(request.headers.authorization, `Bearer ${token}`);
-  const sites = await preview(project, result, host, options.port === 0 ? 0 : options.port + 1, options.previewUrl);
+  const sites = preview(project, result, host, options.previewUrl);
   const meta = (authenticated: boolean): ApiMeta => ({
     service: API_SERVICE,
     protocol: { name: API_PROTOCOL.name, major: API_PROTOCOL.major, minor: API_PROTOCOL.minServerMinor },
@@ -390,6 +390,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
   ];
 
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    if (sites.isHost(new URL(requestOrigin(request)).hostname)) return sites.handle(request, response);
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const method = request.method === 'HEAD' ? 'GET' : request.method;
     if (!url.pathname.startsWith('/api/')) {
@@ -399,7 +400,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     // Without a bearer secret, browser access belongs to this API's own origin. A token
     // still authorizes a development proxy rewriting Host, but never the preview origin.
     const origin = request.headers.origin;
-    if (origin && (origin === 'null' || origin === sites.origin || origin.endsWith(`:${sites.port}`)
+    if (origin && (origin === 'null' || sites.isOrigin(origin, request.socket.localPort)
       || !token && origin !== requestOrigin(request))) throw new HttpError(403, 'This origin cannot access the cockpit API.');
     if (url.pathname === '/api/meta') {
       response.setHeader('cache-control', 'no-store');
@@ -430,7 +431,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
   });
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject).listen(options.port, host, resolveListen);
-  }).catch(async error => { await sites.close(); throw error; });
+  });
   // Work a shutdown cut off goes on, the Manager's answer to a message too; what the operator stopped
   // stays stopped, a message being answered in it included, as if stopped again; a failure waits for
   // the operator.
@@ -441,7 +442,6 @@ export async function serve(options: ServeOptions): Promise<Served> {
     url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
     close: async () => {
       await runs.stopAll();
-      await sites.close();
       server.closeAllConnections();
       await new Promise(resolveClose => server.close(resolveClose));
     },

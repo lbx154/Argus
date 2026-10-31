@@ -816,7 +816,8 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   finish();
   const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.request_id === 'r1' && row.text === '42'));
   assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'],
-    ['ui.argus', 'Checking the original question'], ['ui.argus', '42']]);
+    ['ui.argus', '42']]);
+  assert.deepEqual(answered.rows.find(row => row.type === 'ui.argus')?.progress, ['Checking the original question']);
   assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
   assert.equal(answered.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r1')?.message_id, refreshed.rows[1]?.message_id);
   assert.equal(requests.length, 2);
@@ -1477,15 +1478,24 @@ test('rows SSE sends task progress and durable Manager messages without onWords 
   requests[2]!.onStep?.({ kind: 'message', text: '经理的第二句实时文字。' });
   const received = await streamed;
   const managerStep = received.find(frame => (frame.role_events as EventMsg[])?.some(row => row.text === '经理的第一句实时文字。'))!;
-  assert.ok((managerStep.rows as EventMsg[]).some(row => row.type === 'ui.argus' && row.text === '经理的第一句实时文字。'));
+  const firstReply = (managerStep.rows as EventMsg[]).find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.deepEqual(firstReply.progress, ['经理的第一句实时文字。']);
+  assert.equal(firstReply.text, '');
   const progress = received.flatMap(frame => frame.rows as EventMsg[] ?? []).find(row => row.progress === '已核对输入，正在检查输出。')!;
   assert.equal(progress.title, title);
   const page = await get<ConversationPage>(`${P}/conversation`);
   assert.equal(page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')?.text, '');
   assert.equal(page.rows.find(row => row.type === 'ui.task')?.progress, progress.progress);
-  assert.ok(page.rows.some(row => row.type === 'ui.argus' && row.text === '经理的第二句实时文字。'));
+  const runningReply = page.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.equal(runningReply.row_id, firstReply.row_id);
+  assert.deepEqual(runningReply.progress, ['经理的第一句实时文字。', '经理的第二句实时文字。']);
+  assert.equal(page.rows.filter(row => row.type === 'ui.argus' && row.request_id === 'r-live').length, 1);
   finishManager();
   await reply;
+  const completedReply = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
+  assert.equal(completedReply.row_id, firstReply.row_id);
+  assert.equal(completedReply.text, '已核对你询问的状态。');
+  assert.deepEqual(completedReply.progress, runningReply.progress);
   finishEngineer();
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snap => snap.backlog[0]?.status === 'done' && !snap.daemon.alive);
   const done = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.task')!;

@@ -775,7 +775,7 @@ export const api = {
     return getJson<ArtifactInfo>(P(sid, `/artifact?${q}`), signal);
   },
   artifactPreview: (sid: string, path: string, signal?: AbortSignal, delivery?: string) =>
-    getJson<{ url: string }>(
+    getJson<{ url: string; message?: never } | { message: string; url?: never }>(
       P(sid, `/artifact/preview?${artifactParams(path, delivery)}`), signal),
   /** One zip of listed results (each path passes the artifact allowlist). */
   artifactsBundle: async (sid: string, paths: string[], name = '', summary = '', signal?: AbortSignal, delivery?: string) =>

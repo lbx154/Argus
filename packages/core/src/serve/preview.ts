@@ -1,10 +1,9 @@
 // HTML results are served unchanged on a separate origin. The cockpit alone grants an
-// unguessable project/delivery path; this listener has neither credentials nor API routes.
+// unguessable project/delivery path; this host has neither credentials nor API routes.
 
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { createServer, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import { pipeline, Readable } from 'node:stream';
 import { promisify } from 'node:util';
@@ -16,12 +15,21 @@ import { HttpError, requestOrigin, type Context, type Handler } from './index.js
 const BUNDLE_BYTES = 2 ** 31;
 const deflate = promisify(deflateRaw);
 
-export async function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, listenPort: number, publicUrl?: string) {
+export function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, publicUrl?: string) {
   const source = publicUrl ? new URL(publicUrl) : undefined;
   if (source && (!['http:', 'https:'].includes(source.protocol) || source.username || source.password
     || source.pathname !== '/' || source.search || source.hash)) throw new Error('--preview-url must be an HTTP(S) origin, such as https://preview.example.com');
   const sites = new Map<string, { id: string; delivery: string | null; paths: Set<string> }>();
-  const server = createServer((request, response) => {
+  const hosts = new Set(source ? [source.hostname] : host === '127.0.0.1' ? ['localhost'] : host === 'localhost' ? ['127.0.0.1'] : []);
+  const isHost = (hostname: string) => hosts.has(hostname);
+  const isOrigin = (origin: string, port: number | undefined) => {
+    try {
+      const url = new URL(origin);
+      return source ? url.hostname === source.hostname
+        : isHost(url.hostname) && Number(url.port || (url.protocol === 'https:' ? 443 : 80)) === port;
+    } catch { return true; }
+  };
+  const handle = (request: IncomingMessage, response: ServerResponse) => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
       const [, key, path = ''] = /^\/([^/]+)(?:\/(.*))?$/.exec(url.pathname) ?? [];
@@ -48,13 +56,6 @@ export async function preview(project: (id: string) => Project, result: (work: P
     } catch (error) {
       response.writeHead(error instanceof HttpError ? error.status : error instanceof URIError ? 400 : 500).end();
     }
-  });
-  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(listenPort, host, resolve))
-    .catch((error: unknown) => { throw new Error(`Preview server could not listen on ${host}:${listenPort}: ${error instanceof Error ? error.message : String(error)}`); });
-  const port = (server.address() as AddressInfo).port;
-  const close = async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   };
   const html = ({ params: [id], url }: Context) => {
     const work = project(id!);
@@ -67,10 +68,17 @@ export async function preview(project: (id: string) => Project, result: (work: P
   const routes: [string, RegExp, Handler][] = [
     ['GET', /^\/api\/projects\/([^/]+)\/artifact\/preview$/, context => {
       const { work, path, delivery } = html(context);
+      const url = new URL(source?.origin ?? requestOrigin(context.request));
+      if (!source) {
+        if (!['127.0.0.1', 'localhost'].includes(url.hostname)) return {
+          message: '请配置 --preview-url 为独立的预览来源（HTTP(S) 地址），以启用网页预览。 / Configure --preview-url with a separate HTTP(S) preview origin to enable website previews.',
+        };
+        url.hostname = url.hostname === '127.0.0.1' ? 'localhost' : '127.0.0.1';
+        url.port = String(context.request.socket.localPort);
+      }
+      hosts.add(url.hostname);
       let key = [...sites].find(([, site]) => site.id === work.id && site.delivery === delivery)?.[0];
       if (!key) { key = randomBytes(24).toString('base64url'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
-      const url = new URL(source?.origin ?? requestOrigin(context.request));
-      if (!source) url.port = String(port);
       url.pathname = `/${key}/${path.split('/').map(encodeURIComponent).join('/')}`;
       return { url: url.href };
     }],
@@ -116,7 +124,7 @@ export async function preview(project: (id: string) => Project, result: (work: P
       sendZip(response, zipName(String(name ?? '')), entries);
     }],
   ];
-  return { routes, close, port, origin: source?.origin };
+  return { routes, handle, isHost, isOrigin };
 }
 
 /** A zip's name from the one asked for: no character a file system refuses, at most 80 of them. */

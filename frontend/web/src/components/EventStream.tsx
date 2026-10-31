@@ -1,4 +1,4 @@
-import { questionSentence, latestManagerMessage, managerDoing, thoughtHeading } from '../lib/taskLanguage';
+import { questionSentence, managerDoing, thoughtHeading } from '../lib/taskLanguage';
 import { useRoleLog } from '../useRoleLog';
 import { TaskDetailModal } from './TaskDetailModal';
 import { TaskLetters } from './TaskLetters';
@@ -321,8 +321,8 @@ const ConversationRow = memo(function ConversationRow({
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   rewritePrompt?: string;
-  /** The Manager's call under way: what it is at, and the last thing it said. */
-  manager?: { doing: string; said: string };
+  /** The Manager's call under way: what it is at. */
+  manager?: { doing: string };
 }) {
   const { t, locale } = useI18n();
   const sessionId = useContext(SessionIdContext);
@@ -337,8 +337,11 @@ const ConversationRow = memo(function ConversationRow({
   const text = draft && references.length ? draft.text : reportText;
   // A question's numbered options become buttons; typing a free answer still works.
   const asked = !operator ? splitReplyOptions(reportText) : null;
+  const progress = !operator && Array.isArray(ev.progress) ? ev.progress.filter((text): text is string => typeof text === 'string') : [];
+  const to = String(ev.to ?? '');
+  const answer = reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null;
   const rewriteLabel = locale === 'zh-CN' ? '编辑后重发' : 'Edit and resend';
-  if (!operator && ev.status === 'replaced') return (
+  if (!operator && ev.status === 'replaced' && !progress.length) return (
     <article tabIndex={-1} data-operator={operator} data-conversation-ts={ev.ts} className="conversation-row mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
       <p className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
     </article>
@@ -371,18 +374,31 @@ const ConversationRow = memo(function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
+            {progress.length ? <div data-manager-progress className="mb-2 space-y-2 text-ink-dim [&_*]:!text-inherit">
+              {progress.map((text, index) => {
+                const question = splitReplyOptions(text);
+                return <div key={index}><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(question ? readableQuestions(question.body) : text)}</MarkdownContent>
+                  {question?.options.length ? <ReplyOptionButtons options={question.options} zh={locale === 'zh-CN'} /> : null}</div>;
+              })}
+            </div> : null}
             {ev.status === 'running' ? <div data-manager-reply="running">
               <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim">
                 <span className="status-dot" data-tone="running" aria-hidden="true" />
                 <span className="min-w-0 truncate" data-manager-doing>{manager?.doing || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
                 {Number(ev.ts) ? <Underway since={Number(ev.ts)} zh={locale === 'zh-CN'} /> : null}
               </div>
-              {/* Its words as they are written, else the last thing it said. */}
-              {reportText || manager?.said ? <div className="mt-1"><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(reportText || manager!.said)}</MarkdownContent></div> : null}
-            </div> : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
+              {/* The answer as it is written; recorded steps stay above it. */}
+              {reportText ? <div className="mt-1"><MarkdownContent sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(reportText)}</MarkdownContent></div> : null}
+            </div> : ev.status === 'replaced' ? <p className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>
+              : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
               : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
               : ev.status === 'failed' ? <p className="whitespace-pre-wrap break-words text-sm text-err">{locale === 'zh-CN' ? '回复中断：' : 'Reply interrupted: '}{reportText}</p>
-              : reportText ? <div><MarkdownContent delivery={deliveryFromEvent(ev)?.delivery_id} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(asked ? readableQuestions(asked.body) : reportText)}</MarkdownContent>{asked?.options.length ? <ReplyOptionButtons options={asked.options} zh={locale === 'zh-CN'} /> : null}</div> : null}
+              : answer && (to === 'planner' || to === 'engineer') ? <details className="conversation-brief py-1.5" data-testid="conversation-brief">
+                <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
+                  {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}：` : `Handed to the ${roleLabel(to, t)}: `}
+                  <span className="text-ink">{reportText.split('\n')[0]!.replace(/^#+\s*/, '')}</span>
+                </summary>{answer}
+              </details> : answer}
           </div>
         </div>
       )}
@@ -730,26 +746,19 @@ function InlineTaskRecord({ sid, id, onOpenArtifact }: { sid: string | null; id:
 
 /** Render one row in the order supplied by the server. */
 function ConversationItem({ row, deliveries, artifacts, onOpenArtifact, onOpenDelivery, manager }: {
-  manager: { doing: string; said: string };
+  manager: { doing: string };
   row: ActivityRow;
   deliveries: DeliveryReceipt[];
   artifacts?: ArtifactInfo[];
   onOpenArtifact?: (path: string) => void;
   onOpenDelivery?: (delivery: DeliveryReceipt, path?: string) => void;
 }) {
-  const { locale, t } = useI18n();
   const delivery = deliveryFromEvent(row.ev);
   const openArtifact = delivery && onOpenDelivery ? (path: string) => onOpenDelivery(delivery, path) : onOpenArtifact;
   const reply = <ConversationRow manager={row.ev.status === 'running' ? manager : undefined} ev={row.ev} fallbackText={row.r.text} artifacts={artifacts} onOpenArtifact={openArtifact}
     rewritePrompt={row.ev.type === 'ui.operator' && !row.ev.answer_to ? row.r.text : undefined} />;
-  const to = String(row.ev.to ?? '');
   return <section className="conversation-thread">
-    {to === 'planner' || to === 'engineer' ? <details className="conversation-brief mx-auto w-full max-w-full px-6 py-1.5 lg:max-w-[808px]" data-testid="conversation-brief">
-      <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
-        {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}：` : `Handed to the ${roleLabel(to, t)}: `}
-        <span className="text-ink">{row.r.text.split('\n')[0]!.replace(/^#+\s*/, '')}</span>
-      </summary>{reply}
-    </details> : reply}
+    {reply}
     {delivery && <DeliveryCard delivery={delivery} deliveries={deliveries} onOpen={onOpenDelivery} />}
   </section>;
 }
@@ -807,7 +816,7 @@ export function EventStream({
   const { locale, t } = useI18n();
   const sessionId = useContext(SessionIdContext);
   const log = useRoleLog(snapshot?.session.id ?? sessionId);
-  const manager = useMemo(() => ({ doing: managerDoing(log.events), said: latestManagerMessage(log.events) }), [log.events]);
+  const manager = useMemo(() => ({ doing: managerDoing(log.events) }), [log.events]);
   const [following, setFollowing] = useState(true);
   const [inspectingTask, setInspectingTask] = useState<string | null>(null);
   const followingRef = useRef(true);

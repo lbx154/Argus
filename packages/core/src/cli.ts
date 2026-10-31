@@ -15,7 +15,8 @@ import { BACKENDS, type Backend } from './types.js';
 
 const USAGE = `Usage: argus [--host H] [--port N] [--preview-url URL] [--backend codex|claude|copilot|pi] [--model M] [--web DIR] [--version]
 Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), at the address it prints.
-Static previews use the next port; --preview-url sets their public origin behind a proxy.
+Static previews share the cockpit port on a separate hostname (127.0.0.1 ↔ localhost).
+For other hosts, set --preview-url to a separate HTTP(S) origin; forwarding must preserve Host.
 The team works through the --backend CLI (codex unless chosen), which must be installed and signed in.
 Work stops when this process exits; the next start resumes projects that were running. Closing the browser leaves work running.
 ARGUS_WEB_TOKEN: the token the cockpit asks for; unset, the one kept in the state root. ARGUS_HOME: the state root (~/.argus).

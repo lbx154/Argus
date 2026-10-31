@@ -21,5 +21,6 @@ function AuthenticatedHtmlPreview({ html, title, className, sid, path, delivery 
     {zh ? '网页预览加载失败，请重试或下载文件。' : 'Preview could not load. Retry or download the file.'}
     <button type="button" className="ml-3 underline" onClick={() => void preview.refetch()}>{zh ? '重试' : 'Retry'}</button>
   </div>;
+  if (preview.data?.message) return <div className="m-auto p-6 text-sm text-ink-dim" role="status">{preview.data.message}</div>;
   return <iframe title={title} src={preview.data?.url} sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-modals allow-popups" referrerPolicy="no-referrer" className={`min-h-0 w-full flex-1 border-0 bg-white ${className}`} />;
 }

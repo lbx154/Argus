@@ -29,7 +29,7 @@ async function probe(url) {
 }
 const third = createServer((_request, response) => {
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(
-    `<h1>Third-origin widget</h1><p id="done">waiting</p><script>(${probe})(${JSON.stringify(api.url + '/api/daemons')})</script>`,
+    `<h1>Third-origin widget</h1><p id="done">waiting</p><button id="third">Third-origin probe</button><script>document.querySelector('#third').onclick = () => (${probe})(${JSON.stringify(api.url + '/api/daemons')});</script>`,
   );
 });
 const projectDirectories = () => readdirSync(join(home, 'projects')).filter(name => /^p-[0-9a-f]+$/.test(name));
@@ -51,22 +51,34 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 1000 } });
     const page = await context.newPage();
     const requests = new Map(), statuses = new Map(), headers = new Map();
-    const cdp = await context.newCDPSession(page);
-    await cdp.send('Network.enable');
-    cdp.on('Network.requestWillBeSent', event => requests.set(event.requestId, event.request));
-    cdp.on('Network.requestWillBeSentExtraInfo', event => headers.set(event.requestId, event.headers));
-    cdp.on('Network.responseReceivedExtraInfo', event => statuses.set(event.requestId, event.statusCode));
+    const observe = async target => {
+      const cdp = await context.newCDPSession(target);
+      await cdp.send('Network.enable');
+      cdp.on('Network.requestWillBeSent', event => requests.set(event.requestId, event.request));
+      cdp.on('Network.requestWillBeSentExtraInfo', event => headers.set(event.requestId, event.headers));
+      cdp.on('Network.responseReceivedExtraInfo', event => statuses.set(event.requestId, event.statusCode));
+    };
+    await observe(page);
     const before = projectDirectories();
     await page.goto(`${api.url}/?project=${work.id}`);
     await page.locator('.result-card-open').last().click();
     const frame = await page.locator('iframe[title="HTML preview: index.html"]').elementHandle().then(element => element.contentFrame());
     await frame.locator('#direct').waitFor();
     const preview = new URL(frame.url());
+    assert.equal(new URL(api.url).hostname, '127.0.0.1');
+    assert.equal(preview.hostname, 'localhost');
+    assert.equal(preview.port, new URL(api.url).port);
     const child = await frame.locator('iframe[title="Third-origin widget"]').elementHandle().then(element => element.contentFrame());
     assert.ok(child, 'The delivered page did not embed its third-origin widget.');
+    // Separate hostnames can put the preview and its child in other renderer processes.
+    await observe(frame);
+    await observe(child);
+    await child.waitForFunction(() => typeof document.querySelector('#third')?.onclick === 'function');
+    await child.evaluate(() => document.querySelector('#third').click());
     await child.locator('#done').getByText('finished', { exact: true }).waitFor();
     const afterThird = projectDirectories();
-    await frame.getByRole('button', { name: 'Direct preview probe', exact: true }).click();
+    await frame.waitForFunction(() => typeof document.querySelector('#direct')?.onclick === 'function');
+    await frame.evaluate(() => document.querySelector('#direct').click());
     await frame.locator('#done').getByText('finished', { exact: true }).waitFor();
     const posts = [...requests].filter(([, request]) => request.url === api.url + '/api/daemons' && request.method === 'POST').map(([id, request]) => ({
       url: request.url, body: request.postData, origin: headers.get(id)?.Origin, contentType: headers.get(id)?.['Content-Type'], status: statuses.get(id),

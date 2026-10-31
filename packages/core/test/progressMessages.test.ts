@@ -21,10 +21,13 @@ test('new real-service reproduction retains every Manager/Planner message and qu
     const rows = conversationRows(reading, project, idle);
     assert.deepEqual(rows, conversationRows(projectRecord(prefix), project, idle));
     const expected = prefix.filter(event => messages.includes(event as typeof messages[number]));
-    const progress = rows.filter(row => row.type === 'ui.argus' && messages.some(event => event.text === row.text));
-    assert.deepEqual(progress.map(row => row.text), expected.map(event => (event as typeof messages[number]).text));
-    assert.equal(new Set(progress.map(row => row.row_id)).size, expected.length);
-    assert.ok(progress.every(row => !row.request_id && !row.live && !row.to));
+    const retained = rows.filter(row => row.type === 'ui.argus').flatMap(row => [
+      ...(row.progress as string[] | undefined ?? []),
+      ...messages.some(event => event.text === row.text) ? [String(row.text)] : [],
+    ]);
+    assert.deepEqual(retained.slice().sort(), expected.map(event => (event as typeof messages[number]).text).sort());
+    const replies = rows.filter(row => row.type === 'ui.argus' && row.request_id);
+    assert.equal(new Set(replies.map(row => row.request_id)).size, replies.length);
   }
   const rows = conversationRows(projectRecord(record), project, idle);
   const paged = [];

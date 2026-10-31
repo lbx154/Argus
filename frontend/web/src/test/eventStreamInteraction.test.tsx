@@ -600,12 +600,13 @@ it("shows a brief the Manager hands the team by its title, folded, and a reply t
   expect(summary.findByType('span').children).toEqual(['Compare the two sorts']);
 });
 
-it('renders a stopped request and the current Manager sentence without a phase-step display', () => {
+it('renders a stopped request and only that reply’s recorded Manager sentences', () => {
   mount([{ type: 'ui.operator', text: 'Keep my request', ts: 1 }, { type: 'ui.argus', status: 'stopped', text: '', ts: 1 }]);
   expect(visibleText(renderer!.root)).toContain('Stopped. Click Resume to continue the reply.');
-  update([{ type: 'ui.argus', text: '', ts: 1, live: true, status: 'running' },
-    { type: 'engineer.progress', agent_layer: 'manager', kind: 'agent_message', text: 'The latest recorded sentence', ts: 2 }]);
-  expect(visibleText(renderer!.root)).toContain('The latest recorded sentence');
+  update([{ type: 'ui.argus', text: '', progress: ['This reply’s recorded sentence'], ts: 1, live: true, status: 'running' },
+    { type: 'engineer.progress', agent_layer: 'manager', kind: 'agent_message', text: 'Another reply’s sentence', ts: 2 }]);
+  expect(visibleText(renderer!.root)).toContain('This reply’s recorded sentence');
+  expect(visibleText(renderer!.root)).not.toContain('Another reply’s sentence');
   expect(renderer!.root.findAllByProps({ 'aria-label': 'View work progress' })).toHaveLength(0);
 });
 
@@ -646,4 +647,28 @@ it('keeps the mounted operator message when its recorded row arrives', () => {
   const row = renderer!.root.findByType('article');
   update([{ ...local, row_id: 'operator:m15', message_id: 'm15-operator', event_id: 15 }]);
   expect(renderer!.root.findByType('article')).toBe(row);
+});
+
+it('keeps process questions and their options above the answer under the same Argus heading', () => {
+  const question = 'Which GPU should I check?\n\n1. First GPU\n2. Second GPU';
+  const reply: EventMsg = { type: 'ui.argus', message_id: 'm0-argus', request_id: 'r', progress: [question, 'Checking the selected GPU.'], text: '', ts: 1, status: 'running', live: true };
+  mount([reply]);
+  const article = renderer!.root.findByType('article');
+  const process = article.findByProps({ 'data-manager-progress': true });
+  expect(visibleText(process)).toContain('Which GPU should I check?');
+  expect(visibleText(process)).toContain('First GPU');
+  expect(process.props.className).toContain('text-ink-dim');
+  expect(article.findAllByProps({ className: 'argus-reply-name' })).toHaveLength(1);
+  update([{ ...reply, text: 'The GPU passed its check.', live: false, status: undefined }]);
+  const completed = renderer!.root.findByType('article');
+  expect(completed.findAllByProps({ className: 'argus-reply-name' })).toHaveLength(1);
+  expect(visibleText(completed)).toContain('Which GPU should I check?');
+  expect(visibleText(completed).indexOf('Checking the selected GPU.')).toBeLessThan(visibleText(completed).indexOf('The GPU passed its check.'));
+});
+
+it('retains process questions when a later message replaces an interrupted reply', () => {
+  mount([{ type: 'ui.argus', message_id: 'm0-argus', request_id: 'r', progress: ['Which GPU should I check?'], text: '', ts: 1, status: 'replaced' }]);
+  expect(visibleText(renderer!.root)).toContain('Which GPU should I check?');
+  expect(visibleText(renderer!.root)).toContain('Your later message took its place.');
+  expect(renderer!.root.findAllByProps({ className: 'argus-reply-name' })).toHaveLength(1);
 });

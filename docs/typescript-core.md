@@ -169,9 +169,12 @@ The code workspace is the workdir, read-only: its tree, which the composer's `@`
 too, a file's text or bytes, and what the system `git` says of it when the workdir is a
 repository of its own. A path there passes the check a result's does: inside the workdir, not
 hidden. An HTML result is served unchanged under an unguessable project/delivery path on a separate
-static origin, using the cockpit port plus one. Behind a proxy, `--preview-url` supplies its
-public origin; otherwise URLs use the request's protocol and hostname with the preview port.
-The static listener has no cockpit API or credentials, and the API rejects preview origins.
+static origin on the cockpit's single listening port, routed by hostname. `--preview-url`
+supplies a separate HTTP(S) origin; forwarding must preserve Host. Without it, URLs swap
+`127.0.0.1` and `localhost` from the request origin and use the cockpit's actual port.
+Other request hosts receive a configuration message, which the webpage displays.
+The preview host serves only keyed files, has no cockpit API or credentials, and the API
+rejects preview origins even through a proxy that rewrites Host.
 Website downloads contain the page and files that preview has served, removing their common
 parent directories while preserving relative paths. Results chosen together download in a
 separate zip. A task
@@ -263,9 +266,16 @@ contribute; calls without usage, and older lines without a duration or valid tim
 add no time. `calls_without_duration` counts the latter, so the page can mark the duration
 as a lower bound. Calls still running enter the total when their usage is recorded.
 
-Manager and Planner message steps remain as Argus messages in the conversation,
-including questions said while work continues. Each keeps its event identity across
-completion, pagination and reload. Conversation and map task cards show only the
+A Manager call's `answers` associates its message steps with the operator request.
+The conversation keeps them in that reply's `progress` array, including questions,
+above its `text` in a lighter colour and under one Argus heading. The final letter
+updates `text` on the same `row_id` / `message_id` / `request_id`; `progress` survives
+completion, interruption, pagination and reload. A handoff to the team folds only
+the final letter; the Argus heading and process questions stay visible above that
+fold. Planner steps and Manager steps without a request association retain their
+own conversation rows. Partial answer
+words come from the reply row, not from another request's latest role-log message.
+Conversation and map task cards show only the
 first file in the Manager's delivery for the request that opened their work; they
 show no result before that delivery. The task detail reader retains the team's
 full file selections and original letters.

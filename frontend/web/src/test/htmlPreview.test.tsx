@@ -46,3 +46,12 @@ it("does not disguise preview request failures as compatibility mode", () => {
   expect(html).toContain('role="alert"');
   expect(html).not.toContain("<iframe");
 });
+
+it("shows the server's preview configuration message without an empty iframe", () => {
+  const message = "请配置 --preview-url 为独立的预览来源，以启用网页预览。";
+  query.data = { message };
+  const html = render();
+  expect(html).toContain(message);
+  expect(html).toContain('role="status"');
+  expect(html).not.toContain("<iframe");
+});
