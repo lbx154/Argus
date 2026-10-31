@@ -44,6 +44,11 @@ try {
     const frame = await iframe.elementHandle().then(element => element.contentFrame());
     await frame.locator('#value').getByText('ready', { exact: true }).waitFor();
     const previewUrl = frame.url();
+    const frameBounds = await iframe.boundingBox();
+    assert.ok(frameBounds.x >= 0 && frameBounds.x + frameBounds.width <= 1440 && frameBounds.width > 720,
+      'the loaded preview is visible within the viewport');
+    assert.ok(await page.getByText(/macOS 15/).evaluate(node => node.scrollWidth <= node.clientWidth),
+      'compatibility notice wraps without clipping');
     assert.match(new URL(previewUrl).hostname, /^[0-9a-f]{32}\.localhost$/);
     assert.equal(new URL(previewUrl).port, port);
     await page.getByText(/macOS 15/).waitFor();
