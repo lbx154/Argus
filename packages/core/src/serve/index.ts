@@ -440,7 +440,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     if (status === 'working' || forManager?.length && status !== 'stopped' && status !== 'failed') runs.resume(id);
   }
   return {
-    url: `http://${host.includes(':') ? `[${host}]` : host}:${(server.address() as AddressInfo).port}`,
+    url: `http://${hostPort(host, (server.address() as AddressInfo).port)}`,
     close: async () => {
       await runs.stopAll();
       await sites.close();
@@ -450,15 +450,17 @@ export async function serve(options: ServeOptions): Promise<Served> {
   };
 }
 
+/** An address and port as a URL writes them: an IPv6 address in brackets. */
+export const hostPort = (address: string, port?: number) => `${address.includes(':') ? `[${address}]` : address}:${port}`;
+
 /** The browser-facing protocol, including HTTPS terminated by a reverse proxy. */
 export function requestOrigin(request: IncomingMessage): URL {
   const forwarded = request.headers['x-forwarded-proto']?.toString().split(',')[0]?.trim();
   const protocol = forwarded === 'http' || forwarded === 'https' ? forwarded
     : 'encrypted' in request.socket && request.socket.encrypted ? 'https' : 'http';
-  const localAddress = request.socket.localAddress ?? '127.0.0.1';
-  const host = request.headers.host ?? (request.httpVersion === '1.0'
-    ? `${localAddress.includes(':') ? `[${localAddress}]` : localAddress}:${request.socket.localPort}` : undefined);
-  if (!host || !/^(?:\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9._-]+)(?::[0-9]+)?$/.test(host)) throw new HttpError(400, 'invalid Host header');
+  // Without a Host, or with an empty one: the connection's own address.
+  const host = request.headers.host || hostPort(request.socket.localAddress ?? '', request.socket.localPort);
+  if (!/^(?:\[[0-9a-fA-F:.]+\]|[a-zA-Z0-9._-]+)(?::[0-9]+)?$/.test(host)) throw new HttpError(400, 'invalid Host header');
   try { return new URL(`${protocol}://${host}`); }
   catch { throw new HttpError(400, 'invalid Host header'); }
 }

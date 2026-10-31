@@ -10,33 +10,28 @@ import { promisify } from 'node:util';
 import { crc32, deflateRaw } from 'node:zlib';
 import type { Project } from '../store.js';
 import { sendFile, typeOf, under } from './files.js';
-import { HttpError, requestOrigin, type Context, type Handler } from './index.js';
+import { HttpError, hostPort, requestOrigin, type Context, type Handler } from './index.js';
 
 const BUNDLE_BYTES = 2 ** 31;
 const deflate = promisify(deflateRaw);
 
 export function preview(project: (id: string) => Project, result: (work: Project, path: string, delivery?: string | null) => ReturnType<typeof under>, host: string, publicUrl?: string) {
-  let source: URL | undefined;
-  if (publicUrl !== undefined) {
-    try {
-      source = new URL(publicUrl);
-      // Check the literal: URL normalizes empty ?/#, encoded hosts and dot paths.
-      const labels = source.hostname.split('.');
-      if (!/^https?:\/\/[a-z0-9*-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?\/?$/i.test(publicUrl)
-        || labels[0]!.split('*').length !== 2
-        || labels.some((label, i) => {
-          const filled = i ? label : label.replace('*', 'a'.repeat(32));
-          return !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(filled) || filled.length > 63;
-        }) || source.hostname.length + 31 > 253) throw new Error();
-    } catch {
-      throw new Error('--preview-url must be an HTTP(S) origin template with one * in its first DNS label, such as https://js-trial1-*.argusbot.cn');
-    }
+  const source = publicUrl !== undefined ? URL.parse(publicUrl) : undefined;
+  // Check the literal too: URL normalizes empty ?/#, encoded hosts and dot paths.
+  const labels = source?.hostname.split('.') ?? [];
+  if (source !== undefined && (!source || !/^https?:\/\/[a-z0-9*-]+(?:\.[a-z0-9-]+)+(?::[0-9]+)?\/?$/i.test(publicUrl!)
+    || labels[0]!.split('*').length !== 2
+    || labels.some((label, i) => {
+      const filled = i ? label : label.replace('*', 'a'.repeat(32));
+      return !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(filled) || filled.length > 63;
+    }) || source.hostname.length + 31 > 253)) {
+    throw new Error('--preview-url must be an HTTP(S) origin template with one * in its first DNS label, such as https://js-trial1-*.argusbot.cn');
   }
   const sites = new Map<string, { id: string; delivery: string | null; paths: Set<string> }>();
   const [before, after] = (source?.hostname ?? '*.localhost').split('*') as [string, string];
   // The entire template namespace is static-only, including unknown identifiers.
   const keyOf = (hostname: string): string | undefined => {
-    const name = hostname.toLowerCase().replace(/\.$/, '');
+    const name = hostname.replace(/\.$/, '');
     return name.startsWith(before) && name.endsWith(after) && name.length >= before.length + after.length
       ? name.slice(before.length, name.length - after.length) : undefined;
   };
@@ -97,8 +92,8 @@ export function preview(project: (id: string) => Project, result: (work: Project
       let key = [...sites].find(([, site]) => site.id === work.id && site.delivery === delivery)?.[0];
       if (!key) { key = randomBytes(16).toString('hex'); sites.set(key, { id: work.id, delivery, paths: new Set() }); }
       const incoming = requestOrigin(context.request);
-      const local = ['localhost', '0.0.0.0', '[::]', '[::1]'].includes(incoming.hostname.replace(/\.$/, ''))
-        || /^127(?:\.\d{1,3}){3}$/.test(incoming.hostname) || /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]+\]$/.test(incoming.hostname);
+      // Where *.localhost resolves: a browser on this machine. Another loopback address keeps the keyed port.
+      const local = ['localhost', '127.0.0.1', '0.0.0.0', '[::]', '[::1]'].includes(incoming.hostname.replace(/\.$/, ''));
       const url = new URL(source?.origin ?? incoming.origin);
       if (source || local) {
         url.hostname = before + key + after;
@@ -107,19 +102,11 @@ export function preview(project: (id: string) => Project, result: (work: Project
         // LAN/mobile browsers resolve localhost to their own machine. Preserve the older
         // keyed-path static listener there; its projects share storage, unlike subdomains.
         if (!listening) {
-          fallbackPort = context.request.socket.localPort! + 1;
+          const port = fallbackPort = context.request.socket.localPort! + 1;
           fallback = createServer((req, res) => handle(req, res, true));
-          const listener = fallback;
-          const port = fallbackPort;
-          listening = new Promise<void>((accept, reject) => {
-            listener.once('error', reject).listen(port, host, () => {
-              listener.removeListener('error', reject);
-              accept();
-            });
-          }).catch(() => {
-            listener.close();
+          listening = new Promise<void>((accept, reject) => fallback!.once('error', reject).listen(port, host, accept)).catch((error: NodeJS.ErrnoException) => {
             listening = fallback = fallbackPort = undefined;
-            throw new HttpError(503, `Preview server could not listen on ${host}:${port}. Free this port, then request the preview again.`, 'preview_unavailable');
+            throw new HttpError(503, `Preview server could not listen on ${hostPort(host, port)}: ${error.code ?? error.message}`, 'preview_unavailable');
           });
         }
         await listening;
