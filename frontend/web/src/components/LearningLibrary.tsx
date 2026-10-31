@@ -117,6 +117,11 @@ function LearningBrowser({ sid, initialScope, onUse }: {
         <h3 className="font-medium">{pack.name}</h3>
         <p className="mt-1 text-sm text-ink-dim">{zh ? pack.description_zh ?? pack.description : pack.description}</p>
         <p className="mt-1 text-xs text-ink-faint">{zh ? '版本' : 'Version'} {pack.version} · {pack.installed_version === null ? (zh ? '未安装' : 'Not installed') : `${zh ? '已安装' : 'Installed'} ${pack.installed_version}`}</p>
+        {/* The store moves on its own: installing again replaces an older copy in place. */}
+        {pack.installed_version !== null && pack.installed_version !== pack.version && <button type="button" disabled={operation.isPending}
+          className="mr-2 mt-3 rounded border border-line px-3 py-1 text-sm disabled:opacity-40" onClick={() => operation.mutate({ name: pack.name, installed: false })}>
+          {zh ? `更新到 ${pack.version}` : `Update to ${pack.version}`}
+        </button>}
         <button type="button" disabled={operation.isPending} className="mt-3 rounded border border-line px-3 py-1 text-sm disabled:opacity-40"
           onClick={() => operation.mutate({ name: pack.name, installed: pack.installed_version !== null })}>
           {pack.installed_version !== null ? (zh ? '卸载' : 'Uninstall') : (zh ? '安装' : 'Install')}

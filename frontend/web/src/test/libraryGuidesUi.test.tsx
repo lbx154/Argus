@@ -137,6 +137,17 @@ it('installs and uninstalls through store buttons, waiting and refreshing the in
   expect(api.skillPacks).toHaveBeenCalledTimes(3);
 });
 
+it('updates an installed pack the store has moved past, by installing it again', async () => {
+  let installed = '1';
+  vi.mocked(api.skillPacks).mockImplementation(async () => ({ packs: [{ name: 'materials', version: '2', description: 'Check evidence', needs: [], requires: [], installed_version: installed }] }));
+  vi.mocked(api.addSkillPack).mockImplementation(async () => { installed = '2'; return { ok: true }; });
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid={null} initialScope="store" /></QueryClientProvider>); }); await settle();
+  act(() => button('更新到 2').props.onClick()); await settle();
+  expect(api.addSkillPack).toHaveBeenCalledWith('materials');
+  expect(view!.root.findAllByType('button').map(content)).not.toContain('更新到 2');
+  expect(button('卸载')).toBeTruthy();
+});
+
 it('shows operation errors without changing installed status', async () => {
   vi.mocked(api.skillPacks).mockResolvedValue({ packs: [{ name: 'materials', version: '1', description: 'Check evidence', needs: [], requires: [], installed_version: null }] });
   vi.mocked(api.addSkillPack).mockRejectedValue(new Error('Download failed: HTTP 503'));
