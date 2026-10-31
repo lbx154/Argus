@@ -123,15 +123,15 @@ fn apply_windows_caption_palette(window: &tauri::WebviewWindow, theme: &Appearan
 
     let (caption, text, border, immersive_dark) = match theme {
         AppearanceTheme::Light => (
-            colorref(245, 245, 247),
-            colorref(17, 24, 39),
-            colorref(245, 245, 247),
+            colorref(247, 243, 232),
+            colorref(14, 14, 16),
+            colorref(247, 243, 232),
             0_i32,
         ),
         AppearanceTheme::Dark => (
-            colorref(22, 22, 24),
-            colorref(249, 250, 251),
-            colorref(22, 22, 24),
+            colorref(21, 21, 23),
+            colorref(242, 242, 240),
+            colorref(21, 21, 23),
             1_i32,
         ),
         AppearanceTheme::System => (
@@ -173,8 +173,8 @@ fn apply_windows_caption_palette(window: &tauri::WebviewWindow, theme: &Appearan
 /// launcher/cockpit surface without replacing native caption controls.
 fn apply_window_appearance(app: &AppHandle, theme: &AppearanceTheme) {
     let (native_theme, background) = match theme {
-        AppearanceTheme::Light => (Some(Theme::Light), Some(Color(249, 250, 251, 255))),
-        AppearanceTheme::Dark => (Some(Theme::Dark), Some(Color(13, 14, 18, 255))),
+        AppearanceTheme::Light => (Some(Theme::Light), Some(Color(247, 243, 232, 255))),
+        AppearanceTheme::Dark => (Some(Theme::Dark), Some(Color(12, 12, 13, 255))),
         AppearanceTheme::System => (None, None),
     };
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {

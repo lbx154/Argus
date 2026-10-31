@@ -212,9 +212,42 @@ test('a new desktop profile starts light even when the operating system prefers 
   await page.emulateMedia({ colorScheme: 'dark' });
   await launch(page);
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(249, 250, 251)');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(247, 243, 232)');
   await expect(page.locator('#wizard')).toBeVisible();
 });
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`startup and settings share the cockpit's warm palette in ${theme} mode`, async ({ page }) => {
+    await launch(page, false, { theme });
+    await expect(page.locator('#wizard')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(page.locator('body')).toHaveCSS('background-color', theme === 'light' ? 'rgb(247, 243, 232)' : 'rgb(12, 12, 13)');
+    await expect(page.locator('.wizard-shell')).toHaveCSS('background-color', theme === 'light' ? 'rgb(252, 250, 244)' : 'rgb(21, 21, 23)');
+    await expect(page.locator('#desktopMenuBar')).toHaveCSS('background-color', theme === 'light' ? 'rgb(247, 243, 232)' : 'rgb(21, 21, 23)');
+    expect(await page.locator('html').evaluate(el => getComputedStyle(el).getPropertyValue('--accent').trim()))
+      .toBe(theme === 'light' ? '#85661f' : '#d4b866');
+  });
+
+  test(`cold-start animation and recovery keep the warm ${theme} surface`, async ({ page }, info) => {
+    let release!: () => void;
+    const cockpitReady = new Promise<void>(resolve => { release = resolve; });
+    await launch(page, true, { theme, cockpitReady });
+    const background = theme === 'light' ? 'rgb(247, 243, 232)' : 'rgb(12, 12, 13)';
+    await expect(page.locator('#splash')).toBeVisible();
+    await expect(page.locator('body')).toHaveCSS('background-color', background);
+    await expect(page.locator('#splash')).toHaveCSS('background-color', background);
+    const motionDirectory = info.outputPath('warm-startup-motion');
+    mkdirSync(motionDirectory, { recursive: true });
+    await verifyEyeMotion(page, '.argus-splash-eye', { directory: motionDirectory, label: theme, duration: 350, moving: true });
+    await page.screenshot({ path: info.outputPath(`startup-${theme}.png`) });
+    release();
+    await expect(page.locator('#splash')).toBeHidden();
+    await page.evaluate(() => (window as any).desktopTest.emit({ state: 'error', message: 'Synthetic recovery test' }));
+    await expect(page.locator('#splash')).toBeVisible();
+    await expect(page.locator('body')).toHaveCSS('background-color', background);
+    await expect(page.locator('#splash')).toHaveCSS('background-color', background);
+  });
+}
 
 for (const theme of ['dark', 'system'] as const) {
   test(`an explicitly saved ${theme} preference survives the new first-run default`, async ({ page }) => {

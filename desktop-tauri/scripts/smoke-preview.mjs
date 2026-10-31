@@ -208,7 +208,7 @@ try {
   assert.equal(firstAppearance.startupEyeMotion, undefined, 'Eye animation is no longer a stored preference.');
   await expect(page.locator('html')).toHaveAttribute('data-startup-eye-motion', 'on');
   await expect(page.locator('button[data-startup-eye-motion]')).toHaveCount(0);
-  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(249, 250, 251)');
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(247, 243, 232)');
   await assertNativeMotionBaseline(page);
   record('Fresh profile starts light; native attachment uses noDefaults and never emulates media or focus');
   // No page.emulateMedia anywhere in this native smoke: even a color-only call
