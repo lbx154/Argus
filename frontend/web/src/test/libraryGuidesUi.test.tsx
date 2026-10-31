@@ -8,7 +8,7 @@ vi.mock('../i18n', async importOriginal => {
   const actual = await importOriginal<typeof import('../i18n')>();
   return { ...actual, useI18n: () => ({ locale: state.locale, t: (key: string) => actual.translate(key, {}, state.locale as 'zh-CN' | 'en') }) };
 });
-vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), knowledgeFeed: vi.fn() } }));
+vi.mock('../api', () => ({ api: { skillLibrary: vi.fn(), skillDocument: vi.fn(), knowledgeFeed: vi.fn(), skillPacks: vi.fn(), addSkillPack: vi.fn(), removeSkillPack: vi.fn() } }));
 vi.mock('../components/MarkdownContent', () => ({ MarkdownContent: ({ children }: { children: string }) => <pre data-original>{children}</pre> }));
 const builtin: SkillLibraryItem = { source: 'bundled', library: 'bundled',
   path: 'software/SKILL.md', name: 'software', description: 'Original English description',
@@ -67,19 +67,19 @@ it('separates real learning records from file updates and reports source failure
 });
 
 it.each([
-  { locale: 'zh-CN', labels: ['学习动态', '全局项目'], skillName: 'software' },
-  { locale: 'en', labels: ['Learning feed', 'Across projects'], skillName: 'software' },
+  { locale: 'zh-CN', labels: ['学习动态', '全局项目', '技能商店'], skillName: 'software' },
+  { locale: 'en', labels: ['Learning feed', 'Across projects', 'Skill store'], skillName: 'software' },
 ])('offers the learning feed, by default, and everything the library holds in $locale', async ({ locale, labels, skillName }) => {
   state.locale = locale;
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" /></QueryClientProvider>); }); await settle();
   const tabs = view!.root.findByType('nav').findAllByType('button');
   expect(tabs.map(content)).toEqual(labels);
-  expect(tabs.map(node => node.props['aria-pressed'])).toEqual([true, false]);
+  expect(tabs.map(node => node.props['aria-pressed'])).toEqual([true, false, false]);
   expect(api.knowledgeFeed).toHaveBeenCalled();
   expect(content(view!.root)).not.toContain(skillName);
   act(() => button(labels[1]).props.onClick()); await settle();
   expect(content(view!.root)).toContain(skillName);
-  expect(view!.root.findByType('nav').findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true]);
+  expect(view!.root.findByType('nav').findAllByType('button').map(node => node.props['aria-pressed'])).toEqual([false, true, false]);
 });
 
 it('renders the skill body without front matter and does not repeat the global scope per row', async () => {
@@ -116,4 +116,32 @@ it('shows each source label and the original English description in Chinese', as
   await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="global" /></QueryClientProvider>); }); await settle();
   const text = content(view!.root.findByType('aside'));
   for (const label of ['Argus 自带', '商店', '团队', 'Original English description']) expect(text).toContain(label);
+});
+
+it('installs and uninstalls through store buttons, waiting and refreshing the installed state', async () => {
+  let installed = false;
+  vi.mocked(api.skillPacks).mockImplementation(async () => ({ packs: [{ name: 'materials', version: '1', description: 'Check material evidence', description_zh: '检查材料证据', needs: [], requires: [], installed_version: installed ? '1' : null }] }));
+  let finish: () => void = () => {};
+  vi.mocked(api.addSkillPack).mockImplementation(() => new Promise(resolve => { finish = () => { installed = true; resolve({ ok: true }); }; }));
+  vi.mocked(api.removeSkillPack).mockImplementation(async () => { installed = false; return { ok: true }; });
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid="s-A" initialScope="store" /></QueryClientProvider>); }); await settle();
+  expect(view!.root.findAllByType('section').map(content).join('')).toContain('检查材料证据版本 1 · 未安装');
+  act(() => button('安装').props.onClick()); await settle();
+  expect(api.addSkillPack).toHaveBeenCalledWith('materials');
+  expect(button('安装').props.disabled).toBe(true);
+  await act(async () => finish()); await settle();
+  expect(button('卸载')).toBeTruthy();
+  act(() => button('卸载').props.onClick()); await settle();
+  expect(api.removeSkillPack).toHaveBeenCalledWith('materials');
+  expect(button('安装')).toBeTruthy();
+  expect(api.skillPacks).toHaveBeenCalledTimes(3);
+});
+
+it('shows operation errors without changing installed status', async () => {
+  vi.mocked(api.skillPacks).mockResolvedValue({ packs: [{ name: 'materials', version: '1', description: 'Check evidence', needs: [], requires: [], installed_version: null }] });
+  vi.mocked(api.addSkillPack).mockRejectedValue(new Error('Download failed: HTTP 503'));
+  await act(async () => { view = create(<QueryClientProvider client={client}><LearningLibrary sid={null} initialScope="store" /></QueryClientProvider>); }); await settle();
+  act(() => button('安装').props.onClick()); await settle();
+  expect(content(view!.root.findByProps({ role: 'alert' }))).toContain('Download failed: HTTP 503');
+  expect(button('安装').props.disabled).toBe(false);
 });

@@ -2,17 +2,20 @@
 // `argus`: the web cockpit, where projects are started, talked to and followed. The work of its
 // projects runs in this process.
 import { randomBytes } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { callAgent } from './agent/call.js';
 import { notInstalled } from './agent/sandbox.js';
 import { serve } from './serve/index.js';
+import { add, catalog, packsHome, remove } from './packs.js';
+import { purpose, SKILL } from './prompts.js';
 import { Store } from './store.js';
 import { BACKENDS, type Backend } from './types.js';
 
 const USAGE = `Usage: argus [--host H] [--port N] [--preview-url URL] [--backend codex|claude|copilot|pi] [--model M] [--web DIR] [--version]
+       argus skills [add|remove <name>]
 Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), at the address it prints.
 Local previews use <identifier>.localhost on the browser-facing cockpit port.
 LAN/mobile previews fall back to port + 1 with shared preview storage.
@@ -24,7 +27,7 @@ ARGUS_WEB_TOKEN: the token the cockpit asks for; unset, the one kept in the stat
 `;
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: {
+  const { values, positionals } = parseArgs({ allowPositionals: true, options: {
     host: { type: 'string', default: '127.0.0.1' }, port: { type: 'string', default: '8799' },
     'preview-url': { type: 'string' },
     backend: { type: 'string', default: 'codex' }, model: { type: 'string' }, web: { type: 'string' }, help: { type: 'boolean', short: 'h' },
@@ -32,6 +35,21 @@ async function main(): Promise<void> {
   } });
   if (values.help || values.version) {
     process.stdout.write(values.help ? USAGE : `${(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version}\n`);
+    return;
+  }
+  if (positionals.length) {
+    const store = new Store();
+    const [command, action, name] = positionals;
+    if (command !== 'skills' || positionals.length > 3) throw new Error(USAGE);
+    if (!action) {
+      for (const pack of await catalog()) {
+        const dir = resolve(packsHome(store.home), pack.name);
+        const version = lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile() ? purpose(dir, 'version') : '-';
+        process.stdout.write(`${pack.name}\t${pack.version}\t${version}\t${pack.description_zh ?? pack.description}\t${pack.needs.join(', ')}\n`);
+      }
+    } else if (name && action === 'add') await add(store.home, name);
+    else if (name && action === 'remove') await remove(store.home, name);
+    else throw new Error(USAGE);
     return;
   }
   const backend = values.backend as Backend;

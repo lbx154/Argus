@@ -1,3 +1,4 @@
+import { packsHome } from '../src/packs.js';
 import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
@@ -177,7 +178,7 @@ test('the Manager answers directly', async t => {
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
   assert.deepEqual([request?.form, request?.access, request?.readDirs, request?.writeDirs],
-    ['manager', 'read', [store.dir(id), SKILLS], [join(home, 'skills')]]);
+    ['manager', 'read', [store.dir(id), SKILLS, packsHome(store.home)], [join(home, 'skills')]]);
   // The role's standing instructions go apart from the turn's message, with every turn.
   assert.equal(request?.prompt, '## Message\nWhat is 6 times 7?');
   assert.match(request?.instructions ?? '', /^You are the Argus Manager[\s\S]*## Where things are\n/);
@@ -208,11 +209,11 @@ test("every role is shown Argus's skills and the team's beside them, without rul
   assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'read'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
   for (const { instructions: prompt = '', readDirs, writeDirs } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
-    assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
+    assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS, packsHome(store.home)], [own]]);
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- software: `) && prompt.includes(join(SKILLS, 'research')));
-    assert.ok(prompt.includes(`Skills (Argus's own, then the team's in ${own}):`));
+    assert.ok(prompt.includes(`Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${own}):`));
     assert.doesNotMatch(prompt, /write it there|read its SKILL.md whole|Keep in the workspace|call nothing the latest/);
   }
 });

@@ -75,7 +75,10 @@ and 1,548 hours on the earlier Python runtime it needed a human research decisio
 a skill, and every role's prompt lists them. The Engineer (and you) may write new skills and improve existing ones
 in `~/.argus/skills/`, listed beside the bundled skills even when they share a name. The Manager,
 Planner and Reviewer can read them. The web page shows them in **Skill library** and its learning feed
-as they change. Argus does not reflect, score or curate; when to write or change a skill is the roles' decision.
+as they change. The **Skill store** tab installs and uninstalls community packs synchronously;
+`argus skills` lists catalog and installed versions and requirements, `argus skills add <name>`
+installs or replaces a pack, and `argus skills remove <name>` removes it. Packs live in
+`$ARGUS_HOME/skill-packs/` and all roles can only read them. Argus does not reflect, score or curate; when to write or change a skill is the roles' decision.
 
 **Sandbox.** On Linux with bubblewrap (`bwrap`), every backend call runs in a sandbox:
 system directories read-only, the project directory writable (read-only for the Planner
