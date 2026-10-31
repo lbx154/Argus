@@ -1,8 +1,8 @@
 {
-  "build_epoch": 1793486553,
-  "git_commit": "54076bc13e1fb3e74c8b1fb22cac5350a7f24162",
+  "build_epoch": 1793488894,
+  "git_commit": "a33195e4318805c07cbae63589f29266eb64e2cd",
   "package_version": "0.1.10",
-  "release_id": "0.1.10+54076bc13e1f",
+  "release_id": "0.1.10+a33195e43188",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -753,7 +753,7 @@
     "desktop-tauri/src-tauri/src/release.rs": 10221,
     "desktop-tauri/src-tauri/src/resilience.rs": 6436,
     "desktop-tauri/src-tauri/src/runner.rs": 23029,
-    "desktop-tauri/src-tauri/src/settings.rs": 28072,
+    "desktop-tauri/src-tauri/src/settings.rs": 28717,
     "desktop-tauri/src-tauri/src/shell-init.js": 299,
     "desktop-tauri/src-tauri/src/update_install.rs": 2679,
     "desktop-tauri/src-tauri/src/update_policy.rs": 7477,
