@@ -229,14 +229,14 @@ export class Flow {
       case 'engineer': case 'reviewer':
         Object.assign(task, { holder: to, note: { from: role, text: letter } });
         break;
-      case 'planner':
+      case 'planner': case 'manager': {
+        // Accepted work goes on in the Engineer's words; the Reviewer's stay on the task as its verdict.
+        const on = role === 'reviewer' && task.note?.from === 'engineer' ? handedTo('engineer', task, task.note.text) : handedTo(role, task, letter);
         this.close(project, task, role, letter);
-        project.inbox.push(handedTo(role, task, letter));
+        if (to === 'planner') project.inbox.push(on);
+        else await this.writeToManager(project, on);
         break;
-      case 'manager':
-        this.close(project, task, role, letter);
-        await this.writeToManager(project, handedTo(role, task, letter));
-        break;
+      }
       case 'operator':
         this.ask(project, role, task, letter);
     }
