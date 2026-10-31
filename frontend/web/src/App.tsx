@@ -36,6 +36,7 @@ import { useVisualViewport } from './useVisualViewport';
 import { useQueryClient } from '@tanstack/react-query';
 import { EDITIONS_CAPABILITY, ROUTE_CAPABILITY, SETTINGS_CAPABILITY, useCapability } from './lib/capabilities';
 import {
+  mergeConversationEvents,
   mergeManagerReply,
   optimisticOperatorEvent,
 } from './lib/conversationEvents';
@@ -167,8 +168,10 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [searchTarget, setSearchTarget] = useState<SearchResult | null>(null);
-  const homeRequest = useRef<{ text: string; files: File[] } | null>(null);
-  const [initialSend, setInitialSend] = useState<{ sid: string; text: string; files: File[] } | null>(null);
+  // The start page's message, shown as sent from the moment it is: its project is made (no `sid`
+  // yet), then it goes from that project's draft (`requestId`) and is `sending` until that ends.
+  const [initialSend, setInitialSend] = useState<{ sid: string | null; text: string; files: File[]; requestId?: string; sending?: boolean } | null>(null);
+  const creating = Boolean(initialSend && !initialSend.sid);
   const [previewPathRequest, setPreviewPathRequest] = useState({ path: '', token: 0 });
   const [taskItemId, setTaskItemId] = useState<string | null>(null);
   const [daemonManageOpen, setDaemonManageOpen] = useState(false);
@@ -318,19 +321,12 @@ export default function App() {
     );
   }, [beginRewrite, finishRewrite, notify, sidRef, locale]);
 
-  const { createDaemon, creatingDaemon, createError, clearCreateError } = useCreateDaemonSession({
+  const { createDaemon, createError, clearCreateError } = useCreateDaemonSession({
     localCwd,
     onFocusComposer: () => setComposerFocus((value) => value + 1),
     queryClient,
     refetchProjects: projectsQ.refetch,
     selectProject,
-    onCreated: (sid, draft) => {
-      if (draft) seedDraft(sid, draft, homeRequest.current?.files ?? []);
-      if (homeRequest.current) {
-        setInitialSend({ sid, ...homeRequest.current });
-        homeRequest.current = null;
-      }
-    },
   });
   // "+ New" opens the start page, whose first message makes the project: none is made empty.
   const [starting, setStarting] = useState(false);
@@ -349,7 +345,7 @@ export default function App() {
   const snapQ = useSnapshot(activeSid);
   const manageSnapQ = useSnapshot(projects.some(project => project.id === manageTargetSid) ? manageTargetSid : null);
   const snap = snapQ.data;
-  const showProject = Boolean(snap || selectedSid && projects.length > 0 && !projectsQ.isLoading);
+  const showProject = Boolean(snap || selectedSid && projects.length > 0 && !projectsQ.isLoading || initialSend);
   const loadedSid = snap?.session.id === activeSid ? activeSid : null;
   useEffect(() => {
     setEditor(null);
@@ -358,6 +354,13 @@ export default function App() {
   const { query: transcriptQ, events: activityEvents, connected, status: historyStatus, pagination: conversationPagination } = useConversationHistory(
     activeSid, true, localConversationEvents, localConversationSid.current,
   );
+  // On the page it makes, the first message and its reply under way, as the conversation will show
+  // them, until it does.
+  const firstMessage = initialSend && initialSend.sid === selectedSid ? initialSend : null;
+  const conversationEvents = useMemo(() => firstMessage ? mergeConversationEvents(activityEvents, [
+    optimisticOperatorEvent(firstMessage.sid ?? '', firstMessage.requestId ?? '', firstMessage.text),
+    { type: 'ui.argus', agent_layer: 'manager', message_id: 'local-reply', request_id: firstMessage.requestId ?? '', text: '', status: 'running', live: true },
+  ]) : activityEvents, [activityEvents, firstMessage]);
   const workspaceTreeQ = useWorkspaceTree(loadedSid, treeSid === loadedSid);
   const promptHistoryList = useMemo(() => promptHistory(activityEvents), [activityEvents]);
   const promptSources = useMemo<PromptSources | undefined>(() => loadedSid ? {
@@ -512,10 +515,11 @@ export default function App() {
     noPath: () => { setMobileView('activity'); setWorkspaceView('map'); },
     notify,
   });
-  // Reset the local conversation when the active project changes.
+  // Reset the local conversation when the active project changes, not when its page has loaded:
+  // a first message may be on its way already.
   useEffect(() => {
     setLocalConversationEvents([]);
-  }, [loadedSid]);
+  }, [activeSid]);
   const actions = useProjectActions(activeSid);
   const manageActions = useProjectActions(manageTargetSid);
   const daemonBusy = actions.startDaemon.isPending
@@ -756,12 +760,14 @@ export default function App() {
   const composerSendRef = useRef(sendComposerMessage);
   composerSendRef.current = sendComposerMessage;
   useEffect(() => {
-    if (!initialSend) return;
-    if (activeSid && activeSid !== initialSend.sid) { setInitialSend(null); return; }
-    if (loadedSid !== initialSend.sid) return;
-    setInitialSend(null);
+    if (!initialSend?.sid) return;
+    // The operator went elsewhere, or the send ended: its rows, or the draft, show it now.
+    if (selectedSid !== initialSend.sid || initialSend.sending && !chatPending) { setInitialSend(null); return; }
+    // Sent once the project is selected, while its page loads.
+    if (activeSid !== initialSend.sid || initialSend.sending) return;
+    setInitialSend({ ...initialSend, sending: true });
     void composerSendRef.current(initialSend.text, initialSend.files);
-  }, [initialSend, loadedSid, activeSid]);
+  }, [initialSend, selectedSid, activeSid, chatPending]);
   useEffect(() => {
     if (!searchTarget || loadedSid !== searchTarget.sid) return;
     if (searchTarget.kind === 'artifact' && searchTarget.path) focusDeliveryPath(searchTarget.path);
@@ -871,7 +877,7 @@ export default function App() {
           // The trial portal owns sign-in; a token kept here is this browser's own.
           onSignOut={import.meta.env.VITE_ARGUS_HOSTED_TRIAL === '1' || !holdsToken() ? undefined : signOut}
           loading={projectsQ.isLoading}
-          creating={creatingDaemon}
+          creating={creating}
           error={projectsQ.isError ? errorText(projectsQ.error) : undefined}
           onRetry={() => void projectsQ.refetch()}
           mobileOpen={sidebarOpen}
@@ -946,7 +952,7 @@ export default function App() {
                   <EventStream
                     key={loadedSid}
                     snapshot={snap}
-                    events={activityEvents}
+                    events={conversationEvents}
                     connected={connected && !snapQ.isError}
                     showReasoning={false}
                     historyStatus={historyStatus}
@@ -969,7 +975,8 @@ export default function App() {
                   />
                   </ReplyChoiceContext.Provider>
                   </div>
-                {!kiosk ? (
+                {/* Not while its draft is the first message on its way, shown above. */}
+                {!kiosk && composerRequestId !== initialSend?.requestId ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
                     <div className="mx-auto w-full max-w-full lg:max-w-[61.8vw]">
                     <ChatBox
@@ -1012,8 +1019,8 @@ export default function App() {
                   </Suspense>
                 </div>
               ) : null}
-              </> : <EventStream events={[]} connected={false} showReasoning={false} embedded showHeader={false}
-                historyStatus={snapQ.isError ? 'error' : 'loading'} onRetryHistory={() => void snapQ.refetch()} />}
+              </> : <EventStream events={firstMessage ? conversationEvents : []} connected={false} showReasoning={false} embedded showHeader={false}
+                historyStatus={snapQ.isError ? 'error' : firstMessage ? 'ready' : 'loading'} onRetryHistory={() => void snapQ.refetch()} />}
             </section>
             {snap && rightPanelVisible && workspaceView !== 'map' ? (
               <div className="hidden min-[1200px]:contents"><SplitHandle
@@ -1067,7 +1074,9 @@ export default function App() {
               />
             </aside>}
           </>
-        ) : (
+        ) : null}
+        {/* While the project is made the start page stays, out of sight, for a failure to return to as it was. */}
+        {(!showProject || creating) && (
           <Landing
             loading={projectsQ.isLoading}
             hasProjects={projects.length > 0 && !starting}
@@ -1086,16 +1095,16 @@ export default function App() {
             onFocusComposer={() => setComposerFocus(value => value + 1)}
             onNew={startNewSession}
             onSubmit={async (text, files, workdir) => {
-              if (homeRequest.current) return false;
-              homeRequest.current = { text, files };
+              if (initialSend) return false;
+              setInitialSend({ sid: null, text, files });
               setWorkspaceView('activity'); setMobileView('activity');
-              const created = await createDaemon('', workdir, text);
-              if (!created) homeRequest.current = null;
-              return created;
+              const sid = await createDaemon('', workdir);
+              setInitialSend(sid ? { sid, text, files, requestId: seedDraft(sid, text, files).requestId } : null);
+              return Boolean(sid);
             }}
             onChoose={() => setSidebarOpen(true)}
             canCreate={!kiosk}
-            creating={creatingDaemon}
+            creating={creating}
             createError={createError}
             onWorkdirChange={clearCreateError}
             workdirs={[...new Set(projects.map(project => project.workdir).filter((path): path is string => Boolean(path)))]}

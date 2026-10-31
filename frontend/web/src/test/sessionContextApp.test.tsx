@@ -415,9 +415,84 @@ describe('App session composer ownership', () => {
     await act(async () => { await renderer.root.findByType(Landing).props.onSubmit('Total the columns of data.csv', []); });
     expect(create).toHaveBeenCalledTimes(1);
   });
+  it('shows the first message as sent at once and sends it, files too, once the project exists, before its page loads', async () => {
+    const made = deferred<Awaited<ReturnType<typeof api.createDaemon>>>();
+    vi.spyOn(api, 'createDaemon').mockReturnValue(made.promise);
+    const attachment = { attachment_id: 'att-000000000001', relative_path: '.argus/attachments/s-N/att-000000000001/data.csv',
+      original_name: 'data.csv', stored_name: 'data.csv', mime: 'text/csv', size_bytes: 4 };
+    const upload = vi.spyOn(api, 'uploadAttachments').mockResolvedValue({ attachments: [attachment], limits: { max_count: 8, max_bytes_per_file: 1000, max_total_bytes: 8000 } });
+    const accepted = deferred<void>();
+    const stream = vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => {
+      await accepted.promise;
+      handlers.onAccepted?.();
+      // The reply is still being written.
+      await new Promise(() => {});
+    });
+    const file = new File(['rows'], 'data.csv');
+    const shown = () => (renderer.root.findByType(EventStream).props.events as EventMsg[]).map(event => [event.type, event.text, event.status]);
+    await act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    let sent!: Promise<boolean>;
+    act(() => { sent = renderer.root.findByType(Landing).props.onSubmit('你好', [file], ''); });
+    // Nothing has come back yet: the page is the conversation, the message in it and a reply under way.
+    expect(renderer.root.findByType(Landing).findByProps({ className: 'landing-page' }).props.style).toEqual({ display: 'none' });
+    expect(shown()).toEqual([['ui.operator', '你好', undefined], ['ui.argus', '', 'running']]);
+    fixture.index.data.projects = [...fixture.index.data.projects, { id: 's-N', label: 's-N', last_active: 2 }];
+    fixture.snapshots.set('s-N', { ...fixture.idle, isPending: true, data: undefined });
+    await act(async () => { made.resolve({ sid: 's-N' } as Awaited<ReturnType<typeof api.createDaemon>>); expect(await sent).toBe(true); });
+    expect(renderer.root.findAllByType(Landing)).toHaveLength(0);
+    expect(upload).toHaveBeenCalledWith('s-N', [file], expect.any(AbortSignal), expect.anything());
+    expect(stream).toHaveBeenCalledWith('s-N', '你好', expect.any(Object), expect.objectContaining({ attachments: [attachment] }));
+    expect(shown()).toEqual([['ui.operator', '你好', undefined], ['ui.argus', '', 'running']]);
+    // Its page loads before the server confirms: the composer waits, so the message shows once.
+    fixture.snapshots.set('s-N', { ...fixture.idle, data: snapshot('s-N') });
+    refresh();
+    expect(renderer.root.findAllByType(ChatBox)).toHaveLength(0);
+    await act(async () => { accepted.resolve(); });
+    expect(props().value).toBe('');
+    expect(props().attachments).toEqual([]);
+    expect(shown()).toEqual([['ui.operator', '你好', undefined], ['ui.argus', '', 'running']]);
+  });
+  it('puts a first message the server did not take back in the new project\'s composer', async () => {
+    vi.spyOn(api, 'createDaemon').mockImplementation(async () => {
+      fixture.index.data.projects = [...fixture.index.data.projects, { id: 's-N', label: 's-N', last_active: 2 }];
+      return { sid: 's-N' } as Awaited<ReturnType<typeof api.createDaemon>>;
+    });
+    vi.spyOn(api, 'messageStream').mockRejectedValue(new TypeError('Lost'));
+    fixture.snapshots.set('s-N', { ...fixture.idle, data: snapshot('s-N') });
+    await act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    await act(async () => { expect(await renderer.root.findByType(Landing).props.onSubmit('你好', [], '')).toBe(true); });
+    expect(props().value).toBe('你好');
+    expect((renderer.root.findByType(EventStream).props.events as EventMsg[])).toEqual([]);
+    expect(renderer.root.findByType(ActionNotice).props.notice.message).toContain('did not confirm receipt');
+  });
+  it('returns to the start page as it was left when the project cannot be made', async () => {
+    const made = deferred<Awaited<ReturnType<typeof api.createDaemon>>>();
+    vi.spyOn(api, 'createDaemon').mockReturnValue(made.promise);
+    await act(async () => renderer.root.findByType(Sidebar).props.onNew());
+    const landing = () => renderer.root.findByType(Landing);
+    const composer = () => landing().findByType(ChatBox);
+    const folder = () => landing().findByProps({ list: 'landing-workdirs' });
+    const file = new File(['rows'], 'data.csv');
+    act(() => composer().props.onChange('你好'));
+    act(() => composer().props.onAttachmentsChange([file]));
+    act(() => folder().props.onChange({ target: { value: '/denied' } }));
+    let sent!: Promise<boolean>;
+    act(() => { sent = composer().props.onSend('你好', [file]); });
+    expect(landing().findByProps({ className: 'landing-page' }).props.style).toEqual({ display: 'none' });
+    expect((renderer.root.findByType(EventStream).props.events as EventMsg[])[0].text).toBe('你好');
+    const failure = new ApiError('invalid directory', 400, 'POST', '/api/daemons', 'invalid_workdir');
+    await act(async () => { made.reject(failure); expect(await sent).toBe(false); });
+    expect(renderer.root.findAllByType(EventStream)).toHaveLength(0);
+    expect(landing().findByProps({ className: 'landing-page' }).props.style).toBeUndefined();
+    expect(composer().props.value).toBe('你好');
+    expect(composer().props.attachments).toEqual([file]);
+    expect(folder().props.value).toBe('/denied');
+    expect(landing().props.createError).toBe(failure);
+  });
   it('keeps creation errors beside the directory until it changes or creation succeeds', async () => {
     const failure = new ApiError('permission denied', 400, 'POST', '/api/daemons', 'workdir_permission_denied');
     const create = vi.spyOn(api, 'createDaemon').mockRejectedValue(failure);
+    vi.spyOn(api, 'messageStream').mockImplementation(async (_sid, _text, handlers) => { handlers.onAccepted?.(); });
     await act(async () => renderer.root.findByType(Sidebar).props.onNew());
     const landing = () => renderer.root.findByType(Landing);
     await act(async () => { expect(await landing().props.onSubmit('Keep this draft', [], '/denied')).toBe(false); });
