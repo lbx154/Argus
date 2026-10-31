@@ -137,7 +137,7 @@ try {
     assert(result.success !== false && String(result.reply || '').trim() === expected, `${backend} did not return the requested real reply`);
     const snapshot = await api(`/api/projects/${sid}/snapshot`);
     assert.equal(snapshot.last_call?.backend, backend);
-    record({ check: 'native switch, real setup/action probe and real Manager reply', backend, index: index + 1,
+    record({ check: 'native selection/switch and real Manager reply', backend, index: index + 1,
       ok: true, reply: expected, sid, model: snapshot.last_call?.model || 'CLI native default', elapsed_ms: Date.now() - started });
     await page.screenshot({ path: join(output, `switch-${index + 1}-${backend}.png`) });
   }
@@ -174,6 +174,15 @@ try {
     assert(fs.statSync(join(workdir, 'survey.tex')).size > 1000, 'LaTeX source missing');
     record({ check: 'real multi-role research and compiled PDF', ok: true, sid: survey,
       pdf: 'survey-workspace/survey.pdf', sha256: createHash('sha256').update(pdf).digest('hex'), bytes: pdf.length });
+    assert(/^[A-Za-z0-9_-]+$/.test(survey), 'Invalid acceptance session id');
+    const events = fs.readFileSync(join(profile, 'argus-home', 'projects', survey, 'events.jsonl'), 'utf8')
+      .trim().split('\n').map(line => JSON.parse(line));
+    const calls = events.filter(event => event.type === 'agent.io.complete');
+    assert(!calls.some(event => /Model "(?:inherit|auto|default)" not found|Argus hand_off rejected/.test(event.fatal_error || '')),
+      'An automatic model alias or action protocol failure escaped the completed task');
+    assert(calls.some(event => event.run_label === 'observer' && event.exit_code === 0),
+      'The real Observer call was not successfully exercised');
+    record({ check: 'real Observer model inheritance and action protocol', ok: true, sid: survey });
   }
 } catch (error) {
   failure = String(error.message || error);
