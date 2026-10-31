@@ -235,7 +235,7 @@ impl BackendSupervisor {
             runtime.stopping = false;
             runtime.lifecycle_generation
         };
-        let mut settings = self.inner.settings.snapshot();
+        let settings = self.inner.settings.snapshot();
         let configured = match resolve_runner_configuration(&settings) {
             Ok(configured) => configured,
             Err(error) => {
@@ -247,7 +247,7 @@ impl BackendSupervisor {
             self.set_status(BackendState::Idle, "请选择并确认 Agent CLI 后开始使用", None);
             return;
         }
-        let mut command = match self.resolve_command(&settings) {
+        let command = match self.resolve_command(&settings) {
             Ok(command) => command,
             Err(error) => {
                 self.set_status(
@@ -281,7 +281,7 @@ impl BackendSupervisor {
                 self.mark_backend_ready(generation, "本地服务已就绪");
                 return;
             }
-            if !settings.trial_mode {
+            {
                 self.set_status(
                     BackendState::Error,
                     format!(
@@ -300,7 +300,7 @@ impl BackendSupervisor {
         if probe.occupied {
             let may_replace = self.prior_ownership_matches(&probe, &settings)
                 || self.legacy_bundled_backend_matches(&probe, &command);
-            if !may_replace && !settings.trial_mode {
+            if !may_replace {
                 self.set_status(
                     BackendState::Error,
                     format!("端口 {} 已被其他程序占用", settings.port),
@@ -328,31 +328,6 @@ impl BackendSupervisor {
             }
             if !self.is_current_generation(generation) {
                 return;
-            }
-        }
-
-        if settings.trial_mode {
-            let prepared = self
-                .inner
-                .settings
-                .prepare_backend_port()
-                .and_then(|settings| {
-                    self.resolve_command(&settings)
-                        .map(|command| (settings, command))
-                });
-            match prepared {
-                Ok((selected_settings, selected_command)) => {
-                    settings = selected_settings;
-                    command = selected_command;
-                }
-                Err(error) => {
-                    self.set_status(
-                        BackendState::Error,
-                        "无法准备本地服务端口",
-                        Some(format!("{error:#}")),
-                    );
-                    return;
-                }
             }
         }
 
@@ -987,21 +962,10 @@ impl BackendSupervisor {
                 "PYTHONIOENCODING",
                 env::var("PYTHONIOENCODING").unwrap_or_else(|_| "utf-8".to_owned()),
             );
-        if settings.trial_mode {
-            // Desktop trial is an environment-scoped profile; the user's
-            // persistent model/role knobs are not rewritten when switching.
-            process.env("ARGUS_SKILL_MODEL", "argus-trial")
-                .env("ARGUS_SKILL_LIFE_BACKEND", "copilot")
-                .env("ARGUS_SKILL_BACKEND_AUTH_MODE", "subscription_cli");
-        }
-        process.env_remove("ARGUS_DESKTOP_TRIAL_PROFILE");
+        process.env_remove("ARGUS_DESKTOP_TRIAL_PROFILE")
+            .env("ARGUS_SKILL_COPILOT_TRIAL", "0");
         if settings.runner_configured {
-            process
-                .env(
-                    "ARGUS_SKILL_COPILOT_TRIAL",
-                    if settings.trial_mode { "1" } else { "0" },
-                )
-                .env("ARGUS_SKILL_RUNNER_BACKEND", settings.runner_kind.as_str())
+            process.env("ARGUS_SKILL_RUNNER_BACKEND", settings.runner_kind.as_str())
                 .env_remove("ARGUS_SKILL_RUNNER_BIN");
         }
         if let Some(runner) = runner.as_deref() {
@@ -1112,6 +1076,36 @@ impl BackendSupervisor {
             runner_runtime_path_entries(&runner).into_iter().chain(env::split_paths(&current)),
         ).map_err(|error| error.to_string())?;
         self.verify_runner_launch(runner, Some(path)).await
+    }
+
+    /// An explicit setup check proves both authentication and native action
+    /// transport. It uses only a disposable workspace, never a user project.
+    pub async fn validate_runner_call(&self, runner: &str, kind: &str) -> Result<(), String> {
+        let launch = self.resolve_command(&self.inner.settings.snapshot()).map_err(|e| e.to_string())?;
+        let mut command = Command::new(&launch.command);
+        #[cfg(windows)]
+        command.creation_flags(CREATE_NO_WINDOW);
+        command.args(["-m", "argus.tools.desktop_probe", "--backend", kind, "--executable", runner])
+            .current_dir(&launch.cwd)
+            .env("ARGUS_SKILL_HOME", argus_home_dir())
+            .env("PYTHONUTF8", "1")
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+        let current = env::var_os("PATH").unwrap_or_default();
+        let path = env::join_paths(runner_runtime_path_entries(runner).into_iter().chain(env::split_paths(&current)))
+            .map_err(|e| e.to_string())?;
+        command.env("PATH", path);
+        let output = timeout(Duration::from_secs(140), command.output()).await
+            .map_err(|_| "真实调用检查超时；所选 CLI 未被标为可用。".to_owned())?
+            .map_err(|e| format!("无法启动真实调用检查：{e}"))?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let receipt = text.lines().rev().find_map(|line| serde_json::from_str::<serde_json::Value>(line).ok());
+        if output.status.success() && receipt.as_ref().is_some_and(|v| v["ok"] == true
+            && v["tool_confirmed"] == true && v["reply_confirmed"] == true) {
+            return Ok(());
+        }
+        let detail = receipt.as_ref().and_then(|v| v["error"].as_str()).map(str::to_owned)
+            .unwrap_or_else(|| String::from_utf8_lossy(&output.stderr).chars().take(2000).collect());
+        Err(format!("{} 真实调用或动作工具验证失败：{}", kind, redact_sensitive_text(&detail)))
     }
 
     async fn verify_runner_launch(&self, runner: String, path: Option<OsString>) -> Result<(), String> {

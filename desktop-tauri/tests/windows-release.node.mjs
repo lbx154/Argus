@@ -39,6 +39,11 @@ function fixture(t, { signed = true, filename = 'Argus_0.1.7_x64-setup.exe', val
   const bundleDir = path.join(root, 'bundle');
   fs.mkdirSync(path.join(desktopRoot, 'src-tauri'), { recursive: true });
   fs.mkdirSync(bundleDir);
+  fs.mkdirSync(path.join(root, 'argus'));
+  fs.writeFileSync(path.join(root, 'argus', 'release_manifest.json'), JSON.stringify({
+    package_version: '0.1.7', release_id: '0.1.7+test-build',
+    build_epoch: Date.parse('2026-09-14T00:00:00Z') / 1000,
+  }));
   const signer = signingFixture();
   fs.writeFileSync(path.join(desktopRoot, 'package.json'), JSON.stringify({ version: '0.1.7' }));
   const config = { version: '0.1.7', bundle: { createUpdaterArtifacts: true }, plugins: { updater: { pubkey: signer.pubkey } } };
@@ -79,6 +84,7 @@ test('staging verifies copied fixture bytes and emits Windows-only metadata', t 
   const manifest = JSON.parse(fs.readFileSync(path.join(f.outputDir, 'latest.json'), 'utf8'));
   assert.deepEqual(Object.keys(manifest.platforms), ['windows-x86_64']);
   assert.equal(manifest.version, '0.1.7');
+  assert.equal(manifest.release_id, '0.1.7+test-build');
   assert.equal(manifest.pub_date, '2026-09-14T00:00:00.000Z');
   assert.equal(manifest.platforms['windows-x86_64'].url,
     'https://github.com/lbx154/Argus/releases/download/v0.1.7/Argus-0.1.7-setup.exe');

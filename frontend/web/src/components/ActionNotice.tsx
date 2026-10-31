@@ -47,7 +47,7 @@ export function ActionNotice({
         type="button"
         aria-label={locale === 'zh-CN' ? '关闭提示' : 'Dismiss notification'}
         onClick={onClose}
-        className="shrink-0 rounded px-1 text-base leading-none opacity-70 hover:bg-white/5 hover:opacity-100"
+        className="shrink-0 rounded px-1 text-base leading-none opacity-70 hover:bg-surface/5 hover:opacity-100"
       >
         ×
       </button>

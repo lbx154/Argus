@@ -857,7 +857,7 @@ def _settle_manager_turn(
     delivery = chat_state.pop("_self_delivery", None)
     if isinstance(delivery, dict):
         result.update(
-            mission_result=True, success=True, summary=str(delivery.get("summary") or ""),
+            mission_result=delivery.get("kind") != "work_saved", success=True, summary=str(delivery.get("summary") or ""),
             delivery_id=str(delivery.get("delivery_id") or ""), delivery=delivery,
         )
     if handoff is None or handoff.to == "operator":

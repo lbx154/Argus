@@ -159,4 +159,7 @@ def test_build_isolation_preserves_windows_bootstrap_without_ambient_account_con
     assert env["USERPROFILE"] == str(work / "home")
     assert env["APPDATA"] == str(work / "roaming")
     assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env["ARGUS_WEB_BUILD_CLEAN"] == "1"
+    assert env["ARGUS_NATIVE_TEST_TEMP"] == str(tmp_path / ".integration/nt")
+    assert Path(env["ARGUS_NATIVE_TEST_TEMP"]).is_dir()
     assert env["RUSTUP_TOOLCHAIN"] == (toolchain or "stable-x86_64-pc-windows-msvc")

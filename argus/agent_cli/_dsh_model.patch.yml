@@ -1,0 +1,6 @@
+# Only attached when Argus has an explicit, qualified provider/model choice.
+# Missing values are configuration errors, never a route fallback.
+- id: agent-default-model
+  config:
+    provider: !!js process.env.ARGUS_DSH_PROVIDER
+    model: !!js process.env.ARGUS_DSH_MODEL

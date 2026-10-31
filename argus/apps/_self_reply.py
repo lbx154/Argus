@@ -183,7 +183,8 @@ class SelfReplyMixin:
 
         last_msg = (result.last_agent_message or "").strip()
         fatal = getattr(result, "fatal_error", None)
-        success = result.exit_code == 0 and not fatal and bool(last_msg or actions.handoff)
+        action_error = getattr(actions, "last_error", "") if actions.handoff is None else ""
+        success = result.exit_code == 0 and not fatal and not action_error and bool(last_msg or actions.handoff)
         new_thread_id = getattr(result, "thread_id", None)
         if should_clear_thread_id_after_outcome(fatal_error=str(fatal or "")):
             self.last_thread_id = self._next_seed_thread_id = new_thread_id = None
@@ -207,13 +208,14 @@ class SelfReplyMixin:
         })
         status = "done" if success else "error"
         stop_reason = "" if success else str(
-            fatal or ("Manager turn completed without an assistant message"
+            fatal or (f"Argus hand_off failed: {action_error}" if action_error else "")
+            or ("Manager turn completed without an assistant message"
                       if result.exit_code == 0 else f"exit={result.exit_code}")
         )
         auth_failure = self._consume_auth_failure()
         delivery = self._delivery(
             result, last_msg, workdir, state_root, root_task_id or reply_message_id, before,
-        ) if success else None
+        ) if success and actions.handoff is None else None
         sink.handle_event({"type": "loop.done", "status": status, "rounds": 1})
         return _Outcome(
             success=success, status=status, stop_reason=stop_reason, rounds=1,
@@ -268,8 +270,8 @@ class SelfReplyMixin:
             title=Path(paths[0]).name,
             summary=safe_reply,
             success=True,
-            overall_complete=True,
-            status="done",
+            overall_complete=False,
+            status="saved",
             review_status="not_assessed",
             review_source="solo_output",
             final_submission_certified=False,

@@ -3,10 +3,11 @@ use crate::{
     models::{UpdateState, UpdateStatus},
     release::ReleaseContext,
     update_policy::{
-        automatic_check_due, is_strictly_newer, should_present_cached_update, UpdateCache,
+        automatic_check_due, is_release_update, UpdateCache,
     },
 };
 use chrono::Utc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -21,7 +22,7 @@ use tokio::sync::Mutex as AsyncMutex;
 const AUTO_CHECK_INTERVAL_SECONDS: i64 = 6 * 60 * 60;
 const AUTO_RETRY_BASE_SECONDS: i64 = 15 * 60;
 const AUTO_RETRY_MAX_SECONDS: i64 = 2 * 60 * 60;
-const AUTO_START_DELAY: Duration = Duration::from_secs(30);
+const AUTO_START_DELAY: Duration = Duration::from_secs(5);
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(20 * 60);
 const PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
@@ -39,6 +40,7 @@ struct UpdateManagerInner {
     enabled: bool,
     status: Mutex<UpdateStatus>,
     operation: AsyncMutex<()>,
+    checked_this_launch: AtomicBool,
 }
 
 fn bounded_notes(notes: Option<String>) -> Option<String> {
@@ -77,7 +79,11 @@ fn read_cache(data_dir: &Path) -> UpdateCache {
 
 fn cached_available_status(current: &str, cache: &UpdateCache) -> Option<UpdateStatus> {
     let candidate = cache.available_version.as_deref()?.trim();
-    if !should_present_cached_update(candidate, current, cache.dismissed_version.as_deref()) {
+    let key = cache.available_release_id.as_deref().unwrap_or(candidate);
+    if cache.dismissed_version.as_deref() == Some(key) || !is_release_update(
+        candidate, current, cache.available_build_epoch, crate::release::build_epoch(),
+        cache.available_release_id.as_deref(), crate::release::compiled_release_id(),
+    ) {
         return None;
     }
     Some(make_status(
@@ -101,7 +107,10 @@ impl UpdateManager {
         let update_checks_disabled =
             std::env::var("ARGUS_DESKTOP_DISABLE_UPDATE_CHECK").as_deref() == Ok("1");
         let enabled = !release.development && !crate::release::preview_mode() && !update_checks_disabled;
-        let status = enabled.then(|| cached_available_status(&release.app_version, &read_cache(&data_dir)))
+        let mut initial_cache = read_cache(&data_dir);
+        // “Later” dismisses this launch, not every future launch of a stale build.
+        initial_cache.dismissed_version = None;
+        let status = enabled.then(|| cached_available_status(&release.app_version, &initial_cache))
             .flatten().unwrap_or_else(|| UpdateStatus {
                 current_version: release.app_version.clone(),
                 ..UpdateStatus::default()
@@ -114,6 +123,7 @@ impl UpdateManager {
                 enabled,
                 status: Mutex::new(status),
                 operation: AsyncMutex::new(()),
+                checked_this_launch: AtomicBool::new(false),
             }),
         })
     }
@@ -163,6 +173,7 @@ impl UpdateManager {
         if !self.inner.enabled {
             return;
         }
+        self.inner.checked_this_launch.store(false, Ordering::SeqCst);
         let manager = Arc::clone(self);
         tauri::async_runtime::spawn(async move {
             // Let the authenticated cockpit mount before the background network
@@ -202,7 +213,9 @@ impl UpdateManager {
 
         let mut cache = self.cache();
         let now = Utc::now().timestamp();
-        if !manual
+        let first_this_launch = !self.inner.checked_this_launch.swap(true, Ordering::SeqCst);
+        if first_this_launch { cache.dismissed_version = None; }
+        if !manual && !first_this_launch
             && !automatic_check_due(
                 now,
                 cache.last_checked_at,
@@ -240,6 +253,8 @@ impl UpdateManager {
             .inner
             .app
             .updater_builder()
+            // Equal versions need build metadata inspection before admission.
+            .version_comparator(|current, remote| remote.version.cmp_precedence(&current).is_ge())
             .timeout(UPDATE_CHECK_TIMEOUT)
             .build();
         let status = match result {
@@ -249,7 +264,10 @@ impl UpdateManager {
                     let notes = bounded_notes(update.body);
                     cache.last_checked_at = Some(now);
                     cache.consecutive_failures = 0;
-                    if !is_strictly_newer(&candidate, &current) {
+                    let build_epoch = update.date.map(|date| date.unix_timestamp());
+                    let release_id = update.raw_json.get("release_id").and_then(|v| v.as_str()).map(str::to_owned);
+                    if !is_release_update(&candidate, &current, build_epoch, crate::release::build_epoch(),
+                        release_id.as_deref(), crate::release::compiled_release_id()) {
                         cache.available_version = None;
                         cache.available_notes = None;
                         self.save_cache(&cache);
@@ -269,14 +287,12 @@ impl UpdateManager {
                     } else {
                         cache.available_version = Some(candidate.clone());
                         cache.available_notes = notes.clone();
-                        let dismissed =
-                            cache.dismissed_version.as_deref() == Some(candidate.as_str());
-                        let announce = !manual
-                            && !dismissed
-                            && cache.announced_version.as_deref() != Some(candidate.as_str());
-                        if announce {
-                            cache.announced_version = Some(candidate.clone());
-                        }
+                        cache.available_build_epoch = build_epoch;
+                        cache.available_release_id = release_id;
+                        let key = cache.available_release_id.as_deref().unwrap_or(&candidate);
+                        let dismissed = cache.dismissed_version.as_deref() == Some(key);
+                        let announce = !manual && !dismissed && cache.announced_version.as_deref() != Some(key);
+                        if announce { cache.announced_version = Some(key.to_owned()); }
                         self.save_cache(&cache);
                         if dismissed && !manual {
                             make_status(UpdateState::Idle, current, None, None, None, None, false)
@@ -420,6 +436,7 @@ impl UpdateManager {
             .inner
             .app
             .updater_builder()
+            .version_comparator(|current, remote| remote.version.cmp_precedence(&current).is_ge())
             .timeout(UPDATE_CHECK_TIMEOUT)
             .build()
             .map_err(|error| {
@@ -470,7 +487,9 @@ impl UpdateManager {
         // installer download gets enough time for slower networks.
         update.timeout = Some(UPDATE_DOWNLOAD_TIMEOUT);
         let candidate = update.version.to_string();
-        if !is_strictly_newer(&candidate, &current) {
+        if !is_release_update(&candidate, &current, update.date.map(|date| date.unix_timestamp()),
+            crate::release::build_epoch(), update.raw_json.get("release_id").and_then(|v| v.as_str()),
+            crate::release::compiled_release_id()) {
             self.set_status(make_status(
                 UpdateState::UpToDate,
                 current,
@@ -560,7 +579,7 @@ impl UpdateManager {
         if self.inner.enabled {
             let mut cache = self.cache();
             if let Some(version) = status.available_version.as_ref() {
-                cache.dismissed_version = Some(version.clone());
+                cache.dismissed_version = Some(cache.available_release_id.clone().unwrap_or_else(|| version.clone()));
             }
             self.save_cache(&cache);
         }

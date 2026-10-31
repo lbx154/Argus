@@ -380,7 +380,8 @@ def test_mission_write_failure_is_visible_and_keeps_pending_item(
     )
 
     assert result["kind"] == "error"
-    assert str(target) in result["reply"]
+    # OSError quotes Windows filenames with escaped backslashes.
+    assert str(target) in result["reply"].replace("\\\\", "\\")
     assert f"[Errno {errno.ENOSPC}] {os.strerror(errno.ENOSPC)}" in result["reply"]
     assert any(
         kind == "delta" and payload.get("text") == result["reply"]

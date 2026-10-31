@@ -72,7 +72,7 @@ def main() -> int:
 
     sandbox = Path(tempfile.mkdtemp(prefix="argus-tauri-host-smoke-"))
     app_data = sandbox / "appdata"
-    desktop_data = app_data / ("argus-desktop-preview-integration-20260913" if args.preview else "argus-desktop")
+    desktop_data = app_data / ("argus-desktop-preview-repair-20261101" if args.preview else "argus-desktop")
     desktop_data.mkdir(parents=True)
     token = secrets.token_urlsafe(32)
     with socket.socket() as listener:
@@ -90,6 +90,9 @@ def main() -> int:
                 # must explicitly confirm its CLI before the backend can start.
                 "runnerConfigured": True,
                 "setupComplete": True,
+                # Synthetic returning-user fixture only. Real model/action
+                # acceptance is a separate check, never claimed by this smoke.
+                "runnerValidationRevision": 1,
                 "appearanceTheme": "light",
                 # Old saved choices are ignored by the fixed-on host.
                 "startupEyeMotion": "off",

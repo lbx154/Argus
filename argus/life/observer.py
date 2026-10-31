@@ -53,7 +53,7 @@ def _model(reviewer_model: str) -> str:
     from ..core.knobs import resolve_knob
 
     own = resolve_knob(MODEL_KNOB, "auto").value
-    return reviewer_model if own.lower() in {"", "auto"} else own
+    return reviewer_model if own.lower() in {"", "auto", "inherit", "default"} else own
 
 
 def _ended_turn(event: dict[str, Any]) -> dict[str, Any] | None:

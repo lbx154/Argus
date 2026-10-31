@@ -2,6 +2,7 @@ import './style.css';
 import { applicationName, hasApplicationBrand } from './product';
 import { visibleEyeCycle } from './startup';
 import { nativePathRequests } from './nativePaths';
+import { backendRecoveryNotifications } from './backendRecovery';
 import {
   desktopBridge,
   type AppearanceTheme,
@@ -12,7 +13,6 @@ import {
   type DesktopStatus,
   type PiConfiguration,
   type RunnerKind,
-  type TrialDownloadProgress,
   type UpdateStatus,
 } from './bridge';
 
@@ -88,29 +88,6 @@ const wizardCancel = document.getElementById('wizardCancel') as HTMLButtonElemen
 const wizardBack = document.getElementById('wizardBack') as HTMLButtonElement;
 const wizardNext = document.getElementById('wizardNext') as HTMLButtonElement;
 const wizardFinish = document.getElementById('wizardFinish') as HTMLButtonElement;
-const trialOpen = document.getElementById('trialOpen') as HTMLButtonElement;
-const ownOpen = document.getElementById('ownOpen') as HTMLButtonElement;
-const trialPanel = document.getElementById('trialPanel') as HTMLElement;
-const ownIntro = document.getElementById('ownIntro') as HTMLElement;
-const ownContent = document.getElementById('ownContent') as HTMLElement;
-const trialForm = document.getElementById('trialForm') as HTMLFormElement;
-const trialKey = document.getElementById('trialKey') as HTMLInputElement;
-const trialSubmit = document.getElementById('trialSubmit') as HTMLButtonElement;
-const trialProgress = document.getElementById('trialProgress') as HTMLParagraphElement;
-const trialShortcut = document.getElementById('trialShortcut') as HTMLButtonElement;
-let trialBusy = false;
-let trialMode = false;
-const trialAccount = document.getElementById('trialAccount') as HTMLElement;
-const trialBalance = document.getElementById('trialBalance') as HTMLElement;
-const trialRefresh = document.getElementById('trialRefresh') as HTMLButtonElement;
-const trialRestore = document.getElementById('trialRestore') as HTMLButtonElement;
-const trialResume = document.getElementById('trialResume') as HTMLButtonElement;
-const trialAttention = document.getElementById('trialAttention') as HTMLElement;
-const trialDownload = document.getElementById('trialDownload') as HTMLDivElement;
-const trialDownloadBar = document.getElementById('trialDownloadBar') as HTMLProgressElement;
-const trialDownloadDetails = document.getElementById('trialDownloadDetails') as HTMLParagraphElement;
-const trialNetworkHint = document.getElementById('trialNetworkHint') as HTMLParagraphElement;
-let trialDownloadTimer: ReturnType<typeof setTimeout> | undefined;
 
 const cockpitEl = document.getElementById('cockpit') as HTMLElement;
 const cockpitFrame = document.getElementById('cockpitFrame') as HTMLIFrameElement;
@@ -174,6 +151,9 @@ function newEyeCycle() {
 }
 let eyeCycle = newEyeCycle();
 const pathRequests = nativePathRequests(cockpitFrame, cockpitOrigin);
+const backendRecovery = backendRecoveryNotifications((generation, origin) => {
+  cockpitFrame.contentWindow?.postMessage({ type: 'argus:backend-ready', version: 1, generation, origin }, origin);
+}, cockpitOrigin);
 
 function cancelSplashTransition(): void {
   splashGeneration++;
@@ -309,8 +289,8 @@ function mountCockpit(url: string): void {
   cockpitEl.hidden = false;
 
   // A runner-only settings change restarts the backend at the same URL. Keep
-  // the already-mounted React cockpit alive so it can reconnect through its
-  // normal WebSocket/query recovery instead of paying for a full WebView reload.
+  // the already-mounted React cockpit alive. Native readiness also refreshes
+  // its read queries, without waiting for the idle polling interval.
   if (cockpitMounted && sameCockpitConnection(cockpitFrame.src, url)) {
     void hideSplashAfterCockpitLoad();
     return;
@@ -322,6 +302,7 @@ function mountCockpit(url: string): void {
   cockpitLoaded = false;
   splashEl.classList.remove('is-ready');
   cockpitMounted = true;
+  backendRecovery.navigating();
   cockpitFrame.src = url;
 }
 
@@ -368,7 +349,8 @@ function replayLaunchEye(): void {
 }
 
 function render(status: DesktopStatus): void {
-  if (trialBusy) return;
+  // This must precede handleReady's visible-cockpit/settings early returns.
+  backendRecovery.observe(status);
   document.body.dataset.state = status.state;
   runtimeNotice.hidden = !status.warning;
   runtimeNoticeDetail.textContent = status.warning || '';
@@ -560,16 +542,11 @@ function showWizard(setup: DesktopSetup): void {
   wizardCancel.hidden = !cockpitMounted;
   wizardEl.dataset.returnAvailable = String(cockpitMounted);
   applySetup(setup);
-  trialKey.value = '';
-  trialMode = !!setup.trialMode;
-  trialAccount.hidden = !trialMode;
-  trialRestore.hidden = !setup.canRestoreOwnAccount;
-  if (trialMode) void refreshTrialBalance();
-  trialProgress.textContent = '';
   portInput.value = String(port);
   renderRunnerKind();
   renderRunner();
-  selectEntryMode(trialMode ? 'trial' : 'own');
+  goToStep(0);
+  wizardBody.scrollTop = 0;
 }
 
 async function reopenWizard(): Promise<void> {
@@ -595,7 +572,6 @@ function closeWizard(): void {
   splashEl.classList.remove('has-wizard');
   document.documentElement.dataset.settingsMode = 'false';
   setupRequested = false;
-  trialKey.value = '';
   returnFocus?.focus();
   if (cockpitLoaded && !splashEl.hidden) void hideSplashAfterCockpitLoad();
 }
@@ -672,10 +648,11 @@ function updateMessage(status: UpdateStatus): {
   showSecurity: boolean;
 } {
   if (status.state === 'available') {
-    const notes = (status.notes || '已发现可安装的新版本。').slice(0, 900);
+    const repair = status.availableVersion === status.currentVersion;
+    const notes = (status.notes || (repair ? '已发现当前版本的更新修复构建。' : '已发现可安装的新版本。')).slice(0, 900);
     return {
-      kicker: '发现新版本',
-      title: `${applicationName} ${status.availableVersion || '更新'} 已准备好`,
+      kicker: repair ? '发现修复更新' : '发现新版本',
+      title: `${applicationName} ${status.availableVersion || '更新'}${repair ? ' 修复包' : ''} 已准备好`,
       detail: `${notes}\n\n请在任务边界安装；签名验证通过后会停止当前安装拥有的后端。其他安装和预览不受影响。`,
       showInstall: true,
       showSecurity: true,
@@ -771,141 +748,6 @@ retryEl.addEventListener('click', () => {
 });
 
 setupEl.addEventListener('click', () => void reopenWizard());
-
-async function refreshTrialBalance(): Promise<void> {
-  if (!trialMode || trialRefresh.disabled) return;
-  trialRefresh.disabled = true;
-  const result = await capture(() => desktopBridge.getTrialStatus());
-  trialRefresh.disabled = false;
-  if (!result.ok) { trialBalance.textContent = '余额暂未同步，请检查网络后刷新。'; return; }
-  const balance = result.value;
-  trialResume.hidden = !balance.paused;
-  trialAttention.hidden = !balance.attention;
-  trialAttention.textContent = balance.attention || '';
-  if (typeof balance.tokensRemaining !== 'number' || typeof balance.tokenLimit !== 'number') {
-    trialBalance.textContent = balance.error || '余额暂未同步，请稍后刷新。';
-    return;
-  }
-  const at = balance.checkedAt ? new Date(balance.checkedAt * 1000).toLocaleString() : '';
-  trialBalance.textContent = `${balance.stale ? '上次同步' : '剩余额度'}：${balance.tokensRemaining.toLocaleString()} / ${balance.tokenLimit.toLocaleString()} token${at ? ` · ${at}` : ''}${balance.stale ? '（当前未同步）' : ''}`;
-}
-trialRefresh.addEventListener('click', () => void refreshTrialBalance());
-trialResume.addEventListener('click', async () => {
-  if (applying || !window.confirm('中断的请求可能已经扣除预留额度。查询余额并解除试用暂停？不会自动重放已失败任务。')) return;
-  trialResume.disabled = true;
-  const result = await capture(() => desktopBridge.resumeTrial());
-  trialResume.disabled = false;
-  if (!result.ok || result.value.error) {
-    trialAttention.hidden = false;
-    trialAttention.textContent = result.ok ? result.value.error || '恢复失败。' : '无法连接本地服务。';
-    return;
-  }
-  await refreshTrialBalance();
-});
-trialRestore.addEventListener('click', async () => {
-  if (applying || !window.confirm('切回原账号会重启本地后端，请确认正在进行的任务已暂停。')) return;
-  applying = trialBusy = true;
-  trialRestore.disabled = true;
-  const result = await capture(() => desktopBridge.restoreOwnAccount());
-  applying = trialBusy = false;
-  trialRestore.disabled = false;
-  if (!result.ok || !result.value.ok) {
-    trialBalance.textContent = result.ok ? result.value.error || '切换失败，原设置已保留。' : '无法连接本地设置服务。';
-    return;
-  }
-  trialMode = false;
-  closeWizard();
-  const status = await capture(() => desktopBridge.getStatus());
-  if (status.ok) render(status.value);
-});
-
-function selectEntryMode(mode: 'own' | 'trial', focusInput = false): void {
-  const trial = mode === 'trial';
-  goToStep(0);
-  trialPanel.hidden = !trial;
-  trialForm.hidden = !trial;
-  ownIntro.hidden = trial;
-  ownContent.hidden = trial;
-  wizardEl.classList.toggle('trial-entry-active', trial);
-  stepperEl.hidden = trial;
-  trialOpen.setAttribute('aria-pressed', String(trial));
-  trialOpen.setAttribute('aria-expanded', String(trial));
-  ownOpen.setAttribute('aria-pressed', String(!trial));
-  wizardCaption.textContent = trial ? '内测试用' : '使用自己的账号';
-  wizardBody.scrollTop = 0;
-  if (!trial) { trialKey.value = ''; trialProgress.textContent = ''; resetTrialDownload(); }
-  if (trial && focusInput) trialKey.focus();
-}
-ownOpen.addEventListener('click', () => { if (!applying) selectEntryMode('own'); });
-trialOpen.addEventListener('click', () => { if (!applying) selectEntryMode('trial', true); });
-async function openTrialSettings(): Promise<void> {
-  await reopenWizard();
-  if (wizardOpen && !applying) selectEntryMode('trial', true);
-}
-trialShortcut.addEventListener('click', () => void openTrialSettings());
-function resetTrialDownload(): void {
-  clearTimeout(trialDownloadTimer);
-  trialDownloadTimer = undefined;
-  trialDownload.hidden = true;
-  trialNetworkHint.hidden = true;
-  trialDownloadBar.removeAttribute('value');
-  trialDownloadDetails.textContent = '';
-}
-function renderTrialDownload({ downloaded_bytes: downloaded, total_bytes: total }: TrialDownloadProgress): void {
-  if (!trialBusy || !Number.isFinite(downloaded) || downloaded < 0) return;
-  clearTimeout(trialDownloadTimer);
-  trialNetworkHint.hidden = true;
-  trialDownload.hidden = false;
-  const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-  if (total !== null && Number.isFinite(total) && total > 0) {
-    const percent = Math.min(100, Math.floor(downloaded / total * 100));
-    trialDownloadBar.value = percent;
-    trialDownloadDetails.textContent = `${percent}% · ${megabytes(downloaded)} / ${megabytes(total)}`;
-  } else {
-    trialDownloadBar.removeAttribute('value');
-    trialDownloadDetails.textContent = downloaded > 0 ? `已接收 ${megabytes(downloaded)}` : '正在连接下载服务器…';
-  }
-  trialDownloadTimer = setTimeout(() => { trialNetworkHint.hidden = false; }, 30_000);
-}
-desktopBridge.onTrialDownload?.(renderTrialDownload);
-desktopBridge.onTrialProgress((message) => {
-  if (!trialBusy) return;
-  resetTrialDownload();
-  trialProgress.textContent = message;
-});
-trialForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  if (applying) return;
-  const key = trialKey.value.trim();
-  if (!/^argus_trial_[a-f0-9]{64}$/.test(key)) {
-    trialProgress.textContent = '请输入完整的内部测试 Key。';
-    trialKey.focus();
-    return;
-  }
-  if (cockpitMounted && !window.confirm('启用或更换试用 Key 会重启本地后端。确认当前任务已暂停并继续？')) return;
-  applying = trialBusy = true;
-  trialKey.value = '';
-  trialKey.disabled = trialSubmit.disabled = true;
-  wizardEl.setAttribute('aria-busy', 'true');
-  trialSubmit.textContent = '正在准备…';
-  trialProgress.textContent = '正在验证 Key…';
-  const result = await capture(() => desktopBridge.completeTrialSetup(key));
-  resetTrialDownload();
-  applying = trialBusy = false;
-  trialKey.disabled = trialSubmit.disabled = false;
-  wizardEl.removeAttribute('aria-busy');
-  trialSubmit.textContent = '开始试用';
-  if (!result.ok || !result.value.ok) {
-    // Never reflect raw IPC errors, which could contain serialized input.
-    trialProgress.textContent = result.ok ? (result.value.error || '配置失败，请重试。') : '无法连接本地安装服务，请重试。';
-    return;
-  }
-  trialMode = true;
-  closeWizard();
-  const status = await capture(() => desktopBridge.getStatus());
-  if (status.ok) render(status.value);
-  else renderIpcFailure('无法读取本地服务状态', status.detail);
-});
 
 diagnosticsEl.addEventListener('click', () => {
   diagnosticsEl.disabled = true;
@@ -1142,8 +984,8 @@ window.addEventListener('message', (event) => {
   if (!data || typeof data !== 'object') return;
   const type = (data as { type?: unknown }).type;
   const payload = (data as { payload?: unknown }).payload;
+  if (type === 'argus:connection-listening' && data.version === 1) backendRecovery.listening();
   if (type === 'argus:show-setup') void reopenWizard();
-  if (type === 'argus:show-trial-setup') void openTrialSettings();
   if (type === 'argus:request-new-chat' && !wizardOpen) postToCockpit('argus:new-chat');
   if (type === 'argus:cockpit-interaction') closeDesktopMenus();
   if (type === 'argus:notify-delivery' || type === 'argus:notify-completion') {

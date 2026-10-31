@@ -40,7 +40,11 @@ def main():
             for line in wheel.read(metadata).decode("utf-8").splitlines()
             if line.startswith("Version:")
         )
-        commit = json.loads(wheel.read("argus/release_manifest.json")).get("git_commit") or "unknown"
+        identity = json.loads(wheel.read("argus/release_manifest.json"))
+        commit = identity.get("git_commit") or "unknown"
+        manifest["release_id"] = identity["release_id"]
+        from datetime import datetime, timezone
+        manifest["pub_date"] = datetime.fromtimestamp(identity["build_epoch"], timezone.utc).isoformat()
     assert wheel_version == version
     installers = [assets / f"Argus-{version}-setup.exe",
                   assets / f"Argus-{version}-macos-aarch64.dmg",
@@ -48,7 +52,7 @@ def main():
                   assets / f"Argus-{version}-linux-x86_64.AppImage",
                   assets / f"Argus-{version}-linux-x86_64.deb"]
     assert all(path.is_file() for path in installers)
-    manifest["notes"] = "更清晰的日夜图标、自适应任务标题、试用 Key 更换入口，以及输入框下方的后端和模型显示。"
+    manifest["notes"] = "修复本地后端配置与动作交接、复用已有登录、准确展示任务结果；移除桌面试用和 CLI 自动安装，支持同版本更新构建。"
     (assets / "latest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     sizes = "\n".join(
         f"| `{path.name}` | {path.stat().st_size} |" for path in sorted(assets.iterdir()) if path.is_file()
@@ -57,9 +61,9 @@ def main():
 
 - 日夜切换改用清晰的线条太阳 / 月亮图标，便于与设置齿轮区分。
 - 任务标题随中间面板的可用宽度展开，拖动侧栏后可显示完整标题；空间不足时才省略。
-- 在「设置 → 试用账号」和输入框下方增加「更换 Key」入口，复用验证与保存流程，保留项目和聊天记录。
-- 输入框下方显示当前后端、模型和推理强度；试用模式显示 **GPT-5.5 · high**，普通模式跟随当前活动角色的配置。
-- 保留内部测试 Key、自动准备 Copilot 和内置工作台，无需命令行或个人 Coding 账号。
+- 后端类型、路径和模型上下文按选择一致处理，保留项目、聊天和已有账号。
+- 修复动作交接与错误完成回执；设置中的可用性检查包含真实回复和动作工具。
+- 移除桌面试用入口，不再捆绑、下载或自动安装 Copilot；选择本机已安装的 CLI。
 - 包含最新 main 的工作台和任务状态改进，以及暂停 / 完成边界修复。
 
 ### Downloads
@@ -75,8 +79,8 @@ def main():
 Windows: run the installer. Mac: open the DMG and drag Argus to Applications.
 Linux: install the `.deb` with your software installer, or enable execution in the
 AppImage file's properties and open it. Linux builds require a desktop session.
-Then choose **使用内部测试 Key**, paste your invitation Key and select **开始试用**.
-Keys are distributed privately; none are embedded in these packages.
+Then select your locally installed CLI. Existing CLI authentication is reused;
+no trial keys, bundled CLI installers or automatic backend fallback are provided.
 
 The Mac build is for internal testing and is not Apple Developer ID notarized.
 If macOS blocks first launch, use **System Settings → Privacy & Security → Open Anyway**.

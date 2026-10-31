@@ -30,7 +30,7 @@ def test_windows_only_tags_cannot_trigger_the_all_platform_release():
     workflow = _workflow()
     tags = workflow["on"]["push"]["tags"]
     assert tags[0] == "v*"
-    for tag in ("v0.1.7", "v0.1.8"):
+    for tag in ("v0.1.7", "v0.1.8", "v0.1.10"):
         assert tags.index("!" + tag) > tags.index("v*")
     assert workflow["jobs"]["pypi"]["if"].startswith("false &&")
     assert "startsWith(github.ref, 'refs/tags/v')" in workflow["jobs"]["github"]["if"]
@@ -47,9 +47,14 @@ def test_windows_dispatch_selects_one_explicit_msvc_runner():
     assert "github.event_name != 'workflow_dispatch' || inputs.platform == 'all'" == workflow["jobs"]["python"]["if"]
 
 
+def test_release_identity_rebuild_has_reviewed_commit_history():
+    assert _action("actions/checkout@v4")["with"]["fetch-depth"] == "0"
+
+
 def test_windows_toolchain_pins_leave_other_platform_inputs_unchanged():
     assert _action("actions/setup-node@v4")["with"]["node-version"] == "${{ runner.os == 'Windows' && '24.19.0' || '22.12.0' }}"
     assert _action("actions/setup-python@v5")["with"]["python-version"] == "${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}"
+    assert _action("actions/setup-python@v5")["with"]["cache"] == "${{ runner.os != 'Windows' && 'pip' || '' }}"
     assert _action("dtolnay/rust-toolchain@stable")["with"]["toolchain"] == "${{ runner.os == 'Windows' && '1.98.0-x86_64-pc-windows-msvc' || 'stable' }}"
     uv = _action("astral-sh/setup-uv@v5")
     assert uv["if"] == "runner.os == 'Windows'"
@@ -75,6 +80,14 @@ def test_windows_build_isolation_cannot_resolve_new_tools():
     frontend = _step("Install frontend build dependencies")["run"]
     for package in ("frontend/web", "frontend/tui", "desktop-tauri"):
         assert f"npm --prefix {package} ci" in frontend
+
+
+def test_release_build_refreshes_contracts_and_frontends_atomically():
+    frontend = _step("Install frontend build dependencies")["run"]
+    assert "npm ci\n" in frontend
+    generation = _step("Build release sources")
+    assert generation["run"] == "python -m argus.release_tools.build_release"
+    assert generation["env"]["ARGUS_WEB_BUILD_CLEAN"] == "${{ runner.os == 'Windows' && '1' || '0' }}"
 
 
 def test_windows_build_tool_pins_are_exact():

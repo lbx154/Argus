@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "argus"
-version = "0.1.8"
+version = "0.1.10"
 description = "Argus — a persistent, reviewed runtime for autonomous research and engineering."
 readme = "README.md"
 license = { text = "MIT" }
@@ -126,6 +126,8 @@ Homepage = "https://github.com/lbx154/Argus"
 Repository = "https://github.com/lbx154/Argus"
 
 [tool.hatch.build.targets.wheel]
+# Avoid auto-detecting editable imports through Windows npm workspace links.
+dev-mode-dirs = ["."]
 # ``argus_skill`` is the two-file import alias kept for one release.
 packages = ["argus", "argus_skill"]
 # Package Markdown and JSON files are runtime Skill data.

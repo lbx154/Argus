@@ -21,7 +21,13 @@ if ($LASTEXITCODE -ne 0) { throw "PLATON adapter tests could not compile. Use a 
 $previousTemp = $env:TEMP
 $previousTmp = $env:TMP
 try {
-    if ($env:GITHUB_ACTIONS -eq "true" -and $env:RUNNER_TEMP) {
+    if ($env:ARGUS_NATIVE_TEST_TEMP) {
+        if (-not (Test-Path -LiteralPath $env:ARGUS_NATIVE_TEST_TEMP -PathType Container)) {
+            throw "The isolated native-test temporary directory is unavailable."
+        }
+        $env:TEMP = $env:ARGUS_NATIVE_TEST_TEMP
+        $env:TMP = $env:ARGUS_NATIVE_TEST_TEMP
+    } elseif ($env:GITHUB_ACTIONS -eq "true" -and $env:RUNNER_TEMP) {
         if (-not (Test-Path -LiteralPath $env:RUNNER_TEMP -PathType Container)) {
             throw "The Windows runner temporary directory is unavailable."
         }

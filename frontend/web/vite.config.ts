@@ -27,7 +27,9 @@ export default defineConfig({
     assetsInlineLimit: 0,
     // Open tabs can still request chunks from a previous release. Vite replaces
     // index.html and emits new fingerprinted assets without deleting those chunks.
-    emptyOutDir: false,
+    // Fresh isolated Windows packages must not ship historical orphan chunks.
+    // Live/hosted builds retain the existing old-tab compatibility behavior.
+    emptyOutDir: process.env.ARGUS_WEB_BUILD_CLEAN === '1',
     sourcemap: false,
     rollupOptions: {
       output: {

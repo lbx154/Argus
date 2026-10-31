@@ -13,7 +13,7 @@ def test_saved_reply_exposes_existing_markdown_without_certifying_delivery(tmp_p
     workspace = tmp_path / "workspace"
     life.mkdir(parents=True)
     workspace.mkdir()
-    (workspace / "RESEARCH_NOTES.md").write_text("# Existing notes\n", encoding="utf-8")
+    (workspace / "RESEARCH_NOTES.md").write_text("# Existing notes\n", encoding="utf-8", newline="\n")
     (workspace / "unmentioned.md").write_text("not linked", encoding="utf-8")
     write_session_meta(tmp_path, SessionMeta(id="s-reply", cwd=str(life), workdir=str(workspace)))
     append_turn(life, role="argus", text="[Notes](RESEARCH_NOTES.md)")

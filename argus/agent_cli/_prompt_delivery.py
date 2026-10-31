@@ -180,37 +180,9 @@ class PromptDeliveryMixin:
         working_dir: str | None = None,
     ) -> tuple[list[str], str | None, Path | None]:
         if self.backend == BACKEND_DSH:
-            # dsh's headless profile reads its one-shot task from the argv
-            # positional alone (`dsh --profile headless "<task>"`); it has no
-            # stdin or --prompt-file form. Keep the prompt in argv up to the
-            # same safety bound as claude's positional delivery; oversized
-            # prompts are written into the child's working directory (so the
-            # agent can read them) and the task becomes a short directive.
-            prepared = list(command)
-            if len(prompt.encode("utf-8")) <= _DSH_ARGV_PROMPT_LIMIT_BYTES:
-                prepared.append(prompt)
-                return prepared, None, None
-            target_dir = Path(working_dir) if working_dir else Path.cwd()
-            target_dir.mkdir(parents=True, exist_ok=True)
-            fd, raw_path = tempfile.mkstemp(
-                prefix=".argus-dsh-prompt-",
-                suffix=".md",
-                dir=str(target_dir),
-                text=True,
-            )
-            prompt_path = Path(raw_path)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8", newline="") as stream:
-                    stream.write(prompt)
-            except BaseException:
-                prompt_path.unlink(missing_ok=True)
-                raise
-            prepared.append(
-                "Execute the mission specified in the file "
-                f"{prompt_path} (absolute path, inside your workspace). "
-                "Act on it; do not just summarize it."
-            )
-            return prepared, None, prompt_path
+            # Official headless stdin support avoids Windows argv limits and
+            # does not expose the prompt in the process list or require fs tools.
+            return list(command), prompt, None
         if self.backend == BACKEND_GROK:
             fd, raw_path = tempfile.mkstemp(
                 prefix="argus-grok-prompt-",
@@ -376,9 +348,6 @@ class PromptDeliveryMixin:
         return repaired if repaired is not None else env
 
 
-_DSH_ARGV_PROMPT_LIMIT_BYTES = 90_000
-
-
 def _apply_dsh_env(
     env: dict[str, str],
     options,
@@ -387,12 +356,12 @@ def _apply_dsh_env(
     """Prepare the child environment for one dsh headless boot.
 
     dsh resolves its model and access policy at load time from the env-driven
-    overlay (``agent_cli/_dsh_overlay.patch.yml``), so the per-role model and
+    optional model overlay (``agent_cli/_dsh_model.patch.yml``), so the per-role model and
     sandbox mode ride in through environment variables rather than argv:
 
     * ``options.model`` maps to ``ARGUS_DSH_PROVIDER`` / ``ARGUS_DSH_MODEL``
-      (a ``provider/model`` value splits; a bare id selects the provider the
-      overlay defaults to);
+      (an explicit choice must be ``provider/model``; an absent choice preserves
+      DSH's own default selection);
     * ``sandbox_mode == "read-only"`` maps to ``DSH_PERMISSION_MODE=read-only``
       (dsh's sandbox denies writes outright), everything else runs with
       ``danger-full-access`` because an Argus turn has no approver to answer
@@ -401,14 +370,16 @@ def _apply_dsh_env(
       nvm-installed Node resolves the ``#!/usr/bin/env node`` shebang even
       from a non-interactive daemon PATH.
     """
+    # Per-call overrides must not retain a previous backend/role's selection.
+    for name in ("ARGUS_DSH_PROVIDER", "ARGUS_DSH_MODEL", "ARGUS_DSH_DISABLE_TOOLS"):
+        env.pop(name, None)
     model = str(getattr(options, "model", "") or "").strip()
     provider, sep, model_id = model.partition("/")
-    if sep:
-        if provider and model_id:
-            env["ARGUS_DSH_PROVIDER"] = provider
-            env["ARGUS_DSH_MODEL"] = model_id
-    elif model:
-        env["ARGUS_DSH_MODEL"] = model
+    if model:
+        if not sep or not provider or not model_id:
+            raise ValueError("DSH requires provider/model for an explicit model; leave it unset to use DSH's saved selection.")
+        env["ARGUS_DSH_PROVIDER"] = provider
+        env["ARGUS_DSH_MODEL"] = model_id
     disable_tools = bool(getattr(options, "disable_tools", False))
     read_only = getattr(options, "sandbox_mode", None) == "read-only"
     if disable_tools:

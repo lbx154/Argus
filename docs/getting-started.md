@@ -439,22 +439,20 @@ separate from source updates.
 - **What it needs:** nothing else on the machine. The installer bundles the
   backend (`argus-backend`), so no Python, Node.js or venv is required.
 - **First launch:** a setup wizard asks you to pick an installed, logged-in
-  agent CLI and confirm it; the local backend does not start until you do. If
-  you have an internal trial key instead, paste it and click **开始试用** ("start
-  trial"): the app downloads the official standalone Copilot program, checks
-  its size, runs one real model reply, and opens the workbench. That path
-  needs no CLI, Python, Node or coding-agent account of your own. Either
-  choice is remembered; **File → Settings** changes the CLI, executable or
-  port later.
+  agent CLI and confirm it; the local backend does not start until you do.
+  Setup verifies a real reply and the action bridge using that CLI's own local
+  login (a small model charge may apply). Argus does not bundle, download or
+  install agent CLIs, and has no desktop trial-key workflow.
+  **File → Settings** changes the CLI, executable or port later.
 - **After that** the app is the web UI from Path 2: create a project, type the
   objective, watch the feed.
 
 To build it from source instead (Python 3.11+, Node 22.12+, Rust stable, plus
 MSVC Build Tools on Windows or Xcode command-line tools on macOS), the
-documented sequence in [docs/desktop-trial.md](desktop-trial.md) is:
+documented sequence in [docs/windows-desktop.md](windows-desktop.md) is:
 
 ```bash
-python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
+python -m pip install -e . "pyinstaller>=6.11,<7" tzdata
 npm --prefix frontend/web ci
 npm --prefix frontend/tui ci
 npm --prefix desktop-tauri ci

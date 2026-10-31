@@ -22,7 +22,7 @@ def test_windows_caption_buttons_use_a_native_non_client_frame() -> None:
     assert window["minWidth"] == 960
     assert window["minHeight"] == 640
     assert window["theme"] == "Light"
-    assert window["backgroundColor"] == "#f9fafb"
+    assert window["backgroundColor"] == "#f7f3e8"
     assert "frame-src http://127.0.0.1:*" in security["csp"]
     # Tauri's global flag also freezes remote iframe prototypes on WebView2,
     # breaking d3/React Flow. The privileged main frame remains frozen via the
@@ -253,8 +253,8 @@ def test_trusted_shell_menu_merges_background_close_actions_and_matches_theme() 
     assert "quit-detached" not in host
     assert "install_menu" not in host
     assert "desktop-menu-bar" in styles
-    assert "--chrome-bg: #f5f5f7" in styles
-    assert "--chrome-bg: #161618" in styles
+    assert "--chrome-bg: #f7f3e8" in styles
+    assert "--chrome-bg: #151517" in styles
     assert "background: var(--chrome-bg)" in styles
     assert "border-bottom: 0" in styles
     assert "inset: calc(var(--desktop-menu-height) + var(--desktop-notice-height)) 0 0" in styles

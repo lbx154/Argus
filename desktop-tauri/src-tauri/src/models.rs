@@ -86,8 +86,11 @@ pub struct DesktopSettings {
     #[serde(default)]
     pub setup_complete: bool,
     #[serde(default)]
+    pub runner_validation_revision: u32,
+    // Decode-only migration fields. No desktop trial entry point remains.
+    #[serde(default, skip_serializing)]
     pub trial_mode: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing)]
     pub own_account: Option<OwnAccountSettings>,
     #[serde(default)]
     pub appearance_theme: AppearanceTheme,
@@ -111,6 +114,7 @@ impl Default for DesktopSettings {
             runner_bins: BTreeMap::new(),
             runner_configured: false,
             setup_complete: false,
+            runner_validation_revision: 0,
             trial_mode: false,
             own_account: None,
             appearance_theme: AppearanceTheme::default(),
@@ -191,8 +195,6 @@ pub struct DesktopRuntimeIdentity {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSetup {
     pub complete: bool,
-    pub trial_mode: bool,
-    pub can_restore_own_account: bool,
     pub host: String,
     pub port: u16,
     pub runner_kind: RunnerKind,

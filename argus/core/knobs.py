@@ -463,7 +463,8 @@ def resolve_role_model(
     auto_model = hosting().client_model if hosted_trial else ""
     if role_env:
         explicit = str(env_map.get(role_env, "") or "").strip()
-        if explicit:
+        desktop_inherit = bool(env_map.get("ARGUS_DESKTOP_SELECTED_BACKEND")) and explicit.lower() == "inherit"
+        if explicit and not desktop_inherit:
             return auto_model if explicit.lower() in _AUTO_MODEL_SENTINELS else explicit
     shared = str(env_map.get("ARGUS_SKILL_MODEL", "") or "").strip()
     if shared:

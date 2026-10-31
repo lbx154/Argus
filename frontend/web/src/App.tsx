@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, us
 import { artifactRefreshEventKey, canvasRevisionFromEvents, snapshotRefreshEventKey, useProjects, useProjectCosts, useSnapshot, useEventStream, useProjectActions, useArtifacts, useJournal, useWorkspaceTree } from './hooks';
 import { refreshCanvas } from './map/canvas';
 import { useConversationHistory } from './useConversationHistory';
-import { api, isConnectionError, newRequestId, type AttachmentUploadOptions, type EventMsg, type ProjectRow, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
+import { api, newRequestId, type AttachmentUploadOptions, type EventMsg, type ProjectRow, type MessageRouteOverride, type SkillLibraryItem, type SkillScope, type WikiLibraryItem, PairingRequiredError } from './api';
 import { LearningLibrary, type LearningScope, type LearningSelection } from './components/LearningLibrary';
 import { LearningStatus } from './components/LearningStatus';
 import { ComposerRuntime } from './components/ComposerRuntime';
@@ -79,6 +79,7 @@ import { useWorkbenchLayout } from './useWorkbenchLayout';
 import { PREVIEW_DEFAULT_WIDTH, PREVIEW_MAX_WIDTH } from './lib/previewLayout';
 import { useI18n } from './i18n';
 import { ConnectionProblemBanner } from './components/ConnectionProblemBanner';
+import { useDesktopConnectionError } from './lib/desktopRecovery';
 import { addComposerFiles, MESSAGE_TEXT_MAX_CHARS } from './lib/attachments';
 import './components/customerExperience.css';
 import { useDeliveryCenter } from './useDeliveryCenter';
@@ -170,8 +171,7 @@ export default function App() {
     [projectCostsQ.data?.projects, projectsQ.data?.projects],
   );
   const localCwd = projectsQ.data?.local_cwd ?? '';
-  const connectionError = [projectsQ.error, projectCostsQ.error]
-    .find((error) => isConnectionError(error));
+  const connectionError = useDesktopConnectionError(queryClient, [projectsQ, projectCostsQ]);
 
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [learningSelection, setLearningSelection] = useState<LearningSelection | null>(null);
