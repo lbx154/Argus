@@ -51,7 +51,8 @@ export function Landing({
   // A new form starts with an empty directory; errors from the previous form expire with it.
   useEffect(() => { onWorkdirChange?.(); }, [onWorkdirChange]);
   return (
-    <div className="landing-page">
+    // While its project is made, the conversation it began shows instead.
+    <div className="landing-page" style={creating ? { display: 'none' } : undefined}>
       <div className="landing-navigation lg:hidden">
         {/* The project list opens from the same mark as on a project's page. */}
         <Button onClick={onChoose} aria-label={t('topbar.openSessions')} title={t('topbar.openSessions')}><FontAwesomeIcon icon={faBars} className="h-4 w-4" /></Button>
