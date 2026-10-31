@@ -11,6 +11,7 @@ import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
 import { conversationRows, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
+import { words } from './helpers/words.js';
 import { SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 
@@ -1038,7 +1039,7 @@ for (const role of ['planner', 'manager'] as const) {
     await say(flow, id, 'Do the work');
     const idle = { since: null, calls: [], requests: [] };
     const before = conversationRows(readRecord(store, id), store.load(id), idle);
-    const original = before.find(row => (row.steps as string[] | undefined)?.includes('Process before failure'))!;
+    const original = before.find(row => words(row).includes('Process before failure'))!;
     assert.ok(original);
     assert.equal(store.load(id).status, 'failed');
     // A queued operator message must not steal the resumed team's reply position.
@@ -1053,9 +1054,9 @@ for (const role of ['planner', 'manager'] as const) {
     const rows = conversationRows(readRecord(store, id), store.load(id), idle);
     const resumed = rows.find(row => row.row_id === original.row_id)!;
     assert.equal(resumed.order, original.order);
-    assert.deepEqual(resumed.steps, ['Process before failure', 'Process after Resume']);
+    assert.deepEqual(words(resumed), ['Process before failure', 'Process after Resume']);
     assert.ok(rows.indexOf(resumed) < rows.findIndex(row => row.text === 'Queued B'));
-    assert.equal(rows.filter(row => (row.steps as string[] | undefined)?.includes('Process after Resume')).length, 1);
+    assert.equal(rows.filter(row => words(row).includes('Process after Resume')).length, 1);
     if (role === 'manager') assert.equal(resumed.text, 'Final answer');
   });
 
@@ -1069,9 +1070,9 @@ for (const role of ['planner', 'manager'] as const) {
     ]);
     await say(flow, id, 'Do the work');
     const rows = conversationRows(readRecord(store, id), store.load(id), { since: null, calls: [], requests: [] });
-    const reply = rows.find(row => (row.steps as string[] | undefined)?.includes('Before form correction'))!;
-    assert.deepEqual(reply.steps, ['Before form correction', 'After form correction']);
-    assert.equal(rows.filter(row => (row.steps as string[] | undefined)?.includes('After form correction')).length, 1);
+    const reply = rows.find(row => words(row).includes('Before form correction'))!;
+    assert.deepEqual(words(reply), ['Before form correction', 'After form correction']);
+    assert.equal(rows.filter(row => words(row).includes('After form correction')).length, 1);
     assert.equal(rows.filter(row => row.type === 'ui.argus').length, 2);
   });
 }
@@ -1095,7 +1096,7 @@ for (const legacy of [false, true]) test(`${legacy ? 'legacy' : 'named'} paralle
   while (requests.length < 4) await new Promise(resolve => setImmediate(resolve));
   releaseA();
   while (!store.load(id).failures?.length) await new Promise(resolve => setImmediate(resolve));
-  const original = rows().find(row => (row.steps as string[] | undefined)?.includes('A process before failure'))!;
+  const original = rows().find(row => words(row).includes('A process before failure'))!;
   releaseB(); await flow.settled(id);
   if (legacy) {
     // Actual Flow output restored to the self/r23 representation before Resume.
@@ -1108,8 +1109,8 @@ for (const legacy of [false, true]) test(`${legacy ? 'legacy' : 'named'} paralle
   const afterB = rows();
   const bReply = afterB.find(row => row.text === 'B answer')!;
   assert.notEqual(bReply.row_id, original.row_id);
-  assert.deepEqual(bReply.steps, ['B process']);
-  assert.deepEqual(afterB.find(row => row.row_id === original.row_id)?.steps, ['A process before failure']);
+  assert.deepEqual(words(bReply), ['B process']);
+  assert.deepEqual(words(afterB.find(row => row.row_id === original.row_id)), ['A process before failure']);
   assert.equal(afterB.find(row => row.row_id === original.row_id)?.text, '');
   assert.ok(Number(original.order) < Number(bReply.order));
   const teamCalls = events().filter((event): event is Extract<FlowEvent, { type: 'call.start' }> => event.type === 'call.start' && event.role === 'manager' && !event.answers);
@@ -1122,7 +1123,7 @@ for (const legacy of [false, true]) test(`${legacy ? 'legacy' : 'named'} paralle
   const again = new Flow(new Store(home), next.callAgent); again.resume(id); await again.settled(id);
   const resumed = rows().find(row => row.row_id === original.row_id)!;
   assert.equal(resumed.order, original.order); assert.equal(resumed.text, 'A answer');
-  assert.deepEqual(resumed.steps, ['A process before failure', 'A process after Resume']);
+  assert.deepEqual(words(resumed), ['A process before failure', 'A process after Resume']);
   assert.deepEqual(rows().find(row => row.row_id === bReply.row_id), bReply);
   const last = events().filter((event): event is Extract<FlowEvent, { type: 'call.start' }> => event.type === 'call.start' && event.role === 'manager').at(-1)!;
   assert.equal(last.input_id, legacy ? `legacy-c${String(original.row_id).match(/^m(\d+)/)![1]}` : teamCalls[0]!.input_id);
@@ -1156,15 +1157,15 @@ for (const legacy of [false, true]) test(`${legacy ? 'legacy' : 'named'} A form 
   const idle = { since: null, calls: [], requests: [] };
   const rows = () => conversationRows(projectRecord(readEvents(store, id)), store.load(id), idle);
   const aReply = rows().find(row => row.text === 'A answer')!;
-  const bReply = rows().find(row => (row.steps as string[] | undefined)?.includes('B before failure'))!;
-  assert.deepEqual(aReply.steps, ['A before correction', 'A after correction']);
-  assert.deepEqual(bReply.steps, ['B before failure']);
+  const bReply = rows().find(row => words(row).includes('B before failure'))!;
+  assert.deepEqual(words(aReply), ['A before correction', 'A after correction']);
+  assert.deepEqual(words(bReply), ['B before failure']);
   assert.equal(rows().filter(row => row.type === 'ui.argus').length, 3);
   assert.ok(Number(aReply.order) < Number(bReply.order));
   const next = agent([{ role: 'manager', says: 'B after Resume', to: 'operator', letter: 'B answer' }]);
   const again = new Flow(new Store(home), next.callAgent); again.resume(id); await again.settled(id);
   const resumed = rows().find(row => row.row_id === bReply.row_id)!;
-  assert.deepEqual(resumed.steps, ['B before failure', 'B after Resume']);
+  assert.deepEqual(words(resumed), ['B before failure', 'B after Resume']);
   assert.equal(resumed.text, 'B answer'); assert.equal(resumed.order, bReply.order);
   assert.deepEqual(rows().find(row => row.row_id === aReply.row_id), aReply);
   assert.equal(rows().filter(row => row.type === 'ui.argus').length, 3);

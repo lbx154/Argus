@@ -69,8 +69,9 @@ try {
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(({ theme }) => { localStorage.setItem('argus.locale', 'zh-CN'); localStorage.setItem('argus.theme', theme); }, { theme });
     await page.goto(`${api.url}/?project=${team.id}`);
-    await page.locator('[data-manager-progress]').last().waitFor();
-    const progress = page.locator('[data-manager-progress]').last();
+    // Said before a letter to the operator, the words are its process, folded until opened.
+    await page.locator('[data-manager-process]').last().waitFor({ state: 'attached' });
+    const progress = page.locator('[data-manager-process]').last();
     const measurements = await progress.evaluate(element => {
       const color = node => getComputedStyle(node).color;
       return { body: color(element.querySelector('p')), elements: [...element.querySelectorAll('code,strong,h1,h2,h3,th,td')].map(node => ({ tag: node.tagName, color: color(node) })),
@@ -90,7 +91,7 @@ try {
     assert.ok(!(await page.locator('.conversation-row').allTextContents()).join('\n').includes('正在回复你的消息'));
     // Open the existing project role-log entry through the cockpit.
     await page.goto(`${api.url}/?project=${mixed.id}`);
-    await page.getByText('我来安排 B 的 b.py 任务。', { exact: true }).waitFor();
+    await page.getByText('我来安排 B 的 b.py 任务。', { exact: true }).waitFor({ state: 'attached' });
     const owner = page.locator('.conversation-row').filter({ hasText: '我来安排 B 的 b.py 任务。' });
     assert.equal(await owner.count(), 1);
     assert.ok((await owner.textContent()).includes('b.py 收到，B 完成。'));

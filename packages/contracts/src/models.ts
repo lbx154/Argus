@@ -56,8 +56,10 @@ export interface BacklogItem extends BacklogSummary {
   latest_action?: { role: string; text: string; ts: number };
   /** Files explicitly selected by a task letter, including a result awaiting review. */
   result_paths?: string[];
-  /** Letters and the last call's error, supplied by the detail endpoint. */
+  /** The one letter the detail endpoint was asked for. */
   notes?: string;
+  /** Every letter on the task, in order, by role and to whom: the page names them. */
+  letters?: { role: string; to: string; text: string }[];
   /** Recorded edits in the latest Engineer turn; paths come from edit steps. */
   changed_files?: string[];
   last_error?: string;

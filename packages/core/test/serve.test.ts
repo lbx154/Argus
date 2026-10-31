@@ -818,7 +818,8 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
   const answered = await eventually(() => get<{ rows: EventMsg[] }>(`${P}/conversation`), ({ rows }) => rows.some(row => row.request_id === 'r1' && row.text === '42'));
   assert.deepEqual(answered.rows.map(turn => [turn.type, turn.text]), [['ui.operator', 'What is 6 times 7?'],
     ['ui.argus', '42']]);
-  assert.deepEqual(answered.rows.find(row => row.type === 'ui.argus')?.steps, ['Checking the original question']);
+  // Answered, what it said on the way is the answer's folded process.
+  assert.deepEqual(answered.rows.find(row => row.type === 'ui.argus')?.process, ['Checking the original question']);
   assert.equal((await eventually(() => get<Snapshot>(`${P}/snapshot`), snapshot => !snapshot.daemon.alive)).daemon.resumable, false);
   assert.equal(answered.rows.find(row => row.type === 'ui.argus' && row.request_id === 'r1')?.message_id, refreshed.rows[1]?.message_id);
   assert.equal(requests.length, 2);
@@ -1495,7 +1496,7 @@ test('rows SSE sends task progress and durable Manager messages without onWords 
   const completedReply = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.argus' && row.request_id === 'r-live')!;
   assert.equal(completedReply.row_id, firstReply.row_id);
   assert.equal(completedReply.text, '已核对你询问的状态。');
-  assert.deepEqual(completedReply.steps, runningReply.steps);
+  assert.deepEqual(completedReply.process, runningReply.steps);
   finishEngineer();
   await eventually(() => get<Snapshot>(`${P}/snapshot`), snap => snap.backlog[0]?.status === 'done' && !snap.daemon.alive);
   const done = (await get<ConversationPage>(`${P}/conversation`)).rows.find(row => row.type === 'ui.task')!;
@@ -1717,8 +1718,8 @@ test('task details expose recorded return reasons, operator letters and only the
   const { item } = await get<{ item: import('@argus/contracts').BacklogItem }>(`/api/projects/${work.id}/backlog/${task.id}`);
   assert.deepEqual(item.changed_files, ['chart.ts', 'chart.png']);
   assert.deepEqual(item.result_paths, ['chart.ts', 'chart.png', 'second.png']);
-  assert.ok(item.notes!.includes('退回：缺少坐标单位。'));
-  assert.ok(item.notes!.includes('请用秒为单位。'));
+  assert.deepEqual(item.letters!.map(({ role, to, text }) => [role, to, text]), [['reviewer', 'engineer', '退回：缺少坐标单位。'],
+    ['operator', 'engineer', '请用秒为单位。'], ['reviewer', 'planner', '已经修正。']]);
 });
 
 test('expanded task files come from its explicit letter before review completes, without marking the task done', async t => {

@@ -238,6 +238,7 @@ describe('the web feed line', () => {
     expect(line({ type: 'ui.argus', text: '', status: 'stopped' })).toMatchObject({ role: 'manager', text: '' });
     expect(line({ type: 'ui.argus', text: '', status: 'replaced' })).toMatchObject({ role: 'manager', text: '' });
     expect(line({ type: 'ui.argus', text: '', steps: ['Checking the result'] })).toMatchObject({ role: 'manager', text: '' });
+    expect(line({ type: 'ui.argus', text: '', process: ['Checking the result'] })).toMatchObject({ role: 'manager', text: '' });
     expect(line({ type: 'ui.argus', text: '', steps: [] })).toBeNull();
     expect(line({ type: 'ui.argus', text: '' })).toBeNull();
     expect(line({ type: 'ui.operator', text: '   ' })).toBeNull();

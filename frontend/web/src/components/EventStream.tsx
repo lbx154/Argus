@@ -335,18 +335,26 @@ const ConversationRow = memo(function ConversationRow({
   const draft = operator ? splitDraft(reportText) : null;
   const references = draft?.refs ?? [];
   const text = draft && references.length ? draft.text : reportText;
-  // A question's numbered options become buttons; typing a free answer still works.
+  // What the Manager said to the operator on the way shows; the turn's process stays folded.
   const steps = !operator && Array.isArray(ev.steps) ? ev.steps as string[] : [];
+  const process = !operator && Array.isArray(ev.process) ? ev.process as string[] : [];
   const to = String(ev.to ?? '');
-  const said = (words: string, delivery?: string) => {
+  const handed = to === 'planner' || to === 'engineer';
+  // A question's numbered options become buttons; typing a free answer still works.
+  const say = (words: string, delivery?: string) => {
     const question = splitReplyOptions(words);
     return <><MarkdownContent delivery={delivery} sid={sessionId} artifacts={artifacts} onOpenArtifact={onOpenArtifact}>{shownPaths(question ? readableQuestions(question.body) : words)}</MarkdownContent>
       {question?.options.length ? <ReplyOptionButtons options={question.options} zh={locale === 'zh-CN'} /> : null}</>;
   };
-  const answer = reportText ? <div data-manager-answer>{said(reportText, deliveryFromEvent(ev)?.delivery_id)}</div> : null;
+  const answer = reportText ? <div data-manager-answer>{say(reportText, deliveryFromEvent(ev)?.delivery_id)}</div> : null;
+  // The turn's process, kept folded: before the answer it led to, after a brief it followed.
+  const folded = process.length ? <details data-manager-process className="conversation-process py-1.5">
+    <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">{locale === 'zh-CN' ? '过程' : 'Process'}</summary>
+    <div className="mt-1.5 space-y-2 border-l-2 border-line pl-3 text-ink-dim">{process.map((text, index) => <div key={index}>{say(text)}</div>)}</div>
+  </details> : null;
   const replaced = <p className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>;
   const rewriteLabel = locale === 'zh-CN' ? '编辑后重发' : 'Edit and resend';
-  if (!operator && ev.status === 'replaced' && !steps.length) return (
+  if (!operator && ev.status === 'replaced' && !steps.length && !process.length) return (
     <article tabIndex={-1} data-operator={operator} data-conversation-ts={ev.ts} className="conversation-row mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]">
       {replaced}
     </article>
@@ -380,8 +388,9 @@ const ConversationRow = memo(function ConversationRow({
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
             {steps.length ? <div data-manager-progress className="mb-4 space-y-2 border-b border-line/50 pb-3 text-ink-dim">
-              {steps.map((text, index) => <div key={index}>{said(text)}</div>)}
+              {steps.map((text, index) => <div key={index}>{say(text)}</div>)}
             </div> : null}
+            {!handed && folded}
             {ev.status === 'running' ? <div data-manager-reply="running">
               <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim">
                 <span className="status-dot" data-tone="running" aria-hidden="true" />
@@ -394,11 +403,13 @@ const ConversationRow = memo(function ConversationRow({
               : ev.status === 'waiting' ? <p className="text-sm text-ink-dim" data-manager-reply="waiting">{locale === 'zh-CN' ? '等待处理' : 'Waiting to be processed'}</p>
               : ev.status === 'stopped' ? <p className="text-sm text-ink-dim" data-manager-reply="stopped">{locale === 'zh-CN' ? '已停止，点继续运行会接着回答' : 'Stopped. Click Resume to continue the reply.'}</p>
               : ev.status === 'failed' ? <p className="whitespace-pre-wrap break-words text-sm text-err">{locale === 'zh-CN' ? '回复中断：' : 'Reply interrupted: '}{reportText}</p>
-              : answer && (to === 'planner' || to === 'engineer') ? <details className="conversation-brief py-1.5" data-testid="conversation-brief">
+              : answer && handed ? <details className="conversation-brief py-1.5" data-testid="conversation-brief">
                 <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">
                   {locale === 'zh-CN' ? `已交给${roleLabel(to, t)}` : `Handed to the ${roleLabel(to, t)}`}
                 </summary><div className="mt-1.5 border-l-2 border-line pl-3">{answer}</div>
               </details> : answer}
+            {/* What the team made of a brief follows it. */}
+            {handed && folded}
           </div>
         </div>
       )}
@@ -701,7 +712,7 @@ const TASK_RUNNING_LABEL: Record<string, [string, string]> = {
 };
 
 /**
- * A task in the conversation: one line on where it stands, and its results.
+ * A task in the conversation: one line on who has it and where it stands, and its results.
  */
 function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; onOpenArtifact?: (path: string) => void; onInspect: (id: string) => void }) {
   const { locale } = useI18n();
@@ -723,10 +734,11 @@ function TaskWorkCard({ event, onOpenArtifact, onInspect }: { event: EventMsg; o
         {label}{locale === 'zh-CN' ? '：' : ': '}{title}
       </button>
     </div>
-    {state !== 'done' && progress && <p data-task-progress className="mt-1 break-words pl-4 text-xs leading-relaxed text-ink-dim">{progress}</p>}
     {!expanded && path ? <div className="mt-1 pl-4"><button type="button"
       className="max-w-full break-all text-left text-xs text-blue hover:underline" onClick={() => onOpenArtifact?.(path)}>{path}</button></div> : null}
+    {/* What the team says on it is theirs: it reads with its letters, once opened. */}
     {expanded && <div id={`task-record-${event.item_id}`} className="mt-3 min-w-0 border-l border-line pl-4">
+      {state !== 'done' && progress && <p data-task-progress className="mb-3 break-words text-xs leading-relaxed text-ink-dim">{progress}</p>}
       <InlineTaskRecord sid={sid} id={String(event.item_id)} onOpenArtifact={onOpenArtifact} />
       <button type="button" className="my-2 text-xs text-ink-faint hover:text-ink" onClick={() => onInspect(String(event.item_id))}>
         {locale === 'zh-CN' ? '查看任务详情' : 'View task details'}

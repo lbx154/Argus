@@ -90,7 +90,7 @@ describe('one record, one conversation', () => {
   });
 });
 
-it.each(['zh-CN', 'en'])('GPU dialogue has one Argus heading per reply, retaining process above answers at every replay prefix (%s)', locale => {
+it.each(['zh-CN', 'en'])('GPU dialogue has one Argus heading per reply, retaining process folded above answers at every replay prefix (%s)', locale => {
   vi.stubGlobal('localStorage', { getItem: () => locale });
   const project: Project = { ...store.load(PROJECTS[0]!), tasks: [], status: 'stopped', sessions: {} };
   let reading: Reading | undefined;
@@ -109,12 +109,13 @@ it.each(['zh-CN', 'en'])('GPU dialogue has one Argus heading per reply, retainin
     expect(html.match(/class="argus-reply-name"/g) ?? []).toHaveLength(rows.filter(row => row.type === 'ui.operator').length);
     const replyHtml = html.split('<article').slice(1).filter(part => part.includes('class="argus-reply-name"'));
     rows.filter(row => row.type === 'ui.argus').forEach((row, i) => {
-      const progress = row.steps as string[] | undefined;
-      for (const text of progress ?? []) expect(replyHtml[i]).toContain(text);
-      if (progress?.length) {
-        expect(replyHtml[i]).toContain('data-manager-progress="true"');
-        if (row.text) expect(replyHtml[i]!.indexOf(progress[0]!)).toBeLessThan(replyHtml[i]!.indexOf('data-manager-answer'));
-      }
+      // Words said on the way show; once a letter answers, they are its folded process.
+      const [said, process] = [row.steps, row.process] as Array<string[] | undefined>;
+      for (const text of [...said ?? [], ...process ?? []]) expect(replyHtml[i]).toContain(text);
+      if (said?.length) expect(replyHtml[i]).toContain('data-manager-progress="true"');
+      if (process?.length) expect(replyHtml[i]).toMatch(/<details data-manager-process="true"(?![^>]*\sopen)/);
+      const first = [...said ?? [], ...process ?? []][0];
+      if (row.text && first) expect(replyHtml[i]!.indexOf(first)).toBeLessThan(replyHtml[i]!.indexOf('data-manager-answer'));
     });
   }
 });
@@ -148,7 +149,7 @@ it.each(['planner', 'engineer'])('keeps the recorded process question and one he
   expect(render(complete, false)).toBe(render(projectRecord(record), false));
 });
 
-it.each(['zh-CN', 'en'])('whole team replay has two Manager replies and keeps all Planner process under the brief (%s)', locale => {
+it.each(['zh-CN', 'en'])('whole team replay has two Manager replies and keeps all Planner process folded under the brief (%s)', locale => {
   vi.stubGlobal('localStorage', { getItem: () => locale });
   const record = readEvents(store, 'p-c855623c');
   const rows = conversationRows(projectRecord(record), store.load('p-c855623c'), { since: null, calls: [], requests: [] });
@@ -159,7 +160,11 @@ it.each(['zh-CN', 'en'])('whole team replay has two Manager replies and keeps al
     expect(replies[0]).toContain(event.text);
     expect(replies[1]).not.toContain(event.text);
   }
-  expect(replies[1]!.indexOf('data-manager-progress')).toBeLessThan(replies[1]!.indexOf('data-manager-answer'));
+  // The Planner's words, and the Manager's before its letter to the operator, are process: folded
+  // after the brief they followed, and above the answer they led to.
+  expect(replies[0]!.indexOf('data-manager-process')).toBeGreaterThan(replies[0]!.indexOf('data-testid="conversation-brief"'));
+  expect(replies[1]!.indexOf('data-manager-process')).toBeLessThan(replies[1]!.indexOf('data-manager-answer'));
+  expect(replies[1]).not.toContain('data-manager-progress');
   expect(replies[1]).toContain('我会核对 result.md 和两个脚本的运行结果，再把文件交给你。');
   expect(replies[1]).toContain('计算结果');
 });

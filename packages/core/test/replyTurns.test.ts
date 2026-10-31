@@ -4,6 +4,7 @@ import test from 'node:test';
 import { conversationRows, projectRecord, type Live, type Reading, type Recorded } from '../src/serve/views.js';
 import type { Project } from '../src/store.js';
 import { plannerBatchReplay } from './replyTurnsReplay.js';
+import { words } from './helpers/words.js';
 
 const idle: Live = { since: null, calls: [], requests: [] };
 const fixture = new URL('./fixtures/progress-messages/', import.meta.url);
@@ -32,12 +33,12 @@ test('#6 real service record: team turns retain process; only the top bar owns r
 for (const reverse of [false, true]) test(`#9 new real Flow batch replay (${reverse ? 'B then A' : 'A then B'}): mixed call and descendants have their own reply`, async () => {
   const { record, project } = await plannerBatchReplay({ reverse });
   const rows = conversationRows(projectRecord(record), project, idle);
-  const mixed = rows.find(row => (row.steps as string[] | undefined)?.includes('我来安排 B 的 b.py 任务。'))!;
+  const mixed = rows.find(row => words(row).includes('我来安排 B 的 b.py 任务。'))!;
   assert.equal(mixed.request_id, undefined, 'a mixed call cannot claim either operator request');
-  assert.deepEqual(mixed.steps, ['我来安排 B 的 b.py 任务。', 'b.py 收到，B 完成。']);
+  assert.deepEqual(words(mixed), ['我来安排 B 的 b.py 任务。', 'b.py 收到，B 完成。']);
   for (const reply of rows.filter(row => row.request_id)) {
-    assert.ok(!(reply.steps as string[] | undefined)?.includes('我来安排 B 的 b.py 任务。'));
-    assert.ok(!(reply.steps as string[] | undefined)?.includes('b.py 收到，B 完成。'));
+    assert.ok(!words(reply).includes('我来安排 B 的 b.py 任务。'));
+    assert.ok(!words(reply).includes('b.py 收到，B 完成。'));
   }
   const mixedStart = record.findIndex(event => event.type === 'call.start' && event.role === 'planner' &&
     record.slice(0, record.indexOf(event)).filter(item => item.type === 'call.start' && item.role === 'planner').length === 2);
@@ -61,11 +62,11 @@ for (const reverse of [false, true]) test(`#9 new real Flow batch replay (${reve
 test('#9 actual Flow form correction consumes only the original read prefix; new letters wait', async () => {
   const { record, project } = await plannerBatchReplay({ correctSecond: true });
   const rows = conversationRows(projectRecord(record), project, idle);
-  const original = rows.find(row => (row.steps as string[] | undefined)?.includes('我把 A 拆成两个任务。'))!;
-  assert.deepEqual(original.steps, ['我把 A 拆成两个任务。', 't1 收到。', 't1 修正表单。']);
-  const mixed = rows.find(row => (row.steps as string[] | undefined)?.includes('我来安排 B 的 b.py 任务。'))!;
+  const original = rows.find(row => words(row).includes('我把 A 拆成两个任务。'))!;
+  assert.deepEqual(words(original), ['我把 A 拆成两个任务。', 't1 收到。', 't1 修正表单。']);
+  const mixed = rows.find(row => words(row).includes('我来安排 B 的 b.py 任务。'))!;
   assert.equal(mixed.request_id, undefined);
-  assert.deepEqual(mixed.steps, ['我来安排 B 的 b.py 任务。', 'b.py 收到，B 完成。']);
+  assert.deepEqual(words(mixed), ['我来安排 B 的 b.py 任务。', 'b.py 收到，B 完成。']);
   assert.deepEqual(record.filter((event): event is Extract<Recorded, { type: 'call.start' }> => event.type === 'call.start' && event.role === 'planner')
     .map(event => event.planner_inputs), [1, 1, 1, 2, 1]);
 });

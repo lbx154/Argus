@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { replyReplay } from './replyReplay.js';
+import { words } from './helpers/words.js';
 import { ROLE_LOG, type EventMsg } from '@argus/contracts';
 import { firstLine } from '../src/flow.js';
 import { Store, type Project } from '../src/store.js';
@@ -232,7 +233,9 @@ test('GPU replies retain their process in one request row while running, complet
     for (const [request, reply] of expected) {
       const row = replies.find(row => row.request_id === request)!;
       assert.equal(row.text, reply.text);
-      assert.deepEqual(row.steps ?? [], reply.steps);
+      assert.deepEqual(words(row), reply.steps);
+      // Answered, the words said on the way are the answer's folded process.
+      if (reply.text) assert.equal(row.steps, undefined);
       if (event.type === 'handoff' && event.answers === request || event.type === 'step' && active === request) assert.equal(row.event_id, line);
     }
     const page = conversationPage(rows, line, 1);
@@ -256,12 +259,12 @@ test('call identity retains multiple process questions across interruption and p
   assert.deepEqual(stopped.find(row => row.request_id === 'queued' && row.type === 'ui.argus')?.steps, []);
   const completed = rowsOf([...events, replyReplay[1]!, replyReplay[4]!], work);
   const reply = completed.find(row => row.request_id === 'gpu-request-1' && row.type === 'ui.argus')!;
-  assert.deepEqual(reply.steps, stopped[1]!.steps);
+  assert.deepEqual(reply.process, stopped[1]!.steps);
   assert.equal(reply.text, replyReplay[4]!.type === 'handoff' ? replyReplay[4]!.letter : '');
   assert.equal(reply.row_id, stopped[1]!.row_id);
 });
 
-test('whole real team replay: Planner steps belong to the brief and a team-triggered Manager call owns one delivery reply', () => {
+test('whole real team replay: Planner steps fold under the brief and a team-triggered Manager call owns one delivery reply', () => {
   const rows = rowsOf(record);
   const replies = rows.filter(row => row.type === 'ui.argus');
   assert.equal(replies.length, record.filter(event => event.type === 'call.start' && event.role === 'manager').length);
@@ -269,10 +272,10 @@ test('whole real team replay: Planner steps belong to the brief and a team-trigg
   const brief = replies[0]!;
   assert.equal(brief.row_id, 'm0-argus');
   const planned = record.filter(event => event.type === 'step' && event.kind === 'message' && event.role === 'planner');
-  for (const event of planned) if (event.type === 'step') assert.ok((brief.steps as string[]).includes(event.text));
+  for (const event of planned) if (event.type === 'step') assert.ok((brief.process as string[]).includes(event.text));
   const delivery = replies[1]!;
   assert.equal(delivery.row_id, 'm97-argus');
-  assert.deepEqual(delivery.steps, ['我会核对 result.md 和两个脚本的运行结果，再把文件交给你。']);
+  assert.deepEqual(delivery.process, ['我会核对 result.md 和两个脚本的运行结果，再把文件交给你。']);
   assert.match(String(delivery.text), /计算结果/);
 });
 
@@ -325,9 +328,9 @@ test('Planner speech and live words during Manager reply B stay with the origina
   assert.equal(rows.filter(row => row.type === 'ui.argus').length, 2);
   assert.deepEqual(b.steps, ['Checking B']);
   for (const event of record.slice(start + 1, end)) if (event.type === 'step' && event.kind === 'message') {
-    assert.ok((first.steps as string[]).includes(event.text));
+    assert.ok((first.process as string[]).includes(event.text));
   }
-  assert.equal((first.steps as string[]).at(-1), 'Planner still arranging tasks');
+  assert.equal((first.process as string[]).at(-1), 'Planner still arranging tasks');
   const brief = record.find(event => event.type === 'handoff' && event.role === 'manager');
   assert.equal(first.text, brief?.type === 'handoff' ? brief.letter : '');
 });
