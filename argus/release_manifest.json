@@ -1,8 +1,8 @@
 {
-  "build_epoch": 1793477994,
-  "git_commit": "5b9268495505b2397e4668a9a89ded5915d7c624",
+  "build_epoch": 1793478083,
+  "git_commit": "ed4242f7e659b3245240f2a8283e6a2b9a266ad3",
   "package_version": "0.1.10",
-  "release_id": "0.1.10+5b9268495505",
+  "release_id": "0.1.10+ed4242f7e659",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -690,6 +690,7 @@
     "desktop-tauri/package-lock.json": 46132,
     "desktop-tauri/package.json": 1838,
     "desktop-tauri/resources/.gitignore": 59,
+    "desktop-tauri/resources/argus-backend/.gitkeep": 216,
     "desktop-tauri/scripts/accept-local-backends.mjs": 15878,
     "desktop-tauri/scripts/build-backend.ps1": 2335,
     "desktop-tauri/scripts/build-backend.py": 1938,
