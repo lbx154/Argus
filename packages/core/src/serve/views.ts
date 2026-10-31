@@ -80,7 +80,7 @@ export const readEvents = (store: Store, id: string): Recorded[] =>
  * yet answered (by request, at their line), the call under way of each role on each task, and
  * how often each file has been delivered. Calls bind to operator requests or incoming team
  * letters; Planner letters and tasks carry the originating reply through later turns. */
-type FoldCall = { id: string; reply: string; order: number; handed: boolean; answers?: string };
+type FoldCall = { id: string; reply: string; order: number; handed: boolean; answers?: string; plannerTaken?: number; source?: string };
 export interface Fold {
   line: number;
   asked: Map<string, number>;
@@ -89,7 +89,7 @@ export interface Fold {
   /** Team input identity, including pending legacy form corrections. */
   manager: ManagerInputs;
   deliveries: Map<string, number>;
-  plannerInbox: string[];
+  plannerInbox: Array<string | undefined>;
   taskReplies: Map<string, string>;
 }
 const newFold = (): Fold => ({ line: 0, asked: new Map(), calls: new Map(), manager: new ManagerInputs(), deliveries: new Map(),
@@ -115,19 +115,28 @@ export function webEvents(events: Recorded[], fold: Fold = newFold()): EventMsg[
         if (!event.to && event.request_id) fold.asked.set(event.request_id, line);
         if (event.to === 'planner') {
           const reply = event.task ? fold.taskReplies.get(event.task) : calls.get('planner.')?.reply;
-          if (reply) fold.plannerInbox.push(reply);
+          fold.plannerInbox.push(reply);
         }
         row('ui.operator', { agent_layer: 'operator', text: event.text, message_id: `m${line}-operator`, ...(event.request_id ? { request_id: event.request_id } : {}),
           ...(event.attachments ? { attachments: event.attachments } : {}) });
         break;
       case 'call.start': {
         const previous = calls.get(caller);
-        const continuing = event.role === 'planner' && previous && !previous.handed ? previous : undefined;
         const at = event.answers ? fold.asked.get(event.answers) : undefined;
-        const source = event.role === 'planner' ? fold.plannerInbox.splice(0)[0] : undefined;
+        // Flow reads the inbox prefix as the call starts, and consumes it only after an
+        // accepted handoff. A correction reads that same prefix; a resumed turn can read
+        // newly arrived letters too. Old records retain these same call/letter boundaries.
+        const plannerTaken = event.role === 'planner' ? event.planner_inputs ?? fold.plannerInbox.length : undefined;
+        const inputs = event.role === 'planner' ? fold.plannerInbox.slice(0, plannerTaken) : [];
+        const sources = new Set(inputs);
+        const source = event.role === 'planner' && sources.size === 1 && plannerTaken === inputs.length
+          ? sources.values().next().value : undefined;
+        // Mixed or unknown input has no single operator owner. Keep its own row and let
+        // new tasks inherit it, rather than choosing either request by arrival order.
+        const continuing = event.role === 'planner' && previous && !previous.handed && previous.source === source ? previous : undefined;
         calls.set(caller, { id: `c${line}`, reply: input ? `m${input.callLine}-argus` : continuing?.reply ?? source ?? `m${at ?? line}-argus`,
           order: input ? input.line + 0.1 : continuing?.order ?? (at ?? line) + 0.1,
-          handed: false, ...event.answers ? { answers: event.answers } : {} });
+          handed: false, ...plannerTaken !== undefined ? { plannerTaken, ...source ? { source } : {} } : {}, ...event.answers ? { answers: event.answers } : {} });
         row('provider.request.started', { call_id: `c${line}`, run_label: event.role, agent_layer: event.role, ...where });
         break;
       }
@@ -139,6 +148,7 @@ export function webEvents(events: Recorded[], fold: Fold = newFold()): EventMsg[
         if (event.role !== 'manager' && event.role !== 'planner') calls.delete(caller);
         break;
       case 'handoff':
+        if (event.role === 'planner' && !calls.get(caller)?.handed) fold.plannerInbox.splice(0, calls.get(caller)?.plannerTaken ?? 0);
         if (calls.has(caller)) calls.get(caller)!.handed = true;
         // Every letter of the Manager's is in the conversation: its reply, and what it hands the team, with whom to.
         if (event.role === 'manager') {
@@ -157,11 +167,11 @@ export function webEvents(events: Recorded[], fold: Fold = newFold()): EventMsg[
         }
         if (event.task && (event.role === 'manager' || event.role === 'planner')) {
           const reply = calls.get(caller)?.reply;
-          if (reply) fold.taskReplies.set(event.task, reply);
+          if (reply && (event.role === 'manager' || !fold.taskReplies.has(event.task))) fold.taskReplies.set(event.task, reply);
         }
-        if (event.task && event.to === 'planner') {
+        if (event.task && event.to === 'planner' && event.role !== 'manager' && event.role !== 'planner') {
           const reply = fold.taskReplies.get(event.task);
-          if (reply) fold.plannerInbox.push(reply);
+          fold.plannerInbox.push(reply);
         }
         break;
       case 'task.added':
@@ -461,8 +471,7 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
       message_id: owner.reply, order: previous?.order ?? owner.order, ts: previous?.ts ?? call.started_ts,
       event_id: Math.max(reading.stateLine, Number(previous?.event_id ?? 0)),
       steps: [...(previous?.steps as string[] | undefined ?? []), ...call.words && call.wordsKind !== 'answer' ? [call.words] : []],
-      text: call.role === 'manager' && call.wordsKind === 'answer' ? call.words ?? '' : previous?.text ?? '',
-      ...call.role === 'manager' ? { live: true, status: 'running' } : {} });
+      text: call.role === 'manager' && call.wordsKind === 'answer' ? call.words ?? '' : previous?.text ?? '' });
   }
   const rows = [...projected.values()];
   const items = backlog(project);

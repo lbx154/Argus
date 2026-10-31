@@ -41,9 +41,9 @@ describe("the living status line", () => {
     let root!: ReturnType<typeof create>;
     expect(message).toBe('已找到长路径的显示入口，正在检查手机详情。');
     act(() => { root = create(<LiveLine role="manager" zh />); });
-    expect(text(root)).toBe('正在回复你的消息');
+    expect(text(root)).toBe('正在处理团队工作');
     expect(latestManagerMessage([...records, { type: 'provider.request.started', agent_layer: 'manager', call_id: 'c2' }])).toBe('');
-    expect(roleActionLabel('manager', false)).toBe('Replying to your message');
+    expect(roleActionLabel('manager', false)).toBe('Working with the team');
     act(() => root.unmount());
   });
 });
