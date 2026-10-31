@@ -60,11 +60,19 @@ const join = (...parts: (string | false | null)[]): string => parts.filter(Boole
 export const instructions = (role: Role, project: Project, store: Store): string =>
   join(rules(role), where(project, store, role));
 
+/** The team's scratch for this project, outside its workspace. */
+export function scratch(store: Store, project: Project): string {
+  const dir = resolve(store.dir(project.id), 'scratch');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 function where(project: Project, store: Store, role: Role): string {
   const library = skillsHome(store.home);
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
     `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
+    `Scratch, outside the workspace: ${scratch(store, project)} (the Engineer writes it; every role reads it)`,
     `Skills (Argus's own, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
     role !== 'reviewer' && KEPT.includes(project.backend)
