@@ -1085,7 +1085,7 @@ impl BackendSupervisor {
         let mut command = Command::new(&launch.command);
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
-        command.args(["-m", "argus.tools.desktop_probe", "--backend", kind, "--executable", runner])
+        command.args(["-m", "argus.apps.desktop_probe", "--backend", kind, "--executable", runner])
             .current_dir(&launch.cwd)
             .env("ARGUS_SKILL_HOME", argus_home_dir())
             .env("PYTHONUTF8", "1")

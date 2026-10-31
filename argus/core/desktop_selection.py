@@ -24,9 +24,11 @@ def prepare_selection(env: MutableMapping[str, str], saved: Mapping[str, str]) -
     backend = str(env.get("ARGUS_SKILL_RUNNER_BACKEND", "")).strip().lower()
     if not env.get("ARGUS_DESKTOP_LAUNCH_NONCE") or not backend:
         return ""
-    from ..agent_cli.runner_backend import normalize_runner_backend
+    from .knobs import normalize_cockpit_knob_value
 
-    backend = normalize_runner_backend(backend)
+    # Use the existing core configuration contract, not a new upward import
+    # from kernel selection state into the CLI provider implementation.
+    backend = normalize_cockpit_knob_value("ARGUS_SKILL_RUNNER_BACKEND", backend)
     env[SELECTED_BACKEND] = backend
     env["ARGUS_SKILL_RUNNER_BACKEND"] = backend
     env["ARGUS_SKILL_LIFE_BACKEND"] = backend

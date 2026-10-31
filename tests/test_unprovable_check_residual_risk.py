@@ -214,9 +214,19 @@ def _answered(check: str, option: str = "accept", *, note: str = "") -> dict:
 _CHECK = "Live feed ingestion with the grading-time token"
 
 
+def _unverifiable_description(*, operator: bool) -> str:
+    tools = {tool["name"]: tool for tool in review_actions(grounding=_grounding(operator=operator)).tools}
+    schema = tools["hand_off"]["inputSchema"]
+    assert schema["required"] == ["decision"]
+    variants = schema["properties"]["decision"]["anyOf"]
+    # This hint belongs to the reviewer's return-to-engineer branch. The host
+    # authorization assertions below still exercise the real dispatch contract.
+    branch = next(item for item in variants if item["properties"]["to"]["enum"] == ["engineer"])
+    return branch["properties"]["unverifiable"]["description"]
+
+
 def test_with_an_operator_only_the_operator_can_accept_the_risk() -> None:
-    tools = {tool["name"]: tool for tool in review_actions(grounding=_grounding(operator=True)).tools}
-    description = tools["hand_off"]["inputSchema"]["properties"]["unverifiable"]["description"]
+    description = _unverifiable_description(operator=True)
     assert "their decision" in description and "to=operator" in description
     assert "accept_risk" in description
 
@@ -280,8 +290,7 @@ def test_operator_words_or_boilerplate_never_read_as_acceptance(tmp_path, monkey
 
 
 def test_without_an_operator_only_a_recorded_manager_acceptance_counts() -> None:
-    tools = {tool["name"]: tool for tool in review_actions(grounding=_grounding(operator=False)).tools}
-    description = tools["hand_off"]["inputSchema"]["properties"]["unverifiable"]["description"]
+    description = _unverifiable_description(operator=False)
     assert "the Manager sees this and decides whether to accept that risk" in description
 
     with pytest.raises(ValueError, match="listed under Accepted residual risk"):

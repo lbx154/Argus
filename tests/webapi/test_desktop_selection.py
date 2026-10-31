@@ -23,6 +23,21 @@ def test_native_selection_keeps_type_path_and_clears_foreign_model_context(backe
     assert read_persisted_knobs() == saved
 
 
+@pytest.mark.parametrize("raw,expected", [(" DSH ", "dsh"), ("opencod", "opencode")])
+def test_native_selection_reuses_core_backend_validation(raw, expected):
+    env = {"ARGUS_DESKTOP_LAUNCH_NONCE": "fixture", "ARGUS_SKILL_RUNNER_BACKEND": raw}
+    assert prepare_selection(env, {}) == expected
+    assert env[SELECTED_BACKEND] == expected
+
+
+def test_unknown_native_backend_does_not_partially_mutate_selection():
+    env = {"ARGUS_DESKTOP_LAUNCH_NONCE": "fixture", "ARGUS_SKILL_RUNNER_BACKEND": "copilto"}
+    before = dict(env)
+    with pytest.raises(ValueError):
+        prepare_selection(env, {})
+    assert env == before
+
+
 def test_retired_trial_pins_are_not_reused_for_a_personally_installed_copilot():
     saved = {"ARGUS_SKILL_RUNNER_BACKEND": "copilot", "ARGUS_SKILL_COPILOT_TRIAL": "1",
              "ARGUS_SKILL_MODEL": "argus-trial", "ARGUS_SKILL_MANAGER_MODEL": "argus-trial"}

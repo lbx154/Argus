@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import time
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -15,6 +16,7 @@ def probe(backend: str, executable: str) -> dict:
     from ..core.knob_store import read_persisted_knobs
     from ..core.knobs import resolve_role_model
     from ..core.role_actions import ACTION_BACKENDS, role_actions
+    from ..core.run_gateway import run_exec
     from ..manager.form import manager_actions
 
     if backend not in ACTION_BACKENDS:
@@ -39,7 +41,8 @@ def probe(backend: str, executable: str) -> dict:
             )
             runner = AgentCliRunner(agent_bin=executable, backend=backend)
             with role_actions(runner, options, actions) as bound:
-                result = runner.run_exec(
+                result = run_exec(
+                    runner, run_label="desktop-readiness",
                     prompt=f"This is an explicit CLI readiness check, not project work. Call the Argus hand_off tool once with decision={{'to':'manager','summary':'{challenge}','assumptions':[]}}, then reply with exactly {challenge}. Omit all other fields: no ask, answer, control, config or workflow_setup. Do not use other tools or change files/settings.",
                     resume_thread_id=None, options=bound,
                 )
@@ -63,7 +66,9 @@ def main() -> int:
     args = parser.parse_args()
     try:
         result = probe(args.backend, args.executable)
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        # Expected configuration/process failures get a sanitized CLI receipt.
+        # Programming errors must fail loudly instead of becoming fake readiness.
         result = {"ok": False, "backend": args.backend, "error": f"{type(exc).__name__}: {exc}"}
     print(json.dumps(redact_secrets_record(result, known_values=known_secret_values()), ensure_ascii=False))
     return 0 if result.get("ok") else 1

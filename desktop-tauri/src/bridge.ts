@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { DesktopStatus, LaunchState } from './backendStatus';
+export type { DesktopStatus, LaunchState } from './backendStatus';
 
 export type RunnerKind =
   | 'codex'
@@ -12,17 +14,6 @@ export type RunnerKind =
   | 'qoder'
   | 'dsh';
 export type AppearanceTheme = 'system' | 'light' | 'dark';
-export type LaunchState = 'idle' | 'starting' | 'ready' | 'error' | 'stopped';
-
-export interface DesktopStatus {
-  state: LaunchState;
-  message: string;
-  detail?: string;
-  warning?: string;
-  pid?: number;
-  url?: string;
-}
-
 export interface PiConfiguration {
   configDir: string;
   provider?: string;

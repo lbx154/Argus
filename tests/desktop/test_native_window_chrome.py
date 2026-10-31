@@ -196,7 +196,8 @@ def test_update_checks_leave_startup_idle_and_retry_transient_failures() -> None
         encoding="utf-8"
     )
 
-    assert "AUTO_START_DELAY: Duration = Duration::from_secs(30)" in updater
+    assert "AUTO_START_DELAY: Duration = Duration::from_secs(5)" in updater
+    assert "tokio::time::sleep(AUTO_START_DELAY).await" in updater
     assert "UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(15)" in updater
     assert "PROGRESS_EMIT_INTERVAL" in updater
     smoke = (TAURI_ROOT / "scripts" / "smoke-host.py").read_text(encoding="utf-8")

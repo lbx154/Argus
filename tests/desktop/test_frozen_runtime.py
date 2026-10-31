@@ -207,7 +207,7 @@ def test_frozen_build_hook_extends_existing_payload(monkeypatch):
     assert ("product_assets", "product/assets") in namespace["datas"]
     assert "example_product.worker" in namespace["hiddenimports"]
     assert "argus.trial.desktop" not in namespace["hiddenimports"]
-    assert "argus.tools.desktop_probe" in namespace["argus_modules"]
+    assert "argus.apps.desktop_probe" in namespace["argus_modules"]
     monkeypatch.setenv("ARGUS_FROZEN_APPLICATION", "invalid-hook")
     with pytest.raises(ValueError, match="module:function"):
         _execute_spec_collection(ast.parse(SPEC_PATH.read_text()))

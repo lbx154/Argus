@@ -100,13 +100,24 @@ def test_pi_below_supported_floor_fails(monkeypatch) -> None:
     assert "pi update --self" in report.problems[0].remediation
 
 
-@pytest.mark.parametrize("backend", ["cursor", "opencode", "grok", "dsh"])
+@pytest.mark.parametrize("backend", ["cursor", "opencode", "grok"])
 def test_a_backend_that_cannot_submit_argus_actions_is_refused(backend) -> None:
     report = readiness.check_backend_readiness(backend, "subscription_cli")
 
     assert not report.ok
     assert report.problems[0].capability == "backend"
     assert "cannot submit Argus actions" in report.problems[0].detail
+
+
+def test_dsh_with_action_bridge_reaches_its_own_cli_preflight(monkeypatch) -> None:
+    monkeypatch.setattr(readiness, "resolve_runner_bin", lambda *_args: "/bin/dsh")
+    monkeypatch.setattr(readiness, "_run_text", lambda *_args, **_kwargs: _completed("dsh 0.2.0\n"))
+
+    report = readiness.check_backend_readiness("dsh", "subscription_cli", probe_auth=False)
+
+    assert report.ok
+    assert report.executable == "/bin/dsh"
+    assert not report.auth_checked  # No paid/live authentication claim in this fixture.
 
 
 def test_qoder_readiness_accepts_pat_without_spending_a_turn(

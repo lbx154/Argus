@@ -28,7 +28,7 @@ def main():
                         "--workpath", str(ROOT / "build/.work")], cwd=REPO, check=True)
         for arguments in (["--verify-frozen-runtime"],
                           ["-I", "-m", "argus.tools.manager_live_view", "--help"],
-                          ["-m", "argus.tools.desktop_probe", "--help"]):
+                          ["-m", "argus.apps.desktop_probe", "--help"]):
             subprocess.run([str(executable), *arguments], cwd=REPO, check=True)
     if not executable.is_file():
         raise SystemExit("Frozen backend missing. Run npm run build:backend first.")

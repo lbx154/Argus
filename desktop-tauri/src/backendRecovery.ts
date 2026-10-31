@@ -1,4 +1,4 @@
-import type { DesktopStatus } from './bridge';
+import type { DesktopStatus } from './backendStatus';
 
 /** One notification per recovered backend, not per health/status repaint.
  * Keep readiness pending while the cockpit is hidden or still loading. */
