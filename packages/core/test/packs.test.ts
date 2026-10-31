@@ -183,6 +183,12 @@ test("a team skill offered to the store is checked by the store's rule, kept for
     await write(join(home, 'skills', 'materials', 'checks', compiled), '');
     await truncate(join(home, 'skills', 'materials', 'checks', compiled), 8 * 2 ** 20);
   }
+  // Without a host that answers offers there is nothing to offer: the page shows none, and none is kept.
+  assert.ok(!('contribution' in ((await items()).find(item => item.name === 'materials') ?? {})));
+  const nobody = await offer('materials');
+  assert.equal(nobody.status, 400);
+  assert.equal((await nobody.json()).code, 'request_failed');
+  await mkdir(join(home, 'contributions'));
   assert.equal(await shown('materials'), null);
   // Two offers at once, from two tabs say, are both kept, one after the other.
   assert.deepEqual((await Promise.all([offer('materials'), offer('materials')])).map(answer => answer.status), [200, 200]);
@@ -209,6 +215,9 @@ test("a team skill offered to the store is checked by the store's rule, kept for
   await symlink(join(home, 'skills', 'materials', 'checks', 'check.mjs'), join(home, 'skills', 'linked', 'check.mjs'));
   await skill('linked-folder');
   await symlink(join(home, 'skills', 'materials', 'checks'), join(home, 'skills', 'linked-folder', 'checks'));
+  // A link to a folder above is refused where it is met, not walked: walking it would never end.
+  await skill('looped');
+  await symlink(join(home, 'skills'), join(home, 'skills', 'looped', 'up'));
   await skill('large');
   await writeFile(join(home, 'skills', 'large', 'data.bin'), '');
   await truncate(join(home, 'skills', 'large', 'data.bin'), 8 * 2 ** 20);
@@ -218,7 +227,7 @@ test("a team skill offered to the store is checked by the store's rule, kept for
   await skill('undescribed', body().replace('description:', 'other:'));
   // Only the store's rule answers with its code, whose reason the page shows; not the team's skill, or no name, is another error.
   const other = new Set<unknown>(['installed', 'research', 1]);
-  for (const [name, reason] of [['learning', /name of a skill Argus comes with/], ['linked', /check\.mjs is a link/], ['linked-folder', /checks is a link/],
+  for (const [name, reason] of [['learning', /name of a skill Argus comes with/], ['linked', /check\.mjs is a link/], ['linked-folder', /checks is a link/], ['looped', /up is a link/],
     ['large', /at most 8 MiB; this one holds 8\.0 MiB/], ['hidden', /cannot hold "\.env"/], ['Named', /store name/], ['undescribed', /description/],
     ['installed', /No such team skill/], ['research', /No such team skill/], ['../skills/materials', /store name/], [1, /Name required/]] as const) {
     const refused = await offer(name);

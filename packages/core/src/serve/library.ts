@@ -4,7 +4,7 @@
 
 import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { add, catalog, contribute, contribution, installed, Refused, remove } from '../packs.js';
+import { add, catalog, contribute, contribution, installed, offered, Refused, remove } from '../packs.js';
 import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
@@ -26,17 +26,21 @@ export function library(store: Store): [string, RegExp, Handler][] {
       catch (error) { throw new HttpError(400, error instanceof Error ? error.message : String(error), error instanceof Refused ? 'not_for_store' : ''); }
       return { ok: true };
     }] as [string, RegExp, Handler]),
-    // Argus's own skills are the page's 'bundled' library, the roles' and the operator's its 'shared' one.
-    ['GET', /^\/api\/skill-library$/, () => ({
-      items: [...skills(store.home)].map(([name, dir]) => {
-        const source = dirname(dir) === SKILLS ? 'bundled' : dirname(dir) === packsHome(store.home) ? 'store' : 'shared';
-        return {
-          library: source, source, path: `${name}/${SKILL}`, name, description: purpose(dir), version: purpose(dir, 'version'),
-          updated_at: source === 'bundled' ? null : statSync(join(dir, SKILL)).mtimeMs / 1000,
-          ...source === 'shared' ? { contribution: contribution(store.home, name) } : {},
-        };
-      }),
-    })],
+    // Argus's own skills are the page's 'bundled' library, the roles' and the operator's its 'shared' one;
+    // a team skill can be offered to the store only where a host answers offers.
+    ['GET', /^\/api\/skill-library$/, () => {
+      const host = offered(store.home);
+      return {
+        items: [...skills(store.home)].map(([name, dir]) => {
+          const source = dirname(dir) === SKILLS ? 'bundled' : dirname(dir) === packsHome(store.home) ? 'store' : 'shared';
+          return {
+            library: source, source, path: `${name}/${SKILL}`, name, description: purpose(dir), version: purpose(dir, 'version'),
+            updated_at: source === 'bundled' ? null : statSync(join(dir, SKILL)).mtimeMs / 1000,
+            ...source === 'shared' && host ? { contribution: contribution(store.home, name) } : {},
+          };
+        }),
+      };
+    }],
     ['GET', /^\/api\/skill-library\/document$/, ({ url }) => {
       const name = url.searchParams.get('library');
       const root = name === 'bundled' ? SKILLS : name === 'shared' ? skillsHome(store.home) : name === 'store' ? packsHome(store.home) : null;

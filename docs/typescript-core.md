@@ -112,8 +112,9 @@ installed directory; a failed download leaves the installed version intact and r
 In the Linux sandbox, all roles receive the pack root as read-only, alongside bundled skills; team write permissions
 stay in `$ARGUS_HOME/skills/`.
 
-The operator may offer a team skill to the store (`POST /api/skill-library/contribute {name}`, the
-**Skill library**'s button, after a confirmation). Argus holds the folder to the same rule, walking it
+Where a host answers offers, which it shows by making `$ARGUS_HOME/contributions/`, the operator may offer a team
+skill to the store (`POST /api/skill-library/contribute {name}`, the **Skill library**'s button, after a confirmation);
+without that folder nobody would answer, so the page offers nothing and the request is refused. Argus holds the folder to the same rule, walking it
 without following links and refusing a link or anything not a regular file, and leaving out `__pycache__/`
 and `.pyc` files as the store's catalog does; it answers a skill the store would not take with 400, code
 `not_for_store`, and the reason. One it would take is recorded, written whole, as
@@ -122,7 +123,7 @@ and `.pyc` files as the store's catalog does; it answers a skill the store would
 picks up a file without `submitted_at`, or with `requested_at` later than it, opens or updates a pull
 request to `Argus-AiTeam/argus-verticals`'s `packs/<name>/`, and rewrites the file whole with `url`
 or a one-sentence `error`, and `submitted_at`. `GET /api/skill-library` gives each team skill its
-file as `contribution`, null when there is none. In the sandbox the roles cannot write `contributions/`.
+file as `contribution`, null when there is none, and no `contribution` where no host answers. In the sandbox the roles cannot write `contributions/`.
 
 A skill is what was learned about a kind of work, kept as a folder whose `SKILL.md` says in its
 front matter (`name`, `description`), as Codex and Claude Code write a skill, what the work is: Argus's own in `packages/core/skills/<name>/`, which an upgrade

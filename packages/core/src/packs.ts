@@ -1,8 +1,8 @@
 // The operator's skill store. Both entry points install through this transaction; roles only read it.
 // The operator may offer the team's own skills to it, which the host turns into a pull request.
-import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from './prompts.js';
 
 const CATALOG = 'https://raw.githubusercontent.com/Argus-AiTeam/argus-verticals/main/packs/catalog.json';
@@ -102,9 +102,21 @@ export async function remove(home: string, value: string): Promise<void> {
 
 /** The operator's offer of a team skill to the store, kept as contributions/<name>.json; the host opens
  * a pull request from it, which the store's maintainers review, and answers in the same file: the
- * pull request's `url`, or an `error`, at `submitted_at`. */
+ * pull request's `url`, or an `error`, at `submitted_at`. A host that does so makes contributions/;
+ * without it no one would answer, so there is nothing to offer. */
 export interface Contribution { name: string; version: string; requested_at: number; submitted_at?: number; url?: string; error?: string }
 const offer = (home: string, value: string): string => resolve(home, 'contributions', `${value}.json`);
+export const offered = (home: string): boolean => lstatSync(resolve(home, 'contributions'), { throwIfNoEntry: false })?.isDirectory() ?? false;
+/** The folder's files, as the store would hold them: compiled Python left out, a link refused where it is met, never followed. */
+function* held(dir: string, under = ''): Generator<{ path: string; size: number }> {
+  for (const entry of readdirSync(join(dir, under), { withFileTypes: true })) {
+    const path = under ? `${under}/${entry.name}` : entry.name;
+    if (entry.name === '__pycache__' || entry.name.endsWith('.pyc')) continue;
+    if (entry.isDirectory()) yield* held(dir, path);
+    else if (entry.isFile()) yield { path, size: lstatSync(join(dir, path)).size };
+    else throw new Refused(`${path} is a link or not a regular file; the store holds only regular files`);
+  }
+}
 /** The offer of the team's skill `value`; null when there is none, or it cannot be read. */
 export function contribution(home: string, value: string): Contribution | null {
   try { return JSON.parse(readFileSync(offer(home, value), 'utf8')) as Contribution; } catch { return null; }
@@ -116,19 +128,11 @@ export class Refused extends Error {}
 export function contribute(home: string, value: string): void {
   const dir = resolve(skillsHome(home), value);
   if (!skills(home).some(([, found]) => found === dir)) throw new Error(`No such team skill: ${value}`);
-  // The folder file by file, as the store would hold it, which leaves out compiled Python: a link is refused, not followed.
-  const files = readdirSync(dir, { recursive: true, withFileTypes: true }).flatMap(entry => {
-    const file = join(entry.parentPath, entry.name);
-    const path = relative(dir, file).split(sep).join('/');
-    if (entry.isDirectory() || path.endsWith('.pyc') || path.split('/').includes('__pycache__')) return [];
-    if (!entry.isFile()) throw new Refused(`${path} is a link or not a regular file; the store holds only regular files`);
-    return [{ path, size: lstatSync(file).size }];
-  });
+  if (!offered(home)) throw new Error('No host here opens pull requests to the skill store');
   const version = purpose(dir, 'version') || '0.1.0';
-  const reason = fault({ name: value, version, description: purpose(dir), requires: [], needs: [], files });
+  const reason = fault({ name: value, version, description: purpose(dir), requires: [], needs: [], files: [...held(dir)] });
   if (reason) throw new Refused(reason);
   const file = offer(home, value);
-  mkdirSync(dirname(file), { recursive: true });
   writeFileSync(`${file}.${process.pid}.tmp`, JSON.stringify({ name: value, version, requested_at: Date.now() / 1000 }));
   renameSync(`${file}.${process.pid}.tmp`, file);
 }
