@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 const script = fileURLToPath(new URL('../skills/rl/ledger.mjs', import.meta.url));
 const base = { parent: '', model: 'small', benchmark: 'math pass@1', metric: 'accuracy', value: 10, baseline: 10,
   change: 'framework v1 CPU', gpu_h: 0, verdict: 'baseline', path: 'result.txt' };
 function setup(t: { after: (fn: () => void) => void }) {
-  const cwd = mkdtempSync('/fastdata/v-boxiuli/argus-work/scratch/ledger-test-');
+  const cwd = mkdtempSync(join(tmpdir(), 'argus-ledger-'));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   writeFileSync(join(cwd, 'result.txt'), 'actual result');
   const file = join(cwd, 'runs', 'p-one.tsv');
@@ -19,7 +20,8 @@ function setup(t: { after: (fn: () => void) => void }) {
 test('ledger add owns columns, numbering, UTC dates, normalization and local/cross-project parents', t => {
   const { file, run, cwd } = setup(t);
   assert.equal(run('add', { ...base, change: 'framework\tversion\r\nCPU short abc1234' }).status, 0);
-  const first = readFileSync(file, 'utf8').split('\n');
+  assert.equal(readFileSync(file, 'utf8').split('\n')[0], 'date\tparent\tmodel\tbenchmark\tmetric\tvalue\tbaseline\tchange\tgpu_h\tverdict\tpath');
+  const first = run('show').stdout.split('\n');
   assert.equal(first[0], 'run\tdate\tparent\tmodel\tbenchmark\tmetric\tvalue\tbaseline\tchange\tgpu_h\tverdict\tpath');
   assert.match(first[1]!, /^r1\t\d{4}-\d{2}-\d{2}\t/);
   assert.equal(first[1]!.split('\t')[8], 'framework version  CPU short abc1234');
@@ -54,8 +56,8 @@ test('show keeps 20 recent rows plus last better per benchmark and reports all b
   const shown = run('show'); assert.equal(shown.status, 0);
   const lines = shown.stdout.trim().split('\n'); assert.equal(lines.length, 22);
   assert.ok(lines.some(line => line.startsWith('r3\t'))); assert.ok(!lines.some(line => line.startsWith('r2\t')));
-  appendFileSync(file, 'bad\trow\n' + readFileSync(file, 'utf8').split('\n')[1] + '\n');
-  const bad = run('show'); assert.equal(bad.status, 1); assert.match(bad.stderr, /line 27: wrong column count/); assert.match(bad.stderr, /line 28: duplicate run/);
+  appendFileSync(file, 'bad\trow\n');
+  const bad = run('show'); assert.equal(bad.status, 1); assert.match(bad.stderr, /line 27: wrong column count/);
   assert.equal(run('add', base).status, 1);
 });
 test('near excludes current project, filters benchmark/model and selects baseline, final better and all broken, capped at 30', t => {
@@ -72,4 +74,12 @@ test('near excludes current project, filters benchmark/model and selects baselin
   for (let i = 0; i < 35; i++) assert.equal(run('add', { ...base, parent: 'r1', verdict: 'broken' }, other).status, 0);
   assert.equal(run('near', base.benchmark).stdout.trim().split('\n').length, 31);
   appendFileSync(other, 'bad\n'); assert.equal(run('near', base.benchmark).status, 1);
+});
+test('writers appending at once each get their own run and one header', async t => {
+  const { cwd, file, run } = setup(t);
+  const add = () => new Promise<number | null>(done => spawn(process.execPath, [script, file, 'add', JSON.stringify(base)], { cwd }).on('close', done));
+  assert.deepEqual(await Promise.all(Array.from({ length: 8 }, add)), Array(8).fill(0));
+  const shown = run('show'); assert.equal(shown.status, 0, shown.stderr);
+  assert.deepEqual(shown.stdout.trim().split('\n').slice(1).map(line => line.split('\t')[0]), ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8']);
+  assert.equal(run('add', base).status, 0);
 });

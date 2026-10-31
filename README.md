@@ -78,7 +78,7 @@ Planner and Reviewer can read them. The web page shows them in **Skill library**
 as they change. The **Skill store** tab installs and uninstalls community packs synchronously;
 `argus skills` lists catalog and installed versions and requirements, `argus skills add <name>`
 installs or replaces a pack, and `argus skills remove <name>` removes it. Packs live in
-`$ARGUS_HOME/skill-packs/` and all roles can only read them. Argus does not reflect, score or curate; when to write or change a skill is the roles' decision.
+`$ARGUS_HOME/skill-packs/` and the roles can only read them where they run in the Linux sandbox (bubblewrap). Argus does not reflect, score or curate; when to write or change a skill is the roles' decision.
 
 **Sandbox.** On Linux with bubblewrap (`bwrap`), every backend call runs in a sandbox:
 system directories read-only, the project directory writable (read-only for the Planner

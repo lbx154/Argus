@@ -70,7 +70,7 @@
 不打分、不整理；什么时候写技能、改哪里，由角色自己决定。
 技能库里的**技能商店**支持同步安装、卸载社区技能包。`argus skills` 列出目录版本、
 已装版本和运行要求；`argus skills add <name>` 安装或替换，`argus skills remove <name>` 卸载。
-包存放在 `$ARGUS_HOME/skill-packs/`，所有角色对它都只有读取权限。
+包存放在 `$ARGUS_HOME/skill-packs/`，在 Linux 沙箱（bubblewrap）里运行时，各角色对它只有读取权限。
 
 **沙箱。**在装有 bubblewrap（`bwrap`）的 Linux 上，每次后端调用都在沙箱里运行：系统目录
 只读，项目目录可写（对规划者和审查者只读），家目录是私有的，只带入该 CLI 的登录信息和设置。没有

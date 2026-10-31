@@ -100,14 +100,16 @@ The catalog contains `packs`, each with `name`, `version`, `description`, option
 `needs` are arrays of strings. This first version rejects packs with nonempty `requires`;
 `needs` describes requirements without installing them.
 
-Downloads reject redirects, catalogs larger than 1 MiB and packs larger than 8 MiB. Names
-cannot conflict with bundled skills; file paths cannot escape the pack, include backslashes
-or contain a segment starting with a dot. Every download must match its declared byte count.
+Downloads reject redirects and catalogs larger than 1 MiB, and give up after 30 seconds. A pack
+this version cannot install is left out of the catalog, the rest still listed: one larger than
+8 MiB, without `SKILL.md`, named like a bundled skill, or with a file path that escapes the pack,
+includes a backslash or has a segment starting with a dot. Fields it does not know are ignored.
+Every download must match its declared byte count.
 `SKILL.md` must contain a description and a front-matter version matching the catalog.
 That front matter is the only installed-version record. A complete validated download is
-staged outside the listed roots, under `$ARGUS_HOME/skill-packs.tmp/`, before replacing the
+staged outside the listed roots, in `$ARGUS_HOME/skill-packs.tmp-<name>-*/`, before replacing the
 installed directory; a failed download leaves the installed version intact and removes staging.
-All roles receive the pack root as read-only, alongside bundled skills; team write permissions
+In the Linux sandbox, all roles receive the pack root as read-only, alongside bundled skills; team write permissions
 stay in `$ARGUS_HOME/skills/`.
 
 A skill is what was learned about a kind of work, kept as a folder whose `SKILL.md` says in its

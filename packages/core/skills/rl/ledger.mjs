@@ -1,7 +1,8 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { appendFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-const columns = 'run date parent model benchmark metric value baseline change gpu_h verdict path'.split(' ');
+// A run is named by its line, r1 first, so writers appending at once never share a name.
+const columns = 'date parent model benchmark metric value baseline change gpu_h verdict path'.split(' ');
 const header = columns.join('\t');
 const verdicts = ['baseline', 'better', 'worse', 'same', 'broken'];
 const [file, command, argument, model] = process.argv.slice(2);
@@ -11,26 +12,25 @@ function read(path) {
   const lines = readFileSync(path, 'utf8').split(/\r?\n/);
   if (lines.at(-1) === '') lines.pop();
   if (lines.shift() !== header) fail(`${path}: line 1: invalid header`);
-  const seen = new Set();
   return lines.flatMap((line, index) => {
     const cells = line.split('\t');
-    if (cells.length !== columns.length || seen.has(cells[0])) {
-      console.error(`${path}: line ${index + 2}: ${cells.length !== columns.length ? 'wrong column count' : 'duplicate run'}`);
+    if (cells.length !== columns.length) {
+      console.error(`${path}: line ${index + 2}: wrong column count`);
       process.exitCode = 1;
       return [];
     }
-    seen.add(cells[0]);
-    return [Object.fromEntries(columns.map((key, i) => [key, cells[i]]))];
+    return [{ run: `r${index + 1}`, ...Object.fromEntries(columns.map((key, i) => [key, cells[i]])) }];
   });
 }
-const print = rows => console.log([header, ...rows.map(row => columns.map(key => row[key]).join('\t'))].join('\n'));
+const shown = ['run', ...columns];
+const print = rows => console.log([shown.join('\t'), ...rows.map(row => shown.map(key => row[key]).join('\t'))].join('\n'));
 try {
   if (!file) fail('Usage: ledger.mjs <ledger.tsv> add <JSON> | show | near <benchmark> [model]');
   const rows = read(file);
   if (command === 'add') {
     if (process.exitCode) fail('Refusing to append to a damaged ledger');
     const row = JSON.parse(argument);
-    const keys = columns.slice(2);
+    const keys = columns.slice(1);
     if (!row || Array.isArray(row) || Object.keys(row).length !== keys.length || keys.some(key => !Object.hasOwn(row, key))) fail(`Required keys: ${keys.join(', ')}`);
     for (const key of keys) {
       if (/[a-f0-9]{32,}/i.test(String(row[key]))) fail(`Hash-like value in ${key}`);
@@ -49,10 +49,16 @@ try {
     } else if (row.verdict !== 'baseline') fail('Only baseline may have an empty parent');
     if (!row.path || isAbsolute(row.path) || row.path.includes('\\') || !existsSync(row.path)) fail('Result path must exist in the workspace');
     const local = relative(realpathSync('.'), realpathSync(row.path));
-    if (local === '..' || local.startsWith('../') || isAbsolute(local)) fail('Result path is outside the workspace');
-    row.run = `r${rows.length + 1}`; row.date = new Date().toISOString().slice(0, 10);
+    if (local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) fail('Result path is outside the workspace');
+    row.date = new Date().toISOString().slice(0, 10);
     mkdirSync(dirname(file), { recursive: true });
-    appendFileSync(file, `${existsSync(file) ? '' : `${header}\n`}${columns.map(key => row[key]).join('\t')}\n`);
+    if (!existsSync(file)) {
+      // The header lands whole or not at all, whoever creates the file first.
+      const draft = `${file}.${process.pid}`;
+      writeFileSync(draft, `${header}\n`);
+      try { linkSync(draft, file); } catch (error) { if (error.code !== 'EEXIST') throw error; } finally { unlinkSync(draft); }
+    }
+    appendFileSync(file, `${columns.map(key => row[key]).join('\t')}\n`);
   } else if (command === 'show') {
     const better = new Map(rows.filter(row => row.verdict === 'better').map(row => [row.benchmark, row]));
     print([...new Set([...rows.slice(-20), ...better.values()])]);

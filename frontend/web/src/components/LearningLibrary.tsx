@@ -11,7 +11,7 @@ import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 
 const skillIdentity = (item: SkillLibraryItem) => `${item.library}/${item.path}`;
-const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => item.source !== 'bundled' && item.updated_at != null)
+const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => item.source === 'shared' && item.updated_at != null)
   .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0) || skillIdentity(a).localeCompare(skillIdentity(b)));
 const libraryQuery = { staleTime: 10_000, refetchInterval: 15_000 };
 
@@ -70,7 +70,7 @@ function LearningBrowser({ sid, initialScope, onUse }: {
   const [selection, setSelection] = useState<SkillLibraryItem | null>(null);
   const skills = useQuery({ ...libraryQuery, queryKey: ['skill-library', sid], queryFn: ({ signal }) => api.skillLibrary(sid, signal) });
   const client = useQueryClient();
-  const packs = useQuery({ queryKey: ['skill-packs'], queryFn: api.skillPacks, enabled: scope === 'store' });
+  const packs = useQuery({ queryKey: ['skill-packs'], queryFn: api.skillPacks, enabled: scope === 'store', retry: false });
   const operation = useMutation({
     mutationFn: ({ name, installed }: { name: string; installed: boolean }) => installed ? api.removeSkillPack(name) : api.addSkillPack(name),
     onSuccess: async () => {

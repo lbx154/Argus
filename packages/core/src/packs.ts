@@ -1,6 +1,6 @@
 // The operator's skill store. Both entry points install through this transaction; roles only read it.
 import { mkdirSync, lstatSync } from 'node:fs';
-import { mkdir, mkdtemp, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { purpose, SKILL, SKILLS } from './prompts.js';
 
@@ -15,12 +15,12 @@ export function packsHome(home: string): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
+const NAME = /^[a-z0-9][a-z0-9_-]*$/;
 function name(value: string): void {
-  if (!/^[a-z0-9][a-z0-9_-]*$/.test(value)) throw new Error('Invalid pack name');
-  if (lstatSync(resolve(SKILLS, value), { throwIfNoEntry: false })) throw new Error(`Pack conflicts with bundled skill: ${value}`);
+  if (!NAME.test(value)) throw new Error('Invalid pack name');
 }
 async function download(url: string, limit: number): Promise<Buffer> {
-  const response = await fetch(url, { redirect: 'error' });
+  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30_000) });
   if (!response.ok) { await response.body?.cancel(); throw new Error(`Download failed: HTTP ${response.status}`); }
   const reader = response.body?.getReader();
   if (!reader) throw new Error('Download has no body');
@@ -37,32 +37,30 @@ async function download(url: string, limit: number): Promise<Buffer> {
     return Buffer.concat(chunks);
   } finally { await reader.cancel(); }
 }
+/** Whether this version can install a pack. One it cannot is left out of the catalog, so that one
+ * entry, or a field added later, never takes the whole store down. */
+function usable(pack: Pack): boolean {
+  if (!pack || typeof pack.name !== 'string' || !NAME.test(pack.name) || lstatSync(resolve(SKILLS, pack.name), { throwIfNoEntry: false })
+    || typeof pack.version !== 'string' || !pack.version.trim() || /[\r\n]/.test(pack.version)
+    || typeof pack.description !== 'string' || (pack.description_zh !== undefined && typeof pack.description_zh !== 'string')
+    || !Array.isArray(pack.requires) || pack.requires.some(item => typeof item !== 'string' || !NAME.test(item))
+    || !Array.isArray(pack.needs) || pack.needs.some(item => typeof item !== 'string') || !Array.isArray(pack.files)) return false;
+  const paths = new Set<string>();
+  let total = 0;
+  for (const file of pack.files) {
+    if (!file || typeof file.path !== 'string' || file.path.includes('\\') || /[\x00-\x1f:]/.test(file.path)
+      || file.path.split('/').some(part => !part || part.startsWith('.')) || paths.has(file.path)
+      || !Number.isSafeInteger(file.size) || file.size < 0) return false;
+    paths.add(file.path);
+    total += file.size;
+  }
+  return paths.has(SKILL) && total <= 8 * MIB;
+}
 export async function catalog(): Promise<Pack[]> {
   const data = JSON.parse((await download(CATALOG, MIB)).toString('utf8')) as { packs?: Pack[] };
   if (!Array.isArray(data.packs)) throw new Error('Invalid pack catalog');
   const names = new Set<string>();
-  for (const pack of data.packs) {
-    if (!pack || typeof pack.name !== 'string') throw new Error('Invalid pack metadata');
-    name(pack.name);
-    if (names.has(pack.name)) throw new Error('Duplicate pack name');
-    names.add(pack.name);
-    if (Object.keys(pack).some(key => !['name', 'version', 'description', 'description_zh', 'requires', 'needs', 'files'].includes(key))
-      || typeof pack.version !== 'string' || !pack.version.trim() || /[\r\n]/.test(pack.version)
-      || typeof pack.description !== 'string' || (pack.description_zh !== undefined && typeof pack.description_zh !== 'string')
-      || !Array.isArray(pack.requires) || pack.requires.some(item => typeof item !== 'string' || !/^[a-z0-9][a-z0-9_-]*$/.test(item))
-      || !Array.isArray(pack.needs) || pack.needs.some(item => typeof item !== 'string') || !Array.isArray(pack.files)) throw new Error('Invalid pack metadata');
-    const paths = new Set<string>();
-    let total = 0;
-    for (const file of pack.files) {
-      if (!file || typeof file.path !== 'string' || file.path.includes('\\') || /[\x00-\x1f:]/.test(file.path)
-        || file.path.split('/').some(part => !part || part.startsWith('.')) || paths.has(file.path)
-        || !Number.isSafeInteger(file.size) || file.size < 0 || Object.keys(file).some(key => !['path', 'size'].includes(key))) throw new Error('Invalid pack file');
-      paths.add(file.path);
-      total += file.size;
-    }
-    if (!paths.has(SKILL) || total > 8 * MIB) throw new Error('Pack must contain SKILL.md and fit within 8 MiB');
-  }
-  return data.packs;
+  return data.packs.filter(pack => usable(pack) && !names.has(pack.name) && names.add(pack.name));
 }
 export async function add(home: string, value: string): Promise<void> {
   name(value);
@@ -71,9 +69,7 @@ export async function add(home: string, value: string): Promise<void> {
   // Metadata is retained, but dependency installation is outside this first version.
   if (pack.requires.length) throw new Error('Pack dependencies are not supported');
   const target = resolve(packsHome(home), value);
-  const stagingRoot = resolve(home, 'skill-packs.tmp');
-  await mkdir(stagingRoot, { recursive: true });
-  const stage = await mkdtemp(resolve(stagingRoot, `${value}-`));
+  const stage = await mkdtemp(resolve(home, `skill-packs.tmp-${value}-`));
   const fresh = resolve(stage, 'new');
   const old = resolve(stage, 'old');
   let moved = false;
@@ -92,8 +88,6 @@ export async function add(home: string, value: string): Promise<void> {
     catch (error) { if (moved) await rename(old, target); throw error; }
   } finally {
     await rm(stage, { recursive: true, force: true });
-    // Other concurrent transactions may still be using the parent.
-    await rmdir(stagingRoot).catch(error => { if (error.code !== 'ENOTEMPTY' && error.code !== 'ENOENT') throw error; });
   }
 }
 export async function remove(home: string, value: string): Promise<void> {

@@ -5,7 +5,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { add, catalog, packsHome, remove, type Pack } from '../src/packs.js';
 import { instructions, purpose, skills, SKILLS } from '../src/prompts.js';
@@ -52,21 +52,21 @@ test('installation, replacement, rejection and cleanup share a bounded download 
   entries = [pack('3')]; text = body('3');
   const rename = fs.promises.rename;
   const move = t.mock.method(fs.promises, 'rename', async (from: string, to: string) => {
-    if (String(from).endsWith('/new')) throw new Error('Replacement move failed');
+    if (basename(String(from)) === 'new') throw new Error('Replacement move failed');
     return rename(from, to);
   });
   syncBuiltinESMExports();
   try { await assert.rejects(add(home, 'materials'), /Replacement move failed/); }
   finally { move.mock.restore(); syncBuiltinESMExports(); }
   assert.equal(purpose(join(packsHome(home), 'materials'), 'version'), '2');
-  assert.ok(!(await readdir(home)).includes('skill-packs.tmp'));
+  assert.ok(!(await readdir(home)).some(name => name.startsWith('skill-packs.tmp')));
   fail = true;
   await assert.rejects(add(home, 'materials'), /503/);
   assert.equal(purpose(join(packsHome(home), 'materials'), 'version'), '2');
   fail = false;
   for (const path of ['/outside', '../outside', '.hidden', 'checks/.hidden', 'checks\\outside', 'C:/outside', 'checks//outside']) {
     entries = [{ ...pack(), files: [...pack().files, { path, size: 1 }] }];
-    await assert.rejects(add(home, 'materials'), /Invalid pack file/);
+    await assert.rejects(add(home, 'materials'), /No such pack/);
   }
   for (const entry of [
     { ...pack(), name: 'learning' }, { ...pack(), name: '../bad' },
@@ -76,8 +76,9 @@ test('installation, replacement, rejection and cleanup share a bounded download 
     { ...pack(), files: [...pack().files, pack().files[0]!] },
     { ...pack(), needs: null }, { ...pack(), version: 'bad\nversion' },
   ]) {
-    entries = [entry as Pack];
-    await assert.rejects(catalog());
+    // A pack this version cannot install is left out; the rest of the catalog still lists.
+    entries = [entry as Pack, { ...pack(), name: 'other', tags: ['new field'] } as Pack];
+    assert.deepEqual((await catalog()).map(({ name }) => name), ['other']);
   }
   entries = [{ ...pack(), requires: ['other'] }];
   await assert.rejects(add(home, 'materials'), /dependencies/);
@@ -86,13 +87,14 @@ test('installation, replacement, rejection and cleanup share a bounded download 
     text = invalid;
     await assert.rejects(add(home, 'materials'));
     assert.equal(purpose(join(packsHome(home), 'materials'), 'version'), '2');
-    assert.ok(!(await readdir(home)).includes('skill-packs.tmp'));
+    assert.ok(!(await readdir(home)).some(name => name.startsWith('skill-packs.tmp')));
   }
   text = body() + 'excess';
   await assert.rejects(add(home, 'materials'), /size limit/);
   oversizedCatalog = true;
   await assert.rejects(catalog(), /size limit/);
-  await assert.rejects(remove(home, 'learning'), /bundled/);
+  await remove(home, 'learning');
+  assert.ok(fs.existsSync(join(SKILLS, 'learning')));
   await remove(home, 'materials');
   await remove(home, 'materials');
   assert.ok(!prompt().includes('- materials:'));
@@ -109,7 +111,9 @@ test('CLI and authenticated HTTP install and remove the same skill files synchro
   const patch = `globalThis.fetch = async (url, init) => { const bodies = ${JSON.stringify(responses)}; if (!(String(url) in bodies) || init.redirect !== 'error') throw new Error('Unexpected download'); return new Response(bodies[String(url)]); };`;
   // Run this worktree's source even when the test is invoked from elsewhere.
   const localCli = (...args: string[]) => run(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(patch)}`, '--import', 'tsx', 'packages/core/src/cli.ts', ...args], { cwd: root, env: { ...process.env, ARGUS_HOME: home } });
+  let offline = false;
   t.mock.method(globalThis, 'fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    if (offline) throw new TypeError('fetch failed');
     if (String(input) in responses) return new Response(responses[String(input) as keyof typeof responses]);
     return nativeFetch(input, init);
   });
@@ -140,6 +144,10 @@ test('CLI and authenticated HTTP install and remove the same skill files synchro
   assert.ok(!(await items()).some(item => item.name === 'materials'));
   await assert.rejects(localCli('skills', 'add', 'learning'), error => (error as { code: number }).code === 1);
   assert.equal((await call('/api/skill-packs/add', true, { name: '../bad' })).status, 400);
+  offline = true;
+  const down = await call('/api/skill-packs');
+  assert.equal(down.status, 502);
+  assert.match((await down.json()).detail, /skill store is unavailable: fetch failed/);
 });
 
 test('the pack root is read-only even for a writing role', { skip: process.platform !== 'linux' }, async t => {
