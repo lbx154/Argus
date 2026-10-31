@@ -6,6 +6,8 @@ import { createContext, useContext } from 'react';
 export const SETTINGS_CAPABILITY = 'project.config.v1';
 /** The machine's CPU, memory and GPUs. */
 export const RESOURCES_CAPABILITY = 'system.resources.v1';
+/** What runs in a project's folder, read from the machine. */
+export const EXPERIMENTS_CAPABILITY = 'system.experiments.v1';
 /** The composer's choice of Auto, Task or Chat for a message. */
 export const ROUTE_CAPABILITY = 'composer.route.v1';
 /** Versions of a result the operator edits, and their history. */
