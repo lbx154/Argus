@@ -230,8 +230,9 @@ returns 503 `preview_unavailable` naming the address and the reason, and the fai
 state is released. After
 freeing the port, a new preview request can bind it; loopback previews keep working.
 API Origin rejection uses the same preview hostname matcher and rejects an active fallback port.
-Requests without Host, or with an empty one, use the socket's local address and port; malformed
-Host headers return a readable 400. Valid IPv4-mapped IPv6 Host headers are accepted.
+HTTP/1.0 probes without Host, and requests with an empty Host, use the socket's local address and
+port; malformed Host headers return a readable 400. Valid IPv4-mapped IPv6 Host headers are
+accepted.
 Proxies must preserve Host and Origin. Hosted deployment additionally needs wildcard DNS/TLS,
 Host-based tenant routing for preview GET/HEAD without cookies or bearer credentials, and
 `__Host-` portal cookies (only accept that cookie name) against sibling-domain cookie injection.
