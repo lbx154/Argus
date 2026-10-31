@@ -47,6 +47,10 @@ def test_windows_dispatch_selects_one_explicit_msvc_runner():
     assert "github.event_name != 'workflow_dispatch' || inputs.platform == 'all'" == workflow["jobs"]["python"]["if"]
 
 
+def test_release_identity_rebuild_has_reviewed_commit_history():
+    assert _action("actions/checkout@v4")["with"]["fetch-depth"] == "0"
+
+
 def test_windows_toolchain_pins_leave_other_platform_inputs_unchanged():
     assert _action("actions/setup-node@v4")["with"]["node-version"] == "${{ runner.os == 'Windows' && '24.19.0' || '22.12.0' }}"
     assert _action("actions/setup-python@v5")["with"]["python-version"] == "${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}"

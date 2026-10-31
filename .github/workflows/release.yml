@@ -113,6 +113,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Rebuilds retain the reviewed source identity across artifact/CI-only commits.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ runner.os == 'Windows' && '24.19.0' || '22.12.0' }}
