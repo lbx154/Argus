@@ -278,6 +278,22 @@ test('codex: the words a role writes are told as they come, none once said, and 
   assert.ok(letter.every((text, at) => handoff.letter.startsWith(text) && text.length >= (letter[at - 1]?.length ?? 0)));
 });
 
+test('codex: a model service refusing a turn is reported in its own words, without the HTTP wrapping', async () => {
+  // As trial1's project p-e2c4302b recorded them (2026-10-30), from its billing proxy.
+  const quota = '试用额度已用完：这个邀请码的 50 美元已经用完，任务已暂停，已有文件都保留着。需要继续请联系提供邀请码的人加额度。';
+  const url = ', url: http://127.0.0.1:9011/v1/responses';
+  for (const [fail, error, unpaid] of [
+    [`unexpected status 402 Payment Required: ${quota}${url}`, quota, true],
+    [`unexpected status 413 Payload Too Large: 输入内容太长，请缩短后重试。${url}`, '输入内容太长，请缩短后重试。', undefined],
+    // A body with no message in it leaves the status.
+    [`unexpected status 502 Bad Gateway: Unknown error${url}, request id: req-1`, '502 Bad Gateway', undefined],
+    [`unexpected status 503 Service Unavailable: <html><body>down</body></html>${url}`, '503 Service Unavailable', undefined],
+  ] as const) {
+    const result = await call('codex', { fail });
+    assert.deepEqual([result.completed, result.error, result.unpaid], [false, error, unpaid]);
+  }
+});
+
 test('the words of a form being written are its letter so far, an escape cut short left for the next', () => {
   assert.deepEqual(['{"to":"operator","letter":"Hel', '{"to":"operator","letter":"a\\nb\\u4f', '{"to":"oper', 'Working'].map(writing),
     ['Hel', 'a\nb', '', 'Working']);

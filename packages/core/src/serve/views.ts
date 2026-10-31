@@ -278,8 +278,9 @@ function requestCalls(calls: Live['calls'], qa?: MapReading['qa']) {
 export function daemon(project: Project, live: Live, qa?: MapReading['qa']): Daemon {
   const { since } = live;
   return {
-    // Alive until interrupted calls finish recording their ends.
-    alive: since !== null, resumable: since === null && resumable(project), pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
+    // Alive until interrupted calls finish recording their ends. Resume is no way on from a model
+    // service that wants paying: it would fail again; once paid, a message takes the work up.
+    alive: since !== null, resumable: since === null && resumable(project) && !project.failures?.some(failure => failure.unpaid), pid: since === null ? null : process.pid, uptime_seconds: since === null ? null : Date.now() / 1000 - since,
     started_at_iso: since === null ? null : new Date(since * 1000).toISOString(), backend: project.backend,
     backend_label: BACKEND_LABELS[project.backend],
     calls: requestCalls(live.calls, qa),

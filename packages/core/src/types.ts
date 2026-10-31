@@ -85,6 +85,8 @@ export interface AgentResult {
   completed: boolean;
   /** Why the turn did not complete, in the backend's words; for a completed turn, why its form was refused. */
   error: string | null;
+  /** The model service wants paying (HTTP 402) before it serves another turn. */
+  unpaid?: true;
   /** The form the turn ended with, once accepted. */
   handoff: HandOff | null;
   model: string | null;

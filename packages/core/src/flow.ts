@@ -357,7 +357,7 @@ export class Flow {
     } finally {
       if (role === 'reviewer') await this.callAgent.close?.(`${project.id}/${key}`);
     }
-    const { callId, threadId, completed, error, model, usage, ms, handoff } = result;
+    const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid } = result;
     // A turn goes on next time in the session its backend reported, whether it ended, was cut off
     // or failed: its work is not done again. With none reported, or a new one whose turn failed before
     // a step, which holds no work and may hold the settings it failed on, the role starts afresh; and
@@ -388,14 +388,14 @@ export class Flow {
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
-    if (!signal?.aborted) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`);
+    if (!signal?.aborted) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
     return null;
   }
 
   /** A failed turn holds up its role, on its task if it was on one, and the rest of the work goes
    * on; the project shows it failed once nothing else does, unless the operator stopped it. */
-  private fail(project: Project, role: Role, task: Task | null, error: string): void {
-    Object.assign(project, { failures: [...project.failures ?? [], { role, task: task?.id ?? null, error }], error });
+  private fail(project: Project, role: Role, task: Task | null, error: string, unpaid?: true): void {
+    Object.assign(project, { failures: [...project.failures ?? [], { role, task: task?.id ?? null, error, ...unpaid && { unpaid } }], error });
     if (this.works.has(project.id) || project.status === 'stopped') this.store.save(project);
     else this.status(project, 'failed', error);
   }
