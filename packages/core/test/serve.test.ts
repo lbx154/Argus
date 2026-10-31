@@ -317,7 +317,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   assert.deepEqual(compatibility.meta?.authentication, { required: false, authenticated: true });
   // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
   assert.deepEqual(compatibility.meta?.capabilities, [
-    ...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', 'project.workdir.v1', 'project.config.v1',
+    ...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', 'system.experiments.v1', 'project.workdir.v1', 'project.config.v1',
     'project.editions.v1',
   ]);
   assert.equal((await get('/api/application-brand')).id, 'argus');
@@ -1740,4 +1740,31 @@ test('expanded task files come from its explicit letter before review completes,
   assert.equal(snap.backlog[0]!.status, 'in_progress');
   const map = await get<{ tasks: Array<{ id: string; result_paths: string[] }> }>(`${path}/map`);
   assert.deepEqual(map.tasks.find(row => row.id === task.id)!.result_paths, []);
+});
+
+test('a command writing its output to a file in the project shows as an experiment, with its log\'s last lines', { skip: process.platform !== 'linux' }, async t => {
+  const { store, get } = await setup(t, []);
+  const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  // More than the 64 KiB read of redraws on one line, then a line.
+  const script = 'for i in $(seq 1 9000); do printf "step %s/9000\\r" $i; done; echo; echo loss 0.5; exec sleep 30';
+  const { spawn } = await import('node:child_process');
+  const { openSync, closeSync } = await import('node:fs');
+  const out = openSync(join(project.workdir, 'train.log'), 'w');
+  const child = spawn('bash', ['-c', `exec sh -c '${script}'`], { cwd: project.workdir, stdio: ['ignore', out, out] });
+  closeSync(out);
+  t.after(() => { child.kill(); });
+  let found: { pid: number; command: string; log: string; tail: string[]; gpus: string[] }[] = [];
+  for (let tries = 0; tries < 50 && !found.some(entry => entry.tail.includes('loss 0.5')); tries++) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    ({ experiments: found } = await get<{ experiments: typeof found }>(`/api/system/experiments?sid=${project.id}`));
+  }
+  assert.equal(found.length, 1);
+  assert.equal(found[0]!.pid, child.pid);
+  assert.equal(found[0]!.command, 'sleep 30');
+  assert.equal(found[0]!.log, 'train.log');
+  assert.deepEqual(found[0]!.tail, ['step 9000/9000', 'loss 0.5']);
+  assert.deepEqual(found[0]!.gpus, []);
+  // A command elsewhere is not this project's.
+  const other = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  assert.deepEqual((await get<{ experiments: unknown[] }>(`/api/system/experiments?sid=${other.id}`)).experiments, []);
 });

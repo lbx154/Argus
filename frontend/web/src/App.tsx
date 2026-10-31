@@ -1,3 +1,4 @@
+import { ExperimentRuns } from './components/ExperimentRuns';
 import { useQuery } from '@tanstack/react-query';
 import { ApiError } from '../../core/src/http';
 import type { MapSendOptions } from './map/submission';
@@ -979,6 +980,7 @@ export default function App() {
                 {!kiosk && composerRequestId !== initialSend?.requestId ? (
                   <div className="composer-dock shrink-0 px-4 pt-3">
                     <div className="mx-auto w-full max-w-full lg:max-w-[61.8vw]">
+                    {activeSid ? <ExperimentRuns sid={activeSid} /> : null}
                     <ChatBox
                       key={activeSid || 'no-session'}
                       value={composerDraft}
