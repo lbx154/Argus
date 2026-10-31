@@ -379,7 +379,7 @@ const ConversationRow = memo(function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
-            {steps.length ? <div data-manager-progress className="mb-4 space-y-2 border-b border-line/50 pb-3 text-ink-dim">
+            {steps.length ? <div data-manager-progress className="mb-4 space-y-2 border-b border-line/50 pb-3 text-ink-dim [&_:is(strong,code,h1,h2,h3,th)]:text-inherit">
               {steps.map((text, index) => <div key={index}>{said(text)}</div>)}
             </div> : null}
             {ev.status === 'running' ? <div data-manager-reply="running">
