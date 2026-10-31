@@ -21,9 +21,12 @@ ROOT = TAURI_ROOT.parent
 # product runtime are still analyzed normally; dynamic providers remain exact
 # hidden imports below.
 optional_roots = [p.parent for p in (ROOT / "argus/verticals").glob("*/workbench.json")]
+# Exclude desktop trial entry/installer resources from THIS payload only.
+# Shared trial sources and the separate Web trial distribution are unchanged.
+retired_desktop_sources = {ROOT / "argus/trial/desktop.py", ROOT / "argus/trial/native_cli.py"}
 def optional_source(path):
     path = Path(path).resolve()
-    return any(path == root or root in path.parents for root in optional_roots)
+    return path in retired_desktop_sources or any(path == root or root in path.parents for root in optional_roots)
 
 datas = [(source, target) for source, target in collect_data_files("argus", include_py_files=True)
          if not optional_source(source)]
@@ -95,7 +98,7 @@ domain_overlay_modules = collect_provider_modules(
 )
 
 hiddenimports = (
-    ["tzdata", "argus.trial.desktop", "certifi"]
+    ["tzdata", "certifi"]
     # The pre-rename import alias: ``-c "from argus_skill... import"`` snippets
     # from older daemons and Skill copies still resolve in the frozen backend.
     + ["argus_skill", "argus_skill.__main__"]
@@ -129,7 +132,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["argus.verticals." + p.name for p in optional_roots],
+    excludes=["argus.verticals." + p.name for p in optional_roots]
+        + ["argus.trial.desktop", "argus.trial.native_cli"],
     noarchive=False,
 )
 

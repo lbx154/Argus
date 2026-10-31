@@ -94,12 +94,18 @@ export function stageWindowsRelease({
   assertInstaller(input);
   const signature = smallText(input + '.sig', 8192);
   const verified = verifyTauriSignature(input, signature, config.plugins?.updater?.pubkey);
+  const identity = JSON.parse(smallText(path.join(root, '..', 'argus', 'release_manifest.json')));
+  if (identity.package_version !== version || !identity.release_id?.startsWith(`${version}+`)
+      || !Number.isSafeInteger(identity.build_epoch) || identity.build_epoch <= 0) {
+    throw new Error('A matching source release identity and build date are required for repair updates.');
+  }
   const installerName = `Argus-${version}-setup.exe`;
   const signatureName = installerName + '.sig';
   const manifest = {
     version,
     notes: String(notes || `Argus ${version} Windows desktop update.`).slice(0, 4000),
-    pub_date: now.toISOString(),
+    release_id: identity.release_id,
+    pub_date: new Date(identity.build_epoch * 1000).toISOString(),
     platforms: {
       'windows-x86_64': {
         url: `https://github.com/lbx154/Argus/releases/download/v${version}/${installerName}`,

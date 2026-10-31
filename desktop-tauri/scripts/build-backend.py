@@ -4,7 +4,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,15 +28,8 @@ def main():
                         "--workpath", str(ROOT / "build/.work")], cwd=REPO, check=True)
         for arguments in (["--verify-frozen-runtime"],
                           ["-I", "-m", "argus.tools.manager_live_view", "--help"],
-                          ["-c", "import argus.trial.desktop, certifi; print('desktop-trial-ready')"]):
+                          ["-m", "argus.apps.desktop_probe", "--help"]):
             subprocess.run([str(executable), *arguments], cwd=REPO, check=True)
-        if os.environ.get("ARGUS_TEST_NATIVE_COPILOT") == "1":
-            with tempfile.TemporaryDirectory(prefix="argus-frozen-native-") as temporary:
-                subprocess.run(
-                    [str(executable), "-c", "from argus.trial.native_cli import install_native_copilot; install_native_copilot(); print('native-copilot-ready')"],
-                    cwd=temporary, check=True,
-                    env={**os.environ, "ARGUS_SKILL_HOME": temporary},
-                )
     if not executable.is_file():
         raise SystemExit("Frozen backend missing. Run npm run build:backend first.")
     destination = ROOT / "resources/argus-backend"

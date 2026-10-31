@@ -25,10 +25,12 @@ export async function startSessionFixture(options = {}) {
   const manifestPath = process.env.ARGUS_SESSION_WEB_DIST
     ? resolve(dist, 'fixture-release.json') : resolve(checkout, 'argus/release_manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
-  const protocol = await readFile(resolve(checkout, 'frontend/core/src/protocol.ts'), 'utf8');
-  const capabilities = [...protocol.split('REQUIRED_API_CAPABILITIES = [')[1].split('] as const')[0].matchAll(/'([^']+)'/g)].map(match => match[1]);
-  const schema = Number(protocol.match(/SNAPSHOT_SCHEMA_VERSION = (\d+)/)[1]);
-  const minor = Number(protocol.match(/minServerMinor: (\d+)/)[1]);
+  // Protocol declarations moved to the shared contracts package. Consume its
+  // canonical data rather than regex-parsing a frontend re-export wrapper.
+  const contract = JSON.parse(await readFile(resolve(checkout, 'packages/contracts/schemas/api_protocol.json'), 'utf8'));
+  const capabilities = contract.API_CAPABILITIES;
+  const schema = contract.SNAPSHOT_SCHEMA_VERSION;
+  const minor = contract.API_PROTOCOL_MINOR;
   const rows = [];
   const snapshots = new Map();
   const files = new Map();
@@ -89,7 +91,7 @@ export async function startSessionFixture(options = {}) {
       if (state.delays.has(`${sid}:${endpoint}`)) await state.delays.get(`${sid}:${endpoint}`);
       if (response.destroyed) return;
       if (url.pathname === '/api/meta') return json(response, {
-        service: 'argus-skill-webapi', protocol: { name: 'argus.webapi', major: 1, minor }, snapshot_schema_version: schema, capabilities,
+        service: contract.API_SERVICE, protocol: { name: contract.API_PROTOCOL_NAME, major: contract.API_PROTOCOL_MAJOR, minor }, snapshot_schema_version: schema, capabilities,
         authentication: { required: true, authenticated: true },
         runtime: { package_version: manifest.package_version, source_root: checkout, configured_source_root: checkout, source_root_matches_config: true,
           revision: 'synthetic-fixture', pid: process.pid, python_version: 'not-used', executable: 'deterministic-node-fixture', started_at: '2026-09-17T00:00:00Z',

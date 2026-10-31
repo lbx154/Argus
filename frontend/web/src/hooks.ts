@@ -38,7 +38,7 @@ export function snapshotPollInterval(snapshot?: Snapshot): number {
 export const useProjects = () =>
   useQuery({
     queryKey: ['projects'],
-    queryFn: api.projectIndex,
+    queryFn: ({ signal }) => api.projectIndex(signal),
     refetchInterval: (query) => projectPollInterval(query.state.data),
   });
 

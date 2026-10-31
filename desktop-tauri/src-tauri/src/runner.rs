@@ -85,12 +85,12 @@ fn select_runner_configuration(
         .flatten();
     let executable = manual
         .or_else(|| {
-            (environment_kind.is_none() || environment_kind.as_ref() == Some(&kind))
+            (!settings.runner_configured && environment_kind.as_ref() == Some(&kind))
                 .then(|| configured_bin(environment))
                 .flatten()
         })
         .or_else(|| {
-            (persisted_kind.as_ref() == Some(&kind))
+            (!settings.runner_configured && persisted_kind.as_ref() == Some(&kind))
                 .then(|| configured_bin(persisted))
                 .flatten()
         });

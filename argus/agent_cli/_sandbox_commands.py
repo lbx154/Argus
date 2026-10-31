@@ -904,9 +904,8 @@ class CommandBuilderMixin:
     ) -> list[str]:
         """Build a DeepSeek Harness one-shot turn.
 
-        dsh has no stream-json surface, no session resume, and no model flag:
-        its headless profile runs one full agent turn and prints only the
-        final assistant text (exit 0 on completion; see
+        The supported headless profile runs one full turn; Argus currently
+        uses its final-text mode (exit 0 on completion; see
         ``_finalize_turn_result`` in ``_run_exec.py``). The per-role model
         rides in through the env-driven overlay attached via ``--patch``
         (``ARGUS_DSH_PROVIDER`` / ``ARGUS_DSH_MODEL``) and the role's access
@@ -923,6 +922,12 @@ class CommandBuilderMixin:
             "--patch",
             _dsh_overlay_patch_path(),
         ]
+        model = str(options.model or "").strip()
+        if model:
+            provider, separator, model_id = model.partition("/")
+            if not separator or not provider or not model_id:
+                raise ValueError("DSH requires provider/model for an explicit model; leave it unset to use DSH's saved selection.")
+            command.extend(["--patch", str(Path(__file__).parent / "_dsh_model.patch.yml")])
         merged_extra_args = [*self.default_extra_args]
         if options.extra_args:
             merged_extra_args.extend(options.extra_args)

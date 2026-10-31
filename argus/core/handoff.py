@@ -132,8 +132,19 @@ class HandOffActions:
         self.operator_available = (
             operator_questions_can_be_asked() if operator_available is None else operator_available
         )
-        self.tools = [form_tool(form, fields)]
+        from .handoff_schema import action_schema
+
+        tool = form_tool(form, fields)
+        self.schema = tool["inputSchema"]
+        self.tools = [{**tool, "inputSchema": action_schema(form, self.schema)}]
         self.handoff: HandOff | None = None
+        self.last_error = ""
+        self.consecutive_refusals = 0
+
+    def interrupt_reason(self) -> str | None:
+        if self.consecutive_refusals >= 3:
+            return f"Argus hand_off rejected three consecutive calls: {self.last_error}"
+        return None
 
     def dispatch(self, action: str, payload: dict[str, Any]) -> dict[str, Any]:
         if action == "tools":
@@ -143,13 +154,29 @@ class HandOffActions:
         # A new call replaces the last: if it is refused, the turn does not
         # settle on the call it was correcting.
         self.handoff = None
+        from .handoff_schema import omit_optional_nulls
+
         try:
-            validate(payload, self.tools[0]["inputSchema"])
-        except ValidationError as exc:
-            where = ".".join(map(str, exc.absolute_path))
-            raise ValueError(f"{where}: {exc.message}" if where else exc.message) from exc
-        _check_ask(payload, self.operator_available)
-        value = self.check(payload) if self.check else None
+            # Keep canonical calls readable for stored replays and other hosts.
+            # New model calls use a discriminated envelope, never merge both.
+            if "decision" in payload:
+                validate(payload, self.tools[0]["inputSchema"])
+                payload = payload["decision"]
+            payload = omit_optional_nulls(payload, self.schema)
+            validate(payload, self.schema)
+            _check_ask(payload, self.operator_available)
+            value = self.check(payload) if self.check else None
+        except (ValidationError, ValueError) as exc:
+            if isinstance(exc, ValidationError):
+                where = ".".join(map(str, exc.absolute_path))
+                detail = f"{where}: {exc.message}" if where else exc.message
+            else:
+                detail = str(exc)
+            self.last_error = detail
+            self.consecutive_refusals += 1
+            raise ValueError(detail) from exc
+        self.last_error = ""
+        self.consecutive_refusals = 0
         self.handoff = HandOff(self.form, payload, value)
         return {"recorded": payload.get("to") or self.form}
 

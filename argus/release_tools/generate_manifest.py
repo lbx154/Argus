@@ -37,6 +37,55 @@ def _recorded_commit() -> str:
         return ""
 
 
+def _build_commit() -> str:
+    """Reuse a source identity across artifact-only commits, never source edits.
+
+    Size-only manifest equality is insufficient: a same-length source edit must
+    start a new identity. Git supplies the byte-level changed-path set without
+    passing the entire source inventory through Windows' command-line limit.
+    """
+    head = _head_commit()
+    recorded = _recorded_commit()
+    if not recorded or recorded == head:
+        return head
+    try:
+        current = MANIFEST_PATH.read_text(encoding="utf-8")
+        manifest, _ = render(recorded)
+        if current != manifest:
+            return head
+        ancestor = subprocess.run(
+            ["git", "-C", str(ROOT), "merge-base", "--is-ancestor", recorded, head],
+            capture_output=True, check=False,
+        )
+        if ancestor.returncode != 0:
+            return head
+        changed = subprocess.run(
+            ["git", "-C", str(ROOT), "diff", "--name-only", "-z", recorded, "--"],
+            capture_output=True, check=False,
+        )
+        if changed.returncode != 0:
+            return head
+        paths = {
+            path.decode("utf-8", errors="surrogateescape")
+            for path in changed.stdout.split(b"\0") if path
+        }
+        if paths.intersection(json.loads(manifest)["source_files"]):
+            return head
+    except (OSError, ValueError, KeyError, TypeError):
+        return head
+    return recorded
+
+
+def _build_epoch(commit: str) -> int:
+    if not commit:
+        return 0
+    result = subprocess.run(
+        ["git", "-C", str(ROOT), "show", "-s", "--format=%ct", commit],
+        capture_output=True, text=True, check=False,
+    )
+    return int(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip().isdigit() else 0
+
+
 def render(commit: str) -> tuple[str, str]:
     """The manifest and generated TypeScript for a build started at ``commit``."""
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -50,6 +99,7 @@ def render(commit: str) -> tuple[str, str]:
             "package_version": package_version,
             "git_commit": commit,
             "release_id": release_id,
+            "build_epoch": _build_epoch(commit),
             "source_files": source_files(ROOT),
         },
         indent=2,
@@ -79,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     # A build commit sits on top of the commit it was built from, so a check
     # keeps the recorded commit and asks only whether the source still matches.
-    manifest, generated = render(_recorded_commit() if args.check else _head_commit())
+    manifest, generated = render(_recorded_commit() if args.check else _build_commit())
     if args.check:
         current_manifest = (
             MANIFEST_PATH.read_text(encoding="utf-8") if MANIFEST_PATH.exists() else ""

@@ -129,6 +129,14 @@ REGISTRY: tuple[Site, ...] = (
         ("setup-smoke",),
     ),
     Site(
+        r"desktop-readiness", FOREGROUND,
+        "An explicit desktop readiness CLI command or operator-confirmed native setup/CLI change; "
+        "one gateway turn per invocation, bounded by its 120-second interrupt deadline, "
+        "requiring both a reply and a hand-off receipt. No timer or project work starts it.",
+        ("argus/apps/desktop_probe.py:44",),
+        ("desktop-readiness",),
+    ),
+    Site(
         r"model-probe", FOREGROUND,
         "One test call per click of Test in the model chooser; a second test of the same model in flight is refused.",
         ("argus/webapi/model_choices.py:242",),

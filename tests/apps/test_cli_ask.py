@@ -10,6 +10,8 @@ the whole path is deterministic.
 from __future__ import annotations
 
 import os
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -47,18 +49,18 @@ def test_ask_runs_the_real_quick_reply_path_against_a_scripted_cli(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     dsh = bin_dir / ("dsh.cmd" if os.name == "nt" else "dsh")
+    # DSH's documented headless interface reads the prompt from stdin. The
+    # fixture must consume that input on both platforms, not guess the last
+    # --patch argument or hard-code the expected question on Windows.
+    responder = bin_dir / "scripted_dsh.py"
+    responder.write_text(
+        'import sys\nprint("canned answer from scripted dsh (asked: " + sys.stdin.read() + ")")\n',
+        encoding="utf-8",
+    )
     script = (
-        "@echo off\r\n"
-        "echo canned answer from scripted dsh (asked: what is 2+2?)\r\n"
-        "exit /b 0\r\n"
+        f'@echo off\r\n"{sys.executable}" "{responder}" %*\r\nexit /b %errorlevel%\r\n'
         if os.name == "nt"
-        else (
-            "#!/bin/sh\n"
-            'task=""\n'
-            'for arg in "$@"; do task="$arg"; done\n'
-            'printf "canned answer from scripted dsh (asked: %s)\\n" "$task"\n'
-            "exit 0\n"
-        )
+        else f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(responder))} "$@"\n'
     )
     dsh.write_text(script, encoding="utf-8")
     dsh.chmod(0o755)

@@ -210,8 +210,10 @@ def _apply_config_intent(
     ``model_catalog(backend)`` returns that backend's model ids; a model id
     outside it is not written until the operator confirms it.
     """
+    from ..core.desktop_selection import MODEL_KEYS, SELECTED_BACKEND, profile_key
     from ..core.knob_store import write_persisted_knobs
 
+    desktop_backend = os.environ.get(SELECTED_BACKEND, "")
     theme = chat_state.get("theme")
 
     def _confirm(line: str) -> None:
@@ -230,13 +232,24 @@ def _apply_config_intent(
             pass
 
     def _set(values: dict[str, str]) -> bool:
-        if not write_persisted_knobs(values):
+        persisted = {
+            profile_key(desktop_backend, name) if desktop_backend and name in MODEL_KEYS else name: value
+            for name, value in values.items()
+            if not (desktop_backend and name == "ARGUS_SKILL_RUNNER_BACKEND")
+        }
+        if not write_persisted_knobs(persisted):
             _confirm("Could not persist configuration; nothing changed.")
             return False
         os.environ.update(values)
         return True
 
     entries = list(intents)
+    if desktop_backend and any(
+        entry.knob == "backend" and str(entry.value).strip().lower() != desktop_backend
+        for entry in entries
+    ):
+        _confirm("请在桌面设置中切换后端，以同时更新 CLI 路径和运行上下文；当前配置未更改。")
+        return True
     vetted: list[Any] = []
     refusals: list[str] = []
     for entry in entries:

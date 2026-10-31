@@ -206,7 +206,8 @@ def test_frozen_build_hook_extends_existing_payload(monkeypatch):
     assert namespace["entry"] == "product_entry.py"
     assert ("product_assets", "product/assets") in namespace["datas"]
     assert "example_product.worker" in namespace["hiddenimports"]
-    assert "argus.trial.desktop" in namespace["hiddenimports"]
+    assert "argus.trial.desktop" not in namespace["hiddenimports"]
+    assert "argus.apps.desktop_probe" in namespace["argus_modules"]
     monkeypatch.setenv("ARGUS_FROZEN_APPLICATION", "invalid-hook")
     with pytest.raises(ValueError, match="module:function"):
         _execute_spec_collection(ast.parse(SPEC_PATH.read_text()))
@@ -256,35 +257,13 @@ def test_frozen_non_windows_code_preserves_the_existing_stream_encoding(monkeypa
     assert stderr.buffer.getvalue() == b"diagnostic\n"
 
 
-@pytest.mark.parametrize("encoding", ["cp1252", "gbk"])
-def test_frozen_cached_native_install_reports_progress_on_redirected_windows_streams(
-    tmp_path, monkeypatch, encoding,
-):
-    from argus.trial import native_cli
-
-    monkeypatch.setenv("ARGUS_SKILL_HOME", str(tmp_path))
-    monkeypatch.setattr(native_cli.platform, "system", lambda: "Windows")
-    monkeypatch.setattr(native_cli.platform, "machine", lambda: "AMD64")
-    executable = tmp_path / "runtime" / "copilot" / native_cli.VERSION / "copilot.exe"
-    executable.parent.mkdir(parents=True)
-    executable.write_bytes(b"fixture-native-cli")
-    verified = []
-    monkeypatch.setattr(native_cli, "verify_cli", lambda path: verified.append(path))
-    monkeypatch.setattr(
-        native_cli.urllib.request, "urlopen", lambda *a, **kw: pytest.fail("Cached CLI must not download"),
-    )
-    stdout, _stderr = _frozen_console_streams(monkeypatch, encoding)
-    monkeypatch.setattr(sys, "argv", [
-        "argus-backend", "-c",
-        "from argus.trial.native_cli import install_native_copilot; "
-        "install_native_copilot(); print('native-copilot-ready')",
-    ])
-
-    assert desktop_backend_entry._entrypoint() == 0
-    assert verified == [executable]
-    assert stdout.buffer.getvalue().decode("utf-8").splitlines() == [
-        "正在检查已安装的 Copilot…", "native-copilot-ready",
-    ]
+@pytest.mark.usefixtures("native_adapter")
+def test_desktop_excludes_trial_resources_without_deleting_shared_sources():
+    namespace, _ = _execute_spec_collection(ast.parse(SPEC_PATH.read_text()))
+    for name in ("desktop", "native_cli"):
+        assert (ROOT / "argus" / "trial" / f"{name}.py").is_file()
+        assert f"argus.trial.{name}" not in namespace["argus_modules"]
+    assert not (ROOT / "desktop-tauri/src-tauri/src/trial.rs").exists()
 
 
 def test_frozen_python_compat_runs_unittest_with_standard_exit_codes(

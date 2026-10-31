@@ -1,8 +1,8 @@
 //! Pure update-presentation policy kept independent of the WebView/Tauri host.
 //!
 //! The updater transport decides whether a manifest represents an update; this
-//! module adds the product rule that automatic UI must only surface a strictly
-//! newer semantic version and must respect an operator dismissal.
+//! module also admits a newer build of the same public version, never a
+//! downgrade, an unchanged payload, or a timestamp-only reannouncement.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,27 @@ pub(crate) struct UpdateCache {
     /// throttle does not make the update card disappear until the next poll.
     pub(crate) available_version: Option<String>,
     pub(crate) available_notes: Option<String>,
+    pub(crate) available_release_id: Option<String>,
+    pub(crate) available_build_epoch: Option<i64>,
+}
+
+/// Same-version repair releases require BOTH a new source identity and a
+/// strictly later build date. A hash by itself has no version ordering.
+pub fn is_release_update(
+    candidate: &str, current: &str, candidate_epoch: Option<i64>, current_epoch: i64,
+    candidate_id: Option<&str>, current_id: &str,
+) -> bool {
+    let (Some(candidate_version), Some(current_version)) = (parse_version(candidate), parse_version(current)) else {
+        return false;
+    };
+    match candidate_version.cmp_precedence(&current_version) {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Equal => current_epoch > 0
+            && candidate_epoch.is_some_and(|epoch| epoch > current_epoch)
+            && candidate_id.is_some_and(|id| !id.is_empty() && id != current_id
+                && id.starts_with(&format!("{}+", candidate_version))),
+    }
 }
 
 fn parse_version(value: &str) -> Option<Version> {
@@ -156,6 +177,17 @@ mod tests {
             900,
             7_200,
         ));
+    }
+
+    #[test]
+    fn same_public_version_requires_a_later_distinct_build() {
+        use super::is_release_update as newer;
+        assert!(newer("0.1.10", "0.1.10", Some(101), 100, Some("0.1.10+new"), "0.1.10+old"));
+        assert!(!newer("0.1.10", "0.1.10", Some(101), 100, Some("0.1.10+old"), "0.1.10+old"));
+        assert!(!newer("0.1.10", "0.1.10", Some(99), 100, Some("0.1.10+new"), "0.1.10+old"));
+        assert!(!newer("0.1.10", "0.1.10", Some(101), 100, None, "0.1.10+old"));
+        assert!(!newer("0.1.9", "0.1.10", Some(101), 100, Some("0.1.9+new"), "0.1.10+old"));
+        assert!(newer("0.1.11", "0.1.10", None, 100, None, "0.1.10+old"));
     }
 
     #[test]

@@ -3,8 +3,8 @@ name: release
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
 # v0.1.2 through v0.1.6 were operator-authorized desktop releases.
-# v0.1.7 and v0.1.8 are Windows-only releases: build with workflow_dispatch
-# and an explicit windows-x86_64 target, verify the artifacts, then publish.
+# v0.1.7, v0.1.8 and v0.1.10 are operator-approved Windows-only releases:
+# use workflow_dispatch with windows-x86_64, verify the artifacts, then publish.
 # Excluding these tags prevents a second all-platform publication.
 
 on:
@@ -13,6 +13,7 @@ on:
       - "v*"
       - "!v0.1.7"
       - "!v0.1.8"
+      - "!v0.1.10"
   workflow_dispatch:
     inputs:
       platform:
@@ -112,6 +113,9 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Rebuilds retain the reviewed source identity across artifact/CI-only commits.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ runner.os == 'Windows' && '24.19.0' || '22.12.0' }}
@@ -123,7 +127,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ runner.os == 'Windows' && '3.11.9' || '3.12' }}
-          cache: pip
+          # Windows uses uv; no pip cache directory is produced on the runner.
+          cache: ${{ runner.os != 'Windows' && 'pip' || '' }}
           cache-dependency-path: |
             pyproject.toml
             desktop-tauri/scripts/windows-build-requirements.txt
@@ -166,13 +171,14 @@ jobs:
         run: python -m pip install -e ".[trial]" "pyinstaller>=6.11,<7" tzdata
       - name: Install frontend build dependencies
         run: |
+          npm ci
           npm --prefix frontend/web ci
           npm --prefix frontend/tui ci
           npm --prefix desktop-tauri ci
       - name: Build release sources
-        run: |
-          npm --prefix frontend/web run build
-          npm --prefix frontend/tui run build
+        env:
+          ARGUS_WEB_BUILD_CLEAN: ${{ runner.os == 'Windows' && '1' || '0' }}
+        run: python -m argus.release_tools.build_release
       - name: Verify Windows staging and signature boundary
         if: runner.os == 'Windows'
         run: npm --prefix desktop-tauri run test:release

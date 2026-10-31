@@ -99,14 +99,19 @@ def test_release_notes_require_all_desktop_platforms(tmp_path, monkeypatch):
             "argus-0.1.5.dist-info/METADATA",
             "Metadata-Version: 2.1\nName: argus\nVersion: 0.1.5\n",
         )
-        wheel.writestr("argus/release_manifest.json", json.dumps({"git_commit": "c0ffee"}))
-    notes = tmp_path.parent / "trial-release-notes.txt"
+        wheel.writestr("argus/release_manifest.json", json.dumps({
+            "package_version": "0.1.5", "git_commit": "c0ffee",
+            "release_id": "0.1.5+c0ffee", "build_epoch": 1_700_000_000,
+        }))
+    notes = tmp_path / "trial-release-notes.txt"
     monkeypatch.setattr(sys, "argv", [str(script), str(tmp_path), "--notes", str(notes)])
 
     staging.main()
 
     combined = json.loads((tmp_path / "latest.json").read_text())
     assert set(combined["platforms"]) == set(targets)
+    assert combined["release_id"] == "0.1.5+c0ffee"
+    assert combined["pub_date"] == "2023-11-14T22:13:20+00:00"
     text = notes.read_text(encoding="utf-8")
     assert "Linux x86_64" in text
     assert "built from commit `c0ffee`" in text

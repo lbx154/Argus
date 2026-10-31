@@ -761,13 +761,16 @@ def prefer_saved_over_deployment_env(env: MutableMapping[str, str] | None = None
     the environment; knobs with nothing saved keep the deployment value
     (source ``env``). Returns the dropped names.
     """
+    from ..core.desktop_selection import prepare_selection
     from ..core.knob_store import read_persisted_knobs
 
     env_map = os.environ if env is None else env
     saved = read_persisted_knobs()
+    desktop_backend = prepare_selection(env_map, saved)
     dropped = sorted(
         name for name in _SAVED_OVER_DEPLOYMENT_ENV
         if str(saved.get(name, "") or "").strip() and name in env_map
+        and not (desktop_backend and name in {"ARGUS_SKILL_RUNNER_BACKEND", "ARGUS_SKILL_MODEL"})
     )
     for name in dropped:
         env_map.pop(name, None)
@@ -813,6 +816,14 @@ def set_operator_config(
     if env_name not in allowed:
         raise ValueError(f"config key is not cockpit-editable: {raw}")
     val = normalize_cockpit_knob_value(env_name, value)
+    from ..core.desktop_selection import MODEL_KEYS, SELECTED_BACKEND, profile_key
+
+    desktop_backend = os.environ.get(SELECTED_BACKEND, "")
+    if desktop_backend and env_name == "ARGUS_SKILL_RUNNER_BACKEND":
+        if val.lower() != desktop_backend:
+            raise ValueError("请在桌面设置中切换后端，以同时更新 CLI 路径和运行上下文；当前后端未更改。")
+        return {"name": env_name, "value": val, "unchanged": True, "source": "env",
+                "released_role_pins": [], "role_pins": role_model_pins(), "restart_required": False}
     if env_name == "ARGUS_SKILL_RUNNER_BACKEND":
         # A form that re-submits the backend it was showing must not turn the
         # effective choice (often from the deployment environment) into a saved
@@ -839,10 +850,14 @@ def set_operator_config(
         # they follow it. A pin the operator sets afterwards in the role table
         # wins again, as before.
         released = sorted(role_model_pins())
-        if released and not write_persisted_knobs({knob: "" for knob in released}):
+        releases = {profile_key(desktop_backend, knob) if desktop_backend else knob: "" for knob in released}
+        if released and not write_persisted_knobs(releases):
             raise RuntimeError("role model pins could not be released")
         for knob in released:
-            os.environ.pop(knob, None)
+            if desktop_backend:
+                os.environ[knob] = "inherit"
+            else:
+                os.environ.pop(knob, None)
     if project_state_dir is not None:
         from ..core.operator_context import IntakeDecision, persist_intake_decision
 
@@ -858,9 +873,12 @@ def set_operator_config(
             ),
             source="web.config",
         )
-    if not write_persisted_knob(env_name, val):
+    stored_name = profile_key(desktop_backend, env_name) if desktop_backend and env_name in MODEL_KEYS else env_name
+    if not write_persisted_knob(stored_name, val):
         raise RuntimeError(f"config setting could not be persisted: {env_name}")
-    if env_name in _SAVED_OVER_DEPLOYMENT_ENV:
+    if desktop_backend and env_name in MODEL_KEYS:
+        os.environ[env_name] = val
+    elif env_name in _SAVED_OVER_DEPLOYMENT_ENV:
         # The saved value is read from config.json; a deployment value in this
         # server's environment is only a default the operator just overrode, so
         # drop it rather than copying the saved value over it.

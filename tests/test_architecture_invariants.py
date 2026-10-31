@@ -1914,7 +1914,7 @@ BROAD_EXCEPTS_PER_PACKAGE: dict[str, int] = {
     "<root>": 3,
     "adapters": 15,
     "advisor": 4,
-    "agent_cli": 12,
+    "agent_cli": 11,  # DSH stdin delivery removed one broad cleanup handler.
     "apps": 37,
     "cli": 1,
     "core": 44,

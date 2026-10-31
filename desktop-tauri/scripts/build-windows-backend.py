@@ -25,7 +25,10 @@ def isolated_environment(work: Path) -> dict[str, str]:
     }
     for directory in ("home", "tmp", "roaming", "local", "state"):
         (work / directory).mkdir()
+    native_temp = REPO / ".integration" / "nt"
+    native_temp.mkdir(parents=True, exist_ok=True)
     env.update({
+        "ARGUS_WEB_BUILD_CLEAN": "1", "ARGUS_NATIVE_TEST_TEMP": str(native_temp),
         "HOME": str(work / "home"), "USERPROFILE": str(work / "home"),
         "APPDATA": str(work / "roaming"), "LOCALAPPDATA": str(work / "local"),
         "TEMP": str(work / "tmp"), "TMP": str(work / "tmp"), "TMPDIR": str(work / "tmp"),
@@ -119,8 +122,9 @@ def validate_frozen_inputs(source: Path, repo: Path = REPO) -> None:
                 raise RuntimeError("Frozen Web bytes differ from the reviewed build.")
     optional = [path.parent for path in (repo / "argus/verticals").glob("*/workbench.json")]
     modules = 0
+    retired_desktop_sources = {repo / "argus/trial/desktop.py", repo / "argus/trial/native_cli.py"}
     for path in (repo / "argus").rglob("*.py"):
-        if any(path.is_relative_to(root) for root in optional):
+        if path in retired_desktop_sources or any(path.is_relative_to(root) for root in optional):
             continue
         shipped = package / path.relative_to(repo / "argus")
         if not shipped.is_file() or shipped.read_bytes() != path.read_bytes():
@@ -166,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         for arguments in (
             ["--verify-frozen-runtime"],
             ["-I", "-m", "argus.tools.manager_live_view", "--help"],
-            ["-c", "import argus.trial.desktop, certifi; print('desktop-trial-ready')"],
+            ["-m", "argus.apps.desktop_probe", "--help"],
             ["-c", "from zoneinfo import ZoneInfo; assert ZoneInfo('Asia/Shanghai').key == 'Asia/Shanghai'"],
         ):
             run(str(executable), *arguments)

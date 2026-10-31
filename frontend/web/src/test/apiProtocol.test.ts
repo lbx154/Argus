@@ -164,6 +164,25 @@ describe('web API protocol handshake', () => {
     }
   });
 
+  it('forwards cancellation to a project-index GET without treating it as an outage', async () => {
+    const controller = new AbortController();
+    let readSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', vi.fn(async (path: string, init: RequestInit) => {
+      if (path === '/api/meta') return Response.json(currentMeta);
+      readSignal = init.signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        readSignal!.addEventListener('abort', () => reject(readSignal!.reason), { once: true });
+      });
+    }));
+    const { api } = await import('../api');
+    const request = api.projectIndex(controller.signal);
+    const rejected = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(readSignal).toBeDefined());
+    controller.abort();
+    await rejected;
+    expect(readSignal!.aborted).toBe(true);
+  });
+
   it('rejects an old backend before requesting projects', async () => {
     const fetchMock = vi.fn(async () => new Response('not found', { status: 404 }));
     vi.stubGlobal('fetch', fetchMock);

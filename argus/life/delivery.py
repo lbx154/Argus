@@ -329,7 +329,7 @@ def _reviewed_targets(
             candidate,
             source=source,
             why=(
-                "Solo output for this completed task."
+                "File saved in this conversation; this alone does not certify task completion."
                 if source == "solo_output"
                 else "Reviewed evidence for this completed mission."
             ),
@@ -629,7 +629,8 @@ def build_delivery_receipt(
         stage_package and not overall_complete
         and review_status == "done" and review_source == "reviewer"
     )
-    if not success or not (overall_complete or interim):
+    saved_work = not overall_complete and artifact_source == "solo_output" and review_status == "not_assessed"
+    if not success or not (overall_complete or interim or saved_work):
         return None
     normalized_item_id = str(item_id or "").strip()
     if not normalized_item_id:
@@ -674,7 +675,7 @@ def build_delivery_receipt(
         return None
 
     kind = (
-        "submission_certified" if final_submission_certified
+        "work_saved" if saved_work else "submission_certified" if final_submission_certified
         else "stage_package" if interim
         else "task_completed"
     )

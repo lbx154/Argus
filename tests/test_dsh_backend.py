@@ -34,13 +34,14 @@ def _overlay_path() -> Path:
 # ---------------------------------------------------------------- registration
 
 
-def test_dsh_overlay_patch_resource_exists_and_targets_model() -> None:
+def test_dsh_overlay_reuses_saved_auth_without_pinning_a_foreign_model() -> None:
     overlay = _overlay_path()
     assert overlay.is_file()
     text = overlay.read_text(encoding="utf-8")
-    assert "id: agent-default-model" in text
-    assert "ARGUS_DSH_MODEL" in text
-    assert "ARGUS_DSH_PROVIDER" in text
+    assert "- id: agent-default-model" not in text
+    assert "deepseek-v4-flash" not in text
+    for service in ("credentials", "authorization", "deepseek-account"):
+        assert f"- id: {service}\n  disabled: false" in text
     assert "ARGUS_DSH_DISABLE_TOOLS" in text
     assert "id: tool-subagent-fork" in text
     assert "id: tool-workflow" in text
@@ -66,7 +67,7 @@ def test_dsh_read_only_strips_permission_overrides() -> None:
 # ------------------------------------------------------------- prompt delivery
 
 
-def test_dsh_oversized_prompt_uses_workspace_mission_file(tmp_path: Path) -> None:
+def test_dsh_oversized_prompt_uses_official_stdin_without_a_workspace_file(tmp_path: Path) -> None:
     runner = _runner()
     command = runner._build_dsh_command(resume_thread_id=None, options=RunnerOptions())
     prompt = "review\n" + "x" * 200_000
@@ -75,17 +76,27 @@ def test_dsh_oversized_prompt_uses_workspace_mission_file(tmp_path: Path) -> Non
         command, prompt, working_dir=str(tmp_path)
     )
 
-    try:
-        assert stdin_prompt is None
-        assert cleanup_path is not None
-        assert cleanup_path.parent == tmp_path
-        assert cleanup_path.name.startswith(".argus-dsh-prompt-")
-        assert cleanup_path.read_text(encoding="utf-8") == prompt
-        assert str(cleanup_path) in prepared[-1]
-        assert prompt not in prepared
-    finally:
-        if cleanup_path is not None:
-            cleanup_path.unlink(missing_ok=True)
+    assert stdin_prompt == prompt
+    assert cleanup_path is None
+    assert prepared == command
+    assert not list(tmp_path.iterdir())
+
+
+def test_dsh_explicit_model_is_qualified_and_default_has_no_model_patch():
+    runner = _runner()
+    command = runner._build_dsh_command(resume_thread_id=None, options=RunnerOptions())
+    assert not any("_dsh_model.patch.yml" in arg for arg in command)
+    command = runner._build_dsh_command(resume_thread_id=None, options=RunnerOptions(model="own/model"))
+    assert any("_dsh_model.patch.yml" in arg for arg in command)
+    with pytest.raises(ValueError, match="provider/model"):
+        runner._build_dsh_command(resume_thread_id=None, options=RunnerOptions(model="ambiguous-model"))
+
+
+def test_dsh_per_call_environment_does_not_keep_stale_selection():
+    from argus.agent_cli._prompt_delivery import _apply_dsh_env
+    env = _apply_dsh_env({"ARGUS_DSH_PROVIDER": "old", "ARGUS_DSH_MODEL": "old",
+                          "ARGUS_DSH_DISABLE_TOOLS": "1"}, RunnerOptions(), agent_bin="dsh")
+    assert not any(key in env for key in ("ARGUS_DSH_PROVIDER", "ARGUS_DSH_MODEL", "ARGUS_DSH_DISABLE_TOOLS"))
 
 
 # ---------------------------------------------------------------- child env
@@ -96,11 +107,11 @@ def test_dsh_env_maps_model_and_permission_mode() -> None:
 
     env = _apply_dsh_env(
         {"PATH": "/usr/bin"},
-        RunnerOptions(model="deepseek-v4-pro"),
+        RunnerOptions(model="deepseek-official/deepseek-v4-pro"),
         agent_bin="/tools/node/bin/dsh",
     )
     assert env["ARGUS_DSH_MODEL"] == "deepseek-v4-pro"
-    assert "ARGUS_DSH_PROVIDER" not in env
+    assert env["ARGUS_DSH_PROVIDER"] == "deepseek-official"
     assert env["DSH_PERMISSION_MODE"] == "danger-full-access"
     agent_dir = str(Path("/tools/node/bin/dsh").expanduser().resolve().parent)
     assert env["PATH"].split(os.pathsep) == [agent_dir, "/usr/bin"]
