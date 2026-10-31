@@ -199,8 +199,9 @@ always remain cockpit hosts. Chrome and Firefox resolve these subdomains locally
 On macOS 15 and earlier, Safari/WKWebView may not resolve `.localhost` subdomains; the fix
 is in OS frameworks, not the Safari version ([WebKit bug 160504](https://bugs.webkit.org/show_bug.cgi?id=160504)).
 The macOS desktop app uses WKWebView, starts the core without `--preview-url`, and currently
-has no preview-domain setting. Its local HTML previews have the same restriction. The UI
-explains this and links the existing preview URL to a new tab; use Chrome/Firefox there.
+has no preview-domain setting. Its local HTML previews have the same restriction. In Safari
+and the macOS desktop app the UI says to use Chrome/Firefox; every preview also links its URL
+to a new tab (the desktop app hands it to the default browser).
 Opening the same URL in Safari on an affected OS does not fix DNS resolution. CLI users may
 configure a resolvable preview template. No DNS probing or automatic shared-storage fallback
 is performed.
