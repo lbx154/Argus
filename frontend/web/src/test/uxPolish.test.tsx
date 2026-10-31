@@ -43,6 +43,14 @@ describe('team status and controls', () => {
     expect(onStop).toHaveBeenCalledOnce();
   });
 
+  it('names the Manager\'s team work, not a reply, when no message waits for one', () => {
+    const team = { ...snap(true), roles: [{ role: 'manager', active: true, tasks: [] }] } as unknown as Snapshot;
+    let renderer!: ReactTestRenderer;
+    act(() => { renderer = create(<RunControl snapshot={team} onStop={() => {}} onResume={() => {}} />); });
+    act(() => renderer.root.findByProps({ 'data-stop-work': true }).props.onClick());
+    expect(renderer.root.findByProps({ 'data-stop-explains': true }).findAllByType('li').map(item => item.children.join(''))).toEqual(['经理正在做的工作']);
+  });
+
   it('keeps one button through stopping and resuming', () => {
     const running = { ...snap(true), roles: [] } as Snapshot;
     const stopped = { ...snap(false, [], { resumable: true }), roles: [] } as Snapshot;

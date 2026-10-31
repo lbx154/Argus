@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { Store } from '../src/store.js';
-import { serve } from '../src/serve/index.js';
+import { hostPort, serve } from '../src/serve/index.js';
 
 async function setup(t: test.TestContext, options: { host?: string; previewUrl?: string; token?: string } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'argus-preview-host-'));
@@ -37,7 +37,7 @@ function send(base: string, host: string, path: string, method = 'GET', headers 
   });
 }
 
-for (const host of ['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', '[::]', '[::ffff:127.0.0.1]']) test(`cockpit Host ${host} without Origin retains cockpit and selects an isolated preview`, async t => {
+for (const host of ['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', '[::]']) test(`cockpit Host ${host} without Origin retains cockpit and selects an isolated preview`, async t => {
   const { server, path, request, store, project } = await setup(t);
   const port = new URL(server.url).port;
   const plain = new URL(JSON.parse((await request(`${host}:${port}`)).body).url);
@@ -69,19 +69,6 @@ for (const host of ['127.0.0.1', 'localhost', '[::1]', '0.0.0.0', '[::]', '[::ff
   const delivery = new URL(JSON.parse((await request(`${host}:${port}`, path + '&delivery=d-new')).body).url);
   assert.notEqual(delivery.origin, plain.origin);
   assert.equal(project.id === second.id, false);
-});
-
-test('LAN access falls back to the independent keyed static port with no cockpit or API', async t => {
-  const { request, server } = await setup(t);
-  const value = new URL(JSON.parse((await request('192.168.1.2:9000')).body).url);
-  assert.equal(value.hostname, '192.168.1.2');
-  assert.equal(Number(value.port), Number(new URL(server.url).port) + 1);
-  assert.match(value.pathname, /^\/[a-z0-9]{32}\/index.html$/);
-  const base = `http://127.0.0.1:${value.port}`;
-  assert.equal(await (await fetch(base + value.pathname)).text(), '<p>preview</p>');
-  for (const endpoint of ['/', '/api/meta', '/api/daemons']) assert.equal((await fetch(base + endpoint)).status, 404);
-  assert.equal((await request('localhost', '/api/meta', 'GET', { origin: value.origin })).status, 403);
-  assert.equal((await request('192.168.1.2', '/api/meta')).status, 200);
 });
 
 test('--preview-url preserves a template hostname on real reading requests; Origin uses the same matcher', async t => {
@@ -121,7 +108,7 @@ test('malformed Host returns 400 without stack output and does not affect subseq
   const { request } = await setup(t);
   let errors = '';
   t.mock.method(process.stderr, 'write', (text: string | Uint8Array) => { errors += text; return true; });
-  for (const host of ['[bad', 'localhost:bad', 'a/b', 'a@b', 'localhost:99999', '']) {
+  for (const host of ['[bad', 'localhost:bad', 'a/b', 'a@b', 'localhost:99999']) {
     assert.equal((await request(host, '/')).status, 400, host);
     assert.equal((await request(host, '/api/meta')).status, 400, host);
   }
@@ -193,13 +180,23 @@ test('the CLI accepts --preview-url and rejects that origin at the cockpit API, 
   assert.equal((await fetch(`${url}/api/projects/${sid}/daemon/stop`, { method: 'POST', headers: { ...headers, origin: 'https://cockpit.example.com' } })).status, 200);
 });
 
-// Replays r25 input #3/#11: a real occupied P+1, followed by explicit requests after release.
-test('a failed LAN listener reports its port, clears state and binds on the next explicit request', async t => {
-  const { request, server } = await setup(t, { token: 'preview-test' });
-  const port = Number(new URL(server.url).port) + 1;
-  const blocker = createServer();
-  await new Promise<void>((resolve, reject) => blocker.once('error', reject).listen(port, '127.0.0.1', resolve));
-  t.after(() => blocker.close());
+// LAN access uses the cockpit port + 1, which nothing reserves: hold it before the cockpit asks,
+// on another cockpit port whenever some other socket already has it.
+async function holdingNextPort(t: test.TestContext) {
+  for (;;) {
+    const served = await setup(t, { token: 'preview-test' });
+    const port = Number(new URL(served.server.url).port) + 1;
+    const blocker = createServer();
+    if (port < 65536 && await new Promise<boolean>(resolve => blocker.once('error', () => resolve(false)).listen(port, '127.0.0.1', () => resolve(true)))) {
+      t.after(() => blocker.close());
+      return { ...served, port, blocker };
+    }
+  }
+}
+
+// r25 #3/#11 and its review: a real occupied P+1, then the same LAN requests after its release.
+test('LAN access serves the keyed static port + 1 with no cockpit or API, and reports a port it cannot listen on', async t => {
+  const { request, port, blocker } = await holdingNextPort(t);
   let errors = '';
   t.mock.method(process.stderr, 'write', (text: string | Uint8Array) => { errors += text; return true; });
   const failed = await Promise.all([request('192.168.1.2'), request('192.168.1.2')]);
@@ -207,17 +204,35 @@ test('a failed LAN listener reports its port, clears state and binds on the next
     assert.equal(reply.status, 503);
     const body = JSON.parse(reply.body);
     assert.equal(body.code, 'preview_unavailable');
-    assert.match(body.detail, new RegExp(`Preview server could not listen on 127.0.0.1:${port}`));
+    assert.match(body.detail, new RegExp(`could not listen on 127\\.0\\.0\\.1:${port}: EADDRINUSE$`));
   }
   assert.equal(errors, '');
   assert.equal((await request('localhost')).status, 200);
   // The failed port is not classified as an active preview origin.
   assert.equal((await request('localhost', '/api/meta', 'GET', { origin: `http://localhost:${port}` })).status, 200);
   await new Promise<void>(resolve => blocker.close(() => resolve()));
-  const url = new URL(JSON.parse((await request('192.168.1.2')).body).url);
-  assert.equal(url.port, String(port));
-  assert.equal(await (await fetch(`http://127.0.0.1:${port}${url.pathname}`)).text(), '<p>preview</p>');
+  const url = new URL(JSON.parse((await request('192.168.1.2:9000')).body).url);
+  assert.equal(url.host, `192.168.1.2:${port}`);
+  assert.match(url.pathname, /^\/[a-z0-9]{32}\/index.html$/);
+  const base = `http://127.0.0.1:${port}`;
+  assert.equal(await (await fetch(base + url.pathname)).text(), '<p>preview</p>');
+  for (const endpoint of ['/', '/api/meta', '/api/daemons']) assert.equal((await fetch(base + endpoint)).status, 404);
   assert.equal((await request('localhost', '/api/meta', 'GET', { origin: url.origin })).status, 403);
+  assert.equal((await request('192.168.1.2', '/api/meta')).status, 200);
+  // *.localhost resolves to 127.0.0.1 or ::1, not to a cockpit at another loopback address.
+  assert.equal(new URL(JSON.parse((await request(`127.0.0.2:${port - 1}`)).body).url).host, `127.0.0.2:${port}`);
+  assert.equal(hostPort('::', port), `[::]:${port}`);
+});
+
+// r25 review #1: a link from before a restart, a POST and a namespace host all get the same plain words.
+test('a preview host with nothing to serve says in plain text that links end when Argus restarts', async t => {
+  const { request } = await setup(t);
+  const url = new URL(JSON.parse((await request('localhost')).body).url);
+  const restarted = await setup(t);
+  for (const reply of [await request(url.host, url.pathname, 'POST'), await restarted.request(`${url.hostname}:${new URL(restarted.server.url).port}`, url.pathname)]) {
+    assert.equal(reply.status, 404);
+    assert.match(reply.body, /^No preview here: open the result again in Argus/);
+  }
 });
 
 // r25 #4/#12: reserve the whole namespace, including empty and non-label identifiers.
@@ -231,7 +246,7 @@ test('all matching preview hosts are static-only and explain cockpit namespace c
       for (const path of ['/', '/api/meta', '/api/projects']) {
         const reply = await request(host, path);
         assert.equal(reply.status, 404, host);
-        assert.match(reply.body, /reserved for static previews.*cockpit/i);
+        assert.match(reply.body, /^No preview here.*only serves previews\.$/);
       }
       assert.equal((await request('localhost', '/api/meta', 'GET', { origin: `http://${host}` })).status, 403);
     }
@@ -240,7 +255,7 @@ test('all matching preview hosts are static-only and explain cockpit namespace c
 });
 
 // r25 #8: use the actual wire protocol so Node does not invent a Host header.
-test('HTTP/1.0 probes without Host use the local socket; mapped IPv6 Host remains legal', async t => {
+test('HTTP/1.0 probes without Host, and an empty Host, use the local socket; mapped IPv6 Host remains legal', async t => {
   const { server, request } = await setup(t);
   const port = Number(new URL(server.url).port);
   const raw = await new Promise<string>((resolve, reject) => {
@@ -250,6 +265,7 @@ test('HTTP/1.0 probes without Host use the local socket; mapped IPv6 Host remain
     socket.on('end', () => resolve(data)); socket.on('error', reject);
   });
   assert.match(raw, /^HTTP\/1\.1 200/);
+  assert.equal((await request('', '/api/meta')).status, 200);
   assert.equal((await request('[::ffff:192.168.1.2]', '/api/meta')).status, 200);
   const bad = await request('[::ffff:999.1.2.3]', '/api/meta');
   assert.equal(bad.status, 400);

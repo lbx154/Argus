@@ -192,15 +192,16 @@ too, a file's text or bytes, and what the system `git` says of it when the workd
 repository of its own. A path there passes the check a result's does: inside the workdir, not
 hidden. An HTML result is served unchanged on a random project/delivery hostname. Identifiers are
 32 lowercase hexadecimal characters, regenerated on service restart. For cockpit requests
-at loopback addresses (including IPv4-mapped IPv6), `localhost`, `0.0.0.0` or `[::]`, the
+at `127.0.0.1`, `[::1]`, `localhost`, `0.0.0.0` or `[::]`, the
 default is `http://<identifier>.localhost`
 on the browser-facing request Host port, sharing the cockpit listener. Bare loopback names
 always remain cockpit hosts. Chrome and Firefox resolve these subdomains locally.
 On macOS 15 and earlier, Safari/WKWebView may not resolve `.localhost` subdomains; the fix
 is in OS frameworks, not the Safari version ([WebKit bug 160504](https://bugs.webkit.org/show_bug.cgi?id=160504)).
 The macOS desktop app uses WKWebView, starts the core without `--preview-url`, and currently
-has no preview-domain setting. Its local HTML previews have the same restriction. The UI
-explains this and links the existing preview URL to a new tab; use Chrome/Firefox there.
+has no preview-domain setting. Its local HTML previews have the same restriction. In Safari
+and the macOS desktop app the UI says to use Chrome/Firefox; every preview also links its URL
+to a new tab (the desktop app hands it to the default browser).
 Opening the same URL in Safari on an affected OS does not fix DNS resolution. CLI users may
 configure a resolvable preview template. No DNS probing or automatic shared-storage fallback
 is performed.
@@ -209,8 +210,9 @@ label (e.g. `https://js-trial1-*.argusbot.cn`); no credentials, path, query or f
 The entire matching namespace, including unknown, empty and non-label identifiers, is
 reserved for static previews. Keep the cockpit hostname outside it: for example, use
 `*.preview.example.com` with `argus.example.com`, rather than `*.example.com`.
-Likewise `argus.localhost` is reserved by the default `*.localhost` template. Unassigned
-preview hosts return 404 with a namespace explanation, never cockpit pages or API.
+Likewise `argus.localhost` is reserved by the default `*.localhost` template. Unknown or
+expired preview links (identifiers end when Argus restarts) return a plain-text 404 saying
+so, never cockpit pages or API.
 Assigned hosts serve only the identifier's workspace/delivery files. Absolute asset paths start
 at the workspace root. Project/delivery subdomains separate
 localStorage, IndexedDB and caches; iframe storage may be partitioned from top-level storage.
@@ -223,12 +225,13 @@ Without a template, LAN/mobile requests retain the independent static listener a
 cockpit port + 1 and a keyed path. This fallback separates cockpit localStorage but **shares
 preview storage between projects/deliveries**; cookies do not separate by port. Forward that
 second port for remote access, or configure a wildcard template for full storage isolation.
-The fallback is bound only when explicitly requested. If listening fails, the request returns
-503 `preview_unavailable` naming the port, and the failed listener state is released. After
+The fallback port is bound on the first LAN preview request. If listening fails, the request
+returns 503 `preview_unavailable` naming the address and the reason, and the failed listener
+state is released. After
 freeing the port, a new preview request can bind it; loopback previews keep working.
 API Origin rejection uses the same preview hostname matcher and rejects an active fallback port.
-HTTP/1.0 probes without Host use the socket's local address and port; malformed Host headers
-return a readable 400. Valid IPv4-mapped IPv6 Host headers are accepted.
+Requests without Host, or with an empty one, use the socket's local address and port; malformed
+Host headers return a readable 400. Valid IPv4-mapped IPv6 Host headers are accepted.
 Proxies must preserve Host and Origin. Hosted deployment additionally needs wildcard DNS/TLS,
 Host-based tenant routing for preview GET/HEAD without cookies or bearer credentials, and
 `__Host-` portal cookies (only accept that cookie name) against sibling-domain cookie injection.

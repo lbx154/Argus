@@ -14,14 +14,17 @@ const query = vi.hoisted(() => ({
   refetch: vi.fn(),
 }));
 vi.mock("@tanstack/react-query", () => ({ useQuery: () => query }));
-vi.mock("../i18n", async importOriginal => ({
-  ...await importOriginal<typeof import("../i18n")>(), useI18n: () => language,
-}));
+vi.mock("../i18n", async importOriginal => {
+  const i18n = await importOriginal<typeof import("../i18n")>();
+  return { ...i18n, useI18n: () => ({ ...language, t: (key: string) => i18n.translate(key, {}, language.locale as never) }) };
+});
 vi.mock("../api", () => ({
   api: {},
 }));
 
+const SAFARI = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15';
 beforeEach(() => {
+  vi.unstubAllGlobals();
   language.locale = "en-US";
   query.data = { url: "http://abcdef0123456789abcdef0123456789.localhost:4321/index.html" };
   query.isPending = false;
@@ -54,32 +57,45 @@ it("does not disguise preview request failures as compatibility mode", () => {
   expect(html).not.toContain("<iframe");
 });
 
-for (const locale of ['en-US', 'zh-CN']) it(`explains local DNS and cross-site cookie limits and opens the existing URL (${locale})`, () => {
+for (const locale of ['en-US', 'zh-CN']) it(`warns Safari and the macOS desktop app about local previews and opens the existing URL (${locale})`, () => {
   language.locale = locale;
-  const html = render();
-  expect(html).toContain(locale === 'zh-CN' ? 'macOS 15 及更早' : 'macOS 15 and earlier');
-  expect(html).toContain('Safari/WKWebView');
-  expect(html).toContain(locale === 'zh-CN' ? '跨站' : 'cross-site');
-  expect(html).toContain('cookie');
-  expect(html).toContain(`href="${query.data!.url}"`);
-  expect(html).toContain('target="_blank"');
-  expect(html).toContain('rel="noopener noreferrer"');
+  for (const userAgent of [SAFARI, 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)']) {
+    vi.stubGlobal('navigator', { userAgent });
+    const html = render();
+    expect(html).toContain(locale === 'zh-CN' ? 'macOS 15 及更早系统上，此浏览器可能无法显示预览' : 'On macOS 15 and earlier, this browser may not show the preview');
+    expect(html).toContain(`href="${query.data!.url}"`);
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noopener noreferrer"');
+  }
+});
+
+it('keeps the warning away from browsers that resolve local previews', () => {
+  for (const userAgent of [
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:144.0) Gecko/20100101 Firefox/144.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+  ]) {
+    vi.stubGlobal('navigator', { userAgent });
+    const html = render();
+    expect(html).not.toContain('macOS 15');
+    expect(html).toContain(`href="${query.data!.url}"`);
+  }
 });
 
 it('offers a new tab for configured domains without claiming they have local DNS limits', () => {
+  vi.stubGlobal('navigator', { userAgent: SAFARI });
   query.data = { url: 'https://js-test-abcdef.preview.example.com/index.html' };
   const html = render();
   expect(html).toContain(`href="${query.data.url}"`);
   expect(html).not.toContain('macOS 15 and earlier');
 });
 
-for (const locale of ['en-US', 'zh-CN']) it(`gives a localized actionable port failure (${locale})`, () => {
+for (const locale of ['en-US', 'zh-CN']) it(`gives a localized actionable port failure, with the address and reason in its details (${locale})`, () => {
   language.locale = locale;
   query.isError = true;
-  query.error = new ApiError('listen EADDRINUSE', 503, 'GET', '/preview', 'preview_unavailable');
+  query.error = new ApiError('Preview server could not listen on [::]:8800: EADDRINUSE', 503, 'GET', '/preview', 'preview_unavailable');
   const html = render();
-  expect(html).toContain(locale === 'zh-CN' ? '相邻端口' : 'adjacent port');
   expect(html).toContain(locale === 'zh-CN' ? '释放该端口' : 'Free that port');
-  expect(html).not.toContain('EADDRINUSE');
   expect(html).toContain(locale === 'zh-CN' ? '重试' : 'Retry');
+  expect(html).toMatch(/<details[^>]*><summary[^>]*>[^<]+<\/summary><pre[^>]*>Preview server could not listen on \[::\]:8800: EADDRINUSE<\/pre>/);
 });

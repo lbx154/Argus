@@ -38,3 +38,14 @@ it.each(['zh-CN', 'en'])('#6 team call has no request status; role thought fallb
   expect(log).not.toContain('Replying to your message');
   expect(log).toContain(locale === 'zh-CN' ? '正在处理团队工作' : 'Checking team results');
 });
+
+it.each(['zh-CN', 'en'])('#2 a request call\'s role thought fallback says what the status bar says (%s)', locale => {
+  vi.stubGlobal('localStorage', { getItem: () => locale });
+  const at = record.findIndex(event => event.type === 'call.start' && event.role === 'manager' && event.answers);
+  const reading = projectRecord([...record.slice(0, at + 1),
+    { type: 'step', role: 'manager', kind: 'thought', text: 'Checking the schedule data', ts: record[at]!.ts }]);
+  const snap = roleSnapshot(reading.roleEvents, { work_status: { state: 'running', roles: ['manager'], role: 'manager', taskId: '', title: '', reason: '',
+    foreground: true, activityAt: null, label: { 'zh-CN': '正在回复你的消息', en: 'Replying to your message' } } });
+  const log = renderToStaticMarkup(<QueryClientProvider client={roleClient}><I18nProvider><ProjectRoleLogs snapshot={snap} connected /></I18nProvider></QueryClientProvider>);
+  expect(/data-role-thought[^>]*>([^<]*)</.exec(log)?.[1]).toBe(locale === 'zh-CN' ? '正在回复你的消息' : 'Checking the schedule data');
+});

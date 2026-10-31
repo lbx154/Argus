@@ -350,7 +350,7 @@ const ConversationRow = memo(function ConversationRow({
   // The turn's process, kept folded: before the answer it led to, after a brief it followed.
   const folded = process.length ? <details data-manager-process className="conversation-process py-1.5">
     <summary className="cursor-pointer text-sm text-ink-dim hover:text-ink">{locale === 'zh-CN' ? '过程' : 'Process'}</summary>
-    <div className="mt-1.5 space-y-2 border-l-2 border-line pl-3 text-ink-dim">{process.map((text, index) => <div key={index}>{say(text)}</div>)}</div>
+    <div className="mt-1.5 space-y-2 border-l-2 border-line pl-3 text-ink-dim [&_:is(strong,code,h1,h2,h3,th)]:text-inherit">{process.map((text, index) => <div key={index}>{say(text)}</div>)}</div>
   </details> : null;
   const replaced = <p className="text-xs text-ink-faint" data-manager-reply="replaced">{locale === 'zh-CN' ? '你之后的消息取代了它' : 'Your later message took its place.'}</p>;
   const rewriteLabel = locale === 'zh-CN' ? '编辑后重发' : 'Edit and resend';
@@ -387,14 +387,14 @@ const ConversationRow = memo(function ConversationRow({
         <div className="argus-reply">
           <div className="relative min-w-0 flex-1 text-[15px] leading-[1.7] text-ink">
             <div className="mb-1 flex items-center gap-2"><span className="argus-reply-name">{applicationBrand().name}</span></div>
-            {steps.length ? <div data-manager-progress className="mb-4 space-y-2 border-b border-line/50 pb-3 text-ink-dim">
+            {steps.length ? <div data-manager-progress className="mb-4 space-y-2 border-b border-line/50 pb-3 text-ink-dim [&_:is(strong,code,h1,h2,h3,th)]:text-inherit">
               {steps.map((text, index) => <div key={index}>{say(text)}</div>)}
             </div> : null}
             {!handed && folded}
             {ev.status === 'running' ? <div data-manager-reply="running">
               <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim">
                 <span className="status-dot" data-tone="running" aria-hidden="true" />
-                <span className="min-w-0 truncate" data-manager-doing>{doing || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
+                <span className="min-w-0 truncate" data-manager-doing>{doing || roleActionLabel('manager', locale === 'zh-CN')}</span>
                 {Number(ev.ts) ? <Underway since={Number(ev.ts)} zh={locale === 'zh-CN'} /> : null}
               </div>
               {/* The answer as it is written; recorded steps stay above it. */}
@@ -430,12 +430,15 @@ function RoleLogGroup({
   rows,
   open,
   active,
+  replying,
   onToggle,
 }: {
   role: typeof ROLE_ORDER[number];
   rows: ActivityRow[];
   open: boolean;
   active: boolean;
+  /** The Manager is answering the operator, as the server says (`work_status.foreground`). */
+  replying: boolean;
   onToggle: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -469,7 +472,7 @@ function RoleLogGroup({
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
         {!open && thought ? <>
-          <span data-role-thought className="min-w-0 flex-1 truncate text-xs italic text-ink-dim">{thoughtHeading(String(thought.ev.text ?? ''), zh) || roleActionLabel(role, zh)}</span>
+          <span data-role-thought className="min-w-0 flex-1 truncate text-xs italic text-ink-dim">{thoughtHeading(String(thought.ev.text ?? ''), zh) || roleActionLabel(role, zh, '', '', replying)}</span>
           <time className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">{conversationTime(thought.ev)}</time>
         </> : null}
       </button>
@@ -537,10 +540,11 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active }: {
+function RoleLogCollection({ rows, active, replying }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
+  replying: boolean;
 }) {
   const { roleRows, systemRows } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(() => new Set());
@@ -555,6 +559,7 @@ function RoleLogCollection({ rows, active }: {
           rows={roleRows[role]}
           open={openRoles.has(role)}
           active={active(role)}
+          replying={replying}
           onToggle={() => {
             setOpenRoles((current) => {
               const next = new Set(current);
@@ -590,7 +595,7 @@ export function ProjectRoleLogs({ snapshot, connected, details = false, taskId }
       className={details ? '' : 'mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]'}>
       <div className="overflow-hidden rounded-lg border border-line/70">
         <RoleLogCollection rows={rows} key={`${snapshot.session.id}:${log.round}:${taskId ?? ''}`}
-          active={role => working.includes(role)} />
+          active={role => working.includes(role)} replying={snapshot.work_status?.foreground === true} />
         {details && !rows.length && !working.length ? <p className="px-4 py-3 text-xs text-ink-faint">{locale === 'zh-CN' ? '本轮暂无工作记录' : 'No work recorded this round'}</p> : null}
       </div>
     </section>

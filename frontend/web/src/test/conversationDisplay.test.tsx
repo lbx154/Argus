@@ -60,6 +60,15 @@ it.each(['running', 'waiting'] as const)('keeps %s replies and team briefs outsi
   expect(html).not.toContain('aria-live');
 });
 
+it('dims Markdown emphasis in the process only; answers and dim document panes keep it dark', () => {
+  const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.argus', steps: ['过程 **重点** `代码`'], text: '答案 **重点**', ts: 1 }]} connected showReasoning={false} />);
+  expect(html).toMatch(/data-manager-progress="true" class="[^"]*text-ink-dim \[&amp;_:is\(strong,code,h1,h2,h3,th\)\]:text-inherit"/);
+  expect(html).toContain('答案 <strong class="font-semibold text-ink">重点</strong>');
+  // The report preview and other document panes are text-ink-dim around the same component.
+  const report = renderToStaticMarkup(<div className="text-ink-dim"><MarkdownContent>{'# 标题\n\n**重点** `代码`\n\n| 表头 |\n| --- |\n| 格 |'}</MarkdownContent></div>);
+  for (const tag of ['h1', 'strong', 'code', 'th']) expect(report).toMatch(new RegExp(`<${tag}[^>]* class="[^"]*\\btext-ink\\b`));
+});
+
 it('shows a running reply\'s words as they come, under what the Manager is at and for how long', () => {
   const html = renderToStaticMarkup(<EventStream events={[{ type: 'ui.argus', status: 'running', live: true, text: '正在写的**回复**', ts: 1 }]} connected showReasoning={false} />);
   expect(html).toContain('data-manager-doing');
