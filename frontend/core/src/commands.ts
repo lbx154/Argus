@@ -7,7 +7,7 @@ export type CommandId =
   | 'events' | 'find' | 'cancel' | 'ask' | 'task' | 'plan' | 'rewrite' | 'nudge' | 'abort'
   | 'note' | 'item' | 'run' | 'new' | 'daemons'
   | 'resume' | 'attach' | 'rename' | 'doctor' | 'backend' | 'config'
-  | 'identity' | 'reset' | 'skills' | 'clear' | 'reconnect' | 'help' | 'quit';
+  | 'identity' | 'reset' | 'clear' | 'reconnect' | 'help' | 'quit';
 
 export interface SlashCommand {
   id: CommandId;
@@ -49,7 +49,6 @@ export const COMMANDS: SlashCommand[] = [
   { id: 'config', name: '/config', arg: '[key=value …]', argument: 'optional', desc: 'view or change runtime settings', group: 'Configuration', kind: 'panel' },
   { id: 'identity', name: '/identity', arg: '[set <text>]', argument: 'optional', desc: 'view or replace the operator identity card', group: 'Configuration', kind: 'panel' },
   { id: 'reset', name: '/reset', argument: 'none', desc: 'drop the warm Manager conversation context', group: 'Configuration', kind: 'action' },
-  { id: 'skills', name: '/skills', arg: '[ls|promote <name>]', argument: 'optional', desc: 'inspect or promote runtime skills', group: 'Configuration', kind: 'action' },
   { id: 'clear', name: '/clear', argument: 'none', desc: 'clear the event feed view', group: 'Other', kind: 'local' },
   { id: 'reconnect', name: '/reconnect', argument: 'none', desc: 'reconnect the live event stream', group: 'Other', kind: 'local' },
   { id: 'help', name: '/help', argument: 'none', desc: 'keys + full command reference', aliases: ['/?', '/commands'], group: 'Other', kind: 'local' },

@@ -840,18 +840,18 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   await write('quant/SKILL.md', `${skill('Backtest a trading idea without lookahead')}\nRun check.mjs.\n`, 1);
   await write('quant/check.mjs', 'console.log("no lookahead");\n', 2);
   await write('research/SKILL.md', skill('Research as this operator wants it'), 3);
-  const catalog = await get<{ items: Record<string, unknown>[]; errors: unknown }>('/api/skill-library?sid=p-1');
-  assert.deepEqual(catalog.errors, []);
+  const catalog = await get<{ items: Record<string, unknown>[] }>('/api/skill-library?sid=p-1');
+  assert.deepEqual(Object.keys(catalog), ['items']);
   const item = (name: string) => catalog.items.find(item => item.name === name);
   assert.deepEqual(item('quant'), {
-    library: 'shared', source: 'shared', scope: 'global', vertical: '', role: '', path: 'quant/SKILL.md', name: 'quant',
-    description: 'Backtest a trading idea without lookahead', is_default: false, updated_at: at(1),
+    library: 'shared', source: 'shared', path: 'quant/SKILL.md', name: 'quant',
+    description: 'Backtest a trading idea without lookahead', updated_at: at(1),
   });
   // The team's research skill is listed beside Argus's, which it leaves as it is.
   assert.deepEqual(catalog.items.filter(item => item.name === 'research').map(item => item.source), ['bundled', 'shared']);
   assert.equal(catalog.items.filter(item => item.name === 'research')[1]?.description, 'Research as this operator wants it');
-  assert.deepEqual([item('software')?.library, item('software')?.path, item('software')?.is_default, item('software')?.updated_at],
-    ['bundled', 'software/SKILL.md', true, null]);
+  assert.deepEqual([item('software')?.library, item('software')?.path, item('software')?.source, item('software')?.updated_at],
+    ['bundled', 'software/SKILL.md', 'bundled', null]);
 
   const document = (library: string, path: string) => call(`/api/skill-library/document?${new URLSearchParams({ library, path })}`);
   assert.equal((await (await document('shared', 'quant/check.mjs')).json() as { content: string }).content, 'console.log("no lookahead");\n');
@@ -866,14 +866,13 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   assert.equal((await call('/api/wiki')).status, 404);
   assert.equal((await call('/api/wiki/page?scope=global&vertical=&path=x.md')).status, 404);
   const { events } = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=2');
-  const learned = { kind: 'learned', scope: 'global', vertical: '', source_project: '', role: '', note: '' };
   assert.deepEqual(events, [
-    { ...learned, ts: at(3), path: 'research/SKILL.md', title: 'Research as this operator wants it' },
-    { ...learned, ts: at(2), path: 'quant/check.mjs', title: 'quant/check.mjs' },
+    { ts: at(3), path: 'research/SKILL.md', title: 'Research as this operator wants it' },
+    { ts: at(2), path: 'quant/check.mjs', title: 'quant/check.mjs' },
   ]);
   await write('quant/check.mjs', 'console.log("no lookahead, checked");\n', 60);
   const updated = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=1');
-  assert.deepEqual(updated.events, [{ ...learned, ts: at(60), path: 'quant/check.mjs', title: 'quant/check.mjs' }]);
+  assert.deepEqual(updated.events, [{ ts: at(60), path: 'quant/check.mjs', title: 'quant/check.mjs' }]);
 
   await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
   assert.equal((await call('/api/plugins')).status, 404);

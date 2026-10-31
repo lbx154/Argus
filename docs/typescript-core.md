@@ -101,10 +101,10 @@ spent 46% of its tool-output tokens rereading the research skill's manuals.
 
 The library is the roles'. Argus gives it a place, lists it and shows it, and nothing else: every
 role's standing instructions list each skill by its description and path and tells the role the library
-is its own, every call reads the skills, and a role that writes (the Manager, the Engineer) may
-write `$ARGUS_HOME/skills/`. When to write a skill, what to change in one and whether to install a
-plugin are the roles' to decide: there is no reflection after a task, no scoring, curating, recall
-or approval, and nothing records which skill a project used. Argus's own are `research`,
+is its own, every call reads the skills, and the Engineer may write `$ARGUS_HOME/skills/`;
+the Manager, Planner and Reviewer read it. When to write a skill and what to change in one
+are the roles' to decide: there is no reflection after a task, no scoring, curating, recall
+or approval, and nothing records which skill a project used. Argus's own are `research`, `rl`, `argus-http`,
 `software` (a change that builds, whose tests ran, and that does what was asked),
 `argus-maintenance` (changing this core) and `learning`, on writing a skill worth keeping: what an
 agent can run or recheck, proven on a real case.

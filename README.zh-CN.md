@@ -62,12 +62,11 @@
 310 小时**才需要人做一次研究判断，占空比 **95–99%**。其余内容都在
 **[技术报告](https://arxiv.org/pdf/2608.05144)**里。
 
-**技能。**Argus 自带四个技能，在 [`packages/core/skills/`](packages/core/skills)：
-`research`、`software`、`argus-maintenance` 和 `learning`。一个技能就是一个文件夹，它的
-`SKILL.md` 开头的 frontmatter 写明它适用于哪类工作（和 Codex、Claude Code 的技能格式相同）；每个角色的提示词里都列出了全部技能。经理和工程师
-（还有你）可以在 `~/.argus/skills/` 里写新技能、改进已有技能，同名时这里的技能取代自带的；
-网页的**知识与技能**里能看到它们的变化。插件是一个带 `plugin.json`（`name`、`description`、
-`version`、`url`）的技能文件夹：谁装的谁启动，网页列出它并打开它的 `url`。Argus 不复盘、
+**技能。**Argus 自带六个技能，在 [`packages/core/skills/`](packages/core/skills)：
+`research`、`rl`、`software`、`argus-maintenance`、`argus-http` 和 `learning`。一个技能就是一个文件夹，
+`SKILL.md` 开头的 frontmatter 写明它适用于哪类工作（和 Codex、Claude Code 的技能格式相同）；每个角色的提示词里都列出了全部技能。
+工程师（还有你）可以在 `~/.argus/skills/` 里写新技能、改进已有技能，即使同名也与自带技能并列；
+经理、规划者和审查者可以读取。网页的**技能库**和学习动态里能看到它们的变化。Argus 不复盘、
 不打分、不整理；什么时候写技能、改哪里，由角色自己决定。
 
 **沙箱。**在装有 bubblewrap（`bwrap`）的 Linux 上，每次后端调用都在沙箱里运行：系统目录

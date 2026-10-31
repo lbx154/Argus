@@ -3,14 +3,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen } from 'lucide-react';
 import { api, type SkillCatalog, type SkillLibraryItem } from '../api';
-import { useI18n, type Locale } from '../i18n';
-import { libraryVertical, skillPresentation, skillSearchText } from '../lib/libraryPresentation';
+import { useI18n } from '../i18n';
+import { skillPresentation, skillSearchText } from '../lib/libraryPresentation';
 import { KnowledgeFeedList, useKnowledgeFeed } from './KnowledgeFeed';
 import { MarkdownContent } from './MarkdownContent';
 import { ModalHeader } from './Modal';
 
 const skillIdentity = (item: SkillLibraryItem) => `${item.library}/${item.path}`;
-const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => !item.is_default && item.updated_at != null)
+const recentSkills = (items: SkillLibraryItem[]) => items.filter(item => item.source !== 'bundled' && item.updated_at != null)
   .sort((a, b) => (b.updated_at ?? 0) - (a.updated_at ?? 0) || skillIdentity(a).localeCompare(skillIdentity(b)));
 const libraryQuery = { staleTime: 10_000, refetchInterval: 15_000 };
 
@@ -22,17 +22,16 @@ const learningScopeLabels = {
   en: { feed: 'Learning feed', global: 'Across projects' },
 };
 type Entry = {
-  id: string; title: string; description: string; path: string; scope: SkillLibraryItem['scope'];
-  vertical: string; updated: number; search: string;
+  id: string; title: string; description: string; path: string; updated: number; search: string;
 } & { item: SkillLibraryItem };
 
-function learningEntries(skills: SkillCatalog | undefined, scope: LearningScope, locale: Locale): Entry[] {
+function learningEntries(skills: SkillCatalog | undefined, scope: LearningScope): Entry[] {
   const methods: Entry[] = (scope === 'feed' ? recentSkills(skills?.items ?? []) : skills?.items ?? [])
     .map(item => {
-      const presentation = skillPresentation(item, locale);
+      const presentation = skillPresentation(item);
       return { item, id: `skill/${item.library}/${item.path}`,
-        title: presentation.title, description: presentation.summary, path: item.path, scope: item.scope,
-        vertical: item.vertical, updated: item.updated_at ?? 0, search: skillSearchText(item, locale) };
+        title: presentation.title, description: presentation.summary, path: item.path,
+        updated: item.updated_at ?? 0, search: skillSearchText(item) };
     });
   return methods.sort((a, b) => b.updated - a.updated || a.id.localeCompare(b.id));
 }
@@ -50,18 +49,16 @@ export function LearningLibraryEntry({ onOpen, compact = false }: {
   </section>;
 }
 
-export function LearningLibrary({ sid, initialScope = 'feed', projectNames = {}, onUse }: {
+export function LearningLibrary({ sid, initialScope = 'feed', onUse }: {
   sid: string | null; initialScope?: LearningScope;
-  projectNames?: Record<string, string>;
   onUse?: (title: string, content: string, scope: string) => void;
 }) {
   return <LearningBrowser key={sid ?? 'no-project'} sid={sid} initialScope={initialScope}
-    projectNames={projectNames} onUse={onUse} />;
+    onUse={onUse} />;
 }
 
-function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
+function LearningBrowser({ sid, initialScope, onUse }: {
   sid: string | null; initialScope: LearningScope;
-  projectNames: Record<string, string>;
   onUse?: (title: string, content: string, scope: string) => void;
 }) {
   const { locale } = useI18n();
@@ -72,7 +69,7 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
   const [selection, setSelection] = useState<string | null>(null);
   const skills = useQuery({ ...libraryQuery, queryKey: ['skill-library', sid], queryFn: ({ signal }) => api.skillLibrary(sid, signal) });
   const feed = useKnowledgeFeed(scope === 'feed');
-  const all = learningEntries(skills.data, scope, locale);
+  const all = learningEntries(skills.data, scope);
   const selected = all.find(entry => entry.id === selection);
   const skill = selected?.item;
   const skillDocument = useQuery({
@@ -83,8 +80,8 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
     }, enabled: Boolean(skill),
   });
   const query = search.trim().toLocaleLowerCase();
-  const entries = all.filter(entry => !query || `${entry.search} ${entry.vertical}`.toLocaleLowerCase().includes(query));
-  const location = (entry: Entry) => `${labels.global}${entry.vertical ? ` · ${libraryVertical(entry.vertical, locale)}` : ''}`;
+  const entries = all.filter(entry => !query || entry.search.includes(query));
+  const location = (entry: Entry) => entry.item.source === 'bundled' ? (zh ? '自带' : 'Bundled') : (zh ? '团队' : 'Team');
   const kind = zh ? '技能' : 'Skill';
   const document = skillDocument;
   const body = document.data?.content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
@@ -107,12 +104,11 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
           {skills.isError && <p role="alert" className="p-3 text-xs text-err">{zh ? '技能无法加载。' : 'Skills could not load.'} <button className="underline" onClick={() => void skills.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
-          {skills.data?.errors.length ? <p role="status" className="p-3 text-xs text-err">{zh ? '部分资料无法读取；已加载的内容仍可查看。' : 'Some sources could not be read; loaded material remains available.'}</p> : null}
           {scope === 'feed' && <>
             <h3 className="px-3 py-2 text-xs font-medium text-ink-faint">{zh ? '学习记录' : 'Learning records'}</h3>
             {feed.isPending && <p className="p-3 text-xs text-ink-faint">{zh ? '正在加载学习记录…' : 'Loading learning records…'}</p>}
             {feed.isError && <p role="alert" className="p-3 text-xs text-err">{zh ? '学习记录无法加载。' : 'Learning records could not load.'} <button className="underline" onClick={() => void feed.refetch()}>{zh ? '重试' : 'Retry'}</button></p>}
-            {feed.data && <KnowledgeFeedList events={feed.data.events} items={skills.data?.items ?? []} projectNames={projectNames} query={search}
+            {feed.data && <KnowledgeFeedList events={feed.data.events} items={skills.data?.items ?? []} query={search}
               selected={skill} onSelect={item => { setScope('global'); setSelection(`skill/${item.library}/${item.path}`); }} />}
             <h3 className="px-3 py-2 text-xs font-medium text-ink-faint">{zh ? '文件更新' : 'File updates'}</h3>
           </>}
@@ -123,7 +119,7 @@ function LearningBrowser({ sid, initialScope, projectNames, onUse }: {
             <span className="flex items-baseline gap-2"><span className="shrink-0 rounded bg-line/60 px-1.5 text-[10px] text-ink-dim">{kind}</span>
               <span className="break-words text-sm font-medium text-ink">{entry.title}</span></span>
             {entry.description && <span className="mt-1 block line-clamp-2 text-xs text-ink-dim">{entry.description}</span>}
-            {entry.vertical && <span className="mt-1 block text-[11px] text-ink-faint">{libraryVertical(entry.vertical, locale)}</span>}
+            <span className="mt-1 block text-[11px] text-ink-faint">{location(entry)}</span>
             {entry.updated > 0 && <time className="mt-1 block text-[11px] text-ink-faint" dateTime={new Date(entry.updated * 1000).toISOString()}>{new Date(entry.updated * 1000).toLocaleString(locale)}</time>}
           </button>)}
         </div>

@@ -139,7 +139,7 @@ export function Sidebar({
   const [settingsHint, setSettingsHint] = useState(false);
   const settings = useCapability(SETTINGS_CAPABILITY);
   const zh = locale === 'zh-CN';
-  // Plugins, the knowledge library and the domain store are for experienced users.
+  // The skill library is under Advanced.
   const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
   const toggleAdvanced = () => setAdvancedOpen((open) => { writeLocalStorage(ADVANCED_KEY, open ? 'closed' : 'open'); return !open; });
   const openKnowledge = onOpenLearning ? () => onOpenLearning('global') : undefined;
@@ -275,7 +275,7 @@ export function Sidebar({
               <PackageCheck size={17} strokeWidth={1.5} /><span>{resultsLabel}</span>
             </button> : null}
             <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
-              title={zh ? '技能库、插件' : 'Skills and plugins'}
+              title={zh ? '技能库' : 'Skill library'}
               className="mx-2 my-1 flex h-8 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
               <ChevronRight size={13} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
               <span>{zh ? '高级工具' : 'Advanced tools'}</span>

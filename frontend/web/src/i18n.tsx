@@ -381,7 +381,6 @@ const en: Record<string, string> = {
   'operations.unavailableHere': 'This is not available on this Argus.',
   'operations.requestFailed': 'That did not go through.',
   'operations.technicalDetails': 'Technical details',
-  // --- Vertical store 2026-09-14 ---
   'models.title': 'Choose a model',
   'models.subtitle': 'Every role in this project runs on the model chosen here.',
   'models.price': '{input} in · {output} out per 1M tokens',
@@ -773,7 +772,6 @@ const zhCN: Record<string, string> = {
   'operations.unavailableHere': '这项功能在当前的 Argus 上不提供。',
   'operations.requestFailed': '这次操作没有成功。',
   'operations.technicalDetails': '技术细节',
-  // --- Vertical store 2026-09-14 ---
   'models.title': '选择模型',
   'models.subtitle': '这个项目的所有角色都用这里选的模型。',
   'models.price': '每百万 token：输入 {input}，输出 {output}',

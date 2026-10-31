@@ -36,55 +36,28 @@ export type {
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
 
-export type SkillScope = 'global' | 'vertical' | 'project';
 export interface SkillLibraryItem {
   library: string;
-  scope: SkillScope;
-  vertical: string;
-  source: 'bundled' | 'shared' | 'project' | 'native';
+  source: 'bundled' | 'shared';
   path: string;
   name: string;
   description: string;
-  role: string;
-  is_default: boolean;
   updated_at: number | null;
 }
 export interface SkillCatalog {
-  scopes: SkillScope[];
   items: SkillLibraryItem[];
-  verticals: string[];
-  active_vertical: string;
-  errors: string[];
 }
 export interface SkillDocument {
-  name: string;
-  description: string;
   content: string;
-  markdown: string;
-  path: string;
-  source: SkillLibraryItem['source'];
-  scope: SkillScope;
-  vertical: string;
-  role: string;
 }
 
-/** One line of the host's knowledge journal: something learned, recalled into a prompt, promoted to a shared level, corrected or retired. */
-export type KnowledgeEventKind = 'learned' | 'recalled' | 'promoted' | 'corrected' | 'retired';
+/** A changed file in the team's skill library. */
 export interface KnowledgeEvent {
   ts: number;
-  kind: KnowledgeEventKind;
-  scope: SkillScope;
-  vertical: string;
-  /** Page path relative to its library root, e.g. "pages/lessons/20260917-torch-search.md" or "principles.md". */
   path: string;
   title: string;
-  source_project: string;
-  mission_id: string;
-  role: string;
-  page_kind: string;
-  note: string;
 }
-/** The knowledge journal, newest first. */
+/** Changed files, newest first. */
 export interface KnowledgeFeed {
   events: KnowledgeEvent[];
 }

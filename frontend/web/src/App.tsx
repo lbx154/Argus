@@ -1122,8 +1122,7 @@ export default function App() {
         onRequest={text => { if (composeContext(text)) setEditor(null); }} />}
       <Modal open={overlay === 'learning'} onClose={() => setOverlay('none')} label={locale === 'zh-CN' ? '技能库' : 'Skill library'} width="max-w-6xl">
         {overlay === 'learning' && <LearningLibrary sid={activeSid} initialScope={learningScope}
-          onUse={kiosk ? undefined : useMaterial}
-          projectNames={Object.fromEntries(projects.flatMap(project => project.display_name ? [[project.id, project.display_name] as const] : []))} />}
+          onUse={kiosk ? undefined : useMaterial} />}
       </Modal>
       <CommandPalette open={overlay === 'palette'} onClose={() => setOverlay('none')} items={paletteItems} />
       <KeybindingHelp open={overlay === 'help'} onClose={() => setOverlay('none')} />

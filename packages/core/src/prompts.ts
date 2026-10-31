@@ -2,7 +2,7 @@
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,20 +36,6 @@ export function purpose(dir: string): string {
   const said = /^description:[ \t]*(.*)$/m.exec(matter)?.[1]?.trim() ?? '';
   try { if (said.startsWith('"')) return String(JSON.parse(said)); } catch { /* as written */ }
   return said.replace(/^'(.*)'$/, '$1');
-}
-
-/** From before skills were SKILL.md: a folder of the state root's skills/ whose README.md said in its
- * first line what it was for becomes one, once. To go in a later version. */
-export function renameSkills(home: string): void {
-  const root = skillsHome(home);
-  for (const name of readdirSync(root)) {
-    const dir = resolve(root, name);
-    const old = resolve(dir, 'README.md');
-    if (!lstatSync(dir).isDirectory() || existsSync(resolve(dir, SKILL)) || !lstatSync(old, { throwIfNoEntry: false })?.isFile()) continue;
-    const [first = '', ...rest] = readFileSync(old, 'utf8').split('\n');
-    writeFileSync(resolve(dir, SKILL), `---\nname: ${name}\ndescription: ${JSON.stringify(first.replace(/^#\s*/, ''))}\n---\n\n${rest.join('\n').replace(/^\n+/, '')}`);
-    unlinkSync(old);
-  }
 }
 
 const rules = (name: Role): string => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').trim();

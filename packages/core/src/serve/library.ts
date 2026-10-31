@@ -13,12 +13,11 @@ export function library(store: Store): [string, RegExp, Handler][] {
   return [
     // Argus's own skills are the page's 'bundled' library, the roles' and the operator's its 'shared' one.
     ['GET', /^\/api\/skill-library$/, () => ({
-      scopes: ['global'], verticals: [], active_vertical: '', errors: [],
       items: [...skills(store.home)].map(([name, dir]) => {
         const source = dirname(dir) === SKILLS ? 'bundled' : 'shared';
         return {
-          library: source, source, scope: 'global', vertical: '', role: '', path: `${name}/${SKILL}`, name, description: purpose(dir),
-          is_default: source === 'bundled', updated_at: source === 'bundled' ? null : statSync(join(dir, SKILL)).mtimeMs / 1000,
+          library: source, source, path: `${name}/${SKILL}`, name, description: purpose(dir),
+          updated_at: source === 'bundled' ? null : statSync(join(dir, SKILL)).mtimeMs / 1000,
         };
       }),
     })],
@@ -33,7 +32,7 @@ export function library(store: Store): [string, RegExp, Handler][] {
       const home = skillsHome(store.home);
       return {
         events: changed(home).slice(0, Number(url.searchParams.get('limit') ?? 50)).map(({ path, stat }) => ({
-          ts: stat.mtimeMs / 1000, kind: 'learned', scope: 'global', vertical: '', path, source_project: '', role: '', note: '',
+          ts: stat.mtimeMs / 1000, path,
           title: basename(path) === SKILL ? purpose(join(home, dirname(path))) : path,
         })),
       };

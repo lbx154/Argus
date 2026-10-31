@@ -3,14 +3,14 @@ import test, { type TestContext } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Question } from '../src/store.js';
 import { Flow } from '../src/flow.js';
 import { conversationRows, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
-import { purpose, renameSkills, SKILLS } from '../src/prompts.js';
+import { SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
@@ -189,17 +189,6 @@ test('the Manager answers directly', async t => {
   // A project with no work rests, and an answer leaves it resting.
   assert.deepEqual(events().map(event => event.type), ['message', 'call.start', 'call.end', 'handoff']);
   assert.deepEqual(events()[3], { ...events()[3], role: 'manager', to: 'operator', letter: '42' });
-});
-
-test('a skill from before SKILL.md, a README.md whose first line said what it was for, becomes one, once', async t => {
-  const { home } = await setup(t, []);
-  const dir = join(home, 'skills', 'quant');
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'README.md'), '# Backtest a trading idea: without lookahead\n\nRun check.mjs.\n');
-  renameSkills(home);
-  renameSkills(home);
-  assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), '---\nname: quant\ndescription: "Backtest a trading idea: without lookahead"\n---\n\nRun check.mjs.\n');
-  assert.deepEqual([existsSync(join(dir, 'README.md')), purpose(dir)], [false, 'Backtest a trading idea: without lookahead']);
 });
 
 test("every role is shown Argus's skills and the team's beside them, without rules to write skills", async t => {
