@@ -1,7 +1,7 @@
 {
-  "git_commit": "5b53715cc010f0e9299166303f36361f3ea9eb39",
+  "git_commit": "ddebbac04054b472d7417436fe2969cc9be16405",
   "package_version": "0.1.10",
-  "release_id": "0.1.10+5b53715cc010",
+  "release_id": "0.1.10+ddebbac04054",
   "schema_version": 2,
   "source_files": {
     ".agents/plugins/marketplace.json": 350,
@@ -765,7 +765,7 @@
     "desktop-tauri/src/nativePaths.ts": 2054,
     "desktop-tauri/src/product.ts": 1276,
     "desktop-tauri/src/startup.ts": 2438,
-    "desktop-tauri/src/style.css": 34431,
+    "desktop-tauri/src/style.css": 34495,
     "desktop-tauri/tsconfig.json": 345,
     "desktop-tauri/vite.config.ts": 1028,
     "frontend/core/package.json": 99,
