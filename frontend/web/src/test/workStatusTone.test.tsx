@@ -60,6 +60,11 @@ describe('status dot tone', () => {
     const replying = { ...done, work_status: { ...done.work_status!, state: 'running' as const, role: 'manager', roles: ['manager'], foreground: true } };
     expect(renderToStaticMarkup(<WorkStatusBar snapshot={replying} managerMessage={message} connected compact />)).toContain(message);
     expect(renderToStaticMarkup(<WorkStatusBar snapshot={replying} connected compact />)).toContain('Replying to your message');
+    const team = { ...replying, work_status: { ...replying.work_status, foreground: false, label: { 'zh-CN': '团队正在工作', en: 'The team is working' } } };
+    const teamBar = renderToStaticMarkup(<WorkStatusBar snapshot={team} managerMessage={message} connected compact />);
+    expect(teamBar).toContain('The team is working');
+    expect(teamBar).not.toContain(message);
+    expect(teamBar).not.toContain('Replying to your message');
     const bar = renderToStaticMarkup(<WorkStatusBar snapshot={done} managerMessage={message} connected compact />);
     expect(bar).toContain('>Done<');
     expect(bar).not.toContain(message);

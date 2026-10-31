@@ -31,8 +31,8 @@ export function WorkStatusBar({ snapshot, connected, compact = false, pending, o
     : seconds < 60 ? (zh ? '刚刚有进展' : 'Progress in the last minute')
       : seconds < 3600 ? (zh ? `${Math.floor(seconds / 60)} 分钟前有进展` : `Progress ${Math.floor(seconds / 60)} min ago`)
         : (zh ? `${Math.floor(seconds / 3600)} 小时前有进展` : `Progress ${Math.floor(seconds / 3600)} hr ago`);
-  const label = status.state === 'running' && status.role === 'manager'
-    ? roleActionLabel('manager', zh, '', managerMessage)
+  const label = status.state === 'running' && status.role === 'manager' && status.foreground
+    ? roleActionLabel('manager', zh, '', managerMessage, true)
     : workStatusLabel(status, locale);
   const tone = !connected ? 'idle' : PHASE_TONE[phase];
   return <div className="work-status shrink-0 px-4 py-2 text-xs sm:px-5" data-testid="work-status" data-state={status.state}>

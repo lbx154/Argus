@@ -286,7 +286,7 @@ export class Flow {
     const taken = project.inbox.length;
     // The ids the Planner was told its tasks take, though the Manager may open tasks meanwhile.
     const base = project.tasks.length;
-    const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project)))?.handoff;
+    const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project), { planner_inputs: taken }))?.handoff;
     if (!handoff) return;
     project.inbox.splice(0, taken);
     const { to, letters, tasks } = handoff;
@@ -325,7 +325,7 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string; input_id?: string } = {}): Promise<AgentResult | null> {
+                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number } = {}): Promise<AgentResult | null> {
     const { refused, answers, input_id } = turn;
     const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
@@ -337,7 +337,7 @@ export class Flow {
     let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
-    this.record(project, { type: 'call.start', role, ...where, ...answering });
+    this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
     let result: AgentResult;
     try {
       result = await this.callAgent({

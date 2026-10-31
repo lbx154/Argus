@@ -96,8 +96,9 @@ export interface Project {
 export type FlowEvent =
   /** The operator's words: to the Manager, or to the role whose question they answer. */
   | ({ type: 'message'; from: 'operator'; to?: Role; task?: string } & OperatorMessage)
-  /** A Manager turn on an operator message, and the letter that ends it, name the message they answer. */
-  | { type: 'call.start'; role: Role; task?: string; answers?: string; input_id?: string }
+  /** Manager turns name their input. Planner turns count the inbox prefix they actually read;
+   * form corrections retain that count, even when more letters arrive meanwhile. */
+  | { type: 'call.start'; role: Role; task?: string; answers?: string; input_id?: string; planner_inputs?: number }
   | { type: 'call.end'; role: Role; task?: string; callId: string; threadId: string | null; completed: boolean;
       error: string | null; model: string | null; usage: Usage | null; ms: number }
   /** A delivered result's files (`open`), each as it was then (`snapshots`). */

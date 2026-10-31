@@ -386,7 +386,7 @@ export const MacroTaskNode = memo(function MacroTaskNode({
             return (
               <div className="map-card-stages">
                 {live
-                  ? <LiveLine role={data.liveCall!.role} since={data.liveCall!.started_ts} zh={zh} />
+                  ? <LiveLine replying={Boolean(data.liveCall!.answers)} role={data.liveCall!.role} since={data.liveCall!.started_ts} zh={zh} />
                   : chip ? null
                   : <span className="map-card-recorded">{taskStateLabel}</span>}
               </div>

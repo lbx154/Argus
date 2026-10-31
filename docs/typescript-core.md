@@ -192,20 +192,43 @@ too, a file's text or bytes, and what the system `git` says of it when the workd
 repository of its own. A path there passes the check a result's does: inside the workdir, not
 hidden. An HTML result is served unchanged on a random project/delivery hostname. Identifiers are
 32 lowercase hexadecimal characters, regenerated on service restart. For cockpit requests
-at `127.0.0.1`, `localhost` or `[::1]`, the default is `http://<identifier>.localhost`
+at loopback addresses (including IPv4-mapped IPv6), `localhost`, `0.0.0.0` or `[::]`, the
+default is `http://<identifier>.localhost`
 on the browser-facing request Host port, sharing the cockpit listener. Bare loopback names
-always remain cockpit hosts. Chrome and Firefox resolve these subdomains locally; older
-Safari/macOS versions may require a configured preview domain.
+always remain cockpit hosts. Chrome and Firefox resolve these subdomains locally.
+On macOS 15 and earlier, Safari/WKWebView may not resolve `.localhost` subdomains; the fix
+is in OS frameworks, not the Safari version ([WebKit bug 160504](https://bugs.webkit.org/show_bug.cgi?id=160504)).
+The macOS desktop app uses WKWebView, starts the core without `--preview-url`, and currently
+has no preview-domain setting. Its local HTML previews have the same restriction. The UI
+explains this and links the existing preview URL to a new tab; use Chrome/Firefox there.
+Opening the same URL in Safari on an affected OS does not fix DNS resolution. CLI users may
+configure a resolvable preview template. No DNS probing or automatic shared-storage fallback
+is performed.
 `--preview-url` supplies an HTTP(S) origin template with exactly one `*` in the first DNS
 label (e.g. `https://js-trial1-*.argusbot.cn`); no credentials, path, query or fragment.
-Matched hosts serve only the identifier's workspace/delivery files, without cockpit pages or
-API. Absolute asset paths start at the workspace root. Project/delivery subdomains separate
+The entire matching namespace, including unknown, empty and non-label identifiers, is
+reserved for static previews. Keep the cockpit hostname outside it: for example, use
+`*.preview.example.com` with `argus.example.com`, rather than `*.example.com`.
+Likewise `argus.localhost` is reserved by the default `*.localhost` template. Unassigned
+preview hosts return 404 with a namespace explanation, never cockpit pages or API.
+Assigned hosts serve only the identifier's workspace/delivery files. Absolute asset paths start
+at the workspace root. Project/delivery subdomains separate
 localStorage, IndexedDB and caches; iframe storage may be partitioned from top-level storage.
+Local `.localhost` iframes are cross-site with the cockpit: Chromium restricts default/Lax
+cookies (explicit `SameSite=None; Secure` may work), while WebKit can block all third-party
+cookies. Check cookie-dependent websites using the UI's new-tab link. The same-site LAN
+fallback and same-site hosted templates avoid this particular restriction; other configured
+cross-site domains remain subject to the browser's cookie policy.
 Without a template, LAN/mobile requests retain the independent static listener at the server's
 cockpit port + 1 and a keyed path. This fallback separates cockpit localStorage but **shares
 preview storage between projects/deliveries**; cookies do not separate by port. Forward that
 second port for remote access, or configure a wildcard template for full storage isolation.
-API Origin rejection uses the same preview hostname matcher and rejects the fallback port.
+The fallback is bound only when explicitly requested. If listening fails, the request returns
+503 `preview_unavailable` naming the port, and the failed listener state is released. After
+freeing the port, a new preview request can bind it; loopback previews keep working.
+API Origin rejection uses the same preview hostname matcher and rejects an active fallback port.
+HTTP/1.0 probes without Host use the socket's local address and port; malformed Host headers
+return a readable 400. Valid IPv4-mapped IPv6 Host headers are accepted.
 Proxies must preserve Host and Origin. Hosted deployment additionally needs wildcard DNS/TLS,
 Host-based tenant routing for preview GET/HEAD without cookies or bearer credentials, and
 `__Host-` portal cookies (only accept that cookie name) against sibling-domain cookie injection.
@@ -314,9 +337,17 @@ incoming letters and original calls before they receive an input identity. Migra
 and projection share the input fold. A completed first attempt with a session
 retains its input for one form correction before taking queued letters. Message
 steps accumulate in the reply's `steps` string array,
-and the handoff supplies `text` and its addressee. Planner calls attach their
-message steps to the reply that briefed them, through incoming letters and task
-associations. Role logs retain each recorded step separately in record order.
+and the handoff supplies `text` and its addressee. Non-request turns retain their
+process; their running/stopped state is expressed by the project status bar.
+Planner calls record `planner_inputs`, the count of inbox letters actually read.
+The projection consumes that prefix only at the accepted handoff, once even for
+multiple outgoing letters; form corrections keep the original read count. A batch
+whose letters all trace to one reply attaches its process there. Mixed or unknown
+sources have an independent process row; newly opened tasks inherit that row for
+later Planner turns, while existing tasks retain their originating association.
+Older records consider pending recorded sources at call start and consume them at
+the accepted letter; ambiguous batches stay independent. Role logs retain each
+recorded step separately in record order.
 A call retains its reply association until its accepted handoff is recorded, including
 failure recovery and form correction. Reply positions and steps survive completion,
 interruption, paging and reload; a reply containing only steps remains visible.
