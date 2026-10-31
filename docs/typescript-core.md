@@ -280,7 +280,8 @@ closure and the Manager's primary selection. The page uses the detail's paths fo
 and displays the original letters without inferring a verdict from their text.
 
 Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system directories
-read-only, the workdir and the task's write directories writable, a private home per workdir
+read-only, the workdir and the task's write directories writable for the Engineer (the Manager, Planner and
+Reviewer read it only), a private home per workdir
 with the CLI's login file passed through, and the CLI's login environment plus the operator's
 registered environment values. Each review has a fresh disk-backed temporary directory under
 `$ARGUS_HOME/sandbox`, bound to `/tmp` under bubblewrap or selected by `TMPDIR` without it,

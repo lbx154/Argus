@@ -18,7 +18,7 @@ import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, 
 import { keep, titleOf, under } from './serve/files.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
-  manager: { form: 'manager', access: 'write' },
+  manager: { form: 'manager', access: 'read' },
   planner: { form: 'plan', access: 'read' },
   engineer: { form: 'engineer', access: 'write' },
   reviewer: { form: 'review', access: 'read' },

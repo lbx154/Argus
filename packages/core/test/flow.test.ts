@@ -175,7 +175,7 @@ test('the Manager answers directly', async t => {
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
   assert.deepEqual([request?.form, request?.access, request?.readDirs, request?.writeDirs],
-    ['manager', 'write', [store.dir(id), SKILLS], [join(home, 'skills')]]);
+    ['manager', 'read', [store.dir(id), SKILLS], [join(home, 'skills')]]);
   // The role's standing instructions go apart from the turn's message, with every turn.
   assert.equal(request?.prompt, '## Message\nWhat is 6 times 7?');
   assert.match(request?.instructions ?? '', /^You are the Argus Manager[\s\S]*## Where things are\n/);
@@ -214,7 +214,7 @@ test("every role is shown Argus's skills and the team's beside them, without rul
     writeFileSync(join(own, name!, 'SKILL.md'), `---\nname: ${name}\ndescription: ${description}\n---\n\nHow.\n`);
   }
   await say(flow, id, 'Summarise data.csv');
-  assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'write'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
+  assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'read'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
   for (const { instructions: prompt = '', readDirs, writeDirs } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
     assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
