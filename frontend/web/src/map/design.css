@@ -240,7 +240,7 @@
   overflow: hidden;
   border-radius: 6px;
   border: 1px solid var(--map-card-line);
-  background: #fff;
+  background: rgb(var(--surface));
   color: rgb(var(--ink-faint));
   font-size: 10px;
 }

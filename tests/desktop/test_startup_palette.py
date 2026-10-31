@@ -31,7 +31,9 @@ def _rgb(value: str) -> tuple[int, ...]:
 def test_light_startup_uses_existing_pale_yellow_and_text_safe_gold():
     shell = _palette(DESKTOP / "src/style.css")
     cockpit = _palette(ROOT / "frontend/web/src/index.css")
-    assert _hex(shell["bg"]) == _rgb(cockpit["conversation-user"])
+    assert _hex(shell["bg"]) == _rgb(cockpit["surface-0"])
+    assert cockpit["surface-1"] == cockpit["surface-0"]
+    assert cockpit["chrome-surface"] == "var(--surface-1)"
     assert shell["chrome-bg"] == shell["chrome-border"] == shell["bg"]
     assert shell["tile"] != "#ffffff"
     assert _hex(shell["accent"]) == _rgb(cockpit["accent-ink"])

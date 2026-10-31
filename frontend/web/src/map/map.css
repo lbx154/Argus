@@ -1,9 +1,9 @@
 .argus-map {
   --map-paper: rgb(var(--panel));
-  --map-card-surface: rgb(var(--panel));
-  --map-canvas: #f5f7fa;
-  --map-dot: #d6dfe9;
-  --map-minimap-mask: rgba(242, 245, 249, 0.75);
+  --map-card-surface: rgb(var(--panel-raised));
+  --map-canvas: rgb(var(--bg));
+  --map-dot: rgb(var(--field-line) / 0.38);
+  --map-minimap-mask: rgb(var(--bg) / 0.75);
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -16,10 +16,10 @@
 [data-theme="dark"] .argus-map {
   /* Cards sit a step above the canvas instead of matching the near-black
    * panel: pure panel-on-canvas read as holes in the dark screenshots. */
-  --map-card-surface: #1d2734;
-  --map-canvas: #10161f;
-  --map-dot: #263241;
-  --map-minimap-mask: rgba(13, 19, 27, 0.72);
+  --map-card-surface: rgb(var(--panel-raised));
+  --map-canvas: rgb(var(--bg));
+  --map-dot: rgb(var(--line));
+  --map-minimap-mask: rgb(var(--bg) / 0.72);
 }
 /* The header is two lines: the session's name, then one sentence on where
  * the work stands. Everything else about the map lives behind the options
