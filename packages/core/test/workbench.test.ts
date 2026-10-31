@@ -542,7 +542,8 @@ test('a task in full and a search of every project\'s record', async t => {
   assert.equal(done.status, 'done');
   assert.equal(done.objective, chart.objective);
   assert.ok(typeof done.started_ts === 'number' && typeof done.finished_ts === 'number' && done.finished_ts >= done.started_ts);
-  assert.equal(done.notes, 'Engineer to the Reviewer:\nchart.png drawn from sales.csv\n\nReviewer to the Manager:\nThe chart matches the data.');
+  assert.deepEqual(done.letters, [{ role: 'engineer', to: 'reviewer', text: 'chart.png drawn from sales.csv' },
+    { role: 'reviewer', to: 'manager', text: 'The chart matches the data.' }]);
   assert.equal(done.last_error, '');
   const { item: asking } = await get<{ item: BacklogItem }>(`${P}/backlog/t2`);
   assert.deepEqual([asking.status, 'pending_question' in asking, asking.last_error, asking.finished_ts], ['blocked', false, 'codex exited with code 1', null]);

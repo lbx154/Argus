@@ -2,15 +2,12 @@
 // of every project's request, conversation and letters, read from project.json and events.jsonl.
 
 import type { Runs } from './runs.js';
-import { NAMES } from '../prompts.js';
-import type { Note, Project, Store } from '../store.js';
+import type { Project, Store } from '../store.js';
 import { HttpError, type Handler } from './index.js';
 import { named as projectName, mapProjection, readRecord, taskPresentation, readEvents, webEvents, type Live } from './views.js';
 
 const RESULTS = 50;
 const EXCERPT = 32_000;
-
-const named = (to: string): string => NAMES[to as Note['from']] ?? to;
 
 export function records(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
   return [
@@ -31,9 +28,9 @@ function detail(store: Store, project: Project, id: string, calls: Live['calls']
     : project.tasks.find(task => task.id === id)?.objective;
   const selected = letterId === null ? undefined : reading.map.letters.find(({ letter }) => letter.id === letterId && letter.item_id === id)?.letter;
   if (letterId !== null && !selected) throw new HttpError(404, `unknown task letter: ${letterId}`);
-  const notes = selected ? String(selected.text) : reading.map.letters.filter(({ letter }) => letter.item_id === id && letter.type === 'handoff')
-    .map(({ letter }) => `${named(String(letter.role))} to the ${named(String(letter.to))}:\n${letter.text}`).join('\n\n');
-  return { ...card, latest_action: taskPresentation(reading.map, project, id).latest_action, objective, notes,
+  const letters = reading.map.letters.flatMap(({ letter }) => letter.item_id === id && letter.type === 'handoff'
+    ? [{ role: String(letter.role), to: String(letter.to), text: String(letter.text) }] : []);
+  return { ...card, latest_action: taskPresentation(reading.map, project, id).latest_action, objective, ...selected ? { notes: String(selected.text) } : { letters },
     result_paths: reading.map.opened.get(id) ?? card.result_paths,
     changed_files: reading.edits.get(id) ?? [], last_error: project.failures?.filter(failure => failure.task === id).at(-1)?.error ?? '' };
 }

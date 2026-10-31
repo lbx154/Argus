@@ -22,7 +22,7 @@ test('new real-service reproduction retains every Manager/Planner message and qu
     assert.deepEqual(rows, conversationRows(projectRecord(prefix), project, idle));
     const expected = prefix.filter(event => messages.includes(event as typeof messages[number]));
     const retained = rows.filter(row => row.type === 'ui.argus').flatMap(row => [
-      ...(row.steps as string[] | undefined ?? []),
+      ...(row.steps as string[] | undefined ?? []), ...(row.process as string[] | undefined ?? []),
       ...messages.some(event => event.text === row.text) ? [String(row.text)] : [],
     ]);
     assert.deepEqual(retained.slice().sort(), expected.map(event => (event as typeof messages[number]).text).sort());
@@ -60,10 +60,14 @@ test('task card waits for the Manager and takes only the first selected result; 
   assert.deepEqual(task(noFiles).result_paths, []);
 });
 
-test('entire recorded delivery uses one heading per Manager call, with all Planner words under the original brief', () => {
+test('entire recorded delivery uses one heading per Manager call, with all Planner words folded under the original brief', () => {
   const replies = conversationRows(projectRecord(record), project, idle).filter(row => row.type === 'ui.argus');
   assert.equal(replies.length, 2);
-  assert.deepEqual(replies[0]!.steps, messages.filter(event => event.role === 'planner' || record.indexOf(event) < 5).map(event => event.text));
-  assert.deepEqual(replies[1]!.steps, ['报告已整理好，可以带去讨论补岗试点。']);
+  // What the Manager said as it handed the work on is said to the operator, its question above all.
+  assert.deepEqual(replies[0]!.steps, messages.filter(event => event.role === 'manager' && record.indexOf(event) < 5).map(event => event.text));
+  assert.deepEqual(replies[0]!.process, messages.filter(event => event.role === 'planner').map(event => event.text));
+  // Before a letter to the operator, the Manager's words were that letter's process.
+  assert.equal(replies[1]!.steps, undefined);
+  assert.deepEqual(replies[1]!.process, ['报告已整理好，可以带去讨论补岗试点。']);
   assert.equal(replies[1]!.text, '客服分析已完成，建议试行工作日下午补岗。');
 });

@@ -11,7 +11,7 @@ import { summarizeUsage } from '@argus/runtime';
 import { firstLine, openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
 import { ManagerInputs } from '../inputs.js';
-import { asker, type FlowEvent, type Project, type Question, type Store } from '../store.js';
+import { asker, type FlowEvent, type Project, type Question, type Store, type Task } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
 
 /** What this process knows of a project's run right now. */
@@ -39,6 +39,16 @@ const readAt = (): number => (lastRead = Math.max(Date.now(), lastRead + 1));
 
 /** A project's name: its own, else its request's first line. */
 export const named = ({ name, request }: Project): string => name || request.split('\n')[0]!;
+
+/** A task as the operator reads it: by its title, without the id a Planner's letter numbered it by. */
+const titled = ({ id, title }: Pick<Task, 'id' | 'title'>): string =>
+  title.replace(new RegExp(`^${id}(?![\\p{L}\\p{N}])[\\s\\p{P}]*`, 'iu'), '') || title;
+
+/** Where a reply keeps a role's words. The Manager's are said to the operator (`steps`) until its
+ * letter to the operator says what the turn had to say; then they, like the Planner's always, are the
+ * turn's `process`, which the page keeps folded. */
+const keptIn = (role: Role): 'steps' | 'process' => role === 'manager' ? 'steps' : 'process';
+const wordsOf = (row: EventMsg | undefined, kept: 'steps' | 'process'): string[] => row?.[kept] as string[] | undefined ?? [];
 
 /** The result a Manager's letter hands the operator, as the page's result card shows it, named as
  * it was when delivered (a record from before then, by the letter's first line). */
@@ -291,7 +301,7 @@ export function daemon(project: Project, live: Live, qa?: MapReading['qa']): Dae
 function backlog(project: Project): BacklogSummary[] {
   const closed = new Set(project.tasks.filter(task => task.status === 'closed').map(task => task.id));
   return project.tasks.map(task => ({
-    id: task.id, title: task.title, priority: 0, deps: task.after ?? [],
+    id: task.id, title: titled(task), priority: 0, deps: task.after ?? [],
     status: task.status === 'closed' ? 'done' : asked(project, task.id) ? 'blocked'
       : project.failures?.some(failure => failure.task === task.id) ? 'failed'
       : (task.after ?? []).every(id => closed.has(id)) ? 'in_progress' : 'pending',
@@ -302,7 +312,7 @@ function backlog(project: Project): BacklogSummary[] {
 function questions(project: Project): Record<string, unknown>[] {
   return project.questions.map(question => {
     const task = project.tasks.find(task => task.id === question.task);
-    const title = task?.title ?? `The ${NAMES[question.role]} asks`;
+    const title = task ? titled(task) : `The ${NAMES[question.role]} asks`;
     const card: OperatorDecisionCard = {
       id: asker(question), item_id: task?.id ?? '', revision: 1, status: 'pending', title, reason: '',
       question: question.question, evidence: [], options_source: 'agent', selected_option: '', note: '',
@@ -388,9 +398,10 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       const call = reading.fold.calls.get(`${event.role}.${event.task ?? ''}`);
       const id = call?.reply ?? `m${line}-argus`;
       const reply = reading.rows.get(id);
+      const kept = keptIn(event.role);
       put({ ...reply, type: 'ui.argus', agent_layer: 'manager', ts: reply?.ts ?? ts,
         message_id: id, ...call?.answers ? { request_id: call.answers } : {},
-        text: reply?.text ?? '', event_id: line, steps: [...(reply?.steps as string[] | undefined ?? []), event.text] },
+        text: reply?.text ?? '', event_id: line, [kept]: [...wordsOf(reply, kept), event.text] },
         id, reply ? Number(reply.order) : call?.order ?? line);
     } else if (event.type === 'handoff' && event.to === 'operator' && event.role !== 'manager') {
       const row = { type: 'ui.question', ts, event_id: line, question_id: `q${line}`, agent_layer: event.role,
@@ -401,7 +412,10 @@ export function projectRecord(events: Recorded[], reading: Reading = {
       if (event.to === 'operator') reading.lastReply = firstLine(event.letter);
       const row = converted[0]!;
       const previous = reading.rows.get(String(row.message_id));
-      put({ ...row, ...previous?.steps ? { steps: previous.steps } : {} }, String(row.message_id),
+      // A letter to the operator says what its turn had to say: the words said before it were its process.
+      const { steps, process } = previous ?? {};
+      put({ ...row, ...event.to === 'operator' && steps ? { process: [...wordsOf(previous, 'process'), ...wordsOf(previous, 'steps')] }
+        : { ...steps ? { steps } : {}, ...process ? { process } : {} } }, String(row.message_id),
         previous ? Number(previous.order) : reading.fold.calls.get(`manager.${event.task ?? ''}`)?.order ?? line);
       const operatorId = String(row.message_id).replace(/-argus$/, '-operator');
       const operator = reading.rows.get(operatorId);
@@ -459,8 +473,7 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
       : project.status === 'stopped' ? 'stopped' : failure ? 'failed' : 'waiting';
     projected.set(`m${line}-argus`, { ...reading.rows.get(`m${line}-argus`), type: 'ui.argus', row_id: `m${line}-argus`, message_id: `m${line}-argus`, agent_layer: 'manager',
       request_id: operator.request_id, ts: Number(operator.ts), event_id: Math.max(reading.stateLine, Number(reading.rows.get(`m${line}-argus`)?.event_id ?? line)), order: line + 0.1,
-      steps: [...(reading.rows.get(`m${line}-argus`)?.steps as string[] | undefined ?? []),
-        ...liveReply?.words && liveReply.wordsKind !== 'answer' ? [liveReply.words] : []],
+      steps: [...wordsOf(reading.rows.get(`m${line}-argus`), 'steps'), ...liveReply?.words && liveReply.wordsKind !== 'answer' ? [liveReply.words] : []],
       text: status === 'failed' ? failure!.error : liveReply?.wordsKind === 'answer' ? liveReply.words ?? '' : '', live: status === 'running' || status === 'waiting', status });
   }
   for (const call of live.calls.filter(call => !call.answers && (call.role === 'manager' || call.role === 'planner'))) {
@@ -468,10 +481,11 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
     if (!owner) continue;
     const previous = projected.get(owner.reply);
     if (call.role === 'planner' && !call.words) continue;
+    const kept = keptIn(call.role);
     projected.set(owner.reply, { ...previous, type: 'ui.argus', agent_layer: 'manager', row_id: owner.reply,
       message_id: owner.reply, order: previous?.order ?? owner.order, ts: previous?.ts ?? call.started_ts,
       event_id: Math.max(reading.stateLine, Number(previous?.event_id ?? 0)),
-      steps: [...(previous?.steps as string[] | undefined ?? []), ...call.words && call.wordsKind !== 'answer' ? [call.words] : []],
+      [kept]: [...wordsOf(previous, kept), ...call.words && call.wordsKind !== 'answer' ? [call.words] : []],
       text: call.role === 'manager' && call.wordsKind === 'answer' ? call.words ?? '' : previous?.text ?? '' });
   }
   const rows = [...projected.values()];
@@ -484,7 +498,7 @@ export function conversationRows(reading: Reading, project: Project, live: Live)
     const state = item?.status === 'done' ? 'done' : item?.status === 'blocked' ? 'asking'
       : item?.status === 'failed' ? 'failed' : project.status === 'stopped' ? 'paused'
       : item?.status === 'pending' ? 'queued' : live.since !== null ? 'running' : 'paused';
-    rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: task.title, state, role,
+    rows.push({ type: 'ui.task', row_id: `task-${id}`, item_id: id, title: titled({ id, title: task.title }), state, role,
       progress: firstLine(words || action?.text || ''), result_paths,
       ts: reading.map.added.get(id)!, event_id: Math.max(reading.stateLine, reading.map.actions.get(id)?.line ?? 0), order: task.line + 0.2 });
   }
@@ -518,7 +532,7 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
     : state === 'waiting' ? { 'zh-CN': '等待下一步工作', en: 'Waiting for the next step' }
     : { 'zh-CN': project.request ? '已回复' : '等你开始', en: project.request ? 'Replied' : 'Waiting for you to start' };
   return { state, reason: state === 'paused' && stopped ? 'not_running' : questions ? 'operator_input' : state === 'waiting' ? 'awaiting_next_step' : '',
-    role: foreground ? 'manager' : roles[0] ?? '', roles, taskId: task?.id ?? '', title: task?.title ?? '', foreground,
+    role: foreground ? 'manager' : roles[0] ?? '', roles, taskId: task?.id ?? '', title: task ? titled(task) : '', foreground,
     activityAt, label };
 }
 

@@ -1,12 +1,13 @@
 import type { BacklogItem } from '../api';
 import { useI18n } from '../i18n';
+import { roleLabel } from '../lib/enumLabels';
 import { MarkdownContent, WorkspaceImage } from './MarkdownContent';
 
 /** The detail endpoint owns letters, the latest turn's edits and delivered paths. */
 export function TaskLetters({ item, sid, onOpenArtifact }: {
   item: BacklogItem; sid: string | null; onOpenArtifact?: (path: string) => void;
 }) {
-  const { locale } = useI18n();
+  const { locale, t } = useI18n();
   const zh = locale === 'zh-CN';
   const paths = item.result_paths ?? [];
   const image = paths.find(path => /\.(png|jpe?g|gif|webp|svg)$/i.test(path));
@@ -24,8 +25,10 @@ export function TaskLetters({ item, sid, onOpenArtifact }: {
         onOpen={onOpenArtifact ? () => onOpenArtifact(image) : undefined} />
     </div>}
     <section><h4 className="mb-1 text-xs font-medium text-ink-faint">{zh ? '往来信件' : 'Letters'}</h4>
-      {item.notes ? <MarkdownContent sid={sid} artifacts={paths.map(path => ({ path }))} onOpenArtifact={onOpenArtifact}>{item.notes}</MarkdownContent>
-        : <p className="text-xs text-ink-faint">{zh ? '暂无往来信件' : 'No letters yet'}</p>}
+      {item.letters?.length ? item.letters.map((letter, index) => <div key={index} className="mb-2">
+        <p className="text-xs text-ink-faint">{roleLabel(letter.role, t)} → {roleLabel(letter.to, t)}</p>
+        <MarkdownContent sid={sid} artifacts={paths.map(path => ({ path }))} onOpenArtifact={onOpenArtifact}>{letter.text}</MarkdownContent>
+      </div>) : <p className="text-xs text-ink-faint">{zh ? '暂无往来信件' : 'No letters yet'}</p>}
     </section>
   </div>;
 }

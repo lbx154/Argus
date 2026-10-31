@@ -558,8 +558,8 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
     }
     case 'ui.argus': {
       const body = stringField(event, 'text');
-      // A reply can contain an answer, process steps or its current state.
-      return body.trim() || row(event).status || (Array.isArray(row(event).steps) && (row(event).steps as unknown[]).length)
+      // A reply can contain an answer, words on the way, its folded process or its current state.
+      return body.trim() || row(event).status || [row(event).steps, row(event).process].some(words => Array.isArray(words) && words.length)
         ? model('manager', 'role.argus', '', body, 'bright', { expandable: context.density === 'full', rule: true })
         : hidden();
     }
