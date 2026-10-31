@@ -222,7 +222,7 @@ test("every role is shown Argus's skills and the team's beside them, without rul
     assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS], [own]]);
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
-    assert.ok(prompt.includes(`\n- software: `) && prompt.includes(join(SKILLS, 'research')));
+    assert.ok(prompt.includes(`\n- learning: `) && prompt.includes(join(SKILLS, 'research')));
     assert.ok(prompt.includes(`Skills (Argus's own, then the team's in ${own}):`));
     assert.doesNotMatch(prompt, /write it there|read its SKILL.md whole|Keep in the workspace|call nothing the latest/);
   }

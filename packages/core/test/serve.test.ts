@@ -850,13 +850,13 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   // The team's research skill is listed beside Argus's, which it leaves as it is.
   assert.deepEqual(catalog.items.filter(item => item.name === 'research').map(item => item.source), ['bundled', 'shared']);
   assert.equal(catalog.items.filter(item => item.name === 'research')[1]?.description, 'Research as this operator wants it');
-  assert.deepEqual([item('software')?.library, item('software')?.path, item('software')?.is_default, item('software')?.updated_at],
-    ['bundled', 'software/SKILL.md', true, null]);
+  assert.deepEqual([item('learning')?.library, item('learning')?.path, item('learning')?.is_default, item('learning')?.updated_at],
+    ['bundled', 'learning/SKILL.md', true, null]);
 
   const document = (library: string, path: string) => call(`/api/skill-library/document?${new URLSearchParams({ library, path })}`);
   assert.equal((await (await document('shared', 'quant/check.mjs')).json() as { content: string }).content, 'console.log("no lookahead");\n');
-  assert.equal((await (await document('bundled', 'software/SKILL.md')).json() as { content: string }).content,
-    await readFile(join(SKILLS, 'software', 'SKILL.md'), 'utf8'));
+  assert.equal((await (await document('bundled', 'learning/SKILL.md')).json() as { content: string }).content,
+    await readFile(join(SKILLS, 'learning', 'SKILL.md'), 'utf8'));
   // Only the files of the skills can be read.
   for (const [library, path] of [['shared', `../projects/${id}/project.json`], ['shared', join(home, 'projects', id, 'project.json')],
     ['bundled', '../package.json'], ['shared', 'quant'], ['wiki', 'quant/SKILL.md']]) {
