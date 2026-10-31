@@ -385,7 +385,7 @@ const ConversationRow = memo(function ConversationRow({
             {ev.status === 'running' ? <div data-manager-reply="running">
               <div className="flex min-w-0 items-center gap-2 text-sm text-ink-dim">
                 <span className="status-dot" data-tone="running" aria-hidden="true" />
-                <span className="min-w-0 truncate" data-manager-doing>{doing || (locale === 'zh-CN' ? '正在回复你的消息' : 'Replying to your message')}</span>
+                <span className="min-w-0 truncate" data-manager-doing>{doing || roleActionLabel('manager', locale === 'zh-CN')}</span>
                 {Number(ev.ts) ? <Underway since={Number(ev.ts)} zh={locale === 'zh-CN'} /> : null}
               </div>
               {/* The answer as it is written; recorded steps stay above it. */}
@@ -419,12 +419,15 @@ function RoleLogGroup({
   rows,
   open,
   active,
+  replying,
   onToggle,
 }: {
   role: typeof ROLE_ORDER[number];
   rows: ActivityRow[];
   open: boolean;
   active: boolean;
+  /** The Manager is answering the operator, as the server says (`work_status.foreground`). */
+  replying: boolean;
   onToggle: () => void;
 }) {
   const { t, locale } = useI18n();
@@ -458,7 +461,7 @@ function RoleLogGroup({
           <path d="m6 3.5 4.5 4.5L6 12.5" />
         </svg>
         {!open && thought ? <>
-          <span data-role-thought className="min-w-0 flex-1 truncate text-xs italic text-ink-dim">{thoughtHeading(String(thought.ev.text ?? ''), zh) || roleActionLabel(role, zh)}</span>
+          <span data-role-thought className="min-w-0 flex-1 truncate text-xs italic text-ink-dim">{thoughtHeading(String(thought.ev.text ?? ''), zh) || roleActionLabel(role, zh, '', '', replying)}</span>
           <time className="shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">{conversationTime(thought.ev)}</time>
         </> : null}
       </button>
@@ -526,10 +529,11 @@ function SystemLogGroup({ rows }: { rows: ActivityRow[] }) {
   );
 }
 
-function RoleLogCollection({ rows, active }: {
+function RoleLogCollection({ rows, active, replying }: {
   rows: ActivityRow[];
   /** Whether the role is at work now. */
   active: (role: string) => boolean;
+  replying: boolean;
 }) {
   const { roleRows, systemRows } = useMemo(() => partitionRoleRows(rows), [rows]);
   const [openRoles, setOpenRoles] = useState<Set<string>>(() => new Set());
@@ -544,6 +548,7 @@ function RoleLogCollection({ rows, active }: {
           rows={roleRows[role]}
           open={openRoles.has(role)}
           active={active(role)}
+          replying={replying}
           onToggle={() => {
             setOpenRoles((current) => {
               const next = new Set(current);
@@ -579,7 +584,7 @@ export function ProjectRoleLogs({ snapshot, connected, details = false, taskId }
       className={details ? '' : 'mx-auto w-full max-w-full px-4 py-2 sm:px-6 lg:max-w-[808px]'}>
       <div className="overflow-hidden rounded-lg border border-line/70">
         <RoleLogCollection rows={rows} key={`${snapshot.session.id}:${log.round}:${taskId ?? ''}`}
-          active={role => working.includes(role)} />
+          active={role => working.includes(role)} replying={snapshot.work_status?.foreground === true} />
         {details && !rows.length && !working.length ? <p className="px-4 py-3 text-xs text-ink-faint">{locale === 'zh-CN' ? '本轮暂无工作记录' : 'No work recorded this round'}</p> : null}
       </div>
     </section>

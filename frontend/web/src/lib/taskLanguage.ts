@@ -12,7 +12,7 @@ export function shortWorkText(text: string, max = 120): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
-export function roleActionLabel(role: string | undefined, zh: boolean, title = '', message = '', replying = false): string {
+export function roleActionLabel(role: string | undefined, zh: boolean, title = '', message = '', replying = true): string {
   const task = shortWorkText(title, 70);
   switch (role) {
     case 'manager': return shortWorkText(message) || (replying

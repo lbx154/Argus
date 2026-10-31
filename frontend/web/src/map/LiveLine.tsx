@@ -20,14 +20,14 @@ export function useElapsed(since?: number | null): number | null {
 /** One quiet sentence on the card being worked on right now: who is at it and
  * for how long this call. The clock ticks on its own so the rest of the card
  * stays still. */
-export function LiveLine({ role, since, zh, replying = false }: { role?: string; since?: number | null; zh: boolean; replying?: boolean }) {
+export function LiveLine({ role, since, zh }: { role?: string; since?: number | null; zh: boolean }) {
   const seconds = useElapsed(since);
   const elapsed = seconds != null ? elapsedLabel(seconds, zh) : null;
   return (
     <div className="map-card-live" data-testid="map-card-live" aria-live="off">
       <i aria-hidden="true" />
       <span>
-        {roleActionLabel(role, zh, '', '', replying)}
+        {roleActionLabel(role, zh)}
         {elapsed ? (zh ? ` · 本次已进行 ${elapsed}` : ` · ${elapsed} this run`) : ""}
       </span>
     </div>
