@@ -207,7 +207,7 @@ export class Flow {
     if (title) project.name = title;
     // A letter to the operator is the Manager's reply; one to the team adds to the work.
     if (handoff && handoff.to !== 'operator') {
-      const brief = read(handoff) + (typeof letter === 'string' ? '' : `\n\n## Operator message\n${input}`);
+      const brief = read(handoff) + (typeof letter === 'string' || letter.input_id ? '' : `\n\n## Operator message\n${input}`);
       if (handoff.to === 'engineer') {
         const id = handoff.tasks?.[0]?.task;
         if (id) await this.taskLetter(project, 'manager', id, brief);
