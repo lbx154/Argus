@@ -35,11 +35,10 @@ export type {
 } from '../../core/src/types';
 export type { ResourceStatus } from '../../core/src/resourceStatus.generated';
 
-/** A command running in the project's folder that writes to a log there or holds a GPU (GET /api/system/experiments). */
+/** A command running in the project's folder that writes to a log there or holds a GPU, or, where commands
+ * cannot be seen, a log there written lately (GET /api/system/experiments). */
 export interface Experiment {
-  pid: number; command: string; seconds: number;
-  /** nvidia-smi's index of each GPU its processes hold. */
-  gpus: string[];
+  pid: number | null; command: string | null; seconds: number | null;
   /** Its output file, relative to the project folder. */
   log: string | null; log_age_seconds: number | null; tail: string[];
 }
@@ -797,7 +796,7 @@ export const api = {
   resources: (sid: string, signal?: AbortSignal) =>
     getJson<ResourceStatus>(`/api/system/resources?sid=${encodeURIComponent(sid)}`, signal),
   experiments: (sid: string, signal?: AbortSignal) =>
-    getJson<{ experiments: Experiment[] }>(`/api/system/experiments?sid=${encodeURIComponent(sid)}`, signal),
+    getJson<{ processes: boolean; experiments: Experiment[] }>(`/api/system/experiments?sid=${encodeURIComponent(sid)}`, signal),
   setup: (signal?: AbortSignal) => getJson<SetupStatus>('/api/system/setup', signal),
   trash: (query = '', offset = 0, signal?: AbortSignal) =>
     getJson<{ entries: { trash_id: string; sid: string; label: string; launch_cwd: string; trashed_at: number }[]; total: number; offset: number; limit: number }>(

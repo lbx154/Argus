@@ -14,6 +14,7 @@ import { Store } from '../src/store.js';
 import { agentEnv } from '../src/agent/sandbox.js';
 import { serve } from '../src/serve/index.js';
 import { follow, readEvents, webEvents, type Recorded } from '../src/serve/views.js';
+import { tail, written } from '../src/serve/resources.js';
 
 /** One scripted turn: the role expected, its letter (no `to`: none), and what it does first. */
 interface Step {
@@ -1753,7 +1754,7 @@ test('a command writing its output to a file in the project shows as an experime
   const child = spawn('bash', ['-c', `exec sh -c '${script}'`], { cwd: project.workdir, stdio: ['ignore', out, out] });
   closeSync(out);
   t.after(() => { child.kill(); });
-  let found: { pid: number; command: string; log: string; tail: string[]; gpus: string[] }[] = [];
+  let found: { pid: number; command: string; log: string; tail: string[] }[] = [];
   for (let tries = 0; tries < 50 && !found.some(entry => entry.tail.includes('loss 0.5')); tries++) {
     await new Promise(resolve => setTimeout(resolve, 100));
     ({ experiments: found } = await get<{ experiments: typeof found }>(`/api/system/experiments?sid=${project.id}`));
@@ -1763,8 +1764,67 @@ test('a command writing its output to a file in the project shows as an experime
   assert.equal(found[0]!.command, 'sleep 30');
   assert.equal(found[0]!.log, 'train.log');
   assert.deepEqual(found[0]!.tail, ['step 9000/9000', 'loss 0.5']);
-  assert.deepEqual(found[0]!.gpus, []);
   // A command elsewhere is not this project's.
   const other = store.create({ workdir: '', request: '', backend: 'codex', model: null });
   assert.deepEqual((await get<{ experiments: unknown[] }>(`/api/system/experiments?sid=${other.id}`)).experiments, []);
+});
+
+test('a command whose newest output is its stderr shows that as its log: tqdm draws there', { skip: process.platform !== 'linux' }, async t => {
+  const { store, get } = await setup(t, []);
+  const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  const { spawn } = await import('node:child_process');
+  const { openSync, closeSync } = await import('node:fs');
+  const [out, err] = [openSync(join(project.workdir, 'train.log'), 'w'), openSync(join(project.workdir, 'train.err'), 'w')];
+  const child = spawn('sh', ['-c', 'echo started; sleep 0.2; printf "step 7/50\\r" >&2; exec sleep 30'], { cwd: project.workdir, stdio: ['ignore', out, err] });
+  closeSync(out); closeSync(err);
+  t.after(() => { child.kill(); });
+  let found: { log: string; tail: string[] }[] = [];
+  for (let tries = 0; tries < 50 && !found.some(entry => entry.tail.includes('step 7/50')); tries++) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    ({ experiments: found } = await get<{ experiments: typeof found }>(`/api/system/experiments?sid=${project.id}`));
+  }
+  assert.deepEqual(found.map(entry => [entry.log, entry.tail]), [['train.err', ['step 7/50']]]);
+});
+
+test('where commands cannot be seen, the project\'s logs written lately are found level by level, and nothing else', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'argus-logs-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const at = (...parts: string[]) => join(dir, ...parts);
+  // A data folder sorting first holds more entries than the walk reads: the logs beside and after it are still found.
+  await mkdir(at('data', 'images'), { recursive: true });
+  await Promise.all(Array.from({ length: 6000 }, (_, i) => writeFile(at('data', 'images', `${i}.png`), '')));
+  await mkdir(at('runs', 'a'), { recursive: true });
+  await writeFile(at('runs', 'a', 'train.log'), 'step 40/100\n');
+  await writeFile(at('nohup.out'), 'started\n');
+  const earlier = new Date(Date.now() - 60_000);
+  await utimes(at('nohup.out'), earlier, earlier);
+  for (const [path, text] of [[['notes.md'], 'not a log'], [['a.out'], 'a binary'], [['.cache', 'hidden.log'], 'hidden'],
+    [['wandb', 'run-1', 'files', 'output.log'], 'wandb\'s copy'], [['paper', 'main.tex'], '\\documentclass{article}'], [['paper', 'main.log'], 'LaTeX'],
+    [['old.log'], 'finished long ago']] as const) {
+    await mkdir(join(dir, ...path.slice(0, -1)), { recursive: true });
+    await writeFile(join(dir, ...path), text);
+  }
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  await utimes(at('old.log'), hourAgo, hourAgo);
+  assert.deepEqual(await written(dir), [at('runs', 'a', 'train.log'), at('nohup.out')]);
+});
+
+test('a log\'s tail is read as a terminal shows it, UTF-8 or the UTF-16 Windows PowerShell writes', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'argus-tail-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const text = 'epoch 1/3\repoch 2/3\r\nstep 40/100 loss 0.7\r\n';
+  await writeFile(join(dir, 'utf8.log'), text);
+  await writeFile(join(dir, 'utf16.log'), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]));
+  for (const name of ['utf8.log', 'utf16.log']) assert.deepEqual((await tail(join(dir, name))).tail, ['epoch 2/3', 'step 40/100 loss 0.7'], name);
+});
+
+test('the experiments a project shows say whether this system shows commands', async t => {
+  const { store, get } = await setup(t, []);
+  const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+  await writeFile(join(project.workdir, 'train.log'), 'step 1/10\n');
+  const { processes, experiments } = await get<{ processes: boolean; experiments: { pid: number | null; log: string }[] }>(
+    `/api/system/experiments?sid=${project.id}`);
+  assert.equal(processes, process.platform === 'linux');
+  // Linux shows only what runs; elsewhere the log the project wrote, with no command.
+  assert.deepEqual(experiments.map(run => [run.pid, run.log]), processes ? [] : [[null, 'train.log']]);
 });
