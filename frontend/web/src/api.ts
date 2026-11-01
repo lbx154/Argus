@@ -83,6 +83,7 @@ export interface KnowledgeFeed {
 }
 
 export interface ConfigRole {
+  model_automatic?: boolean;
   role: string;
   backend: string;
   backend_label: string;
@@ -103,7 +104,10 @@ export interface ConfigKnob {
   default: string;
   doc: string;
 }
+export interface RoleConfigChoice { role: string; backend: string; model: string; effort: string }
 export interface ConfigSnapshot {
+  revision?: number;
+  active_roles?: string[];
   schema_version: number;
   generated_at_utc: string;
   roles: ConfigRole[];
@@ -111,6 +115,8 @@ export interface ConfigSnapshot {
   how_to_change: string[];
   /** Every backend there is, by its name for the page. */
   backends?: Record<string, string>;
+  /** Executable discovery only; does not claim successful authentication. */
+  available_backends?: Record<string, string>;
 }
 export interface SetupStatus {
   backends: { backend: string; installed: boolean; version: string | null; detail: string }[];
@@ -119,16 +125,27 @@ export interface SetupStatus {
 }
 /** One model the backend offers: whether it is the backend's default, and its price. */
 export interface ModelChoice {
+  name?: string;
+  provider?: string;
+  available?: boolean;
+  efforts?: string[];
   model: string;
   default: boolean;
   /** USD per million tokens; null when the price table does not list the model. */
-  price: { input: number; output: number } | null;
+  price: { input: number; output: number; cachedInput?: number; cacheWrite?: number } | null;
+  pricing?: { source: 'cli-catalog' | 'public-reference' | 'unknown'; checked_at: string | null;
+    rates: { input: number; output: number; cachedInput?: number; cacheWrite?: number } | null; stale: boolean; reference?: string };
 }
 export interface ModelChoices {
+  catalog_kind?: 'live' | 'aliases' | 'manual';
+  role?: string;
+  installed?: boolean;
+  error?: string;
   backend: string;
   options: ModelChoice[];
 }
 export interface ModelProbeResult {
+  actual_model?: string | null;
   model: string;
   ok: boolean;
   error: string;
@@ -749,10 +766,12 @@ export const api = {
   },
   config: (sid: string, signal?: AbortSignal) =>
     getJson<ConfigSnapshot>(P(sid, '/config'), signal),
-  modelChoices: (sid: string, signal?: AbortSignal) =>
-    getJson<ModelChoices>(P(sid, '/model-choices'), signal),
-  probeModel: (sid: string, model: string) =>
-    postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model }),
+  modelChoices: (sid: string, signal?: AbortSignal, choice?: { role: string; backend: string; refresh?: boolean }) =>
+    getJson<ModelChoices>(P(sid, `/model-choices${choice ? `?${new URLSearchParams({ role: choice.role, backend: choice.backend, ...choice.refresh ? { refresh: '1' } : {} })}` : ''}`), signal, 65_000),
+  probeModel: (sid: string, model: string, choice?: { role: string; backend: string; effort: string }) =>
+    postJson<ModelProbeResult>(P(sid, '/model-choices/probe'), { model, ...choice }),
+  setRoleConfig: (sid: string, roles: RoleConfigChoice[], revision: number) =>
+    mutationJson<{ ok: boolean; revision: number; effective: string }>('PUT', P(sid, '/config/roles'), { roles, revision }),
   conversation: (sid: string, before?: number, signal?: AbortSignal) =>
     getJson<ConversationPage>(P(sid, `/conversation?limit=30${before === undefined ? '' : `&before=${before}`}`), signal),
   backlogItem: (sid: string, id: string, signal?: AbortSignal, letter?: string) =>

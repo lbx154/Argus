@@ -141,6 +141,9 @@ docs/Argus_BP*
 
 # Private integration evidence, isolated QA homes and local delivery notes.
 /.integration/
+/.preview-logs/
+/.preview-qa/
+/artifacts/
 /HANDOFF-*.md
 # First-party adapters are rebuilt from desktop-tauri/scripts/*.rs.
 /argus/_native/

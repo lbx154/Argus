@@ -11,6 +11,7 @@ import { Spinner } from './primitives';
 import { ErrorMessage } from './ErrorMessage';
 import { rawErrorText } from '../lib/format';
 import './modelPicker.css';
+import { RoleModelPicker } from './RoleModelPicker';
 
 type Probe = 'running' | ModelProbeResult | { ok: false; error: string };
 
@@ -52,7 +53,15 @@ function ModelRow({ name, model, meta, selected, current, onSelect, action, chil
  * has for it; the one chosen is applied through the regular settings writes.
  * Opening it calls no model: "Test" is the one control that does.
  */
-export function ModelPicker({ sid, open, onClose, onOpenSettings }: {
+export function ModelPicker(props: { sid: string; open: boolean; onClose: () => void; onOpenSettings?: () => void }) {
+  const config = useConfig(props.sid, props.open);
+  // Keep the old protocol usable when connecting to a pre-1.0 server.
+  return config.data?.revision !== undefined
+    ? <RoleModelPicker key={props.sid} {...props} />
+    : <SingleModelPicker {...props} />;
+}
+
+function SingleModelPicker({ sid, open, onClose, onOpenSettings }: {
   sid: string;
   open: boolean;
   onClose: () => void;

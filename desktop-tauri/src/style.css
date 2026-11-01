@@ -1,23 +1,24 @@
 :root {
   color-scheme: light;
-  --bg: #f9fafb;
-  --bg-deep: #f3f4f6;
-  --tile: #ffffff;
-  /* One continuous pale Argus surface across native title, menu and Web UI. */
-  --chrome-bg: #f5f5f7;
-  --chrome-border: #f5f5f7;
-  --ink: #14161c;
-  --muted: #626a78;
-  --line: rgba(20, 22, 28, 0.1);
-  --line-strong: rgba(20, 22, 28, 0.2);
-  --accent: #075fe4;
-  --accent-2: #075fe4;
-  --warm: #075fe4;
-  --brand-mid: #075fe4;
-  --brand-violet: #075fe4;
-  --danger: #b42318;
-  --success: #075fe4;
-  --shadow: rgba(24, 30, 44, 0.16);
+  --bg: #f7f3e8;
+  --bg-deep: #eee8d8;
+  --tile: #fcfaf4;
+  /* Match the cockpit's shared warm palette, including menus and setup. */
+  --chrome-bg: #f7f3e8;
+  --chrome-border: #f7f3e8;
+  --ink: #0e0e10;
+  --muted: #666a71;
+  --line: rgba(14, 14, 16, 0.1);
+  --line-strong: rgba(14, 14, 16, 0.2);
+  --accent: #85661f;
+  --accent-2: #b08d3c;
+  --warm: #b08d3c;
+  --brand-mid: #b08d3c;
+  --brand-violet: #a9852f;
+  --danger: #a33a3a;
+  --success: #85661f;
+  --on-accent: #ffffff;
+  --shadow: rgba(24, 20, 8, 0.14);
   --brand-body: #000000;
   --brand-eye: #ffffff;
   --brand-pupil: #000000;
@@ -27,22 +28,23 @@
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --bg: #0d0e12;
-  --bg-deep: #08090d;
-  --tile: #1a1c23;
-  --chrome-bg: #161618;
-  --chrome-border: #161618;
-  --ink: #f2f5fa;
-  --muted: #8b92a0;
-  --line: rgba(255, 255, 255, 0.11);
-  --line-strong: rgba(255, 255, 255, 0.22);
-  --accent: #6ea8ff;
-  --accent-2: #6ea8ff;
-  --warm: #6ea8ff;
-  --brand-mid: #6ea8ff;
-  --brand-violet: #6ea8ff;
-  --danger: #fda29b;
-  --success: #6ea8ff;
+  --bg: #0c0c0d;
+  --bg-deep: #080809;
+  --tile: #151517;
+  --chrome-bg: #151517;
+  --chrome-border: #151517;
+  --ink: #f2f2f0;
+  --muted: #8e9298;
+  --line: rgba(242, 242, 240, 0.11);
+  --line-strong: rgba(242, 242, 240, 0.22);
+  --accent: #d4b866;
+  --accent-2: #e2ca80;
+  --warm: #d4b866;
+  --brand-mid: #d4b866;
+  --brand-violet: #e2ca80;
+  --danger: #e27a7a;
+  --success: #d4b866;
+  --on-accent: #0c0c0d;
   --shadow: rgba(0, 0, 0, 0.42);
   --brand-body: #d7d9dc;
   --brand-eye: #ffffff;
@@ -1460,7 +1462,7 @@ button {
 #ownContent .runner-path { min-height: 0; padding: 7px 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; }
 #ownContent .runner-actions { gap: 8px; }
 #ownContent .runner-actions button { padding: 7px 10px; font-size: 11px; }
-#ownContent .runner-segmented { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+#ownContent .runner-segmented { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 #ownContent .runner-segmented button { padding: 9px 6px; font-size: 12px; }
 :root[data-settings-mode='true'] .panel[data-panel='env']:not([hidden]) { display: block; width: min(760px, 100%); min-height: 0; padding: 24px; }
 @media (max-height: 700px) {

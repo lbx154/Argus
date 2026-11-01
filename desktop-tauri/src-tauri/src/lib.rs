@@ -45,7 +45,7 @@ use updater::UpdateManager;
 
 const MAIN_WINDOW: &str = "main";
 /// A preview build is a separate application with its own data.
-const PREVIEW_IDENTIFIER: &str = "cn.argusbot.desktop.preview.integration20260913";
+const PREVIEW_IDENTIFIER: &str = "cn.argusbot.desktop.preview.v1";
 
 pub struct AppState {
     settings: Arc<SettingsStore>,
@@ -120,16 +120,18 @@ fn apply_windows_caption_palette(window: &tauri::WebviewWindow, theme: &Appearan
     }
 
     let (caption, text, border, immersive_dark) = match theme {
+        // Match desktop style.css --chrome-bg / --ink, not the WebView-only
+        // background. DWM owns the minimise/maximise/close row above the page.
         AppearanceTheme::Light => (
-            colorref(245, 245, 247),
-            colorref(17, 24, 39),
-            colorref(245, 245, 247),
+            colorref(247, 243, 232),
+            colorref(14, 14, 16),
+            colorref(247, 243, 232),
             0_i32,
         ),
         AppearanceTheme::Dark => (
-            colorref(22, 22, 24),
-            colorref(249, 250, 251),
-            colorref(22, 22, 24),
+            colorref(21, 21, 23),
+            colorref(242, 242, 240),
+            colorref(21, 21, 23),
             1_i32,
         ),
         AppearanceTheme::System => (
@@ -171,8 +173,8 @@ fn apply_windows_caption_palette(window: &tauri::WebviewWindow, theme: &Appearan
 /// launcher/cockpit surface without replacing native caption controls.
 fn apply_window_appearance(app: &AppHandle, theme: &AppearanceTheme) {
     let (native_theme, background) = match theme {
-        AppearanceTheme::Light => (Some(Theme::Light), Some(Color(249, 250, 251, 255))),
-        AppearanceTheme::Dark => (Some(Theme::Dark), Some(Color(13, 14, 18, 255))),
+        AppearanceTheme::Light => (Some(Theme::Light), Some(Color(247, 243, 232, 255))),
+        AppearanceTheme::Dark => (Some(Theme::Dark), Some(Color(12, 12, 13, 255))),
         AppearanceTheme::System => (None, None),
     };
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
@@ -749,7 +751,8 @@ pub fn run_with_context(context: tauri::Context<tauri::Wry>) {
     .on_menu_event(|app, event| handle_menu(app, event.id().as_ref()))
     .on_window_event(|window, event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
-            let app_state = window.state::<AppState>();
+            // A failed initialization can close the window before AppState is registered.
+            let Some(app_state) = window.try_state::<AppState>() else { return; };
             if !app_state.quitting.load(Ordering::SeqCst) {
                 api.prevent_close();
                 let _ = window.hide();

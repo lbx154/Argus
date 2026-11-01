@@ -159,7 +159,7 @@ pub(crate) fn desktop_data_dir() -> PathBuf {
     // without deleting or silently importing an earlier preview's account/data.
     let name = match (desktop_profile(), crate::release::preview_mode()) {
         ("argus", false) => CANONICAL_USER_DATA_DIR.to_owned(),
-        ("argus", true) => "argus-desktop-preview-integration-20260913".to_owned(),
+        ("argus", true) => "argus-desktop-preview-1.0.0".to_owned(),
         (profile, false) => format!("{profile}-desktop"),
         (profile, true) => format!("{profile}-desktop-preview"),
     };
@@ -318,13 +318,26 @@ mod tests {
     fn a_retired_cli_is_chosen_again_without_losing_other_settings() {
         let directory = tempfile::tempdir().unwrap();
         let file = directory.path().join("settings.json");
-        let raw = r#"{"token":"kept","port":9001,"runnerKind":"cursor","runnerConfigured":true,"setupComplete":true,"trialMode":false,"host":"127.0.0.1"}"#;
+        let raw = r#"{"token":"kept","port":9001,"runnerKind":"unknown-retired-cli","runnerConfigured":true,"setupComplete":true,"trialMode":false,"host":"127.0.0.1"}"#;
         std::fs::write(&file, raw).unwrap();
         let (settings, needs_save) = super::load_settings_file(&file).unwrap();
         assert!(needs_save);
         assert_eq!((settings.token.as_str(), settings.port), ("kept", 9001));
         assert_eq!(settings.runner_kind, RunnerKind::Codex);
         assert!(!settings.runner_configured && !settings.setup_complete);
+    }
+
+    #[test]
+    fn all_legacy_cli_selections_survive_the_typescript_upgrade() {
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("settings.json");
+        for kind in crate::models::RUNNER_KINDS.iter() {
+            let raw = format!(r#"{{"runnerKind":"{}","runnerConfigured":true,"setupComplete":true}}"#, kind.as_str());
+            std::fs::write(&file, raw).unwrap();
+            let (settings, _) = super::load_settings_file(&file).unwrap();
+            assert_eq!(settings.runner_kind, *kind);
+            assert!(settings.runner_configured && settings.setup_complete);
+        }
     }
 
     #[test]
@@ -377,7 +390,7 @@ mod tests {
         let preview = crate::release::preview_mode();
         let name = match (profile, preview) {
             ("argus", false) => "argus-desktop".to_owned(),
-            ("argus", true) => "argus-desktop-preview-integration-20260913".to_owned(),
+            ("argus", true) => "argus-desktop-preview-1.0.0".to_owned(),
             (_, false) => format!("{profile}-desktop"),
             (_, true) => format!("{profile}-desktop-preview"),
         };

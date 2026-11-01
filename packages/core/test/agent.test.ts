@@ -4,10 +4,11 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, s
 import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
-import test, { after } from 'node:test';
+import test, { after, mock } from 'node:test';
+import { priceBook } from '../src/agent/prices.js';
+mock.method(priceBook, 'refresh', async () => {}); // Protocol suite stays offline.
 import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
-import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema, judge } from '../src/agent/handoff.js';
 import { confine, privatePath, sandboxed } from '../src/agent/sandbox.js';
 import { writing } from '../src/agent/steps.js';
@@ -22,7 +23,9 @@ const home = join(root, 'home');
 for (const dir of [bin, work, home]) mkdirSync(dir);
 const fixture = (name: string): string => fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url));
 copyFileSync(fixture('fake-agent.mjs'), join(bin, 'fake-agent.mjs'));
-for (const name of BACKENDS) {
+for (const backend of BACKENDS) {
+  const name = backend === 'cursor' ? 'agent' : backend === 'qoder' ? 'qodercli' : backend;
+  delete process.env[`ARGUS_CLI_${backend.toUpperCase()}_BIN`];
   if (process.platform === 'win32') copyFileSync(fixture('fake-agent.cmd'), join(bin, `${name}.cmd`));
   else symlinkSync(join(bin, 'fake-agent.mjs'), join(bin, name));
 }
@@ -117,21 +120,56 @@ test('under bubblewrap codex reads the files its config names, however the confi
 });
 
 // What each fake CLI reports: its model, usage and the credentials it signs in with.
-const codexCost = quoteTokenUsage('gpt-5.5', { input_tokens: 1000, cached_input_tokens: 400, cache_write_tokens: 100, output_tokens: 50 }).cost_usd;
+const unknownQuote = { source: 'unknown' as const, checked_at: null, rates: null, stale: false };
 const reported: Record<Backend, Pick<AgentResult, 'model' | 'usage'> & { env: string[] }> = {
   codex: { model: 'gpt-5.5', env: [],
-    usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 50, reasoning_output_tokens: 20, cost_usd: codexCost } },
+    usage: { input_tokens: 1000, cached_input_tokens: 400, cache_write_tokens: 100, output_tokens: 50, reasoning_output_tokens: 20, cost_usd: null, cost_source: 'unknown',
+      price_components: [{ model: 'gpt-5.5', pricing: unknownQuote, cost_usd: null }] } },
   claude: { model: 'claude-test', env: ['ANTHROPIC_API_KEY'],
-    usage: { input_tokens: 360, cached_input_tokens: 300, output_tokens: 40, reasoning_output_tokens: 5, cost_usd: 0.0123 } },
+    usage: { input_tokens: 360, cached_input_tokens: 300, cache_write_tokens: 50, output_tokens: 40, reasoning_output_tokens: 5, cost_usd: 0.0123, cost_source: 'cli-reported' } },
   // Two model requests, a subagent's among them, each $0.025 of AI credits.
   copilot: { model: 'copilot-test', env: ['COPILOT_GITHUB_TOKEN'],
-    usage: { input_tokens: 2400, cached_input_tokens: 1600, output_tokens: 60, reasoning_output_tokens: 20, cost_usd: 0.05 } },
+    usage: { input_tokens: 2400, cached_input_tokens: 1600, output_tokens: 60, reasoning_output_tokens: 20, cost_usd: 0.05, cost_source: 'cli-reported' } },
   // Two assistant messages.
   pi: { model: 'anthropic/claude-test', env: ['ANTHROPIC_API_KEY'],
-    usage: { input_tokens: 740, cached_input_tokens: 600, output_tokens: 80, reasoning_output_tokens: 10, cost_usd: 0.0084 } },
+    usage: { input_tokens: 740, cached_input_tokens: 600, cache_write_tokens: 100, output_tokens: 80, reasoning_output_tokens: 10, cost_usd: 0.0084, cost_source: 'cli-reported' } },
+  dsh: { model: 'deepseek-official/test-model', env: ['ANTHROPIC_API_KEY'],
+    usage: { input_tokens: 150, cached_input_tokens: 50, cache_write_tokens: 0, output_tokens: 20, reasoning_output_tokens: 5, cost_usd: null, cost_source: 'unknown' } },
+  ...Object.fromEntries(['cursor', 'opencode', 'grok', 'qoder'].map(backend => [backend, { model: `${backend}-test`, env: backend === 'opencode' ? ['ANTHROPIC_API_KEY'] : [],
+    usage: { input_tokens: 100, cached_input_tokens: 50, output_tokens: 20, reasoning_output_tokens: 5, cost_usd: null, cost_source: 'unknown' } }])) as Record<'cursor' | 'opencode' | 'grok' | 'qoder', Pick<AgentResult, 'model' | 'usage'> & { env: string[] }>,
 };
 
+for (const backend of ['pi', 'claude', 'dsh'] as const) {
+  test(`${backend}: live letters arrive before completion without accepting partial handoffs or subagents`, async () => {
+    const words: string[] = [];
+    let returned = false;
+    const result = await call(backend, { output: handoff, stream: true }, { onWords: value => {
+      assert.equal(returned, false); words.push(value);
+    } });
+    returned = true;
+    assert.ok(words.some(value => value.length > 0 && value.length < handoff.letter.length && handoff.letter.startsWith(value)));
+    assert.ok(words.every(value => !value.includes('NEVER-SHOW') && !value.includes('"to"')));
+    assert.equal(result.handoff?.letters[0], handoff.letter);
+    assert.ok(result.timing && result.timing.first_output_ms! < result.timing.total_ms);
+  });
+}
+
 for (const backend of BACKENDS) {
+  test(`${backend}: all four role forms cross the real subprocess transport`, async () => {
+    const roles = [
+      { role: 'manager', form: 'manager', output: { to: 'engineer', letter: 'Do the task.', task: '', open: [] } },
+      { role: 'planner', form: 'plan', output: { to: 'engineer', letters: [{ letter: 'Do this task.', task: '', after: [] }] } },
+      { role: 'engineer', form: 'engineer', output: { to: 'reviewer', letter: 'Ready for review.', open: [] } },
+      { role: 'reviewer', form: 'review', output: { to: 'manager', letter: 'Reviewed.', open: [] } },
+    ] as const;
+    for (const { role, form, output } of roles) {
+      const result = await call(backend, { output }, { role, form, access: role === 'engineer' ? 'write' : 'read' });
+      assert.equal(result.completed, true, `${backend}/${role}: ${result.error}`);
+      assert.equal(result.handoff?.form, form);
+      assert.equal(result.handoff?.to, output.to);
+    }
+  });
+
   test(`${backend}: the Manager can address an existing task through its form`, async () => {
     const result = await call(backend, { output: { to: 'engineer', letter: 'Continue the existing task.', task: 't1', open: [] } }, { role: 'manager', form: 'manager' });
     assert.deepEqual(result.handoff, { form: 'manager', to: 'engineer', letters: ['Continue the existing task.'], tasks: [{ task: 't1', after: [] }] });
@@ -151,10 +189,18 @@ for (const backend of BACKENDS) {
     assert.deepEqual(seen(backend).env, env);
     assert.deepEqual({ model: result.model, usage: result.usage }, report);
     const line = readFileSync(usageFile, 'utf8').trim().split('\n').map(row => JSON.parse(row)).find(row => row.callId === result.callId);
-    const { cost_usd, ...tokens } = result.usage!;
-    assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, ms: result.ms, tokens, cost_usd });
-    assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"(type|method)":"(turn\/completed|result|agent_settled)"/);
-    assert.equal(readFileSync(join(root, 'argus', 'calls', `${result.callId}.prompt.md`), 'utf8'), JSON.stringify({ output: handoff }));
+    const { cost_usd, cost_source, price_components, ...tokens } = result.usage!;
+    assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, ms: result.ms,
+      timing: result.timing, tokens, cost_usd, cost_source, pricing: unknownQuote, ...price_components ? { price_components } : {} });
+    assert.ok(result.timing && result.timing.total_ms >= result.timing.session_ms);
+    const metrics = JSON.parse(readFileSync(join(root, 'argus', 'calls', `${result.callId}.metrics.json`), 'utf8'));
+    assert.deepEqual(Object.keys(metrics), ['role', 'backend', 'model', 'completed', 'accepted', 'timing']);
+    assert.match(readFileSync(join(root, 'argus', 'calls', `${result.callId}.jsonl`), 'utf8'), /"(type|method)":"(turn\/completed|result|agent_settled|final|step_finish)"/);
+    const recorded = readFileSync(join(root, 'argus', 'calls', `${result.callId}.prompt.md`), 'utf8');
+    if (['cursor', 'opencode', 'grok', 'qoder', 'dsh'].includes(backend)) {
+      assert.ok(recorded.startsWith(JSON.stringify({ output: handoff })));
+      assert.match(recorded, /Your final answer MUST be a single JSON object/);
+    } else assert.equal(recorded, JSON.stringify({ output: handoff }));
   });
 
   test(`${backend}: the role's steps are told as its turn goes on: what it says, runs and changes`, async () => {
@@ -223,6 +269,24 @@ for (const backend of BACKENDS) {
     }
   });
 }
+
+test('Claude accepts its matching command lifecycle acknowledgment without accepting a background result', async () => {
+  const result = await call('claude', { output: handoff, lifecycleAck: true });
+  assert.equal(result.completed, true, result.error ?? 'expected completion');
+  assert.equal(result.handoff?.to, 'reviewer');
+});
+
+test('Claude reports repeated authentication failures instead of hanging forever in CLI retries', async () => {
+  const result = await call('claude', { lifecycleAck: true, authenticationFailure: true });
+  assert.equal(result.completed, false);
+  assert.match(result.error ?? '', /HTTP 401/);
+});
+
+test('a native Windows review starts with an isolated valid temporary directory', { skip: process.platform !== 'win32' }, async () => {
+  const result = await call('pi', { output: { to: 'manager', letter: 'Reviewed.', open: [] } }, { role: 'reviewer', form: 'review', access: 'read' });
+  assert.equal(result.completed, true, result.error ?? 'review must launch');
+  assert.equal(result.handoff?.to, 'manager');
+});
 
 // What a job started with `nohup … &` and one started with `setsid` noted in their files.
 const jobs = (): string[] => ['nohup', 'setsid'].map(how => {
@@ -356,7 +420,8 @@ test('a CLI not on PATH says how to install it', async () => {
     for (const backend of BACKENDS) {
       const result = await call(backend, { output: handoff });
       assert.deepEqual([result.completed, result.handoff], [false, null]);
-      assert.match(result.error ?? '', new RegExp(`^${backend} is not installed .*Install it with: npm install -g \\S+`));
+      assert.match(result.error ?? '', new RegExp(`^${backend} is not installed .*Install it with: .+`));
+      assert.match(result.error ?? '', backend === 'cursor' || backend === 'grok' ? /https:\/\// : /npm install -g/);
     }
   } finally {
     process.env.PATH = path;

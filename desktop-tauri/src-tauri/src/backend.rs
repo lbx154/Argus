@@ -7,12 +7,12 @@
 
 use crate::{
     logger::DesktopLogger,
-    models::{BackendState, BackendStatus, DesktopSettings},
+    models::{BackendState, BackendStatus, DesktopSettings, RUNNER_KINDS},
     process::terminate_process_tree,
     redaction::redact_sensitive_text,
     release::ReleaseContext,
-    runner::{argus_home_dir, desktop_setup_complete, find_node, resolve_runner_configuration, NODE_MAJOR},
-    settings::SettingsStore,
+    runner::{argus_home_dir, desktop_setup_complete, find_runtime_node, resolve_runner_binary, resolve_runner_configuration, runner_launch, NODE_MAJOR},
+    settings::{runner_bin, SettingsStore},
 };
 use reqwest::Client;
 use serde::Deserialize;
@@ -145,7 +145,7 @@ impl BackendSupervisor {
             Ok(script) => script,
             Err(detail) => return self.set_status(BackendState::Error, "本地后端文件需要修复", Some(detail)),
         };
-        let node = match find_node(runner.as_deref()) {
+        let node = match find_runtime_node(runner.as_deref(), self.release.resource_dir.as_deref()) {
             Ok(node) => node,
             Err(detail) => return self.set_status(
                 BackendState::Error, format!("需要 Node.js {NODE_MAJOR} 或更高版本"), Some(detail),
@@ -277,8 +277,11 @@ impl BackendSupervisor {
     /// PATH Argus will give it, so a CLI that cannot run is seen at setup.
     pub async fn validate_runner(&self, runner: &str) -> Result<(), String> {
         let runner = Path::new(runner);
-        let path = runtime_path(&find_node(Some(runner))?, Some(runner)).map_err(|error| error.to_string())?;
-        let mut command = Command::new(runner);
+        let node = find_runtime_node(Some(runner), self.release.resource_dir.as_deref())?;
+        let path = runtime_path(&node, Some(runner)).map_err(|error| error.to_string())?;
+        let (executable, args) = runner_launch(&node, runner)?;
+        let mut command = Command::new(executable);
+        command.args(args);
         #[cfg(windows)]
         command.creation_flags(CREATE_NO_WINDOW);
         command
@@ -340,13 +343,15 @@ fn argus_command(
     home: &Path,
 ) -> anyhow::Result<Command> {
     fs::create_dir_all(home)?;
-    let mut command = Command::new(node);
+    // Tauri returns verbatim Windows paths (\\\\?\\D:\\...). Node's main-module
+    // resolver can fail with EISDIR on the drive prefix; give it normal Win32 paths.
+    let mut command = Command::new(dunce::simplified(node));
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
     command
-        .arg(script)
+        .arg(dunce::simplified(script))
         .args(["--port", &settings.port.to_string(), "--backend", settings.runner_kind.as_str()])
-        .current_dir(home)
+        .current_dir(dunce::simplified(home))
         .env("ARGUS_WEB_TOKEN", &settings.token)
         .env("ARGUS_HOME", home)
         .env("PATH", runtime_path(node, runner)?)
@@ -354,6 +359,12 @@ fn argus_command(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    // Every role may use a different CLI; pass every saved/discovered path, not just the wizard's first choice.
+    for kind in RUNNER_KINDS.iter() {
+        if let Some(binary) = runner_bin(settings, kind).or_else(|| resolve_runner_binary(kind)) {
+            command.env(format!("ARGUS_CLI_{}_BIN", kind.as_str().to_ascii_uppercase()), binary);
+        }
+    }
     Ok(command)
 }
 
@@ -367,7 +378,7 @@ fn ready_origin(line: &str) -> Option<String> {
 /// CLI is a Node script) and the chosen CLI's (Argus finds it by name) first.
 fn runtime_path(node: &Path, runner: Option<&Path>) -> anyhow::Result<OsString> {
     let current = env::var_os("PATH").unwrap_or_default();
-    let first = [Some(node), runner].into_iter().flatten().filter_map(Path::parent).map(Path::to_path_buf);
+    let first = [Some(node), runner].into_iter().flatten().map(dunce::simplified).filter_map(Path::parent).map(Path::to_path_buf);
     Ok(env::join_paths(first.chain(env::split_paths(&current)))?)
 }
 
@@ -379,6 +390,19 @@ pub fn is_artifact_download(origin: Option<&str>, url: &url::Url) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn node_starts_a_module_from_canonical_windows_resource_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("resource-check.mjs");
+        fs::write(&script, "console.log('resource-path-ok')").unwrap();
+        let node = fs::canonicalize(find_runtime_node(None, None).unwrap()).unwrap();
+        let script = fs::canonicalize(script).unwrap();
+        let mut command = argus_command(&node, &script, None, &DesktopSettings::default(), directory.path()).unwrap();
+        let output = command.output().await.unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "resource-path-ok");
+    }
 
     #[test]
     fn readiness_is_the_line_argus_prints_once_it_listens() {
@@ -418,7 +442,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_shipped_argus_runs_with_node_and_says_where_it_listens() {
-        let node = find_node(None).expect("Node.js 22 or newer for the desktop's tests");
+        let node = find_runtime_node(None, None).expect("Node.js 22 or newer for the desktop's tests");
         let home = tempfile::tempdir().unwrap();
         let settings = DesktopSettings { port: 0, token: "desktop-test-token".into(), ..Default::default() };
         let mut child = argus_command(&node, &shipped_argus(), None, &settings, home.path()).unwrap().spawn().unwrap();

@@ -17,6 +17,7 @@ import { rewritePrompt } from '../prompts.js';
 import { credentials, saveCredentials } from '../credentials.js';
 import { PROJECT_ID, asker, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
+import { inheritedRoleRuntimes } from '../roleRuntime.js';
 import { attached, attachedFile, attachments } from './attachments.js';
 import { atDelivery, artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
 import { library } from './library.js';
@@ -227,7 +228,8 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const recent = store.list().at(-1);
       const { backend, model } = recent ?? options;
       const modelAutomatic = recent?.modelAutomatic ?? model === null;
-      const created = store.create({ workdir, request: '', backend, model: modelAutomatic ? null : model, modelAutomatic, ...recent?.effort ? { effort: recent.effort } : {} });
+      const created = store.create({ workdir, request: '', backend, model: modelAutomatic ? null : model, modelAutomatic,
+        ...recent?.effort ? { effort: recent.effort } : {}, ...recent?.roleConfig ? { roleConfig: inheritedRoleRuntimes(recent)! } : {} });
       runs.changed(created.id);
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
     }],

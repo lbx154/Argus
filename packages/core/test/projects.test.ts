@@ -105,7 +105,8 @@ test('a project has its own backend, model and effort, which the settings change
     ['manager', 'planner', 'engineer', 'reviewer'].map(role => [role, 'codex', '', null]));
   assert.deepEqual(config.operator_knobs.map(knob => [knob.name, knob.value]), [['ARGUS_SKILL_RUNNER_BACKEND', 'codex'], ['ARGUS_SKILL_MODEL', '']]);
   // The backends the page offers are those there are.
-  assert.deepEqual(config.backends, { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' });
+  assert.deepEqual(config.backends, { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', cursor: 'Cursor Agent',
+    pi: 'Pi', opencode: 'OpenCode', grok: 'Grok Build', qoder: 'Qoder CLI', dsh: 'DeepSeek Harness' });
   type Choices = { backend: string; options: { model: string; default: boolean }[] };
   assert.deepEqual((await get<Choices>(`${P}/model-choices`)).options.map(({ model, default: chosen }) => [model, chosen]),
     [['gpt-a', true], ['gpt-b', false]]);
@@ -116,7 +117,7 @@ test('a project has its own backend, model and effort, which the settings change
     [{ model: 'gpt-b', access: 'read', session: undefined, resume: undefined }]);
 
   store.save({ ...store.load(sid), sessions: { manager: 'codex-thread' } });
-  assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'cursor')).status, 400);
+  assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'unknown-cli')).status, 400);
   assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'claude')).status, 200);
   assert.deepEqual(store.load(sid).sessions, {}, 'a Codex session is no use to Claude');
   assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-opus-4-1')).status, 200);
@@ -129,7 +130,7 @@ test('a project has its own backend, model and effort, which the settings change
   }
   assert.deepEqual((await get<Config>(`${P}/config`)).roles[2], {
     role: 'engineer', backend: 'claude', backend_label: 'Claude Code', backend_source: 'persisted', model: 'claude-opus-4-1',
-    model_source: 'persisted', reasoning_effort: 'high', reasoning_effort_source: 'persisted', description: '',
+    model_source: 'persisted', model_automatic: false, reasoning_effort: 'high', reasoning_effort_source: 'persisted', description: '',
   });
   assert.deepEqual((await get<Snapshot>(`${P}/snapshot`)).roles.map(role => [role.backend, role.model, role.effort]),
     Array(4).fill(['claude', 'claude-opus-4-1', 'high']));

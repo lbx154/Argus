@@ -13,6 +13,7 @@ import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
 import { privatePath } from './sandbox.js';
 import { said, thought, used } from './steps.js';
+import { MessageStream } from './streaming.js';
 
 export const copilot: StartBackend = (request, { confined, schema, stem }) => {
   const tool = handOffTool(schema);
@@ -25,7 +26,7 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
     `await joinSession({ tools: [{ ...tool, handler: () => 'Handed off.' }] });`, '',
   ].join('\n'));
   const args = [
-    '--output-format', 'json', '--stream', 'off', '--no-ask-user',
+    '--output-format', 'json', '--stream', 'on', '--no-ask-user',
     ...request.model ? ['--model', request.model] : [],
     ...request.effort ? ['--reasoning-effort', request.effort] : [],
     // Inside bubblewrap the sandbox is bubblewrap's; outside it, copilot's own path checks. A
@@ -63,8 +64,13 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
       // A background task waits as long as its turn.
       COPILOT_TASK_WAIT_TIMEOUT_SECONDS: '2147483.647',
     },
-    async turn(cli, prompt, { onStep, started }) {
+    async turn(cli, prompt, { onStep, started, request: now }) {
+      const stream = new MessageStream(now.onWords);
       await cli.once(prompt, event => {
+        if (event.agentId === undefined && isJsonObject(event.data)) {
+          if (event.type === 'assistant.message_delta' && typeof event.data.deltaContent === 'string') stream.text(0, event.data.deltaContent);
+          if (event.type === 'assistant.message') stream.clear();
+        }
         for (const step of consume(event)) onStep(step);
         return event.type === 'result';
       });

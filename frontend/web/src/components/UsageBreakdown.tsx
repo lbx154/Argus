@@ -18,12 +18,12 @@ export function UsageBreakdown({ usage }: { usage: ProjectUsageSummary }) {
       ? `${usage.calls_without_duration} 次调用缺少时长或有效时间戳，未计入时长。`
       : `${usage.calls_without_duration} calls lack a duration or valid timestamp and add no time.`}</p>}
     <p className="mt-1 text-ink-faint">{SPEND_ESTIMATE_HINT[zh ? 'zh' : 'en']}</p>
-    {(['by_role', 'by_model', 'by_date'] as const).map(dimension => <div key={dimension} className="mt-4 min-w-0">
-      <h4 className="font-medium text-ink-dim">{{ by_role: zh ? '按角色' : 'By role', by_model: zh ? '按模型' : 'By model', by_date: zh ? '按日期（UTC）' : 'By date (UTC)' }[dimension]}</h4>
+    {(['by_route', 'by_role', 'by_model', 'by_price_source', 'by_date'] as const).map(dimension => <div key={dimension} className="mt-4 min-w-0">
+      <h4 className="font-medium text-ink-dim">{{ by_route: zh ? '按角色 / CLI / 模型' : 'By role / CLI / model', by_price_source: zh ? '按计价来源' : 'By price source', by_role: zh ? '按角色' : 'By role', by_model: zh ? '按模型' : 'By model', by_date: zh ? '按日期（UTC）' : 'By date (UTC)' }[dimension]}</h4>
       <table className="mt-1 w-full table-fixed text-left" data-usage-dimension={dimension}>
         <thead className="text-ink-faint"><tr><th className="w-[45%] py-1 font-normal">{zh ? '分项' : 'Group'}</th><th className="w-[18%] text-right font-normal">{zh ? '调用' : 'Calls'}</th><th className="text-right font-normal">{zh ? '估算' : 'Estimate'}</th></tr></thead>
-        <tbody>{usage[dimension].map(group => <tr key={group.key ?? ''} className="border-t border-line/50 text-ink-dim">
-          <td className="break-words py-1.5 pr-2">{group.key === null ? (zh ? '未知' : 'Unknown') : dimension === 'by_role' ? roleLabel(group.key, t) : group.key}</td>
+        <tbody>{(usage[dimension] ?? []).map(group => <tr key={group.key ?? ''} className="border-t border-line/50 text-ink-dim">
+          <td className="break-words py-1.5 pr-2">{group.key === null ? (zh ? '未知' : 'Unknown') : dimension === 'by_role' ? roleLabel(group.key, t) : dimension === 'by_price_source' ? ({ 'cli-reported': zh ? 'CLI 报告金额（非账单）' : 'CLI reported (not a bill)', 'reference-estimate': zh ? '公开参考价估算' : 'Public reference estimate', 'catalog-estimate': zh ? 'CLI 目录价估算' : 'CLI catalog estimate', 'unknown': zh ? '未知费率' : 'Unknown rates', 'legacy-unspecified': zh ? '历史记录未注明来源' : 'Legacy source unspecified' }[group.key] ?? group.key) : group.key}</td>
           <td className="text-right tabular-nums">{group.call_count}</td><td className="text-right tabular-nums">{price(group)}</td>
         </tr>)}</tbody>
       </table>

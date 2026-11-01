@@ -2,16 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Metal palette — silver, gold, white, black (design/intelligent-ui.md).
- * Token NAMES are shared with the map; values carry the palette. Gold marks
- * the person's own things and focus; Argus's things stay black and silver.
+/* Established Argus palette: a continuous pale-yellow cockpit, ivory raised
+ * surfaces and text-safe gold. Desktop chrome uses the same palette; sidebar,
+ * conversation, map and workbench must not introduce their own white/grey canvas.
  * --blue is the text-safe gold kept under its historical name. */
 :root {
   color-scheme: light;
-  --surface-0: 245 245 244;
-  --surface-1: 255 255 255;
-  --surface-2: 238 239 240;
-  --surface-3: 255 255 255;
+  --surface-0: 247 243 232;
+  --surface-1: 247 243 232;
+  --surface-2: 238 232 216;
+  --surface-3: 252 250 244;
   --bg: var(--surface-0);
   --surface: var(--surface-1);
   --panel: var(--surface-1);
@@ -35,8 +35,7 @@
   --ok: 31 32 35;
   --warn: var(--accent-ink);
   --err: 163 58 58;
-  /* Work under way is green, at a glance; gold stays the person's: a question waiting. */
-  --status-running: 22 163 74;
+  --status-running: var(--accent);
   --status-waiting: var(--accent);
   --status-done: 14 14 16;
   --status-idle: 167 172 179;
@@ -45,12 +44,12 @@
   --role-planner: 102 106 113;
   --role-engineer: 176 141 60;
   --role-reviewer: 133 102 31;
-  --conversation-user: 247 243 232;
-  --conversation-argus: 255 255 255;
-  --glass: 255 255 255;
-  --glass-raised: 255 255 255;
+  --conversation-user: 238 232 216;
+  --conversation-argus: var(--surface-1);
+  --glass: var(--surface-1);
+  --glass-raised: var(--surface-3);
   --glass-edge: 220 222 225;
-  --chrome-surface: 255 255 255;
+  --chrome-surface: var(--surface-1);
   --brand-body: 0 0 0;
   --brand-eye: 255 255 255;
   --brand-pupil: 0 0 0;
@@ -87,7 +86,6 @@
   --on-accent: 12 12 13;
   --ok: 242 242 240;
   --err: 226 122 122;
-  --status-running: 74 222 128;
   --status-done: 242 242 240;
   --status-idle: 110 114 120;
   --status-failed: 226 122 122;

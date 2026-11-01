@@ -8,10 +8,11 @@ import { isJsonObject } from '@argus/contracts';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { said, thought, used } from './steps.js';
+import { MessageStream } from './streaming.js';
 
 export const claude: StartBackend = (request, { confined, schema }) => {
   const args = [
-    '-p', '--verbose', '--input-format', 'stream-json', '--output-format', 'stream-json', '--replay-user-messages',
+    '-p', '--verbose', '--input-format', 'stream-json', '--output-format', 'stream-json', '--replay-user-messages', '--include-partial-messages',
     ...request.model ? ['--model', request.model] : [],
     ...request.effort ? ['--effort', request.effort] : [],
     ...request.instructions ? ['--append-system-prompt', request.instructions] : [],
@@ -30,19 +31,36 @@ export const claude: StartBackend = (request, { confined, schema }) => {
   let spent = 0;
   return {
     args, instructed: true,
-    async turn(cli, prompt, { onStep }) {
+    async turn(cli, prompt, { onStep, request: now }) {
+      const stream = new MessageStream(now.onWords);
       let result: Record<string, unknown> | null = null;
       // Claude takes a turn of its own when a background job it started ends; this turn's events
       // begin where its message is played back.
       const uuid = randomUUID();
       let mine = false;
+      let authenticationFailures = 0;
+      let authenticationError = false;
       const ended = cli.until(event => {
         if (typeof event.session_id === 'string' && event.session_id) threadId = event.session_id;
         if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string') model = event.model;
         if (!mine) {
-          mine = event.type === 'user' && event.uuid === uuid;
-          return false;
+          // Current Claude emits command_lifecycle before replaying the user message.
+          // Match the submitted UUID, never accept an unrelated background turn.
+          mine = event.type === 'user' && event.uuid === uuid
+            || event.type === 'command_lifecycle' && event.command_uuid === uuid && event.state === 'started'
+            || event.type === 'system' && event.subtype === 'init' && Array.isArray(event.user_message_uuids) && event.user_message_uuids.includes(uuid);
+          if (!mine || event.type !== 'system') return false;
         }
+        if (event.type === 'system' && event.subtype === 'api_retry' && (event.error_status === 401 || event.error_status === 403)) {
+          if (++authenticationFailures >= 2) {
+            authenticationError = true;
+            result = { subtype: 'authentication_error', is_error: true,
+              result: `Claude authentication failed (HTTP ${event.error_status}). Check this CLI's configured provider and sign-in.` };
+            return true;
+          }
+        }
+        stream.claude(event);
+        if (event.type === 'assistant' && !event.parent_tool_use_id) stream.clear();
         // What a subagent runs and edits are the role's steps; its words and thoughts are its own.
         // A thought is Claude's summary of its thinking, where it gives one.
         const content = event.type === 'assistant' && isJsonObject(event.message) && Array.isArray(event.message.content)
@@ -57,6 +75,7 @@ export const claude: StartBackend = (request, { confined, schema }) => {
       });
       cli.send({ type: 'user', uuid, message: { role: 'user', content: prompt } });
       const finished = await ended;
+      if (authenticationError) await cli.close();
       const ending: Record<string, unknown> = result ?? {};
       const completed = finished && ending.subtype === 'success' && !ending.is_error;
       const words = typeof ending.result === 'string' ? ending.result.trim() : '';
@@ -66,6 +85,7 @@ export const claude: StartBackend = (request, { confined, schema }) => {
       const usage: Usage | null = reported && {
         input_tokens: count(reported.input_tokens) + count(reported.cache_read_input_tokens) + count(reported.cache_creation_input_tokens),
         cached_input_tokens: count(reported.cache_read_input_tokens),
+        cache_write_tokens: count(reported.cache_creation_input_tokens),
         output_tokens: count(reported.output_tokens),
         reasoning_output_tokens: count(isJsonObject(reported.output_tokens_details) ? reported.output_tokens_details.thinking_tokens : 0),
         cost_usd: total === null ? null : total - spent,

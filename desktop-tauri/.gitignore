@@ -5,4 +5,5 @@ build/
 src-tauri/target/
 src-tauri/.tauri-unsigned.conf.json
 release/
+resources/node-runtime/
 *.log

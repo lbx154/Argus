@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// The backends the TypeScript core drives (`argus --backend`).
-pub const RUNNER_KINDS: [RunnerKind; 4] = [RunnerKind::Codex, RunnerKind::Claude, RunnerKind::Copilot, RunnerKind::Pi];
+pub const RUNNER_KINDS: [RunnerKind; 9] = [RunnerKind::Codex, RunnerKind::Claude, RunnerKind::Copilot, RunnerKind::Cursor,
+    RunnerKind::Pi, RunnerKind::Opencode, RunnerKind::Grok, RunnerKind::Qoder, RunnerKind::Dsh];
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -11,7 +12,12 @@ pub enum RunnerKind {
     Codex,
     Claude,
     Copilot,
+    Cursor,
     Pi,
+    Opencode,
+    Grok,
+    Qoder,
+    Dsh,
 }
 
 impl RunnerKind {
@@ -21,6 +27,11 @@ impl RunnerKind {
             Self::Claude => "claude",
             Self::Copilot => "copilot",
             Self::Pi => "pi",
+            Self::Dsh => "dsh",
+            Self::Cursor => "cursor",
+            Self::Opencode => "opencode",
+            Self::Grok => "grok",
+            Self::Qoder => "qoder",
         }
     }
 
@@ -29,7 +40,12 @@ impl RunnerKind {
             Self::Codex => "Codex CLI",
             Self::Claude => "Claude Code",
             Self::Copilot => "GitHub Copilot CLI",
-            Self::Pi => "Pi (follows your Pi model)",
+            Self::Pi => "Pi",
+            Self::Dsh => "DeepSeek Harness",
+            Self::Cursor => "Cursor Agent",
+            Self::Opencode => "OpenCode",
+            Self::Grok => "Grok Build",
+            Self::Qoder => "Qoder CLI",
         }
     }
 }

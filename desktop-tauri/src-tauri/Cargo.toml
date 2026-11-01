@@ -1,6 +1,6 @@
 [package]
 name = "argus-desktop"
-version = "0.1.8"
+version = "1.0.0"
 description = "Argus desktop host"
 authors = ["lbx154"]
 edition = "2021"
@@ -32,6 +32,7 @@ tauri-build = { version = "2.5", features = [] }
 anyhow = "1.0"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+dunce = "1.0"
 rand = "0.9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rfd = "0.15"

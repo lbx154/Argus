@@ -318,7 +318,7 @@ test('the cockpit runs a project: handshake, message, progress, question, answer
   // Only what this server has, so the page hides the rest: settings, the machine's resources, slash commands.
   assert.deepEqual(compatibility.meta?.capabilities, [
     ...REQUIRED_API_CAPABILITIES, 'project.attachments.v1', 'system.resources.v1', 'system.experiments.v1', 'project.workdir.v1', 'project.config.v1',
-    'project.editions.v1',
+    'project.role-config.v1', 'project.editions.v1',
   ]);
   assert.equal((await get('/api/application-brand')).id, 'argus');
 

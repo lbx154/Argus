@@ -205,9 +205,44 @@ pub fn find_node(runner: Option<&Path>) -> Result<PathBuf, String> {
     first_node(beside.into_iter().chain(path_dirs()).chain(install_dirs()))
 }
 
+/// Packaged builds use their own Node, even when the operator has no system Node.
+pub fn find_runtime_node(runner: Option<&Path>, resources: Option<&Path>) -> Result<PathBuf, String> {
+    if let Some(resources) = resources {
+        let directory = resources.join("node-runtime");
+        if directory.is_dir() {
+            return first_node([directory]);
+        }
+    }
+    find_node(runner)
+}
+
+/// Resolve npm and Pi installer shims without cmd.exe reinterpreting arguments.
+pub fn runner_launch(node: &Path, runner: &Path) -> Result<(PathBuf, Vec<String>), String> {
+    let extension = runner.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+    if extension == "js" || extension == "mjs" || extension == "cjs" {
+        return Ok((node.to_path_buf(), vec![runner.to_string_lossy().into_owned()]));
+    }
+    if !cfg!(windows) || (extension != "cmd" && extension != "bat") {
+        return Ok((runner.to_path_buf(), vec![]));
+    }
+    let contents = fs::read_to_string(runner).map_err(|error| error.to_string())?;
+    let target = contents.split('"').filter_map(|piece| piece.strip_prefix("%~dp0").or_else(|| piece.strip_prefix("%dp0%")))
+        .filter(|piece| !piece.is_empty() && !piece.contains('%')).last()
+        .ok_or_else(|| "无法安全解析此批处理启动器，请选择 CLI 的 .exe 或 JavaScript 入口文件。".to_owned())?;
+    let file = runner.parent().unwrap_or(Path::new(".")).join(target.trim_start_matches(['\\', '/']));
+    if !file.is_file() { return Err(format!("CLI 入口文件不存在：{}", file.display())); }
+    let native = file.extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case("exe") || value.eq_ignore_ascii_case("com"));
+    Ok(if native { (file, vec![]) } else { (node.to_path_buf(), vec![file.to_string_lossy().into_owned()]) })
+}
+
 pub fn resolve_runner_binary(kind: &RunnerKind) -> Option<String> {
     let name = kind.as_str();
-    let names = [format!("{name}.cmd"), format!("{name}.exe"), name.to_owned()];
+    let commands: Vec<&str> = match kind {
+        RunnerKind::Cursor => vec!["agent", "cursor-agent"],
+        RunnerKind::Qoder => vec!["qodercli", "qoder"],
+        _ => vec![name],
+    };
+    let names: Vec<String> = commands.into_iter().flat_map(|name| [format!("{name}.cmd"), format!("{name}.exe"), name.to_owned()]).collect();
     let home = home_dir();
     let local_app_data = local_app_data_dir();
     let mut candidates = vec![app_data_dir().join("npm"), home.join(".local").join("bin")];
@@ -217,7 +252,10 @@ pub fn resolve_runner_binary(kind: &RunnerKind) -> Option<String> {
         RunnerKind::Copilot => {
             candidates.push(local_app_data.join("Programs").join("github-copilot-cli"))
         }
-        RunnerKind::Pi => {}
+        RunnerKind::Opencode => candidates.push(home.join(".opencode").join("bin")),
+        RunnerKind::Cursor => candidates.push(home.join(".cursor").join("bin")),
+        RunnerKind::Qoder => candidates.push(home.join(".qoder").join("bin")),
+        RunnerKind::Pi | RunnerKind::Dsh | RunnerKind::Grok => {}
     }
     candidates.extend(path_dirs().into_iter().filter(|path| {
         !path.to_string_lossy().to_ascii_lowercase().contains("windowsapps")

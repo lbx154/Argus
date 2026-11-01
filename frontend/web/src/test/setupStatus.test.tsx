@@ -35,10 +35,11 @@ it('does no setup request while closed and probes once when settings opens', asy
   expect(api.setup).toHaveBeenCalledTimes(1);
 });
 
-it('shows installation, version failures and the failed sandbox probe as facts', async () => {
+it('lists only discovered CLIs without redundant installed badges, keeping version failures' , async () => {
   await mount();
-  expect(text()).toContain('Installed');
-  expect(text()).toContain('Not installed');
+  expect(text()).not.toContain('Installed');
+  expect(text()).not.toContain('Not installed');
+  expect(text()).not.toContain('Claude');
   expect(text()).toContain('codex 1.2.3');
   expect(text()).toContain('version probe failed');
   expect(text()).toContain('OS isolation is not confirmed');

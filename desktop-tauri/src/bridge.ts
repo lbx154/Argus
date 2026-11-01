@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-export type RunnerKind = 'codex' | 'claude' | 'copilot' | 'pi';
+export type RunnerKind = 'codex' | 'claude' | 'copilot' | 'cursor' | 'pi' | 'opencode' | 'grok' | 'qoder' | 'dsh';
 export type AppearanceTheme = 'system' | 'light' | 'dark';
 export type LaunchState = 'idle' | 'starting' | 'ready' | 'error' | 'stopped';
 

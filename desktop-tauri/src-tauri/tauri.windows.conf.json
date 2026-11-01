@@ -3,7 +3,8 @@
     "resources": {
       "../resources/WebView2Loader.dll": "WebView2Loader.dll",
       "installer-template.LICENSE": "licenses/tauri-installer.txt",
-      "../../LICENSE": "licenses/Argus.txt"
+      "../../LICENSE": "licenses/Argus.txt",
+      "../resources/node-runtime": "node-runtime"
     },
     "icon": [
       "icons/icon.ico"

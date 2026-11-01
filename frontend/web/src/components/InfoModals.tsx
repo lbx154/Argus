@@ -9,6 +9,7 @@ import { requestFailureText } from '../lib/requestFailure';
 import { AppearanceControls } from './AppearanceControls';
 import type { ThemeMode } from './TopBar';
 import { backendLabel, configuredBackend } from '../lib/backend';
+import { agentRoleName, isAgentRole } from '../lib/agentRoles';
 import { SetupStatus } from './SetupStatus';
 import { CredentialsSettings } from './CredentialsSettings';
 import { BrowserNotificationSettings } from './BrowserNotificationSettings';
@@ -101,7 +102,7 @@ export function ConfigModal({
           <div className="settings-sections">
             <section className="settings-section">
               <h3 className="mb-3 text-sm font-semibold text-ink">{t('settings.quickConfig')}</h3>
-              <details className="mb-4">
+              {data.revision === undefined && <details className="mb-4">
                 <summary className="cursor-pointer text-xs text-ink-faint">{locale === 'zh-CN' ? '服务连接设置' : 'Service connection'}</summary>
                 <p className="my-2 text-xs leading-5 text-ink-faint">{locale === 'zh-CN' ? '普通使用无需修改。更换连接前，请确认服务已配置好相应账号与环境。' : 'Not required for ordinary use. Confirm the account and environment before changing this connection.'}</p>
               <label className="flex flex-wrap items-center gap-2">
@@ -113,7 +114,7 @@ export function ConfigModal({
                   aria-label={t('settings.backend')}
                   className="h-8 min-w-44 rounded border border-line bg-bg px-2 text-xs text-ink outline-none focus:border-blue disabled:opacity-40"
                 >
-                  {Object.entries(data.backends ?? {}).map(([backend, label]) => <option key={backend} value={backend}>{label}</option>)}
+                  {Object.entries(data.available_backends ?? data.backends ?? {}).map(([backend, label]) => <option key={backend} value={backend}>{label}</option>)}
                 </select>
                 {/* A backend switch changes which models exist, so it only
                     takes effect on Apply, never on a stray dropdown change. */}
@@ -127,10 +128,17 @@ export function ConfigModal({
                   {t('settings.applyModel')}
                 </button>
               </label>
-              </details>
+              </details>}
+              {data.revision !== undefined && <div className="mb-3 grid gap-2 sm:grid-cols-2" data-role-config-summary>
+                {data.roles.map(role => <div key={role.role} className="rounded-lg border border-line p-3 text-xs">
+                  <span className="font-medium">{isAgentRole(role.role) ? agentRoleName(role.role, t) : role.role}</span>
+                  <span className="ml-2 text-ink-dim">{backendLabel(role.backend, data)}</span>
+                  <p className="mt-1 break-all font-mono text-ink-faint">{role.model || (locale === 'zh-CN' ? 'CLI 默认模型' : 'CLI default')}</p>
+                </div>)}
+              </div>}
               <div className="mt-2 flex items-center gap-2">
                 <span className="w-16 shrink-0 text-xs text-ink-dim">{t('settings.model')}</span>
-                <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink" data-current-model>{data.roles[0]?.model || t('models.none')}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink" data-current-model>{data.revision !== undefined ? (locale === 'zh-CN' ? '每个角色独立选择 CLI 与模型' : 'Independent CLI and model per role') : data.roles[0]?.model || t('models.none')}</span>
                 <button type="button" data-open-model-picker onClick={() => setPickerOpen(true)} className="h-8 shrink-0 rounded border border-blue/35 bg-blue/8 px-2.5 text-xs font-medium text-blue hover:border-blue-deep hover:bg-blue-deep hover:text-on-accent">
                   {t('models.title')}
                 </button>

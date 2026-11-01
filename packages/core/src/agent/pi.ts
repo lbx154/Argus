@@ -8,6 +8,7 @@ import { count, type Step, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { handOffTool } from './handoff.js';
 import { said, thought, used } from './steps.js';
+import { MessageStream } from './streaming.js';
 
 export const pi: StartBackend = (request, { schema, stem }) => {
   const tool = handOffTool(schema);
@@ -21,7 +22,7 @@ export const pi: StartBackend = (request, { schema, stem }) => {
     ...request.model ? ['--model', request.model] : [],
     ...request.effort ? ['--thinking', request.effort] : [],
     // A turn that may not write sees only the tools that read.
-    ...request.access === 'read' ? ['--tools', `read,grep,find,ls,${tool.name}`] : [],
+    ...request.access === 'read' ? ['--no-mcp', '--tools', `read,grep,find,ls,${tool.name}`] : [],
     ...request.resume ? ['--session', request.resume] : [],
   ];
   let threadId = request.resume ?? null;
@@ -41,6 +42,7 @@ export const pi: StartBackend = (request, { schema, stem }) => {
       usage ??= { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0, cost_usd: 0 };
       usage.input_tokens += count(row.input) + count(row.cacheRead) + count(row.cacheWrite);
       usage.cached_input_tokens += count(row.cacheRead);
+      usage.cache_write_tokens = (usage.cache_write_tokens ?? 0) + count(row.cacheWrite);
       usage.output_tokens += count(row.output);
       usage.reasoning_output_tokens += count(row.reasoning);
       usage.cost_usd = typeof cost !== 'number' || usage.cost_usd === null ? null : usage.cost_usd + cost;
@@ -52,8 +54,11 @@ export const pi: StartBackend = (request, { schema, stem }) => {
   };
   return {
     args,
-    async turn(cli, prompt, { onStep }) {
+    async turn(cli, prompt, { onStep, request: now }) {
+      const stream = new MessageStream(now.onWords);
       await cli.once(prompt, event => {
+        stream.pi(event);
+        if (event.type === 'message_end') stream.clear();
         for (const step of consume(event)) onStep(step);
         return event.type === 'agent_settled';
       });

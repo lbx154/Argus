@@ -13,8 +13,11 @@ import { codex } from './codex.js';
 import { copilot } from './copilot.js';
 import { formSchema, judge } from './handoff.js';
 import { pi } from './pi.js';
+import { dsh } from './dsh.js';
+import { cursor, grok, opencode, qoder } from './headless.js';
 import { agentEnv, confine, launcher, notInstalled, privatePath, sandboxed } from './sandbox.js';
 import { models } from './models.js';
+import { estimateUsage, priceBook } from './prices.js';
 import { Cli } from './session.js';
 
 /** A backend's side of a session: how its CLI starts, and how a turn goes on it. */
@@ -25,6 +28,8 @@ export interface Conversation {
   env?: Record<string, string>;
   /** The CLI takes the request's instructions itself. */
   instructed?: boolean;
+  /** Transport-specific schema instructions, recorded exactly as delivered. */
+  formatPrompt?: (prompt: string) => string;
   /** One turn: the prompt in, how the turn ended out, each step told as it comes. The first turn
    * on a CLI readies it for the session first, with the request that started it; `request` is
    * this turn's. */
@@ -41,7 +46,7 @@ export type StartBackend = (
   call: { confined: boolean; schema: PayloadSchema; /** calls/<call>, the stem of any file the session needs. */ stem: string },
 ) => Conversation;
 
-const START: Record<Backend, StartBackend> = { codex, claude, copilot, pi };
+const START: Record<Backend, StartBackend> = { codex, claude, copilot, cursor, pi, opencode, grok, qoder, dsh };
 
 /** A session's CLI, the settings it runs with, and the backend session it holds. */
 interface Live { cli: Cli; conversation: Conversation; settings: string; thread: string | null; tempRoot: string | undefined }
@@ -66,7 +71,7 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
     const conversation = START[request.backend](request, { confined, schema: formSchema(request.form, request.giver), stem });
     const argv = confined ? confine([request.backend, ...conversation.args], request, temp) : [...launcher(request.backend), ...conversation.args];
     const started: Live = {
-      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp } : {} }),
+      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp, TMP: temp, TEMP: temp } : {} }),
       conversation, settings: settings(request), thread: request.resume ?? null, tempRoot,
     };
     live.set(key, started);
@@ -87,6 +92,16 @@ async function end(key: string, cli = live.get(key)?.cli): Promise<void> {
 
 export const callAgent: CallAgent = Object.assign(async (request: AgentRequest): Promise<AgentResult> => {
   const started = Date.now();
+  let firstOutput: number | null = null;
+  const original = request;
+  const markOutput = () => { firstOutput ??= Date.now() - started; };
+  request = { ...original,
+    onStep: step => { markOutput(); original.onStep?.(step); },
+    onWords: (words, kind) => { if (words) markOutput(); original.onWords?.(words, kind); },
+  };
+  // Price discovery never delays sending a prompt. Capture the route's known rate now.
+  void priceBook.refresh();
+  const quoted = priceBook.quote(request.backend, request.cwd, request.model ?? null);
   const callId = `${new Date(started).toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(3).toString('hex')}`;
   mkdirSync(request.callsDir, { recursive: true });
   const stem = join(request.callsDir, callId);
@@ -96,8 +111,10 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
   try {
     const kept = await session(key, request, stem);
     const { cli, conversation } = kept;
+    const sessionMs = Date.now() - started;
     const { instructions } = request;
-    const prompt = conversation.instructed || request.resume || !instructions ? request.prompt : `${instructions}\n\n${request.prompt}`;
+    const initial = conversation.instructed || request.resume || !instructions ? request.prompt : `${instructions}\n\n${request.prompt}`;
+    const prompt = conversation.formatPrompt?.(initial) ?? initial;
     // What the role was told, as sent: a turn can be read, and replayed, from the record.
     writeFileSync(`${stem}.prompt.md`, conversation.instructed && instructions ? `${instructions}\n\n${prompt}` : prompt);
     // A stop ends the session: the turn, and all its CLI started.
@@ -107,6 +124,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
     cli.raw = line => raw.write(`${line}\n`);
     cli.stderr.length = 0;
     let turn: TurnEnd;
+    const turnStarted = Date.now();
     let broke = false;
     try {
       turn = await conversation.turn(cli, prompt, { request, onStep: step => { if (step) request.onStep?.(step); }, started });
@@ -117,6 +135,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
       cli.raw = null;
       request.signal?.removeEventListener('abort', stop);
     }
+    const turnMs = Date.now() - turnStarted;
     kept.thread = turn.threadId;
     // A CLI stays for its session's next turn only where its backend keeps one, its turn was not
     // stopped and it is still in step; otherwise it ends now, with all it started. A turn the
@@ -132,12 +151,23 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
       ...refusal(typeof verdict === 'string' ? verdict : ended.completed ? null
         : notInstalled(request.backend) ?? (request.signal?.aborted ? 'Run cancelled.' : null) ?? ended.error ?? cli.why()),
     };
-    // What a call used, as its backend reported it; one it reported nothing for (a stopped turn) adds nothing.
+    result.timing = { session_ms: sessionMs, first_output_ms: firstOutput, turn_ms: turnMs, total_ms: Date.now() - started };
+    writeFileSync(`${stem}.metrics.json`, JSON.stringify({ role: request.role, backend: request.backend, model: result.model,
+      completed: result.completed, accepted: !!result.handoff, timing: result.timing }), { flag: 'wx' });
+    const pricing = result.model && result.model !== request.model
+      ? priceBook.quote(request.backend, request.cwd, result.model) : quoted;
     if (result.usage) {
+      if (result.usage.cost_usd === null && !result.usage.price_components?.length) {
+        result.usage.cost_usd = estimateUsage(result.usage, pricing);
+        result.usage.cost_source = result.usage.cost_usd === null ? 'unknown'
+          : pricing.source === 'cli-catalog' ? 'catalog-estimate' : 'reference-estimate';
+      } else result.usage.cost_source ??= 'cli-reported';
       mkdirSync(dirname(request.usageFile), { recursive: true });
       appendFileSync(request.usageFile, `${JSON.stringify({
-        ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: result.model,
-        ms: result.ms, tokens: tokens(result.usage), cost_usd: result.usage.cost_usd ?? null,
+        ts: Date.now() / 1000, callId, role: request.role, backend: request.backend, model: result.model, ...request.effort ? { effort: request.effort } : {},
+        ms: result.ms, timing: result.timing, tokens: tokens(result.usage), cost_usd: result.usage.cost_usd ?? null,
+        cost_source: result.usage.cost_source, pricing,
+        ...result.usage.price_components ? { price_components: result.usage.price_components } : {},
       })}\n`);
     }
     return result;
@@ -155,7 +185,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
   models,
 });
 
-const tokens = ({ cost_usd: _, ...counts }: Usage): Omit<Usage, 'cost_usd'> => counts;
+const tokens = ({ cost_usd: _, cost_source: _source, price_components: _components, ...counts }: Usage): Omit<Usage, 'cost_usd'> => counts;
 
 /** A model service's refusal in its own words, which codex wraps as `unexpected status 402 Payment
  * Required: <message>, url: <its address>`; where it gave none (an empty body, a page, JSON

@@ -17,7 +17,7 @@ export class Cli {
   private closed = false;
   private readonly stop = new AbortController();
   private listener: ((message: Message) => void) | null = null;
-  private readonly replies = new Map<number, (reply: Message) => void>();
+  private readonly replies = new Map<number | string, (reply: Message) => void>();
   private ids = 0;
   /** Its last lines on stderr, which say why it failed. */
   readonly stderr: string[] = [];
@@ -53,12 +53,25 @@ export class Cli {
       }
       this.gone ??= 'exited';
       exit();
-    })();
+    })().catch((error: unknown) => {
+      this.gone = error instanceof Error ? error.message : String(error);
+      exit();
+    });
   }
 
   private take(message: Message): void {
     const { id, method } = message;
-    if (typeof id === 'number' && method === undefined && this.replies.has(id)) {
+    if (message.type === 'control_response' && isJsonObject(message.response)) {
+      const key = message.response.request_id;
+      if (typeof key === 'string' && this.replies.has(key)) {
+        this.replies.get(key)!(message.response); this.replies.delete(key); return;
+      }
+    }
+    if (message.type === 'extension_ui_request') {
+      if (['select', 'confirm', 'input', 'editor'].includes(String(method))) this.send({ type: 'extension_ui_response', id, cancelled: true });
+      return;
+    }
+    if ((typeof id === 'number' || typeof id === 'string') && method === undefined && this.replies.has(id)) {
       this.replies.get(id)!(message);
       this.replies.delete(id);
     } else if (id !== undefined && typeof method === 'string') {
@@ -78,10 +91,40 @@ export class Cli {
     const id = ++this.ids;
     const reply = new Promise<Message>(resolve => this.replies.set(id, resolve));
     this.send({ id, method, params });
-    const answer = await Promise.race([reply, this.exited.then(() => null)]);
-    if (!answer) throw new Error(this.why());
+    const answer = await this.response(id, reply);
     if (isJsonObject(answer.error)) throw new Error(`${method}: ${String(answer.error.message ?? JSON.stringify(answer.error))}`);
     return isJsonObject(answer.result) ? answer.result : {};
+  }
+
+  /** Pi uses typed JSONL commands, not JSON-RPC methods. */
+  async piRequest(type: string, fields: Message = {}): Promise<Message> {
+    const id = `argus-${++this.ids}`;
+    const reply = new Promise<Message>(resolve => this.replies.set(id, resolve));
+    this.send({ ...fields, id, type });
+    const answer = await this.response(id, reply);
+    if (answer.success !== true) throw new Error(`${type}: ${String(answer.error ?? 'Pi rejected the command')}`);
+    return isJsonObject(answer.data) ? answer.data : {};
+  }
+
+  /** Claude's SDK control channel exposes its configured model catalog without inference. */
+  async claudeRequest(subtype: string): Promise<Message> {
+    const id = `argus-claude-${++this.ids}`;
+    const reply = new Promise<Message>(resolve => this.replies.set(id, resolve));
+    this.send({ type: 'control_request', request_id: id, request: { subtype } });
+    const answer = await this.response(id, reply);
+    if (answer.subtype !== 'success') throw new Error(`Claude ${subtype} failed.`);
+    return isJsonObject(answer.response) ? answer.response : {};
+  }
+
+  private async response(id: number | string, reply: Promise<Message>): Promise<Message> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const answer = await Promise.race([reply, this.exited.then(() => null), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => { void this.close(); reject(new Error('The CLI did not answer within 30 seconds.')); }, 30_000);
+      })]);
+      if (!answer) throw new Error(this.why());
+      return answer;
+    } finally { clearTimeout(timer); this.replies.delete(id); }
   }
 
   /** Hands each message the CLI writes to `take` until it says the turn has ended (true), or the CLI exits (false). */

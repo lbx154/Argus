@@ -8,7 +8,10 @@ const run = (command, args, cwd = root) =>
   execFileSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32' && command === 'npm' });
 // The Argus the desktop ships (tauri.conf.json bundle.resources): packages/core
 // built, with the web cockpit it serves, as `npm pack` carries it.
-const buildArgus = () => run('npm', ['run', 'prepack'], join(root, '..', 'packages', 'core'));
+const buildArgus = () => {
+  if (process.platform === 'win32') run(process.execPath, ['scripts/prepare-node-runtime.mjs']);
+  run('npm', ['run', 'prepack'], join(root, '..', 'packages', 'core'));
+};
 if (process.platform === 'win32' && ['build', 'dist'].includes(operation)
     && !process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) {
   throw new Error('Signed Windows builds require publisher-provided signing configuration. No key is generated or read from a local file. Use build:unsigned only for an explicitly unsigned candidate.');

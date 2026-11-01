@@ -2,7 +2,7 @@
 // the hand-off form, the sandbox). The flow builds an AgentRequest; the agent layer runs one
 // backend turn and returns what the role handed off.
 
-export const BACKENDS = ['codex', 'claude', 'copilot', 'pi'] as const;
+export const BACKENDS = ['codex', 'claude', 'copilot', 'cursor', 'pi', 'opencode', 'grok', 'qoder', 'dsh'] as const;
 export type Backend = (typeof BACKENDS)[number];
 /** The backends whose CLI stays open between a session's turns (agent/session.ts); the others start one each turn. */
 export const KEPT: readonly Backend[] = ['codex', 'claude'];
@@ -69,8 +69,20 @@ export interface HandOff {
 /** A token count as a backend reports it: a whole number, 0 when missing. */
 export const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 
+export interface ModelRates { input: number; output: number; cachedInput?: number; cacheWrite?: number }
+export interface PriceQuote {
+  source: 'cli-catalog' | 'public-reference' | 'unknown';
+  checked_at: string | null;
+  rates: ModelRates | null;
+  stale: boolean;
+  reference?: string;
+}
+
 export interface Usage {
   input_tokens: number;
+  cache_write_tokens?: number;
+  cost_source?: 'cli-reported' | 'reference-estimate' | 'catalog-estimate' | 'unknown';
+  price_components?: { model: string; pricing: PriceQuote; cost_usd: number | null }[];
   cached_input_tokens: number;
   output_tokens: number;
   reasoning_output_tokens: number;
@@ -92,6 +104,7 @@ export interface AgentResult {
   model: string | null;
   usage: Usage | null;
   ms: number;
+  timing?: { session_ms: number; first_output_ms: number | null; turn_ms: number; total_ms: number };
 }
 
 /** One backend turn. `close` ends the sessions kept under keys that start with its prefix, and all
@@ -100,5 +113,20 @@ export interface AgentResult {
 export type CallAgent = ((request: AgentRequest) => Promise<AgentResult>) & {
   close?: (prefix: string) => Promise<void>;
   steer?: (session: string, text: string) => Promise<boolean>;
-  models?: (backend: Backend, cwd: string) => Promise<{ model: string; default: boolean }[]>;
+  models?: (backend: Backend, cwd: string, refresh?: boolean) => Promise<OfferedModels>;
+};
+
+export type OfferedModels = OfferedModel[] & { warning?: string };
+
+/** Safe model metadata only: never forward a provider's endpoint, headers or authentication. */
+export interface OfferedModel {
+  model: string;
+  default: boolean;
+  name?: string;
+  provider?: string;
+  reasoning?: boolean;
+  efforts?: string[];
+  price?: ModelRates;
+  pricing?: PriceQuote;
+  available?: boolean;
 };

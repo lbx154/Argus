@@ -17,6 +17,7 @@ import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
+import { pinRoleModel, roleRuntime } from './roleRuntime.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -333,6 +334,8 @@ export class Flow {
     // Review rounds have no earlier judgment in their context, including after a restart.
     if (role === 'reviewer') delete project.sessions[key];
     const resume = project.sessions[key];
+    const route = roleRuntime(project, role);
+    const epoch = project.roleEpochs?.[role] ?? 0;
     let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
@@ -340,11 +343,11 @@ export class Flow {
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, project, this.store),
+        backend: route.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, project, this.store),
         prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
-        readDirs: [dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
-        ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
+        readDirs: [dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home)], ...(route.model ? { model: route.model } : {}),
+        ...(route.effort ? { effort: route.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
@@ -362,13 +365,14 @@ export class Flow {
     // or failed: its work is not done again. With none reported, or a new one whose turn failed before
     // a step, which holds no work and may hold the settings it failed on, the role starts afresh; and
     // a session reset while the turn went on stays reset.
-    if (role !== 'reviewer' && project.sessions[key] === resume) {
+    const unchanged = (project.roleEpochs?.[role] ?? 0) === epoch;
+    if (unchanged && role !== 'reviewer' && project.sessions[key] === resume) {
       if (threadId && (resume || completed || stepped || signal?.aborted)) project.sessions[key] = threadId;
       else delete project.sessions[key];
     }
-    if (!project.model && model) {
-      project.modelAutomatic ??= true;
-      project.model = model;
+    if (unchanged && !route.model && model) {
+      // Resolve Automatic for this role alone. A Pi manager must never pin the DSH engineer.
+      pinRoleModel(project, role, model);
     }
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
     if (handoff) {

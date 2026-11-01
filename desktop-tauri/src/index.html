@@ -162,7 +162,7 @@
           <section class="panel" data-panel="env">
             <div id="ownIntro" class="panel-intro">
               <h3>选择 Agent CLI</h3>
-              <p>使用自己的账号与模型。确认后自动记住，下次直接进入工作台。</p>
+              <p>选择新项目的初始 CLI。进入工作台后，可为四个角色分别选择不同的 CLI 与模型。</p>
             </div>
             <div id="ownContent" class="panel-content panel-content-env">
               <fieldset class="runner-kind">
@@ -171,7 +171,12 @@
                   <button type="button" data-kind="codex">Codex CLI</button>
                   <button type="button" data-kind="claude">Claude Code</button>
                   <button type="button" data-kind="copilot">Copilot CLI</button>
-                  <button type="button" data-kind="pi">Pi · 用户模型</button>
+                  <button type="button" data-kind="pi">Pi · 可选模型</button>
+                  <button type="button" data-kind="dsh">DeepSeek Harness</button>
+                  <button type="button" data-kind="cursor">Cursor Agent</button>
+                  <button type="button" data-kind="opencode">OpenCode</button>
+                  <button type="button" data-kind="grok">Grok Build</button>
+                  <button type="button" data-kind="qoder">Qoder CLI</button>
                 </div>
               </fieldset>
               <div class="runner">
@@ -211,7 +216,7 @@
                 </span>
                 <div>
                   <div class="runtime-title">内置后端</div>
-                  <p data-desktop-brand>Argus 随应用一起安装，由本机的 Node.js 22 或更高版本运行；Agent CLI 也通过 npm 安装。</p>
+                  <p data-desktop-brand>Windows 桌面包已内置 Node.js 运行时，无需另行安装 Python。Agent CLI 需单独安装并登录。</p>
                 </div>
                 <span class="runtime-badge">默认启用</span>
               </div>
@@ -247,7 +252,7 @@
                 <span class="runtime-icon" aria-hidden="true">
                   <svg class="icon"><use href="#i-check"></use></svg>
                 </span>
-                <span>需要本机已安装 Node.js 22 或更高版本。检测到 CLI 不代表已经登录，首次任务前请确认 CLI 鉴权。</span>
+                <span>已内置后端运行环境。检测到 CLI 不代表已经登录，首次任务前请在该 CLI 中确认账号可用。</span>
               </div>
             </div>
           </section>

@@ -138,6 +138,8 @@ export interface ProjectUsageSummary extends UsageSummary {
   by_role: UsageGroup[];
   by_model: UsageGroup[];
   by_date: UsageGroup[];
+  by_route?: UsageGroup[];
+  by_price_source?: UsageGroup[];
   /** Union of recorded call intervals. Gaps and calls without durations add no time. */
   work_duration_ms: number;
   calls_without_duration: number;

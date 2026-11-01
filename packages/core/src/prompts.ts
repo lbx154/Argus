@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
+import { roleRuntime } from './roleRuntime.js';
 
 export const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
@@ -50,7 +51,12 @@ const join = (...parts: (string | false | null)[]): string => parts.filter(Boole
 
 /** A role's standing instructions and the work's locations, session lifetime, date and machine. */
 export const instructions = (role: Role, project: Project, store: Store): string =>
-  join(rules(role), where(project, store, role));
+  join(rules(role), section('Argus routing, not CLI subagents',
+    'Manager, Planner, Engineer and Reviewer are roles owned by the Argus host, each with its own CLI, model, session and permissions. '
+    + 'To transfer work to another Argus role, end this turn with the hand-off form (or the hand_off tool when available); Argus will start the recipient. '
+    + 'Do not use your CLI\'s internal subagent, spawn-agent or delegation tools to impersonate an Argus role. Such helpers inherit your current CLI permissions and are not the Argus team. '
+    + 'A read-only Manager, Planner or Reviewer does not mean the Engineer is read-only: the Engineer has its own write-enabled workspace call. '
+    + 'Report another role\'s success or failure only from a letter actually delivered by Argus, never from an imagined hand-off or a CLI-internal substitute.'), where(project, store, role));
 
 function where(project: Project, store: Store, role: Role): string {
   const library = skillsHome(store.home);
@@ -59,7 +65,7 @@ function where(project: Project, store: Store, role: Role): string {
     `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
     `Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
-    role !== 'reviewer' && KEPT.includes(project.backend)
+    role !== 'reviewer' && KEPT.includes(roleRuntime(project, role).backend)
       ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
       : 'Your session ends with each turn, and everything you started with it.',
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,

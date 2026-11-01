@@ -19,7 +19,12 @@ const RUNNER_LABELS: Record<RunnerKind, string> = {
   codex: 'Codex CLI',
   claude: 'Claude Code',
   copilot: 'Copilot CLI',
-  pi: 'Pi（跟随用户模型）',
+  pi: 'Pi（可在项目中选择模型）',
+  dsh: 'DeepSeek Harness',
+  cursor: 'Cursor Agent',
+  opencode: 'OpenCode',
+  grok: 'Grok Build',
+  qoder: 'Qoder CLI',
 };
 
 function isRunnerKind(value: string | undefined): value is RunnerKind {

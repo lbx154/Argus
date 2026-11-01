@@ -31,7 +31,7 @@ export function ShowcasePrompts({ onPick, disabled = false }: { onPick: (text: s
     {showcases.map(({ icon: Icon, zh, en }) => {
       const [title, hint, measured, prompt] = locale === 'zh-CN' ? zh : en;
       return <button type="button" key={title} className="starter-card showcase-card" onClick={() => onPick(prompt)} disabled={disabled}>
-        <Icon size={18} strokeWidth={1.6} aria-hidden="true" /><span><strong>{title}</strong><small>{hint}</small><em>{measured}</em></span>
+        <Icon size={18} strokeWidth={1.6} aria-hidden="true" /><span><strong>{title}</strong><small>{hint}</small><em>{locale === 'zh-CN' ? '历史案例 · ' : 'Historical example · '}{measured}{locale === 'zh-CN' ? '（非当前配置报价）' : ' (not a quote for this configuration)'}</em></span>
       </button>;
     })}
   </div>;

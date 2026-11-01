@@ -1,6 +1,6 @@
 {
   "name": "@lbx154/argus",
-  "version": "0.1.8",
+  "version": "1.0.0",
   "description": "A research and engineering team of AI agents, run from a web cockpit on your machine.",
   "license": "MIT",
   "type": "module",

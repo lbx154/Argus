@@ -3,6 +3,7 @@
 // only the CLI's login and settings are brought. The operator may register more environment values.
 
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -33,8 +34,8 @@ const namedAs = (path: string): string[] => [...new Set([resolve(path), real(pat
 
 function which(name: string): string | null {
   // Windows finds a command by the extensions PATHEXT lists.
-  const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';') : [''];
-  const candidates = name.includes(sep) ? [name]
+  const extensions = process.platform === 'win32' && !/\.[a-z0-9]+$/i.test(name) ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';') : [''];
+  const candidates = isAbsolute(name) || /[\\/]/.test(name) ? [name]
     : (process.env.PATH ?? '').split(delimiter).filter(Boolean).flatMap(dir => extensions.map(extension => join(dir, name + extension)));
   for (const candidate of candidates) {
     try { accessSync(candidate, constants.X_OK); if (isFile(candidate)) return candidate; } catch { /* not this one */ }
@@ -47,20 +48,33 @@ const INSTALL: Record<Backend, string> = {
   claude: 'npm install -g @anthropic-ai/claude-code',
   copilot: 'npm install -g @github/copilot',
   pi: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent',
+  dsh: 'npm install -g @deepseek-ai/dsh',
+  cursor: 'Install Cursor Agent from https://cursor.com/cli',
+  opencode: 'npm install -g opencode-ai',
+  grok: 'Install Grok Build from https://x.ai/cli',
+  qoder: 'npm install -g @qoder-ai/qodercli',
 };
 
 /** Why a call could not start its CLI, when it is not on PATH: with how to install it. */
 export function notInstalled(backend: Backend): string | null {
-  return which(backend) ? null : `${backend} is not installed (not found on PATH). Install it with: ${INSTALL[backend]}`;
+  return runnerBinary(backend) ? null : `${backend} is not installed (check its configured path or PATH). Install it with: ${INSTALL[backend]}`;
 }
 
 /** How to start the CLI `name` with no shell. On Windows npm installs it as a .cmd shim, which only
  * cmd.exe runs, reparsing every argument: the shim's target is run instead, a script by this node. */
+function runnerBinary(name: string): string | null {
+  const configured = process.env[`ARGUS_CLI_${name.toUpperCase()}_BIN`]?.trim();
+  if (configured) return which(configured);
+  const names = name === 'cursor' ? ['agent', 'cursor-agent'] : name === 'qoder' ? ['qodercli', 'qoder'] : [name];
+  return names.map(which).find(path => path !== null) ?? null;
+}
+
 export function launcher(name: string): string[] {
-  const found = which(name);
+  const found = runnerBinary(name);
+  if (found && /\.(mjs|cjs|js)$/i.test(found)) return [process.execPath, found];
   if (!found || !/\.(cmd|bat)$/i.test(found)) return [found ?? name];
-  const target = [...read(found).matchAll(/"%~?dp0%?\\([^"]+)"/g)].at(-1)?.[1];
-  if (!target) return [found];
+  const target = [...read(found).matchAll(/"%(?:~dp0|dp0%)[\\/]?([^"]+)"/g)].at(-1)?.[1];
+  if (!target) throw new Error(`Cannot safely launch ${found}. Select the CLI's .exe or JavaScript entry point instead of a custom batch script.`);
   const file = join(dirname(found), target);
   return /\.(exe|com)$/i.test(file) ? [file] : [process.execPath, file];
 }
@@ -83,6 +97,15 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
       // Not the GH_TOKEN or GITHUB_TOKEN it also takes: those are git's and gh's.
       signsInWith: name => name.startsWith('COPILOT_'),
     };
+  }
+  if (backend === 'cursor' || backend === 'grok' || backend === 'qoder' || backend === 'opencode') {
+    const dir = backend === 'opencode' ? join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'opencode') : join(homedir(), `.${backend}`);
+    return { login: [], settings: [dir], signsInWith: name => name.startsWith(`${backend.toUpperCase()}_`)
+      || backend === 'grok' && name.startsWith('XAI_') || backend === 'opencode' && name.endsWith('_API_KEY') };
+  }
+  if (backend === 'dsh') {
+    const dir = process.env.DSH_HOME || join(homedir(), '.dsh');
+    return { login: [], settings: [dir], signsInWith: name => name.startsWith('DEEPSEEK_') || name.startsWith('DSH_') || name.endsWith('_API_KEY') };
   }
   if (backend === 'pi') {
     const dir = process.env.PI_CODING_AGENT_DIR || join(homedir(), '.pi', 'agent');
@@ -119,6 +142,12 @@ export function agentEnv(backend: Backend): Record<string, string> {
 
 /** Where agents working in `cwd` keep `path`, a file of their home or of Argus's. */
 export function privatePath(path: string, cwd: string): string {
+  if (process.platform === 'win32') {
+    // A drive-qualified path cannot be a directory component (D:\\tmp contains a colon).
+    // Short hashes also avoid MAX_PATH failures for deep desktop/project directories.
+    const key = (value: string) => createHash('sha256').update(real(value).toLowerCase()).digest('hex').slice(0, 24);
+    return join(real(argusHome()), 'sandbox', key(cwd), key(path));
+  }
   const workdir = encodeURIComponent(real(cwd)).replace(/%/g, '=');
   return join(real(argusHome()), 'sandbox', workdir, real(path));
 }
@@ -155,7 +184,7 @@ const SYSTEM = ['/usr', '/bin', '/sbin', '/lib', '/lib32', '/lib64', '/libx32', 
 /** `argv` under bubblewrap, seeing only what the call is given. */
 export function confine(argv: string[], request: AgentRequest, temp?: string): string[] {
   const [name, ...args] = argv;
-  const found = which(name!);
+  const found = runnerBinary(name!);
   const executable = found ? real(found) : name!;
   const { login, settings } = cliSetup(request.backend);
   const cwd = resolve(request.cwd);

@@ -6,15 +6,18 @@
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { modelPriceFor } from '@argus/runtime';
-import type { Project, Store } from '../store.js';
-import { BACKENDS, ROLES, type Backend } from '../types.js';
+import { priceBook } from '../agent/prices.js';
+import type { Project, RoleRuntime, Store } from '../store.js';
+import { BACKENDS, ROLES, type Backend, type Role, type OfferedModels } from '../types.js';
+import { applyRoleRuntimes, roleRuntime } from '../roleRuntime.js';
+import { notInstalled } from '../agent/sandbox.js';
+import { CATALOG_KIND } from '../agent/models.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
 import { BACKEND_LABELS } from './views.js';
 
 /** The optional API capabilities these routes give the page. */
-export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.editions.v1'];
+export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.role-config.v1', 'project.editions.v1'];
 
 /** The settings the page writes: a project has one backend, model and effort, which every role
  * uses. A model or effort is the backend's own word for it; '' or `auto`, the backend's default. */
@@ -41,6 +44,9 @@ export function directory(asked: string): string {
     // for a path under /proc. A root that does not exist (a drive, a share) is its own parent.
     const missing: string[] = [];
     for (let dir = path, below = ''; dir !== below && !existsSync(dir); below = dir, dir = dirname(dir)) missing.unshift(dir);
+    if (missing[0] && existsSync(dirname(missing[0])) && !statSync(dirname(missing[0])).isDirectory()) {
+      throw new HttpError(400, `${path} has a file as its parent (ENOTDIR).`, 'workdir_not_directory');
+    }
     for (const dir of missing) mkdirSync(dir);
     if (path && !statSync(path).isDirectory()) throw new HttpError(400, `${path} is a file, not a directory`, 'workdir_not_directory');
     if (path) accessSync(path, constants.R_OK | constants.W_OK | constants.X_OK);
@@ -55,6 +61,29 @@ export function directory(asked: string): string {
 }
 
 const MARKS = ['pinned', 'archived', 'followup'];
+
+function roleName(value: unknown = 'manager'): Role {
+  if (!ROLES.includes(value as Role)) throw new HttpError(400, 'Unknown agent role.', 'invalid_role');
+  return value as Role;
+}
+function backendName(value: unknown): Backend {
+  if (!BACKENDS.includes(value as Backend)) throw new HttpError(400, 'Unknown agent CLI.', 'invalid_backend');
+  return value as Backend;
+}
+function word(value: unknown): string {
+  if (value == null || value === '') return '';
+  if (typeof value !== 'string' || value.length > 512 || !/^[\w][\w.:/@+[\]-]*$/.test(value)) {
+    throw new HttpError(400, 'Enter a model or effort ID, not a command line.', 'invalid_model');
+  }
+  return /^(auto|default)$/i.test(value) ? '' : value;
+}
+function route(value: Record<string, unknown>): RoleRuntime {
+  const backend = backendName(value.backend);
+  const model = word(value.model);
+  const effort = word(value.effort);
+  if (backend === 'dsh' && model && !/^[^/]+\/.+$/.test(model)) throw new HttpError(400, 'DSH needs a provider/model ID.', 'invalid_model');
+  return { backend, model: model || null, modelAutomatic: !model, ...effort ? { effort } : {} };
+}
 
 export function projectRoutes(store: Store, runs: Runs, project: (id: string) => Project): [string, RegExp, Handler][] {
   const edit = (id: string, change: (work: Project) => void, idle = false): void => {
@@ -81,30 +110,61 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       return { ok: true, sid: id, name };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/config$/, ({ params: [id] }) => {
-      const { backend, model, effort } = project(id!);
+      const work = project(id!);
+      const { backend, model } = work;
       const source = (value: unknown) => value ? 'persisted' : 'default';
       const knob = (name: string, value: string) => ({ name, group: 'Runtime', value, source: source(value), saved: value, default: '', doc: '' });
       return {
-        schema_version: 1, generated_at_utc: new Date().toISOString(),
-        roles: ROLES.map(role => ({
-          role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted', model: model ?? '', model_source: source(model),
-          reasoning_effort: effort ?? null, reasoning_effort_source: source(effort), description: '',
-        })),
+        schema_version: 1, generated_at_utc: new Date().toISOString(), revision: work.configRevision ?? 0,
+        active_roles: [...new Set(runs.live(work.id).calls.map(call => call.role))],
+        roles: ROLES.map(role => {
+          const { backend, model, effort, modelAutomatic } = roleRuntime(work, role);
+          return { role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted',
+            model: model ?? '', model_automatic: modelAutomatic, model_source: source(model),
+            reasoning_effort: effort ?? null, reasoning_effort_source: source(effort), description: '' };
+        }),
         operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? '')],
         how_to_change: [], backends: BACKEND_LABELS,
+        available_backends: Object.fromEntries(BACKENDS.filter(backend => !notInstalled(backend)).map(backend => [backend, BACKEND_LABELS[backend]])),
       };
     }],
-    // A model tried with a short turn of its own, before the operator picks it.
+    // A single revision-checked write: either every requested role is saved, or none is.
+    ['PUT', /^\/api\/projects\/([^/]+)\/config\/roles$/, async ({ params: [id], body }) => {
+      const { roles, revision } = await body();
+      if (!Array.isArray(roles) || !roles.length || roles.length > ROLES.length || !Number.isSafeInteger(revision)) {
+        throw new HttpError(400, 'Expected roles and the configuration revision.', 'invalid_setting');
+      }
+      const updates: Partial<Record<Role, RoleRuntime>> = {};
+      for (const row of roles) {
+        if (!row || typeof row !== 'object') throw new HttpError(400, 'Invalid role configuration.', 'invalid_setting');
+        const role = roleName(row.role ?? null);
+        if (updates[role]) throw new HttpError(400, 'Duplicate role.', 'invalid_role');
+        updates[role] = route(row);
+      }
+      edit(id!, work => {
+        if ((work.configRevision ?? 0) !== revision) throw new HttpError(409, 'Settings changed in another window. Reload before saving.', 'config_conflict');
+        applyRoleRuntimes(work, updates);
+      });
+      return { ok: true, revision: project(id!).configRevision, effective: 'next_turn' };
+    }],
+    // Explicit, bounded inference only: selecting or listing a model never invokes it.
     ['POST', /^\/api\/projects\/([^/]+)\/model-choices\/probe$/, async ({ params: [id], body }) => {
-      const model = String((await body()).model ?? '').trim();
-      const { id: sid, backend, workdir, effort } = project(id!);
-      const dir = store.dir(sid);
+      const asked = await body();
+      const role = roleName(asked.role);
+      const work = project(id!);
+      const selected = roleRuntime(work, role);
+      const { backend, model, effort } = route({ ...selected, ...asked, model: asked.model ?? selected.model });
+      const dir = store.dir(work.id);
       const started = Date.now();
-      const { completed, error } = await runs.callAgent({
-        backend, role: 'manager', form: 'manager', access: 'read', cwd: workdir, prompt: 'Write to the operator the one word: ok.',
-        model, ...effort ? { effort } : {}, callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
+      const result = await runs.callAgent({
+        backend, role, form: role === 'planner' ? 'plan' : role === 'reviewer' ? 'review' : role, access: 'read', cwd: work.workdir,
+        prompt: 'Do not use workspace tools or change files. Finish with the required Argus hand-off form (use hand_off if that tool is provided), addressed to the operator, with the letter containing only: ok.',
+        ...model ? { model } : {}, ...effort ? { effort } : {}, signal: AbortSignal.timeout(60_000),
+        callsDir: join(dir, 'probes'), usageFile: join(dir, 'usage.jsonl'),
       }).catch((thrown: unknown) => ({ completed: false, error: thrown instanceof Error ? thrown.message : String(thrown) }));
-      return { model, ok: completed, error: completed ? '' : error ?? '', duration_ms: Date.now() - started };
+      const accepted = result.completed && 'handoff' in result && result.handoff !== null;
+      return { role, backend, model: model ?? '', actual_model: 'model' in result ? result.model : null,
+        ok: accepted, error: accepted ? '' : result.error || 'The model replied without the required Argus hand-off form.', duration_ms: Date.now() - started };
     }],
     ['POST', /^\/api\/projects\/([^/]+)\/config\/set$/, async ({ params: [id], body }) => {
       const { name, value } = await body();
@@ -114,20 +174,41 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       const word = /^(auto|default)?$/i.test(given) ? '' : given;
       // Given to the backend's command line as one argument: never an option of its own.
       if (word && !/^\w[\w.:/@+[\]-]*$/.test(word)) throw new HttpError(400, `not a name a backend takes: ${given}`, 'invalid_model');
-      edit(id!, work => set(work, word), set === SETTINGS.ARGUS_SKILL_RUNNER_BACKEND);
+      edit(id!, work => {
+        // Legacy clients explicitly apply a setting to all roles; new clients use config/roles.
+        const updates = Object.fromEntries(ROLES.map(role => {
+          const draft = { ...work, ...roleRuntime(work, role), sessions: { ...work.sessions } };
+          set(draft, word);
+          return [role, { backend: draft.backend, model: draft.model, modelAutomatic: draft.modelAutomatic, ...draft.effort ? { effort: draft.effort } : {} }];
+        }));
+        applyRoleRuntimes(work, updates);
+        set(work, word);
+      }, set === SETTINGS.ARGUS_SKILL_RUNNER_BACKEND);
       return { name, value: word };
     }],
     // The models to choose from are those the backend names, and the one set if it names it not;
     // the page takes any other by name.
-    ['GET', /^\/api\/projects\/([^/]+)\/model-choices$/, async ({ params: [id] }) => {
-      const { backend, model, workdir } = project(id!);
-      const offered = await runs.callAgent.models?.(backend, workdir) ?? [];
+    ['GET', /^\/api\/projects\/([^/]+)\/model-choices$/, async ({ params: [id], url }) => {
+      const work = project(id!);
+      const role = roleName(url.searchParams.get('role') ?? undefined);
+      const selected = roleRuntime(work, role);
+      const backend = backendName(url.searchParams.get('backend') ?? selected.backend);
+      let error = '';
+      // Independent, public metadata only; overlap network work with catalog discovery.
+      const prices = priceBook.refresh(url.searchParams.get('refresh') === '1');
+      const offered: OfferedModels = await runs.callAgent.models?.(backend, work.workdir, url.searchParams.get('refresh') === '1')
+        .catch((cause: unknown) => { error = cause instanceof Error ? cause.message : String(cause); return []; }) ?? [];
+      await prices;
+      const model = selected.backend === backend ? selected.model : null;
       const named = model && !offered.some(row => row.model === model) ? [...offered, { model, default: false }] : offered;
       return {
-        backend,
+        role, backend, installed: !notInstalled(backend), error: error || offered.warning || '',
+        catalog_kind: offered.length ? CATALOG_KIND[backend] : 'manual',
         options: named.map(row => {
-          const price = modelPriceFor(row.model);
-          return { model: row.model, default: row.default, price: price && { input: price.input_usd_per_mtok, output: price.output_usd_per_mtok } };
+          // Test/custom catalog implementations share the same strict field projection.
+          if (row.price) priceBook.remember(backend, work.workdir, row.model, row.price);
+          const pricing = priceBook.quote(backend, work.workdir, row.model);
+          return { ...row, price: pricing.rates, pricing };
         }),
       };
     }],

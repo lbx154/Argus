@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isJsonObject } from '@argus/contracts';
-import { quoteTokenUsage } from '@argus/runtime';
+import { estimateUsage, priceBook } from './prices.js';
 import { count, type Usage } from '../types.js';
 import type { StartBackend } from './call.js';
 import { privatePath } from './sandbox.js';
@@ -21,6 +21,9 @@ export const codex: StartBackend = (request, { confined, schema }) => {
     // The roles' skills are in Argus's instructions; codex's own catalog would have each role announce
     // the skill it uses, to the operator who reads its progress.
     '-c', 'skills.include_instructions=false',
+    // Argus routes the team itself. Read-only roles must not replace that hand-off with
+    // native Codex subagents inheriting their read-only sandbox. Engineers may still use helpers.
+    ...request.access === 'read' ? ['-c', 'features.multi_agent=false'] : [],
     // What the role is thinking, summed up as codex's own screen shows it: with none asked for, a relay gives none.
     '-c', 'model_reasoning_summary="concise"',
     // Inside bubblewrap the sandbox is bubblewrap's, which mounts a reader's workdir read-only and
@@ -112,7 +115,7 @@ export const codex: StartBackend = (request, { confined, schema }) => {
       const finished = await ended;
       running = null;
       const sessions = join(process.env.CODEX_HOME || join(homedir(), '.codex'), 'sessions');
-      const counted = codexUsage(confined ? privatePath(sessions, request.cwd) : sessions, thread!, started);
+      const counted = codexUsage(confined ? privatePath(sessions, request.cwd) : sessions, thread!, started, request.cwd);
       return {
         threadId: thread, completed: finished && status === 'completed', output: form(text), model: counted.model ?? model ?? request.model ?? null, usage: counted.usage,
         error: !finished ? cli.why() : status === 'completed' ? null : error ?? `Codex reported the turn ${status}.`,
@@ -153,8 +156,8 @@ function sessionFiles(sessions: string, thread: string): string[] {
 
 /** Every model request codex recorded for `thread` from `since` (epoch ms) on, its subagents'
  * included: turn.completed counts the thread's whole life and leaves the subagents out. */
-function codexUsage(sessions: string, thread: string, since: number): { usage: Usage | null; model: string | null } {
-  const usage: Usage = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0, cost_usd: 0 };
+function codexUsage(sessions: string, thread: string, since: number, cwd: string): { usage: Usage | null; model: string | null } {
+  const usage: Usage = { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_output_tokens: 0, cost_usd: 0, cost_source: 'reference-estimate', price_components: [] };
   let requests = 0;
   let model: string | null = null;
   const threads = [thread];
@@ -181,11 +184,15 @@ function codexUsage(sessions: string, thread: string, since: number): { usage: U
           requests += 1;
           usage.input_tokens += counts.input_tokens;
           usage.cached_input_tokens += counts.cached_input_tokens;
+          usage.cache_write_tokens = (usage.cache_write_tokens ?? 0) + counts.cache_write_tokens;
           usage.output_tokens += counts.output_tokens;
           usage.reasoning_output_tokens += count(row.reasoning_output_tokens);
           // Each request is priced alone: the long-context tier is per request.
-          const cost = quoteTokenUsage(fileModel, counts).cost_usd;
+          const pricing = priceBook.quote('codex', cwd, fileModel);
+          const cost = estimateUsage({ ...counts, reasoning_output_tokens: 0, cost_usd: null }, pricing);
+          usage.price_components!.push({ model: fileModel, pricing, cost_usd: cost });
           usage.cost_usd = cost === null || usage.cost_usd === null ? null : usage.cost_usd + cost;
+          if (usage.cost_usd === null) usage.cost_source = 'unknown';
         }
         const agent = isJsonObject(payload.item) ? payload.item.agent_thread_id : undefined;
         if (typeof agent === 'string' && !threads.includes(agent)) threads.push(agent);

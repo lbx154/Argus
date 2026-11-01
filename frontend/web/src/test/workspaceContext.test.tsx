@@ -46,7 +46,7 @@ describe('A3 snapshot-only session context', () => {
       expect(status).toContain(locale === 'zh-CN' ? '已停止' : 'Stopped');
       expect(status).toContain('<time dateTime="2026-10-29T13:25:26.648Z">13:25:26</time>');
       expect(status).not.toMatch(/小时前|ago/);
-      expect(status).toContain(locale === 'zh-CN' ? '估算 ≈$94.5（按 API 价）' : 'Est. ≈$94.5 (API prices)');
+      expect(status).toContain(locale === 'zh-CN' ? '估算 ≈$94.5（各角色合计）' : 'Est. ≈$94.5 (all roles)');
       expect(status).not.toContain('truncate');
     }
     expect(fetch).not.toHaveBeenCalled();
@@ -57,8 +57,8 @@ describe('A3 snapshot-only session context', () => {
     const html = markup(topbar({ ...recorded, work_status: { ...recorded.work_status!, activityAt: null }, spend_usd: null, spend_status: 'unpriced' }));
     expect(html).toContain(new Date(recorded.session.last_active * 1000).toISOString());
     expect(html).not.toContain('Spent $');
-    expect(markup(topbar({ ...recorded, spend_usd: 0, spend_status: 'priced' }))).toContain('Est. ≈$0.00 (API prices)');
-    expect(markup(topbar({ ...recorded, spend_status: 'partial' }))).toContain('Est. ≥$94.5 (API prices)');
+    expect(markup(topbar({ ...recorded, spend_usd: 0, spend_status: 'priced' }))).toContain('Est. ≈$0.00 (all roles)');
+    expect(markup(topbar({ ...recorded, spend_status: 'partial' }))).toContain('Est. ≥$94.5 (all roles)');
   });
 
   it.each(['en', 'zh-CN'] as const)('shows the session directory in %s without requests', locale => {

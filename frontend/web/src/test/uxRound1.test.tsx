@@ -47,9 +47,9 @@ describe('stage packages read as interim results everywhere', () => {
 });
 
 describe('spend estimate', () => {
-  it('says the cost is an API-price equivalent', () => {
-    expect(spendEstimateLabel({ spendUsd: 12.345, spendStatus: 'priced' }, true)).toBe('估算 ≈$12.3（按 API 价）');
-    expect(spendEstimateLabel({ spendUsd: 3, spendStatus: 'partial' }, true)).toBe('估算 ≥$3.00（按 API 价）');
+  it('labels the summed role estimate and keeps incomplete totals explicit', () => {
+    expect(spendEstimateLabel({ spendUsd: 12.345, spendStatus: 'priced' }, true)).toBe('估算 ≈$12.3（各角色合计）');
+    expect(spendEstimateLabel({ spendUsd: 3, spendStatus: 'partial' }, true)).toBe('估算 ≥$3.00（各角色合计）');
   });
 });
 

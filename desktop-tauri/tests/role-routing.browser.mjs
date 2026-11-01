@@ -1,0 +1,53 @@
+// Real browser + real model catalogs; never invokes a model. Run with node --import tsx.
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { chromium } from 'playwright';
+import { Store } from '../../packages/core/src/store.ts';
+import { serve } from '../../packages/core/src/serve/index.ts';
+import { models } from '../../packages/core/src/agent/models.ts';
+
+const root = resolve('..');
+const evidence = join(root, '.preview-qa');
+mkdirSync(evidence, { recursive: true });
+const home = mkdtempSync(join(evidence, 'browser-'));
+const store = new Store(home);
+const project = store.create({ workdir: '', request: '', backend: 'codex', model: null });
+const call = Object.assign(async () => { throw new Error('Browser acceptance must not call a model.'); }, { models });
+const server = await serve({ store, callAgent: call, backend: 'codex', model: null, port: 0, web: join(root, 'packages/core/web') });
+const browser = await chromium.launch({ headless: true, channel: process.env.ARGUS_BROWSER_CHANNEL || 'msedge' });
+const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, locale: 'zh-CN' });
+const errors = [];
+page.on('pageerror', error => errors.push(error.message));
+try {
+  await page.goto(server.url);
+  await page.locator('[data-runtime-open-models]').click({ timeout: 30_000 });
+  await page.locator('[data-role-model-picker]').waitFor();
+  assert.equal(await page.locator('[data-role-tab]').count(), 4);
+  await page.locator('[data-role-cli]').selectOption('pi');
+  await page.locator('[data-role-model="github-copilot/gpt-6.1-sol"] input').check({ timeout: 65_000 });
+  await page.screenshot({ path: join(home, 'manager-pi-models.png'), fullPage: true });
+  await page.locator('[data-role-tab="engineer"]').click();
+  await page.locator('[data-role-cli]').selectOption('dsh');
+  await page.locator('[data-role-model="deepseek-official/deepseek-flash"] input').check({ timeout: 65_000 });
+  await page.screenshot({ path: join(home, 'engineer-dsh-models.png'), fullPage: true });
+  await page.locator('[data-save-role-config]').click();
+  await page.locator('[data-role-model-picker]').waitFor({ state: 'hidden' });
+  const saved = store.load(project.id);
+  assert.equal(saved.roleConfig.manager.backend, 'pi');
+  assert.equal(saved.roleConfig.manager.model, 'github-copilot/gpt-6.1-sol');
+  assert.equal(saved.roleConfig.engineer.backend, 'dsh');
+  assert.equal(saved.roleConfig.engineer.model, 'deepseek-official/deepseek-flash');
+  assert.equal(saved.roleConfig.planner.backend, 'codex');
+  await page.reload();
+  await page.locator('[data-runtime-open-models]').click();
+  await page.locator('[data-role-tab="engineer"]').click();
+  assert.equal(await page.locator('[data-role-cli]').inputValue(), 'dsh');
+  assert.equal(await page.locator('[data-role-model-id]').inputValue(), 'deepseek-official/deepseek-flash');
+  await page.setViewportSize({ width: 480, height: 900 });
+  await page.screenshot({ path: join(home, 'roles-mobile.png'), fullPage: true });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  assert.deepEqual(errors, []);
+  writeFileSync(join(home, 'result.json'), JSON.stringify({ ok: true, inferenceCalls: 0, roles: saved.roleConfig, screenshots: ['manager-pi-models.png', 'engineer-dsh-models.png', 'roles-mobile.png'] }, null, 2));
+  console.log(`BROWSER_ACCEPTANCE_PASSED=${home}`);
+} finally { await browser.close(); await server.close(); }

@@ -13,6 +13,7 @@ import { NAMES } from '../prompts.js';
 import { ManagerInputs } from '../inputs.js';
 import { asker, type FlowEvent, type Project, type Question, type Store, type Task } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
+import { roleRuntime } from '../roleRuntime.js';
 
 /** What this process knows of a project's run right now. */
 export interface Live {
@@ -28,7 +29,8 @@ export interface Live {
 export type Recorded = FlowEvent & { ts: string };
 
 /** Every backend there is, by the name the page shows it by. */
-export const BACKEND_LABELS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' };
+export const BACKEND_LABELS: Record<Backend, string> = { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI',
+  cursor: 'Cursor Agent', pi: 'Pi', opencode: 'OpenCode', grok: 'Grok Build', qoder: 'Qoder CLI', dsh: 'DeepSeek Harness' };
 /** A step of a turn, as the page's feed knows it. */
 const STEP_KINDS: Record<Step['kind'], string> = { message: 'agent_message', command: 'command_execution', edit: 'file_change', thought: 'reasoning' };
 
@@ -224,21 +226,23 @@ export function follow(store: Store, id: string): () => EventMsg[] {
 }
 
 function usage(rows: Record<string, unknown>[], calls: Live['calls'] = [], now = 0): ProjectUsageSummary {
-  const grouped = { by_role: new Map<string | null, UsageSummaryRecord[]>(), by_model: new Map<string | null, UsageSummaryRecord[]>(), by_date: new Map<string | null, UsageSummaryRecord[]>() };
+  const grouped = { by_role: new Map<string | null, UsageSummaryRecord[]>(), by_model: new Map<string | null, UsageSummaryRecord[]>(), by_date: new Map<string | null, UsageSummaryRecord[]>(), by_route: new Map<string | null, UsageSummaryRecord[]>(), by_price_source: new Map<string | null, UsageSummaryRecord[]>() };
   const intervals: Array<[number, number]> = [];
   let missing = 0;
   const records = rows.map(row => {
     const tokens = (row.tokens ?? {}) as Record<string, number | undefined>;
     const cost = typeof row.cost_usd === 'number' ? row.cost_usd : null;
     const record: UsageSummaryRecord = {
-      input_tokens: tokens.input_tokens ?? null, cached_input_tokens: tokens.cached_input_tokens ?? null, cache_write_tokens: null,
+      input_tokens: tokens.input_tokens ?? null, cached_input_tokens: tokens.cached_input_tokens ?? null, cache_write_tokens: tokens.cache_write_tokens ?? null,
       output_tokens: tokens.output_tokens ?? null, reasoning_output_tokens: tokens.reasoning_output_tokens ?? null, total_nano_aiu: null,
       cost_usd: cost, pricing_status: cost === null ? 'unpriced' : 'priced', premium_requests: null, premium_request_cost_usd: null,
     };
     const date = typeof row.ts === 'number' && Number.isFinite(row.ts) ? new Date(row.ts * 1000) : new Date(NaN);
     const dated = Number.isFinite(date.getTime());
     const keys = { by_role: typeof row.role === 'string' && row.role ? row.role : null,
-      by_model: typeof row.model === 'string' && row.model ? row.model : null, by_date: dated ? date.toISOString().slice(0, 10) : null };
+      by_model: typeof row.model === 'string' && row.model ? row.model : null, by_date: dated ? date.toISOString().slice(0, 10) : null,
+      by_route: [row.role, row.backend, row.model].map(value => typeof value === 'string' && value ? value : '?').join(' · '),
+      by_price_source: typeof row.cost_source === 'string' ? row.cost_source : 'legacy-unspecified' };
     for (const dimension of Object.keys(grouped) as Array<keyof typeof grouped>) {
       const group = grouped[dimension].get(keys[dimension]) ?? [];
       group.push(record);
@@ -264,6 +268,7 @@ function usage(rows: Record<string, unknown>[], calls: Live['calls'] = [], now =
     .sort(([a], [b]) => (a ?? '').localeCompare(b ?? ''))
     .map(([key, values]) => ({ key, ...summarizeUsage(values) }));
   return { ...summarizeUsage(records), by_role: groups('by_role'), by_model: groups('by_model'), by_date: groups('by_date'),
+    by_route: groups('by_route'), by_price_source: groups('by_price_source'),
     work_duration_ms: duration, calls_without_duration: missing };
 }
 
@@ -537,7 +542,7 @@ function projectStatus(project: Project, live: Live, activityAt: number | null =
 }
 
 export function snapshot(store: Store, project: Project, live: Live): Snapshot {
-  const { id, workdir, backend } = project;
+  const { id, workdir } = project;
   // What was spent counts every call; what the project runs on, only its own.
   const reading = readRecord(store, id);
   const spent = reading.usage.rows;
@@ -559,13 +564,16 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     work_status: projectStatus(project, live, reading.activityAt),
     roles: ROLES.map(role => {
       const under = live.calls.filter(call => call.role === role);
+      const route = roleRuntime(project, role);
+      const previous = ran(role);
       return {
-        role, backend, backend_label: BACKEND_LABELS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: project.effort ?? null, active: under.length > 0,
+        role, backend: route.backend, backend_label: BACKEND_LABELS[route.backend],
+        model: route.model ?? (previous?.backend === route.backend ? String(previous.model ?? '') : ''), effort: route.effort ?? null, active: under.length > 0,
         label: NAMES[role], status: under.length ? 'running' : 'idle', age_s: null, tasks: under.flatMap(call => call.task ?? []),
       };
     }),
     last_call: last ? {
-      backend: String(last.backend), model: String(last.model ?? ''), effort: project.effort ?? '', run_label: String(last.role), role: String(last.role), ts: Number(last.ts),
+      backend: String(last.backend), model: String(last.model ?? ''), effort: String(last.effort ?? ''), run_label: String(last.role), role: String(last.role), ts: Number(last.ts),
     } : null,
     backlog: backlog(project),
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<Snapshot['spend_status']>, usage_summary: summary,

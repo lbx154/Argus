@@ -1020,7 +1020,7 @@ test('review rounds end their processes and ignore stored review sessions after 
   assert.equal(store.load(id).sessions['t1.reviewer'], undefined);
 });
 
-test('a legacy project saves its first reported model for later roles and restart', async t => {
+test('a legacy project pins each role independently and preserves the Manager selection on restart', async t => {
   const { flow, id, store, requests, home, events } = await setup(t, [toEngineer,
     { role: 'engineer', to: 'reviewer', letter: 'built' }, { role: 'reviewer', to: 'manager', letter: 'accepted' }, report]);
   flow.edit(id, project => { delete project.modelAutomatic; });
@@ -1031,7 +1031,9 @@ test('a legacy project saves its first reported model for later roles and restar
   assert.equal(store.load(id).model, 'fake');
   assert.equal(store.load(id).modelAutomatic, true);
   assert.equal(requests[0]!.model, undefined);
-  assert.ok(requests.slice(1).every(request => request.model === 'fake'));
+  assert.ok(requests.filter(request => request.role !== 'manager').every(request => request.model === undefined));
+  assert.equal(requests.at(-1)!.model, 'fake', 'the Manager alone resumes its own resolved model');
+  assert.equal(store.load(id).roleConfig?.engineer?.model, 'fake');
   const next = agent([report]);
   await say(new Flow(new Store(home), next.callAgent), id, 'Any news?');
   assert.equal(next.requests[0]!.model, 'fake');

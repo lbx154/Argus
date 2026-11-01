@@ -17,7 +17,9 @@ import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
-const cli = args[0] === 'app-server' ? 'codex' : args.includes('--plugin-dir') || args.includes('--acp') ? 'copilot' : args.includes('--extension') || args.includes('rpc') ? 'pi' : 'claude';
+const cli = args.includes('--profile') ? 'dsh' : args.includes('--verbatim') ? 'grok' : args.includes('--workspace') ? 'cursor'
+  : args[0] === 'run' ? 'opencode' : args[0] === 'app-server' ? 'codex' : args.includes('--plugin-dir') || args.includes('--acp') ? 'copilot'
+  : args.includes('--extension') || args.includes('rpc') ? 'pi' : args.includes('--input-format') ? 'claude' : 'qoder';
 const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
 const option = name => args[args.indexOf(name) + 1];
 const run = randomUUID();
@@ -62,6 +64,11 @@ function leave(scenario) {
 
 const scenarioOf = text => JSON.parse(text.trimEnd().split('\n').at(-1));
 const answerOf = output => typeof output === 'string' ? output : JSON.stringify(output);
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function chunks(text, send) {
+  for (let at = 0; at < text.length; at += 7) { send(text.slice(at, at + 7)); await pause(2); }
+  await pause(40); // Ensure live output can reach the host before the terminal event.
+}
 
 if (cli === 'codex') {
   // JSON-RPC over stdin and stdout, as the app-server speaks it.
@@ -145,22 +152,89 @@ if (cli === 'codex') {
     notify('item/completed', { item: { id: 'item_3', type: 'agentMessage', text: answer } });
     notify('turn/completed', { turn: { id: 'turn-1', status: 'completed', error: null } });
   };
+} else if (['cursor', 'opencode', 'grok', 'qoder'].includes(cli)) {
+  const input = readFileSync(cli === 'grok' ? option('--prompt-file') : 0, 'utf8');
+  const [prompt, schema] = input.split('\n\nYour final answer MUST be a single JSON object matching this JSON Schema, with no surrounding prose. This is the hand-off to Argus:\n');
+  const scenario = scenarioOf(prompt);
+  const flag = cli === 'opencode' ? '--session' : '--resume';
+  const thread = args.includes(flag) ? option(flag) : randomUUID();
+  note({ schema: JSON.parse(schema), instructions: prompt.trimEnd().split('\n').slice(0, -1).join('\n').trim() || undefined, args,
+    model: args.includes('--model') ? option('--model') : undefined });
+  const identity = cli === 'opencode' ? { sessionID: thread } : { session_id: thread };
+  emit({ type: 'system', ...identity, model: `${cli}-test` });
+  leave(scenario);
+  if (scenario.hang) setInterval(() => {}, 1000);
+  else if (scenario.fail) {
+    emit(cli === 'opencode' ? { type: 'error', error: { data: { message: scenario.fail } } }
+      : { type: 'result', ...identity, subtype: 'error_during_execution', is_error: true, result: scenario.fail });
+    process.exitCode = 1;
+  } else if (cli === 'opencode') {
+    emit({ type: 'reasoning', part: { text: '**Reading the parser**' } });
+    emit({ type: 'text', part: { text: 'Working on it.' } });
+    emit({ type: 'tool_use', part: { tool: 'bash', state: { input: { command: 'npm test' } } } });
+    emit({ type: 'tool_use', part: { tool: 'edit', state: { input: { path: 'parser.js' } } } });
+    emit({ type: 'step_finish', part: { reason: 'tool-calls', tokens: { input: 50, output: 20, reasoning: 5, cache: { read: 50, write: 0 } } } });
+    emit({ type: 'text', part: { text: answerOf(scenario.output) } });
+    emit({ type: 'step_finish', part: { reason: 'stop' } });
+  } else {
+    emit({ type: 'assistant', ...identity, message: { content: [{ type: 'thinking', thinking: '**Reading the parser**' },
+      { type: 'text', text: 'Working on it.' }, { type: 'tool_use', name: 'bash', input: { command: 'npm test' } },
+      { type: 'tool_use', name: 'edit', input: { path: 'parser.js' } }] } });
+    emit({ type: 'result', ...identity, subtype: 'success', is_error: false, stop_reason: 'end_turn', result: answerOf(scenario.output),
+      usage: { input_tokens: 50, cache_read_input_tokens: 50, output_tokens: 20, reasoning_tokens: 5 } });
+  }
+} else if (cli === 'dsh') {
+  const input = readFileSync(0, 'utf8');
+  const [prompt, schema] = input.split('\n\nYour final answer MUST be a single JSON object matching this JSON Schema, with no surrounding prose. This is the hand-off to Argus:\n');
+  const scenario = scenarioOf(prompt);
+  const thread = args.includes('--session-id') ? option('--session-id') : randomUUID();
+  note({ schema: JSON.parse(schema), instructions: prompt.trimEnd().split('\n').slice(0, -1).join('\n').trim() || undefined });
+  emit({ type: 'session', sessionId: thread });
+  emit({ type: 'argus_route', model: 'deepseek-official/test-model' });
+  leave(scenario);
+  if (scenario.hang) setInterval(() => {}, 1000);
+  else if (scenario.fail) { emit({ type: 'error', message: scenario.fail }); process.exitCode = 1; }
+  else {
+    emit({ type: 'thinking', text: '**Reading the parser**' });
+    emit({ type: 'text', text: 'Working on it.' });
+    emit({ type: 'tool_call', tool: 'bash', input: { command: 'npm test' } });
+    emit({ type: 'tool_call', tool: 'edit', input: { path: 'parser.js' } });
+    emit({ type: 'status', phase: 'step_end', usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 50, reasoningTokens: 5 } });
+    if (scenario.stream) {
+      emit({ type: 'argus_live', sessionId: 'unrelated-subagent', phase: 'text', index: 0, text: 'NEVER-SHOW' });
+      emit({ type: 'argus_live', sessionId: thread, phase: 'start' });
+      await chunks(answerOf(scenario.output), text => emit({ type: 'argus_live', sessionId: thread, phase: 'text', index: 0, text }));
+    }
+    emit({ type: 'status', phase: 'turn_end', reason: { kind: 'completed' } });
+    emit({ type: 'final', text: answerOf(scenario.output) });
+  }
 } else if (cli === 'claude') {
   // A user message a line, each answered by a turn ending in a result, whose cost is the session's so far.
   const session = (args.includes('--resume') && option('--resume')) || randomUUID();
   let spent = 0;
-  createInterface({ input: process.stdin }).on('line', line => {
-    const { message, uuid } = JSON.parse(line);
+  createInterface({ input: process.stdin }).on('line', async line => {
+    const input = JSON.parse(line);
+    if (input.type === 'control_request') {
+      emit({ type: 'control_response', response: { subtype: 'success', request_id: input.request_id,
+        response: { models: [{ value: 'sonnet', displayName: 'Configured model', supportedEffortLevels: ['low', 'high'] }], account: { email: 'private-fixture-value' } } } });
+      return;
+    }
+    const { message, uuid } = input;
+    const scenario = scenarioOf(message.content);
     // A turn of its own first, as claude takes one when a background job ends, and then the message played back.
     if (args.includes('--replay-user-messages')) {
       emit({ type: 'result', subtype: 'success', session_id: session, is_error: false, result: 'The job ended.', structured_output: { to: 'operator', letter: 'stray', open: [] } });
-      emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
+      if (scenario.lifecycleAck) emit({ type: 'command_lifecycle', command_uuid: uuid, state: 'started', session_id: session });
+      else emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
     }
-    const scenario = scenarioOf(message.content);
     note({ schema: JSON.parse(option('--json-schema')), instructions: args.includes('--append-system-prompt') ? option('--append-system-prompt') : undefined,
       model: args.includes('--model') ? option('--model') : undefined });
     leave(scenario);
     emit({ type: 'system', subtype: 'init', session_id: session, model: 'claude-test' });
+    if (scenario.authenticationFailure) {
+      for (const attempt of [1, 2]) emit({ type: 'system', subtype: 'api_retry', attempt, error_status: 401, error: 'authentication_failed' });
+      return;
+    }
     if (scenario.hang) return;
     const usage = { input_tokens: 10, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 40,
       output_tokens_details: { thinking_tokens: 5 } };
@@ -170,6 +244,10 @@ if (cli === 'codex') {
       { type: 'tool_use', name: 'Read', input: { file_path: 'README.md' } }, { type: 'tool_use', name: 'Edit', input: { file_path: 'parser.js' } }]);
     said([{ type: 'thinking', thinking: '**Linting**', signature: 's' }, { type: 'text', text: 'Subagent at work.' }, { type: 'tool_use', name: 'Bash', input: { command: 'npm run lint' } }], { parent_tool_use_id: 'toolu_1' });
     const output = scenario.output;
+    if (scenario.stream) {
+      emit({ type: 'stream_event', parent_tool_use_id: 'sub', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'NEVER-SHOW' } } });
+      await chunks(answerOf(output), text => emit({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } }));
+    }
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answerOf(output), ...typeof output === 'object' ? { structured_output: output } : {} });
   });
@@ -214,6 +292,11 @@ if (cli === 'codex') {
         message: { role: 'assistant', provider: 'anthropic', model: 'claude-test', stopReason: 'stop', content, usage, ...more } });
       emit(message([{ type: 'thinking', thinking: '**Reading the parser**' }, { type: 'text', text: 'Working on it.' }, { type: 'toolCall', name: 'bash', arguments: { command: 'npm test' } },
         { type: 'toolCall', name: 'read', arguments: { path: 'README.md' } }, { type: 'toolCall', name: 'edit', arguments: { path: 'parser.js' } }]));
+      if (scenario.stream) {
+        emit({ type: 'message_start', message: { role: 'assistant' } });
+        emit({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_start', contentIndex: 0, toolName: 'hand_off', id: 'tool-stream' } });
+        await chunks(answer, delta => emit({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 0, delta } }));
+      }
       // Pi settles and exits 0 after a failed request too.
       emit(scenario.fail ? message([], { stopReason: 'error', errorMessage: scenario.fail })
         : message(called ? [{ type: 'toolCall', id: 'call_1', name: 'hand_off', arguments: called }] : [{ type: 'text', text: answer }],

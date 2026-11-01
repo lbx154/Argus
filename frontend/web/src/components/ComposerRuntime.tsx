@@ -54,8 +54,9 @@ export function ComposerRuntime({ sid, roles, running, lastCall, onOpenSettings 
   const title = [detail, zh ? '工作用的模型；点击选择模型' : 'The model the work runs on; click to choose a model'].filter(Boolean).join('\n');
   const chip = <>
     <span className="composer-model-dot" data-running={running || undefined} aria-hidden="true" />
-    <span className="composer-model-name">{shown}</span>
+    <span className="composer-model-name">{data?.revision !== undefined && <>{configured && isAgentRole(configured.role) ? agentRoleName(configured.role, t) : ''} · {backend ? backendLabel(backend, data) : ''} · </>}{shown}</span>
     {effortName ? <span className="composer-model-meta">{effortName}</span> : null}
+    {data?.revision !== undefined && <span className="composer-model-meta">{zh ? '四角色配置' : 'Team settings'}</span>}
     {earlier ? <span className="composer-model-next" data-runtime-earlier>{zh ? `这一轮仍用 ${earlier}` : `this turn: ${earlier}`}</span> : null}
   </>;
   return <div className="composer-runtime" aria-label={zh ? '当前后端与模型' : 'Current backend and model'}>

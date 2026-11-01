@@ -3,9 +3,10 @@ name: release
 # Release version changes are operator-controlled. Do not bump package versions
 # for a bug fix unless the operator explicitly authorizes that release change.
 # v0.1.2 through v0.1.6 were operator-authorized desktop releases.
-# v0.1.7 and v0.1.8 are Windows-only releases: build with workflow_dispatch
-# and an explicit windows-x86_64 target, verify the artifacts, then publish.
-# Excluding these tags prevents a second all-platform publication.
+# v0.1.7, v0.1.8 and v1.0.0 are Windows-only releases: build with
+# workflow_dispatch and an explicit windows-x86_64 target, verify the artifacts,
+# then publish exactly the installer/signature/manifest. Excluding these tags
+# prevents a second all-platform/Python publication.
 
 on:
   push:
@@ -13,6 +14,7 @@ on:
       - "v*"
       - "!v0.1.7"
       - "!v0.1.8"
+      - "!v1.0.0"
   workflow_dispatch:
     inputs:
       platform:
@@ -164,7 +166,12 @@ jobs:
       - name: Stage Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./desktop-tauri/scripts/stage-release.ps1
+        run: |
+          $version = (Get-Content desktop-tauri/package.json -Raw | ConvertFrom-Json).version
+          if ($version -eq '1.0.0') {
+            $env:ARGUS_DESKTOP_UPDATE_NOTES = Get-Content docs/release-notes/1.0.0-updater.txt -Raw -Encoding utf8
+          }
+          ./desktop-tauri/scripts/stage-release.ps1
       - name: Verify the Windows build left the reviewed source unchanged
         if: runner.os == 'Windows'
         run: |

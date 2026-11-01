@@ -60,7 +60,19 @@ export interface OperatorMessage { text: string; request_id?: string; attachment
 /** Team letters have a durable identity independent of their text or recipient's session. */
 export type ManagerLetter = string | (OperatorMessage & { input_id?: string });
 
+export interface RoleRuntime {
+  backend: Backend;
+  model: string | null;
+  modelAutomatic?: boolean;
+  effort?: string;
+}
+
 export interface Project {
+  /** Complete per-role overrides. Older records inherit the legacy project settings. */
+  roleConfig?: Partial<Record<Role, RoleRuntime>>;
+  configRevision?: number;
+  /** Prevent a completed old call from restoring a session after a route change (including A→B→A). */
+  roleEpochs?: Partial<Record<Role, number>>;
   id: string;
   created: string;
   workdir: string;
@@ -139,7 +151,7 @@ export class Store {
   }
 
   /** A new project; without a workdir it works in its own under $ARGUS_HOME/workspaces. */
-  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'modelAutomatic' | 'effort'>): Project {
+  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'modelAutomatic' | 'effort' | 'roleConfig'>): Project {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),

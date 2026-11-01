@@ -47,7 +47,7 @@ export function RolesPanel({ roles }: { roles: Role[] }) {
                   {isAgentRole(r.role) ? agentRoleName(r.role, t) : r.role}
                 </span>
               </div>
-              <div className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={r.model}>{r.model || '—'}</div>
+              <div className="min-w-0 truncate font-mono text-[10px] text-ink-faint" title={`${r.backend ?? ''} · ${r.model}`}>{r.backend && <span className="mr-1 text-ink-dim">{r.backend} ·</span>}{r.model || '—'}</div>
               <div className="flex items-center gap-1 text-right">
                 <span className="text-[10px]" style={{ color: r.active ? theme.ink : theme.inkFaint }}>{t(r.active ? 'roles.running' : 'roles.idle')}</span>
                 {r.active && ageLabel(r.age_s, t('roles.now')) && (

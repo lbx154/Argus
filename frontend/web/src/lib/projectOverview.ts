@@ -20,7 +20,7 @@ export function spendEstimateLabel(overview: { spendUsd: number | null; spendSta
   const amount = `$${overview.spendUsd.toFixed(overview.spendUsd < 10 ? 2 : 1)}`;
   const sign = overview.spendStatus === 'partial' || overview.spendStatus === 'unpriced' ? '≥' : '≈';
   if (compact) return `${sign}${amount}`;
-  return zh ? `估算 ${sign}${amount}（按 API 价）` : `Est. ${sign}${amount} (API prices)`;
+  return zh ? `估算 ${sign}${amount}（各角色合计）` : `Est. ${sign}${amount} (all roles)`;
 }
 
 /** Add the list's existing figures for display; unknown calls keep the total incomplete. */
@@ -37,6 +37,6 @@ export function projectSpendTotal(projects: ProjectRow[]): { spendUsd: number | 
     spendStatus: incomplete ? 'partial' : known ? 'priced' : 'empty' };
 }
 export const SPEND_ESTIMATE_HINT = {
-  zh: '按模型 API 公开价格折算的等价花费，用来比较规模；不是账户实际被扣的钱（订阅或额度计费时可能完全不同）。',
-  en: 'An API-price equivalent for comparing scale; not what your account was actually charged (subscriptions or quotas can differ entirely).',
+  zh: '按各角色 / CLI / 模型分别累计已结束调用，优先使用 CLI 报告金额，其次按各自费率估算。未知费率不算零元；不是订阅或账户最终账单。',
+  en: 'Completed calls are summed per role / CLI / model: CLI-reported amounts first, then route-specific rate estimates. Unknown rates are not zero; this is not a subscription or account bill.',
 };

@@ -13,7 +13,7 @@ import { add, catalog, installed, remove } from './packs.js';
 import { Store } from './store.js';
 import { BACKENDS, type Backend } from './types.js';
 
-const USAGE = `Usage: argus [--host H] [--port N] [--preview-url URL] [--backend codex|claude|copilot|pi] [--model M] [--web DIR] [--version]
+const USAGE = `Usage: argus [--host H] [--port N] [--preview-url URL] [--backend ${BACKENDS.join('|')}] [--model M] [--web DIR] [--version]
        argus skills [add|remove <name>]
 Serves the web cockpit on 127.0.0.1, or on --host (0.0.0.0: every network), at the address it prints.
 Local previews use <identifier>.localhost on the browser-facing cockpit port.

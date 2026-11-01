@@ -1,0 +1,9 @@
+{
+  "productName": "Argus Preview",
+  "version": "1.0.0-preview.3",
+  "identifier": "cn.argusbot.desktop.preview.v1",
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "shortDescription": "Argus 1.0.0 local acceptance preview — isolated from stable"
+  }
+}

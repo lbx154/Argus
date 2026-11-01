@@ -20,13 +20,13 @@ export function SetupStatus({ open, config }: { open: boolean; config?: ConfigSn
     {probe.isError && <p role="alert" className="text-xs text-err">{requestFailureText(probe.error, t).text}</p>}
     {data && <>
       <dl className="grid gap-3 sm:grid-cols-2">
-        {data.backends.map(row => <div key={row.backend} className="min-w-0 rounded border border-line p-3">
+        {data.backends.filter(row => row.installed).map(row => <div key={row.backend} className="min-w-0 rounded border border-line p-3">
           <dt className="text-xs font-semibold">{backendLabel(row.backend, config)}</dt>
-          <dd className="mt-1 text-xs">{row.installed ? zh ? '已安装' : 'Installed' : zh ? '未安装' : 'Not installed'}</dd>
           <dd className="mt-1 break-all font-mono text-xs text-ink-faint">{row.version || (zh ? '版本未知' : 'Version unknown')}</dd>
           {row.detail && <dd className="mt-1 break-words text-xs text-ink-faint">{row.detail}</dd>}
         </div>)}
       </dl>
+      {!data.backends.some(row => row.installed) && <p className="text-xs">{zh ? '未发现 Agent CLI，请安装或在桌面设置中指定路径。' : 'No Agent CLI found. Install one or select its path in desktop settings.'}</p>}
       <p className="mt-3 text-xs" data-sandbox-status>{data.sandbox.bubblewrap
         ? zh ? 'Bubblewrap：运行探测成功，角色调用使用系统沙箱。' : 'Bubblewrap: launch probe passed; agent calls use OS isolation.'
         : zh ? 'Bubblewrap：未启用（未安装、运行探测失败或系统不支持）。角色调用使用后端自身权限设置，不代表系统隔离。' : 'Bubblewrap: inactive (missing, launch probe failed, or unsupported OS). Agent calls use backend permission settings; OS isolation is not confirmed.'}
