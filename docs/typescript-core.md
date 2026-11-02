@@ -88,6 +88,19 @@ writes. The work rests when no letter waits for anyone but the operator: `asking
 questions are open, else `idle`, which is after the Manager's report; the Manager may also
 finish a small request in its own turn.
 
+## The chief and the daily message
+
+The operator may set up one chief (`POST /api/chief`): a project like any other, marked `chief` in
+`project.json`, whose roles read every project's record under `$ARGUS_HOME/projects/` (only a
+project's own team changes it). What it does is what the operator's first message asks; the start
+page offers one that has it look after the projects and follow the directions they name, and
+write to them each day. The project list puts it first and the page opens on it.
+
+A role cannot wake itself, so any project may hold a daily message (`repeat: {at, text}`, `at` as
+HH:MM in UTC; `PUT /api/projects/<id>/repeat`, an empty body for none). At that time Argus sends
+the text as the operator's message, and nothing more: it does not watch what comes of it, and a
+time that passed while Argus was not running is not made up for.
+
 ## The skill library
 
 The operator installs community packs through `argus skills add <name>` or the cockpit's

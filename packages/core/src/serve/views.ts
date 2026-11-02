@@ -587,6 +587,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     work_status: projectStatus(project, live, reading.activityAt),
     last_message: project.status === 'failed' ? project.error ?? '' : reading.lastReply,
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>,
+    ...project.chief ? { chief: true } : {}, repeat: project.repeat ?? null,
   };
 }
 

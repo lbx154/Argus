@@ -26,6 +26,7 @@ import { records } from './records.js';
 import { resources } from './resources.js';
 import { setupStatus, mobileOrigins } from './setup.js';
 import { Runs, type Frame } from './runs.js';
+import { repeatOf, repeating } from './repeat.js';
 import { trash } from './trash.js';
 import { versions } from './versions.js';
 import { daemon, follow, progressMap, projectRow, snapshot, taskTrace, readRecord, conversationRows, conversationPage } from './views.js';
@@ -114,6 +115,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
     });
   });
 
+  /** Each project's daily message, sent as the operator's own. */
+  const daily = repeating(store, (id, text) => {
+    void runs.message(id, text, randomUUID(), () => {}).then(frame => {
+      if (frame.type === 'error') process.stderr.write(`${id}: the daily message was not answered: ${String(frame.error)}\n`);
+    });
+  });
   const project = (id: string): Project => {
     try {
       if (PROJECT_ID.test(id)) return store.load(id);
@@ -230,6 +237,31 @@ export async function serve(options: ServeOptions): Promise<Served> {
       const created = store.create({ workdir, request: '', backend, model: modelAutomatic ? null : model, modelAutomatic, ...recent?.effort ? { effort: recent.effort } : {} });
       runs.changed(created.id);
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
+    }],
+    // The operator's chief: a project above the others, one per state root. Its first message, the
+    // operator's, is sent as any project's first is; the daily one goes with it.
+    ['POST', /^\/api\/chief$/, async ({ body }) => {
+      const given = await body();
+      if (store.list().some(work => work.chief)) throw new HttpError(409, 'There is a chief already.', 'chief_exists');
+      const repeat = given.repeat ? repeatOf(given.repeat as Record<string, unknown>) : undefined;
+      const recent = store.list().at(-1);
+      const { backend, model } = recent ?? options;
+      const modelAutomatic = recent?.modelAutomatic ?? model === null;
+      const created = store.create({ workdir: '', request: '', backend, model: modelAutomatic ? null : model, modelAutomatic, ...recent?.effort ? { effort: recent.effort } : {} });
+      const name = String(given.name ?? '').replace(/\s+/g, ' ').trim();
+      Object.assign(created, { chief: true, ...name ? { name } : {}, ...repeat ? { repeat } : {} });
+      store.save(created);
+      daily.arm();
+      runs.changed(created.id);
+      return { sid: created.id, workdir: created.workdir };
+    }],
+    // The message Argus sends the project each day, or none.
+    ['PUT', /^\/api\/projects\/([^/]+)\/repeat$/, async ({ params: [id], body }) => {
+      const given = await body();
+      const repeat = given.at || given.text ? repeatOf(given) : undefined;
+      runs.edit(project(id!).id, work => { if (repeat) work.repeat = repeat; else delete work.repeat; });
+      daily.arm();
+      return { repeat: repeat ?? null };
     }],
     ...projectRoutes(store, runs, project),
     ['GET', /^\/api\/projects\/([^/]+)\/snapshot$/, ({ params: [id] }) => snapshot(store, project(id!), runs.live(id!))],
@@ -439,9 +471,11 @@ export async function serve(options: ServeOptions): Promise<Served> {
   for (const { id, status, forManager } of store.list()) {
     if (status === 'working' || forManager?.length && status !== 'stopped' && status !== 'failed') runs.resume(id);
   }
+  daily.arm();
   return {
     url: `http://${hostPort(host, (server.address() as AddressInfo).port)}`,
     close: async () => {
+      daily.close();
       await runs.stopAll();
       await sites.close();
       server.closeAllConnections();

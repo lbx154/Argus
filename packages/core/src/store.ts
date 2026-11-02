@@ -93,7 +93,13 @@ export interface Project {
   sessions: Record<string, string>;
   /** The versions kept of each file a result was delivered with, oldest first: copies in delivered/. */
   delivered?: Record<string, string[]>;
+  /** The operator's chief: one project above the others, whose roles read every project's record. */
+  chief?: true;
+  /** A message Argus sends the project every day at `at` (HH:MM, UTC), as if the operator wrote it then. */
+  repeat?: Repeat;
 }
+
+export interface Repeat { at: string; text: string }
 
 export type FlowEvent =
   /** The operator's words: to the Manager, or to the role whose question they answer. */

@@ -8,6 +8,8 @@ export function hasHumanProjectLabel(project: ProjectRow): boolean {
 /** Live work first, then human-labelled work, then recency. */
 export function rankProjects(projects: ProjectRow[]): ProjectRow[] {
   return [...projects].sort((a, b) => {
+    // The chief comes first: the operator's page opens on it.
+    if (Boolean(a.chief) !== Boolean(b.chief)) return a.chief ? -1 : 1;
     if (a.daemon_alive !== b.daemon_alive) return a.daemon_alive ? -1 : 1;
     const aNamed = hasHumanProjectLabel(a);
     const bNamed = hasHumanProjectLabel(b);
