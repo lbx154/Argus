@@ -129,15 +129,18 @@ npm i -g @lbx154/argus
 **From source**, until then:
 
 ```bash
-git clone https://github.com/microsoft/ArgusAgent.git
-cd ArgusAgent
+git clone --depth 1 --branch feat/ts-core https://github.com/lbx154/Argus.git argus-src
+cd argus-src
 npm ci
 npm --prefix frontend/web ci
 npm pack -w packages/core          # builds the core and its web page, writes lbx154-argus-<version>.tgz
-npm i -g ./lbx154-argus-0.1.8.tgz
+npm i -g ./lbx154-argus-*.tgz
 ```
 
-For the development preview, clone `https://github.com/lbx154/Argus.git` instead.
+The TypeScript core lives on `feat/ts-core` of the development preview; the official
+repository's last synchronization predates it. `--depth 1` fetches this version alone, not the
+history: a few tens of MB, and about 380 MB of build tools under `node_modules`, which the
+installed package does not need (delete `argus-src` afterwards if you like).
 
 ## Run
 

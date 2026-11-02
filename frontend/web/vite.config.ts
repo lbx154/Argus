@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
 // Dev: proxy /api → the local argus webapi (argus --web, default :8799).
-// Prod: `vite build` emits static assets the API serves from frontend/web/dist.
+// Prod: packages/core/scripts/web.ts builds the cockpit into the package's web/, which the API serves.
 const API = process.env.ARGUS_WEB_API ?? 'http://127.0.0.1:8799';
 
 export default defineConfig({

@@ -1,7 +1,7 @@
 # Stable web trial
 
 The trial uses the same mission map and project workspaces as the normal WebAPI.
-Deploy a fixed, tested commit and its checked-in `frontend/web/dist` together.
+Deploy a fixed, tested commit's npm package (`npm pack -w packages/core`), which carries the web cockpit it built.
 Keep the existing state directory and access token when updating an established
 preview; back up both its launcher and state before restarting it.
 

@@ -288,6 +288,9 @@ test('codex: a model service refusing a turn is reported in its own words, witho
     // A body with no message in it leaves the status.
     [`unexpected status 502 Bad Gateway: Unknown error${url}, request id: req-1`, '502 Bad Gateway', undefined],
     [`unexpected status 503 Service Unavailable: <html><body>down</body></html>${url}`, '503 Service Unavailable', undefined],
+    // As a fresh install with Codex not signed in recorded it (2026-11-02): how to sign in, beside the service's words.
+    [`unexpected status 401 Unauthorized: Missing bearer or basic authentication in header${url}`,
+      'Missing bearer or basic authentication in header. codex is not signed in, or its sign-in has expired: run `codex login` in a terminal, then send the message again.', undefined],
   ] as const) {
     const result = await call('codex', { fail });
     assert.deepEqual([result.completed, result.error, result.unpaid], [false, error, unpaid]);

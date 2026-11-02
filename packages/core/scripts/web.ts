@@ -1,5 +1,4 @@
 // The web cockpit the package carries (web/), built from frontend/web's source for this release.
-// frontend/web/dist is not used: it keeps every earlier release's files for open tabs.
 
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';

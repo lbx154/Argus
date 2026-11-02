@@ -447,8 +447,8 @@ object, so ending reaches the CLI's process tree (`taskkill /T`) only while the 
 `@argus/contracts` and `@argus/runtime` bundled in by esbuild, so the package has no runtime
 dependencies. Beside it the package carries the prompts it reads, Argus's own skills, and `web/`,
 the web cockpit, built from `frontend/web`'s source when the package is packed (`npm run web`,
-6 MB): not the committed `frontend/web/dist`, which keeps every earlier release's files for open
-tabs (482 MB) and was once older than the source it came from.
+6 MB). No built cockpit is committed: the Python runtime's `frontend/web/dist`, which kept every
+earlier release's files for open tabs (495 MB of a fresh clone), is gone from this line.
 
 `packages/core/scripts/check-pack.sh` checks the milestone: it packs the package, installs it
 with `npm i -g` in a `node:22-slim` container with no Python and no network, starts `argus` and

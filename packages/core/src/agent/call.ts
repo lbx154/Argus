@@ -13,7 +13,7 @@ import { codex } from './codex.js';
 import { copilot } from './copilot.js';
 import { formSchema, judge } from './handoff.js';
 import { pi } from './pi.js';
-import { agentEnv, confine, launcher, notInstalled, privatePath, sandboxed } from './sandbox.js';
+import { agentEnv, confine, launcher, notInstalled, privatePath, sandboxed, SIGN_IN } from './sandbox.js';
 import { models } from './models.js';
 import { Cli } from './session.js';
 
@@ -129,7 +129,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
       callId, ...ended, handoff: typeof verdict === 'string' ? null : verdict, ms: Date.now() - started,
       // A refused form says why; a failed turn its cause, in order: a CLI not installed, a stop,
       // the backend's own words, the CLI's.
-      ...refusal(typeof verdict === 'string' ? verdict : ended.completed ? null
+      ...refusal(request.backend, typeof verdict === 'string' ? verdict : ended.completed ? null
         : notInstalled(request.backend) ?? (request.signal?.aborted ? 'Run cancelled.' : null) ?? ended.error ?? cli.why()),
     };
     // What a call used, as its backend reported it; one it reported nothing for (a stopped turn) adds nothing.
@@ -159,9 +159,12 @@ const tokens = ({ cost_usd: _, ...counts }: Usage): Omit<Usage, 'cost_usd'> => c
 
 /** A model service's refusal in its own words, which codex wraps as `unexpected status 402 Payment
  * Required: <message>, url: <its address>`; where it gave none (an empty body, a page, JSON
- * without one), its status. HTTP 402 is a service that serves no turn till it is paid. */
-function refusal(error: string | null): Pick<AgentResult, 'error' | 'unpaid'> {
+ * without one), its status. HTTP 402 is a service that serves no turn till it is paid; HTTP 401, one
+ * that does not know who asks, which for a CLI the operator has not signed in to says how to. */
+function refusal(backend: Backend, error: string | null): Pick<AgentResult, 'error' | 'unpaid'> {
   const [, status, code, message = ''] = /^unexpected status ((\d{3})[^:]*): ([\s\S]*?)(?:, url: [\s\S]*)?$/.exec(error ?? '') ?? [];
   if (!status) return { error };
-  return { error: /^(?:Unknown error)?$|^[<{[]/.test(message.trim()) ? status : message.trim(), ...code === '402' ? { unpaid: true } : {} };
+  const said = /^(?:Unknown error)?$|^[<{[]/.test(message.trim()) ? status : message.trim();
+  if (code === '401') return { error: `${said}. ${backend} is not signed in, or its sign-in has expired: ${SIGN_IN[backend]}, then send the message again.` };
+  return { error: said, ...code === '402' ? { unpaid: true } : {} };
 }
