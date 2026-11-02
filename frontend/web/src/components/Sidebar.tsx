@@ -11,7 +11,7 @@ import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
 import { Archive, ChevronDown, ChevronRight, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut, Clock } from 'lucide-react';
-import { dailyText, localTime, utcTime } from '../lib/daily';
+import { dailyText, localTime, shownName, utcTime } from '../lib/daily';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 import { projectSpendTotal, SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
@@ -195,7 +195,7 @@ export function Sidebar({
     const at = given.trim() ? utcTime(given) : null;
     if (given.trim() && !at) { setOrganizationNotice(zh ? `看不懂这个时间：${given}` : `Not a time of day: ${given}`); return; }
     try {
-      await api.setRepeat(project.id, at ? { at, text: project.repeat?.text || dailyText(zh) } : null);
+      await api.setWakes(project.id, { repeat: at ? { at, text: project.repeat?.text || dailyText(zh) } : null });
       setOrganizationNotice(at ? zh ? `以后每天 ${localTime(at)} 来信` : `A letter every day at ${localTime(at)}` : zh ? '不再每天来信' : 'No daily letter');
     } catch (problem) {
       setOrganizationNotice(`${zh ? '没有保存：' : 'Not saved: '}${errorText(problem)}`);
@@ -403,7 +403,7 @@ export function Sidebar({
                   const workLabel = work?.label[locale === 'zh-CN' ? 'zh-CN' : 'en'];
                   const message = project.last_message || workLabel;
                   const spend = spendEstimateLabel({ spendUsd: project.spend_usd ?? null, spendStatus: project.spend_status }, zh, true) || '—';
-                  const name = project.display_name?.trim() || t('sidebar.unnamedSession');
+                  const name = shownName(project, zh, t('sidebar.unnamedSession'));
                   return (
                     <div
                       key={project.id}

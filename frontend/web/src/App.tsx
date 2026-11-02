@@ -32,7 +32,8 @@ import { currentWorkStatus } from './lib/workStatus';
 import { SplitHandle } from './components/SplitHandle';
 import { Modal } from './components/Modal';
 import { Landing } from './components/Landing';
-import { chiefRequest, dailyText } from './lib/daily';
+import { chiefRequest, dailyText, everyText, restText, shownName, type Need } from './lib/daily';
+import { ChiefNeeds } from './components/ChiefNeeds';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
 import { useQueryClient } from '@tanstack/react-query';
@@ -712,6 +713,24 @@ export default function App() {
   };
 
   const sendMessageRef = useRef(sendMessage);
+  /** The chief begins: its wakes as the operator ticked them, its name, then its first message. */
+  const startChief = async (needs: Need[], directions: string, at: string): Promise<boolean> => {
+    const sid = loadedSid;
+    if (!sid) return false;
+    const zh = locale === 'zh-CN';
+    try {
+      await api.setWakes(sid, {
+        repeat: { at, text: dailyText(zh) },
+        every: needs.includes('often') ? { hours: 4, text: everyText(zh) } : null,
+        on_rest: needs.includes('rest') ? restText(zh) : null,
+      });
+      await api.updateProject(sid, zh ? '总负责人' : 'Chief');
+    } catch (problem) {
+      notify('error', errorText(problem, locale));
+      return false;
+    }
+    return sendMessage(chiefRequest(zh, needs, directions));
+  };
   sendMessageRef.current = sendMessage;
 
   const workspaceRoots = useMemo(() => [snap?.session.workdir].filter((root): root is string => Boolean(root)), [snap?.session.workdir]);
@@ -798,7 +817,7 @@ export default function App() {
         ];
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
-      label: p.display_name?.trim() || t('sidebar.unnamedSession'),
+      label: shownName(p, locale === 'zh-CN', t('sidebar.unnamedSession')),
       hint: p.daemon_alive ? `● ${t('common.live')}` : '○',
       keywords: `${p.id} ${p.display_name ?? ''} ${p.daemon_alive ? 'live running' : 'stopped idle'}`,
       group: t('palette.project'),
@@ -914,7 +933,7 @@ export default function App() {
                 readOnly={kiosk}
               /> : <WorkspaceHeader className="project-header">
                 <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 text-ink">
-                  {projects.find(project => project.id === activeSid)?.display_name || t('sidebar.unnamedSession')}
+                  {shownName(projects.find(project => project.id === activeSid) ?? {}, locale === 'zh-CN', t('sidebar.unnamedSession'))}
                 </div>
               </WorkspaceHeader>}
               <nav aria-label={t('mobile.views')} className="hidden h-11 shrink-0 items-center gap-3 border-b border-line/60 px-5 lg:flex">
@@ -967,6 +986,7 @@ export default function App() {
                     onOpenArtifact={focusDeliveryPath}
                     onOpenDelivery={openDelivery}
                     onCompose={kiosk ? undefined : composeContext}
+                    emptyState={!kiosk && projects.some(row => row.id === loadedSid && row.chief) ? <ChiefNeeds zh={locale === 'zh-CN'} onStart={startChief} /> : undefined}
                     onConversationAction={kiosk ? undefined : text => {
                       if (composerDraft && !window.confirm(locale === 'zh-CN' ? '替换输入框中尚未发送的草稿？' : 'Replace the unsent composer draft?')) return;
                       setComposerDraft(text); setComposerFocus(value => value + 1);
@@ -1103,16 +1123,6 @@ export default function App() {
               setWorkspaceView('activity'); setMobileView('activity');
               const sid = await createDaemon('', workdir);
               setInitialSend(sid ? { sid, text, files, requestId: seedDraft(sid, text, files).requestId } : null);
-              return Boolean(sid);
-            }}
-            onCreateChief={kiosk || projects.some(row => row.chief) ? undefined : async (interests, at) => {
-              if (initialSend) return false;
-              const zh = locale === 'zh-CN';
-              const text = chiefRequest(zh, interests);
-              setInitialSend({ sid: null, text, files: [] });
-              setWorkspaceView('activity'); setMobileView('activity');
-              const sid = await createDaemon(zh ? '总负责人' : 'Chief', '', at ? { repeat: { at, text: dailyText(zh) } } : {});
-              setInitialSend(sid ? { sid, text, files: [], requestId: seedDraft(sid, text, []).requestId } : null);
               return Boolean(sid);
             }}
             onChoose={() => setSidebarOpen(true)}

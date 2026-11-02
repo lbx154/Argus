@@ -26,7 +26,7 @@ import { records } from './records.js';
 import { resources } from './resources.js';
 import { setupStatus, mobileOrigins } from './setup.js';
 import { Runs, type Frame } from './runs.js';
-import { repeatOf, repeating } from './repeat.js';
+import { RESTING, everyOf, repeatOf, repeating, restLetter } from './repeat.js';
 import { trash } from './trash.js';
 import { versions } from './versions.js';
 import { daemon, follow, progressMap, projectRow, snapshot, taskTrace, readRecord, conversationRows, conversationPage } from './views.js';
@@ -82,6 +82,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
    * a question is added just after the letter that asks it is recorded. */
   const due = new Map<string, { moved: boolean; state: boolean }>();
   const runs = new Runs(store, options.callAgent, (id, event) => {
+    if (typeof event === 'object' && event.type === 'status' && RESTING.includes(event.status)) restWake(id, event.status);
     // A step, or words as they are written, change no project's state.
     const quiet = event === 'words' || event?.type === 'step';
     if (!listeners.get(id)?.size && (!watchers.size || quiet)) return;
@@ -115,12 +116,21 @@ export async function serve(options: ServeOptions): Promise<Served> {
     });
   });
 
-  /** Each project's daily message, sent as the operator's own. */
-  const daily = repeating(store, (id, text) => {
-    void runs.message(id, text, randomUUID(), () => {}).then(frame => {
-      if (frame.type === 'error') process.stderr.write(`${id}: the daily message was not answered: ${String(frame.error)}\n`);
+  /** The chief hears, in the operator's words, when another project's work comes to rest. */
+  const restWake = (id: string, status: Project['status']): void => {
+    setImmediate(() => {
+      const chief = store.list().find(work => work.chief);
+      if (!chief?.onRest || chief.id === id) return;
+      wake(chief.id, restLetter(chief.onRest, store.load(id), status));
     });
-  });
+  };
+  const wake = (id: string, text: string): void => {
+    void runs.message(id, text, randomUUID(), () => {}).then(frame => {
+      if (frame.type === 'error') process.stderr.write(`${id}: the operator's timed message was not answered: ${String(frame.error)}\n`);
+    });
+  };
+  /** Each project's daily message, sent as the operator's own. */
+  const daily = repeating(store, wake);
   const project = (id: string): Project => {
     try {
       if (PROJECT_ID.test(id)) return store.load(id);
@@ -238,30 +248,24 @@ export async function serve(options: ServeOptions): Promise<Served> {
       runs.changed(created.id);
       return { sid: created.id, rc: 0, command_status: 'applied', objective: '', workdir: created.workdir, daemon: daemon(created, runs.live(created.id)) };
     }],
-    // The operator's chief: a project above the others, one per state root. Its first message, the
-    // operator's, is sent as any project's first is; the daily one goes with it.
-    ['POST', /^\/api\/chief$/, async ({ body }) => {
+    // When Argus wakes the project with the operator's words: each day at a time, every few hours,
+    // and, the chief, when another project's work rests. A field given replaces that one, null clears it.
+    ['PUT', /^\/api\/projects\/([^/]+)\/wakes$/, async ({ params: [id], body }) => {
       const given = await body();
-      if (store.list().some(work => work.chief)) throw new HttpError(409, 'There is a chief already.', 'chief_exists');
-      const repeat = given.repeat ? repeatOf(given.repeat as Record<string, unknown>) : undefined;
-      const recent = store.list().at(-1);
-      const { backend, model } = recent ?? options;
-      const modelAutomatic = recent?.modelAutomatic ?? model === null;
-      const created = store.create({ workdir: '', request: '', backend, model: modelAutomatic ? null : model, modelAutomatic, ...recent?.effort ? { effort: recent.effort } : {} });
-      const name = String(given.name ?? '').replace(/\s+/g, ' ').trim();
-      Object.assign(created, { chief: true, ...name ? { name } : {}, ...repeat ? { repeat } : {} });
-      store.save(created);
+      const work = project(id!);
+      const repeat = given.repeat ? repeatOf(given.repeat as Record<string, unknown>) : given.repeat === null ? null : undefined;
+      const every = given.every ? everyOf(given.every as Record<string, unknown>) : given.every === null ? null : undefined;
+      const onRest = typeof given.on_rest === 'string' && given.on_rest.trim() ? given.on_rest.trim() : given.on_rest === null || given.on_rest === '' ? null : undefined;
+      if (onRest && !work.chief) throw new HttpError(400, 'only the chief is told when another project rests', 'invalid_wake');
+      runs.edit(work.id, edited => {
+        for (const [field, value] of [['repeat', repeat], ['every', every], ['onRest', onRest]] as const) {
+          if (value === null) delete edited[field];
+          else if (value !== undefined) Object.assign(edited, { [field]: value });
+        }
+      });
       daily.arm();
-      runs.changed(created.id);
-      return { sid: created.id, workdir: created.workdir };
-    }],
-    // The message Argus sends the project each day, or none.
-    ['PUT', /^\/api\/projects\/([^/]+)\/repeat$/, async ({ params: [id], body }) => {
-      const given = await body();
-      const repeat = given.at || given.text ? repeatOf(given) : undefined;
-      runs.edit(project(id!).id, work => { if (repeat) work.repeat = repeat; else delete work.repeat; });
-      daily.arm();
-      return { repeat: repeat ?? null };
+      const now = store.load(work.id);
+      return { repeat: now.repeat ?? null, every: now.every ?? null, on_rest: now.onRest ?? null };
     }],
     ...projectRoutes(store, runs, project),
     ['GET', /^\/api\/projects\/([^/]+)\/snapshot$/, ({ params: [id] }) => snapshot(store, project(id!), runs.live(id!))],

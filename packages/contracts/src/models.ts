@@ -150,6 +150,8 @@ export interface Snapshot {
   session: {
     id: string;
     display_name: string;
+    /** The operator's chief: the project above the others. */
+    chief?: boolean;
     objective: string;
     created?: number;
     last_active: number;
@@ -220,6 +222,10 @@ export interface ProjectRow {
   chief?: boolean;
   /** The message Argus sends the project every day at `at` (HH:MM, UTC); null when none. */
   repeat?: { at: string; text: string } | null;
+  /** The message Argus sends the project every `hours` hours, counted from midnight UTC; null when none. */
+  every?: { hours: number; text: string } | null;
+  /** The chief's: what Argus sends it when another project's work comes to rest; null when nothing. */
+  on_rest?: string | null;
 }
 
 export interface ProjectCostRow {

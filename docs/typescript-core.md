@@ -88,18 +88,23 @@ writes. The work rests when no letter waits for anyone but the operator: `asking
 questions are open, else `idle`, which is after the Manager's report; the Manager may also
 finish a small request in its own turn.
 
-## The chief and the daily message
+## The chief and its wakes
 
-The operator may set up one chief (`POST /api/chief`): a project like any other, marked `chief` in
-`project.json`, whose roles read every project's record under `$ARGUS_HOME/projects/` (only a
-project's own team changes it). What it does is what the operator's first message asks; the start
-page offers one that has it look after the projects and follow the directions they name, and
-write to them each day. The project list puts it first and the page opens on it.
+Every state root has one chief, made when Argus starts if there is none: a project like any
+other, marked `chief` in `project.json`, whose roles read every project's record under
+`$ARGUS_HOME/projects/` (only a project's own team changes it). It does nothing till the
+operator writes to it. The page opens on it and, while its conversation is empty, offers needs
+to tick (each project's progress, new papers, GitHub, news; being told when a project rests; a
+look every few hours) and a time for its daily letter; directions are optional, and without them
+the chief infers them from the projects and asks. What it does is what that first message asks.
 
-A role cannot wake itself, so any project may hold a daily message (`repeat: {at, text}`, `at` as
-HH:MM in UTC; `PUT /api/projects/<id>/repeat`, an empty body for none). At that time Argus sends
-the text as the operator's message, and nothing more: it does not watch what comes of it, and a
-time that passed while Argus was not running is not made up for.
+A role cannot wake itself, so the operator may have Argus send a project their words
+(`PUT /api/projects/<id>/wakes`, each field replacing its own, null clearing it): `repeat`
+(`{at, text}`, each day at HH:MM UTC), `every` (`{hours, text}`, every 1 to 24 hours counted from
+midnight UTC) and, the chief's alone, `on_rest` (text): when another project's work comes to
+rest (`idle`, `asking`, `failed`), Argus sends the chief that text with the project and how it
+rests. Each is the operator's message and nothing more: Argus does not watch what comes of it,
+and a time that passed while Argus was not running is not made up for.
 
 ## The skill library
 

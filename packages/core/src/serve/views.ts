@@ -552,7 +552,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     schema_version: SNAPSHOT_SCHEMA_VERSION,
     read_at: at,
     session: {
-      id, display_name: named(project), objective: project.request, created: seconds(project.created),
+      id, display_name: named(project), ...project.chief ? { chief: true } : {}, objective: project.request, created: seconds(project.created),
       last_active: lastActive(store, id), workdir,
     },
     daemon: daemon(project, live, reading.map.qa),
@@ -587,7 +587,7 @@ export function projectRow(store: Store, project: Project, live: Live): ProjectR
     work_status: projectStatus(project, live, reading.activityAt),
     last_message: project.status === 'failed' ? project.error ?? '' : reading.lastReply,
     spend_usd: summary.cost_usd, spend_status: summary.pricing_status as NonNullable<ProjectRow['spend_status']>,
-    ...project.chief ? { chief: true } : {}, repeat: project.repeat ?? null,
+    ...project.chief ? { chief: true } : {}, repeat: project.repeat ?? null, every: project.every ?? null, on_rest: project.onRest ?? null,
   };
 }
 

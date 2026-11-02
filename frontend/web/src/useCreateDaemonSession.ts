@@ -21,11 +21,10 @@ export function useCreateDaemonSession({
   const clearCreateError = useCallback(() => setCreateError(null), []);
 
   /** The new project, listed and selected; null when it could not be made, the error kept. */
-  const createDaemon = async (name: string, workdir: string, chief?: { repeat?: { at: string; text: string } }): Promise<string | null> => {
+  const createDaemon = async (name: string, workdir: string): Promise<string | null> => {
     setCreateError(null);
     try {
-      // The chief is made apart: one per Argus, with its daily message.
-      const result = chief ? await api.createChief(name, chief.repeat) : await api.createDaemon('', name, workdir);
+      const result = await api.createDaemon('', name, workdir);
       const outputWorkdir = String(result.workdir || workdir || '');
       queryClient.setQueryData<{
         projects: ProjectRow[];
@@ -41,7 +40,6 @@ export function useCreateDaemonSession({
             last_active: Date.now() / 1_000,
             daemon_alive: false,
             daemon_pid: null,
-            ...chief ? { chief: true, repeat: chief.repeat ?? null } : {},
           },
           ...(current?.projects ?? []).filter((project) => project.id !== result.sid),
         ],

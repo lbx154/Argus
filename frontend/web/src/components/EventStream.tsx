@@ -6,7 +6,7 @@ import { useBacklogItem } from '../hooks';
 import { splitMessageAttachments } from '../lib/attachments';
 import { ComposerAttachmentChip } from './ComposerAttachmentChip';
 import type { UploadedAttachment } from '../api';
-import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { conversationEventKey } from '../lib/conversationEvents';
 import { applicationBrand } from '../applicationBrand';
 import type { ArtifactInfo, EventMsg, Snapshot } from '../api';
@@ -803,6 +803,7 @@ export function EventStream({
   refreshingKept = false,
   onRetryHistory,
   onCompose,
+  emptyState,
   rememberPosition = false,
   onConversationAction,
   requestedMessageTs,
@@ -824,6 +825,8 @@ export function EventStream({
   /** Offered on a running task's card when it looks stuck. */
   onRetryHistory?: () => void;
   onCompose?: (text: string) => void;
+  /** Shown in place of the start prompts while the conversation is empty. */
+  emptyState?: ReactNode;
   rememberPosition?: boolean;
   onConversationAction?: (prompt: string) => void;
   requestedMessageTs?: number;
@@ -1034,13 +1037,13 @@ export function EventStream({
         <div ref={content} className="flow-root" data-event-stream-content>
         {hasOlder && <button type="button" disabled={loadingOlder} onClick={onLoadOlder} className="block w-full py-2 text-xs text-ink-faint">{locale === 'zh-CN' ? loadingOlder ? '正在加载…' : '更早的对话' : loadingOlder ? 'Loading…' : 'Earlier conversation'}</button>}
         {deferredEvents.length === 0 ? (
-          historyStatus === 'ready' ? onCompose ? <div className="mx-auto max-w-2xl px-5 pb-8 pt-[12vh]">
+          historyStatus === 'ready' ? emptyState ?? (onCompose ? <div className="mx-auto max-w-2xl px-5 pb-8 pt-[12vh]">
             <h2 className="font-serif text-[28px] font-medium leading-tight tracking-[-0.01em] text-ink">{locale === 'zh-CN' ? '从你想完成的事开始' : 'Start with what you want to accomplish'}</h2>
             <p className="mt-2 text-sm leading-6 text-ink-faint">{locale === 'zh-CN' ? '直接说出目标，也可以选择下面的场景，再补充你的材料和要求。' : 'Describe your goal, or choose a starting point and add your material and requirements.'}</p>
             <StartPrompts onPick={onCompose} />
             <p className="mt-6 text-xs text-ink-faint">{locale === 'zh-CN' ? '或者直接试一个实际跑过的任务' : 'Or try a task that was run end to end'}</p>
             <ShowcasePrompts onPick={onCompose} />
-          </div> : <EmptyHint>{t('stream.ready')}</EmptyHint> : null
+          </div> : <EmptyHint>{t('stream.ready')}</EmptyHint>) : null
         ) : (
           <>
             {deferredEvents.map(event => {

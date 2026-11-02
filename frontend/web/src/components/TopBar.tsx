@@ -9,6 +9,7 @@ import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { clockOf } from '../lib/format';
 import { SPEND_ESTIMATE_HINT, spendEstimateLabel, workDurationLabel } from '../lib/projectOverview';
+import { shownName } from '../lib/daily';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -57,7 +58,7 @@ export function TopBar({
   const work = currentWorkStatus(snap);
   const roleName = work.role || 'manager';
   const roleActive = work.state === 'running' && streamOk && !snapshotStale;
-  const title = snap.session.display_name || snap.session.objective.split('\n')[0] || t('sidebar.unnamedSession');
+  const title = snap.session.display_name || snap.session.objective.split('\n')[0] || shownName(snap.session, locale === 'zh-CN', t('sidebar.unnamedSession'));
   const activeItem = snap.backlog.find((item) => ACTIVE_STATUSES.has(item.status));
   const focus = relativizeWorkspacePaths(work.title
     || activeItem?.title
