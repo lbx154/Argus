@@ -37,7 +37,7 @@ test('the next daily time is later today, or tomorrow once it has passed or is n
 });
 
 test('one chief per state root, made with its daily message, which the operator changes or clears', async t => {
-  const { store, send, rows } = await setup(t);
+  const { store, requests, send, rows } = await setup(t);
   assert.equal((await send('POST', '/api/chief', { repeat: { at: '25:00', text: 'x' } })).status, 400);
   const made = await send('POST', '/api/chief', { name: 'Chief', repeat: { at: '08:00', text: 'Today\'s letter.' } });
   assert.equal(made.status, 200);
@@ -49,6 +49,8 @@ test('one chief per state root, made with its daily message, which the operator 
   assert.deepEqual(row.repeat, { at: '08:00', text: 'Today\'s letter.' });
   assert.equal((await send('POST', '/api/chief', {})).status, 409);
 
+  await (await send('POST', `/api/projects/${sid}/message/stream`, { text: 'Hi.', request_id: 'r' })).text();
+  assert.match(requests.at(-1)!.instructions!, /Each day at 08:00 UTC Argus sends this project the operator's message: Today's letter\./);
   assert.equal((await send('PUT', `/api/projects/${sid}/repeat`, { at: '9:00', text: 'x' })).status, 400);
   assert.equal((await send('PUT', `/api/projects/${sid}/repeat`, { at: '21:30', text: 'Evening.' })).status, 200);
   assert.deepEqual(store.load(sid).repeat, { at: '21:30', text: 'Evening.' });
@@ -65,6 +67,7 @@ test('the chief\'s roles read every project\'s record; another project\'s read i
   const of = (sid: string) => requests.find(request => request.cwd === store.load(sid).workdir)!;
   assert.ok(of(chief).readDirs!.includes(join(home, 'projects')));
   assert.match(of(chief).instructions!, /across all their projects/);
+  assert.match(of(chief).instructions!, new RegExp(`- ${other}: Hi\\.`));
   assert.ok(!of(other).readDirs!.includes(join(home, 'projects')));
   assert.ok(of(other).readDirs!.includes(store.dir(other)));
   assert.doesNotMatch(of(other).instructions!, /across all their projects/);
