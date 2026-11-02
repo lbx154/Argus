@@ -9,6 +9,7 @@ import { ChatBox } from './ChatBox';
 import { useSessionComposer } from '../useSessionComposer';
 import { useEffect, useState } from 'react';
 import { ErrorMessage } from './ErrorMessage';
+import { utcTime } from '../lib/daily';
 
 /** Full-viewport picker/empty landing shown until a daemon is selectable. */
 export function Landing({
@@ -18,6 +19,7 @@ export function Landing({
   onRetry,
   onNew,
   onChoose,
+  onCreateChief,
   canCreate,
   creating = false,
   onSubmit,
@@ -33,6 +35,8 @@ export function Landing({
   onRetry: () => void;
   onNew: (draft?: string) => void;
   onChoose: () => void;
+  /** Made once: the chief, given the directions the operator follows and, local HH:MM, when it writes each day. */
+  onCreateChief?: (interests: string, at: string | null) => Promise<boolean>;
   canCreate: boolean;
   creating?: boolean;
   /** The project is made in `workdir`, a directory on the server; empty, in a new one. */
@@ -72,6 +76,7 @@ export function Landing({
           </p>
         </>
       )}
+      {!loading && !error && onCreateChief && <ChiefSetup onCreate={onCreateChief} disabled={creating} zh={locale === 'zh-CN'} />}
       {!loading && !error && canCreate && onSubmit && <div className="landing-composer">
         <ChatBox value={draft.text} onChange={setText} attachments={draft.attachments} onAttachmentsChange={setAttachments}
           onSend={async (text, files = []) => {
@@ -114,5 +119,36 @@ export function Landing({
         <StartPrompts onPick={onSubmit ? text => { setText(text); onFocusComposer?.(); } : onNew} disabled={creating} />
       </section>}
     </div>
+  );
+}
+
+/** The chief, set up once: what the operator follows, and when it writes to them each day. */
+function ChiefSetup({ onCreate, disabled, zh }: { onCreate: (interests: string, at: string | null) => Promise<boolean>; disabled: boolean; zh: boolean }) {
+  const [interests, setInterests] = useState('');
+  const [time, setTime] = useState('08:00');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!interests.trim() || busy) return;
+    setBusy(true);
+    try { await onCreate(interests.trim(), time ? utcTime(time) : null); } finally { setBusy(false); }
+  };
+  return (
+    <section className="landing-chief">
+      <h2>{zh ? '设立总负责人' : 'Set up your chief'}</h2>
+      <p>{zh
+        ? '它照看你所有的项目，盯着你关心的方向（arXiv、博客、GitHub），每天给你写一封信：各项目进展、哪些在等你，以及值得看的新东西。'
+        : 'It looks after all your projects and follows your directions (arXiv, blogs, GitHub), and writes to you each day: how the projects move, what waits for you, and what is new and worth your time.'}</p>
+      <textarea value={interests} onChange={event => setInterests(event.target.value)} rows={3} disabled={disabled || busy}
+        aria-label={zh ? '你关心的方向' : 'The directions you follow'}
+        placeholder={zh ? '你关心的方向，例如：agent 的验证器与奖励模型；agentic RL；自动化科研' : 'The directions you follow, e.g. verifiers and reward models for agents; agentic RL; automated research'} />
+      <div className="landing-chief-row">
+        <label>{zh ? '每天来信' : 'Daily letter at'}
+          <input type="time" value={time} onChange={event => setTime(event.target.value)} disabled={disabled || busy} />
+        </label>
+        <Button variant="primary" onClick={() => void submit()} disabled={disabled || busy || !interests.trim()}>
+          {busy ? (zh ? '正在设立…' : 'Setting up…') : (zh ? '设立并写第一封信' : 'Set up and write the first letter')}
+        </Button>
+      </div>
+    </section>
   );
 }

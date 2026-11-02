@@ -342,8 +342,8 @@ export class Flow {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, project, this.store),
         prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : prompt(resume !== undefined),
-        // Every role reads Argus's record of the project and the skills; a role that writes may write skills too.
-        readDirs: [dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
+        // Every role reads Argus's record of the project (the chief's, of every project) and the skills; a role that writes may write skills too.
+        readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),

@@ -57,6 +57,7 @@ function where(project: Project, store: Store, role: Role): string {
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
     `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
+    project.chief && `You work for the operator across all their projects. Every project's record is in ${resolve(store.home, 'projects')}/<id>/, this one's among them: read them; only a project's own team changes it.`,
     `Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
     role !== 'reviewer' && KEPT.includes(project.backend)

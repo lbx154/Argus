@@ -216,6 +216,10 @@ export interface ProjectRow {
   last_active: number;
   daemon_alive: boolean;
   daemon_pid: number | null;
+  /** The operator's chief: the project above the others, which reads every project's record. */
+  chief?: boolean;
+  /** The message Argus sends the project every day at `at` (HH:MM, UTC); null when none. */
+  repeat?: { at: string; text: string } | null;
 }
 
 export interface ProjectCostRow {

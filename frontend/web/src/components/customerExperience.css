@@ -10,6 +10,13 @@
 .landing-workdir input { flex: 0 1 320px; min-width: 0; border: 0; border-bottom: 1px dashed rgb(var(--field-line)); background: transparent; padding: 2px 0; color: rgb(var(--ink)); font: inherit; }
 .landing-workdir input::placeholder { color: rgb(var(--ink-faint)); }
 .landing-workdir input:focus { outline: none; border-bottom-style: solid; border-bottom-color: rgb(var(--accent)); }
+.landing-chief { width: 100%; max-width: 680px; margin-top: 12px; padding: 16px; border: 1px solid rgb(var(--line)); border-radius: 12px; background: rgb(var(--panel)); text-align: left; }
+.landing-chief h2 { font-size: 15px; font-weight: 600; }
+.landing-chief p { margin-top: 4px; color: rgb(var(--ink-faint)); font-size: 13px; line-height: 20px; }
+.landing-chief textarea { width: 100%; margin-top: 10px; padding: 8px 10px; border: 1px solid rgb(var(--line)); border-radius: 8px; background: rgb(var(--bg)); font-size: 14px; resize: vertical; }
+.landing-chief-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; font-size: 13px; }
+.landing-chief-row label { display: flex; align-items: center; gap: 8px; color: rgb(var(--ink-faint)); }
+.landing-chief-row input { padding: 4px 8px; border: 1px solid rgb(var(--line)); border-radius: 6px; background: rgb(var(--bg)); color: rgb(var(--ink)); }
 .landing-starters { width: 100%; max-width: 680px; margin-top: 16px; text-align: left; }
 .landing-starters h2 { padding: 0 12px; color: rgb(var(--ink-faint)); font-size: 12px; font-weight: 500; }
 .starter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; margin-top: 8px; }

@@ -10,7 +10,8 @@ import { errorText, shortcut } from '../lib/format';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
-import { Archive, ChevronDown, ChevronRight, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut } from 'lucide-react';
+import { Archive, ChevronDown, ChevronRight, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut, Clock } from 'lucide-react';
+import { dailyText, localTime, utcTime } from '../lib/daily';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 import { projectSpendTotal, SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
@@ -18,6 +19,8 @@ import { projectSpendTotal, SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../l
 const ADVANCED_KEY = 'argus.sidebar.advanced.v1';
 
 type Scope = 'local' | 'all';
+const rankChiefFirst = (rows: ProjectRow[]): ProjectRow[] => [...rows.filter(row => row.chief), ...rows.filter(row => !row.chief)];
+
 type ProjectPreference = { pinned: boolean; archived: boolean; followup: boolean };
 const ORGANIZATION_KEY = 'argus.project.organization.v1';
 const DEFAULT_PREFERENCE: ProjectPreference = { pinned: false, archived: false, followup: false };
@@ -184,6 +187,20 @@ export function Sidebar({
     });
     return () => { cancelled = true; };
   }, [loading, syncAttempt, zh]);
+  /** The chief's daily letter: the operator gives its time in their own time of day, or none to stop it. */
+  const changeDaily = async (project: ProjectRow) => {
+    const given = window.prompt(zh ? '每天几点来信？例如 08:00；留空则不再每天来信。' : 'What time each day? For example 08:00; blank for none.',
+      project.repeat ? localTime(project.repeat.at) : '08:00');
+    if (given === null) return;
+    const at = given.trim() ? utcTime(given) : null;
+    if (given.trim() && !at) { setOrganizationNotice(zh ? `看不懂这个时间：${given}` : `Not a time of day: ${given}`); return; }
+    try {
+      await api.setRepeat(project.id, at ? { at, text: project.repeat?.text || dailyText(zh) } : null);
+      setOrganizationNotice(at ? zh ? `以后每天 ${localTime(at)} 来信` : `A letter every day at ${localTime(at)}` : zh ? '不再每天来信' : 'No daily letter');
+    } catch (problem) {
+      setOrganizationNotice(`${zh ? '没有保存：' : 'Not saved: '}${errorText(problem)}`);
+    }
+  };
   const organize = async (id: string, field: keyof ProjectPreference) => {
     const next = !preference(id)[field];
     setSyncingOrganization(true);
@@ -220,8 +237,9 @@ export function Sidebar({
     ? preference(project.id).archived
     : !preference(project.id).archived && (projectFilter !== 'followup' || preference(project.id).followup));
   const grouped = useMemo(() => {
-    const pinned = visible.filter(project => preference(project.id).pinned);
-    const rest = visible.filter(project => !preference(project.id).pinned);
+    // The chief is always at the top, above the projects it looks after.
+    const pinned = rankChiefFirst(visible.filter(project => project.chief || preference(project.id).pinned));
+    const rest = visible.filter(project => !project.chief && !preference(project.id).pinned);
     const first: Array<readonly [string, ProjectRow[]]> = pinned.length ? [['__pinned__', pinned]] : [];
     if (scope === 'local') return [...first, ...(rest.length ? [[normalizedLocalCwd || 'Local', rest] as const] : [])];
     const groups = new Map<string, ProjectRow[]>();
@@ -441,6 +459,9 @@ export function Sidebar({
                         <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'pinned')}><Pin size={13} />{preference(project.id).pinned ? zh ? '取消置顶' : 'Unpin' : zh ? '置顶项目' : 'Pin project'}</button>
                         <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'followup')}><Flag size={13} />{preference(project.id).followup ? zh ? '取消待跟进' : 'Clear follow-up' : zh ? '标记待跟进' : 'Mark for follow-up'}</button>
                         <button type="button" disabled={syncingOrganization} className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg disabled:opacity-50" onClick={() => void organize(project.id, 'archived')}><Archive size={13} />{preference(project.id).archived ? zh ? '移出归档' : 'Restore to recent' : zh ? '归档项目' : 'Archive project'}</button>
+                        {project.chief && <button type="button" className="flex items-center gap-2 rounded px-2 py-2 text-left hover:bg-bg" onClick={() => { setOrganizing(null); void changeDaily(project); }}><Clock size={13} />{project.repeat
+                          ? zh ? `每天 ${localTime(project.repeat.at)} 来信（改）` : `Daily letter at ${localTime(project.repeat.at)} (change)`
+                          : zh ? '设定每天来信的时间' : 'Set a daily letter'}</button>}
                         <button type="button" className="rounded border-t border-line px-2 py-2 text-left hover:bg-bg" onClick={() => { setOrganizing(null); onManage(project.id); }}>{zh ? '名称与项目管理' : 'Name and project settings'}</button>
                       </div>}
                     </div>

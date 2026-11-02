@@ -32,6 +32,7 @@ import { currentWorkStatus } from './lib/workStatus';
 import { SplitHandle } from './components/SplitHandle';
 import { Modal } from './components/Modal';
 import { Landing } from './components/Landing';
+import { chiefRequest, dailyText } from './lib/daily';
 import { MobileTabBar } from './components/MobileTabBar';
 import { useVisualViewport } from './useVisualViewport';
 import { useQueryClient } from '@tanstack/react-query';
@@ -1102,6 +1103,16 @@ export default function App() {
               setWorkspaceView('activity'); setMobileView('activity');
               const sid = await createDaemon('', workdir);
               setInitialSend(sid ? { sid, text, files, requestId: seedDraft(sid, text, files).requestId } : null);
+              return Boolean(sid);
+            }}
+            onCreateChief={kiosk || projects.some(row => row.chief) ? undefined : async (interests, at) => {
+              if (initialSend) return false;
+              const zh = locale === 'zh-CN';
+              const text = chiefRequest(zh, interests);
+              setInitialSend({ sid: null, text, files: [] });
+              setWorkspaceView('activity'); setMobileView('activity');
+              const sid = await createDaemon(zh ? '总负责人' : 'Chief', '', at ? { repeat: { at, text: dailyText(zh) } } : {});
+              setInitialSend(sid ? { sid, text, files: [], requestId: seedDraft(sid, text, []).requestId } : null);
               return Boolean(sid);
             }}
             onChoose={() => setSidebarOpen(true)}
