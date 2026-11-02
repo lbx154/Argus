@@ -49,6 +49,14 @@ const INSTALL: Record<Backend, string> = {
   pi: 'npm install -g --ignore-scripts @earendil-works/pi-coding-agent',
 };
 
+/** How the operator signs a backend's CLI in. */
+export const SIGN_IN: Record<Backend, string> = {
+  codex: 'run `codex login` in a terminal',
+  claude: 'run `claude` in a terminal, then `/login`',
+  copilot: 'run `copilot login` in a terminal',
+  pi: 'run `pi` in a terminal, then `/login`',
+};
+
 /** Why a call could not start its CLI, when it is not on PATH: with how to install it. */
 export function notInstalled(backend: Backend): string | null {
   return which(backend) ? null : `${backend} is not installed (not found on PATH). Install it with: ${INSTALL[backend]}`;

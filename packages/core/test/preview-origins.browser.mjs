@@ -55,7 +55,7 @@ async function open(page, cockpit, work) {
 }
 try {
   api = await serve({ store, callAgent: () => assert.fail('no model call'), backend: 'codex', model: null,
-    port: 0, host: '0.0.0.0', token, web: resolve(import.meta.dirname, '../../../frontend/web/dist') });
+    port: 0, host: '0.0.0.0', token, web: resolve(import.meta.dirname, '../web') });
   const port = new URL(api.url).port;
   browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}), args: ['--no-sandbox', '--no-proxy-server'] });
   writeFileSync(join(output, 'configuration.json'), JSON.stringify({ browser: browser.version(), platform: process.platform, port, gpu: false }, null, 2));
@@ -115,7 +115,7 @@ try {
   }
   await api.close();
   api = await serve({ store, callAgent: () => assert.fail('no model call'), backend: 'codex', model: null,
-    port: 0, host: '::1', token, web: resolve(import.meta.dirname, '../../../frontend/web/dist') });
+    port: 0, host: '::1', token, web: resolve(import.meta.dirname, '../web') });
   const context = await browser.newContext();
   const page = await context.newPage();
   for (const host of ['[::1]', 'localhost']) {

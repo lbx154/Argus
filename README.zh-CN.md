@@ -116,15 +116,17 @@ npm i -g @lbx154/argus
 **从源码安装**（发布之前用这个）：
 
 ```bash
-git clone https://github.com/microsoft/ArgusAgent.git
-cd ArgusAgent
+git clone --depth 1 --branch feat/ts-core https://github.com/lbx154/Argus.git argus-src
+cd argus-src
 npm ci
 npm --prefix frontend/web ci
 npm pack -w packages/core          # 构建核心和网页，生成 lbx154-argus-<版本>.tgz
-npm i -g ./lbx154-argus-0.1.8.tgz
+npm i -g ./lbx154-argus-*.tgz
 ```
 
-要用开发预览版，改为克隆 `https://github.com/lbx154/Argus.git`。
+TypeScript 内核在开发预览仓库的 `feat/ts-core` 分支上；官方仓库最近一次同步早于它。
+`--depth 1` 只下载这一个版本、不下载历史，几十 MB；`node_modules` 里还有约 380 MB 构建工具，
+装好的包用不到它们，装完可以删掉 `argus-src`。
 
 ## 运行
 

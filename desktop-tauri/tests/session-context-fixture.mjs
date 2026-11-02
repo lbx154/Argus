@@ -21,7 +21,7 @@ export async function startSessionFixture(options = {}) {
   const parent = options.dataRoot || process.env.ARGUS_SKILL_HOME || tmpdir();
   await mkdir(parent, { recursive: true });
   const root = await mkdtemp(resolve(parent, 'session-context-'));
-  const dist = options.dist || process.env.ARGUS_SESSION_WEB_DIST || resolve(checkout, 'frontend/web/dist');
+  const dist = options.dist || process.env.ARGUS_SESSION_WEB_DIST || resolve(checkout, 'packages/core/web');
   const { version } = JSON.parse(await readFile(resolve(checkout, 'packages/core/package.json'), 'utf8'));
   const protocol = await readFile(resolve(checkout, 'packages/contracts/src/apiProtocol.generated.ts'), 'utf8');
   const service = JSON.parse(protocol.match(/API_SERVICE = ("[^"]+");/)[1]);

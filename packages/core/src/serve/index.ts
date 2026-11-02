@@ -41,7 +41,7 @@ export interface ServeOptions {
   port: number;
   /** The static preview's public origin template; forwarding must preserve Host and Origin. */
   previewUrl?: string;
-  /** The built web cockpit: the package's web/, the files of frontend/web/dist its page reaches. */
+  /** The built web cockpit: the package's web/ (packages/core/scripts/web.ts builds it). */
   web: string;
   /** The address to listen on, 127.0.0.1 by default; one beyond this machine needs a token. */
   host?: string;
