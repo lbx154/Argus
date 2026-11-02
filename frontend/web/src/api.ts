@@ -728,12 +728,10 @@ export const api = {
     };
     return requireDaemonCommand(result);
   },
-  /** The operator's chief, made once, with the message Argus sends it each day (at: HH:MM, UTC). */
-  createChief: (name: string, repeat?: { at: string; text: string }) =>
-    postJson<{ sid: string; workdir: string }>('/api/chief', { name, ...repeat ? { repeat } : {} }),
-  /** The message Argus sends the project each day, or, null, none. */
-  setRepeat: (sid: string, repeat: { at: string; text: string } | null) =>
-    mutationJson<{ repeat: { at: string; text: string } | null }>('PUT', P(sid, '/repeat'), repeat ?? {}),
+  /** When Argus wakes the project with the operator's words; a field given replaces that one, null clears it. */
+  setWakes: (sid: string, wakes: {
+    repeat?: { at: string; text: string } | null; every?: { hours: number; text: string } | null; on_rest?: string | null;
+  }) => mutationJson<{ repeat: { at: string; text: string } | null; every: { hours: number; text: string } | null; on_rest: string | null }>('PUT', P(sid, '/wakes'), wakes),
   updateProject: (sid: string, name: string) =>
     mutationJson<{ ok: boolean; sid: string; name: string }>('PATCH', P(sid), { name }),
   deleteProject: (sid: string) =>

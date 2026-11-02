@@ -57,6 +57,7 @@ async function main(): Promise<void> {
   // Always a token: the roles' sandbox shares this machine's network, so the cockpit's address
   // alone must not let a role, or a page the operator visits, start work.
   const token = process.env.ARGUS_WEB_TOKEN || kept(join(store.home, 'web-token'));
+  store.chief({ backend, model: values.model ?? null });
   const served = await serve({
     store, callAgent, backend, model: values.model ?? null, host: values.host, port: Number(values.port), token,
     ...(values['preview-url'] !== undefined ? { previewUrl: values['preview-url'] } : {}),

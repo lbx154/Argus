@@ -97,9 +97,14 @@ export interface Project {
   chief?: true;
   /** A message Argus sends the project every day at `at` (HH:MM, UTC), as if the operator wrote it then. */
   repeat?: Repeat;
+  /** A message Argus sends the project every `hours` hours, counted from midnight UTC. */
+  every?: Every;
+  /** The chief's: what Argus sends it when another project's work comes to rest, which project and how after it. */
+  onRest?: string;
 }
 
 export interface Repeat { at: string; text: string }
+export interface Every { hours: number; text: string }
 
 export type FlowEvent =
   /** The operator's words: to the Manager, or to the role whose question they answer. */
@@ -156,6 +161,19 @@ export class Store {
     mkdirSync(join(this.dir(id), 'calls'), { recursive: true });
     this.save(project);
     return project;
+  }
+
+  /** The operator's chief, made when there is none: a project above the others, one per state root,
+   * which does nothing till the operator tells it what they need. Settings as a new project's. */
+  chief(init: Pick<Project, 'backend' | 'model'>): Project {
+    const there = this.list().find(project => project.chief);
+    if (there) return there;
+    const recent = this.list().at(-1);
+    const modelAutomatic = recent?.modelAutomatic ?? (recent ?? init).model === null;
+    const made: Project = { ...this.create({ workdir: '', request: '', backend: (recent ?? init).backend,
+      model: modelAutomatic ? null : (recent ?? init).model, modelAutomatic, ...recent?.effort ? { effort: recent.effort } : {} }), chief: true };
+    this.save(made);
+    return made;
   }
 
   load(id: string): Project {
