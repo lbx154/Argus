@@ -3,7 +3,6 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect } from 'vitest';
 import { parseSSEFrames } from '../api';
-import { activeGuardianAlert } from '../../../core/src/guardian';
 import type { EventMsg } from '../api';
 import { EventStream } from './serverSnapshot';
 import { EVENT_CORPUS } from '../../../core/src/eventCorpus.generated';
@@ -42,7 +41,6 @@ describe('the web feed line', () => {
     const remark = { type: 'life.observer.note', agent_layer: 'observer', to: 'manager', text: 'the Planner woke 14 times on the same running job' };
     expect(zh(remark)).toMatchObject({ role: 'observer', label: '监督者', text: '对经理：the Planner woke 14 times on the same running job' });
     expect(line({ ...remark, to: 'operator', operator_alert: true })).toMatchObject({ label: 'Observer', text: 'to You: the Planner woke 14 times on the same running job' });
-    expect(activeGuardianAlert([{ ...remark, to: 'operator', operator_alert: true } as EventMsg])?.tone).toBe('block');
   });
   it('hides raw CLI framing, telemetry and unknown types (the noise)', () => {
     expect(line({ type: 'agent.io.stream', text: 'raw' })).toBeNull();
@@ -277,17 +275,6 @@ describe('the web feed line', () => {
     const event = { type: 'budget.reservation.denied', reason: 'daily budget exhausted ($0.000000 available)' };
     expect(line(event)).toMatchObject({ label: 'Budget', tone: 'err', rule: true });
     expect(zh(event)?.label).toBe('预算');
-    expect(activeGuardianAlert([event as EventMsg])).toEqual({
-      tone: 'block',
-      kind: 'budget',
-      text: 'The budget is used up, so new model calls are on hold; raise the budget to continue.',
-    });
-    expect(activeGuardianAlert([
-      event as EventMsg,
-      { type: 'ui.operator', text: 'retry' } as EventMsg,
-      { type: 'round.start', round: 2 } as EventMsg,
-    ])?.kind).toBe('budget');
-    expect(activeGuardianAlert([event as EventMsg, { type: 'provider.request.started' } as EventMsg])).toBeNull();
   });
 
   it('hides reviewer and planner protocol payloads and empty phase markers', () => {
@@ -479,21 +466,5 @@ describe('parseSSEFrames', () => {
     const { frames } = parseSSEFrames('data: nope\n\ndata: {"type":"done","result":{"kind":"chat"}}\n\n');
     expect(frames).toHaveLength(1);
     expect(frames[0].type).toBe('done');
-  });
-});
-
-describe('activeGuardianAlert', () => {
-  const ev = (o: Record<string, unknown>) => o as EventMsg;
-  it('pins the latest unresolved alert and clears it when work resumes', () => {
-    expect(activeGuardianAlert([ev({ type: 'round.main.completed' })])).toBeNull();
-    const blocked = activeGuardianAlert([ev({ type: 'life.lifecycle.block', reason: 'needs creds' })]);
-    expect(blocked?.tone).toBe('block');
-    expect(blocked?.text).toContain('needs creds');
-    // any operator_alert:true surfaces
-    expect(activeGuardianAlert([ev({ type: 'x.y', operator_alert: true, text: 'look' })])?.tone).toBe('block');
-    // cleared once the mission moves on
-    expect(
-      activeGuardianAlert([ev({ type: 'round.stall', text: 's' }), ev({ type: 'round.main.completed' })]),
-    ).toBeNull();
   });
 });

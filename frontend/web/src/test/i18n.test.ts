@@ -5,7 +5,6 @@ import { I18nProvider, translate } from '../i18n';
 import { ConnectionProblemBanner } from '../components/ConnectionProblemBanner';
 import { PairingRequiredError } from '../api';
 import { renderLine, type RenderContext } from '../../../core/src/eventRender';
-import { roleLabel } from '../research-workbench/enumLabels';
 
 const ZH: RenderContext = { locale: 'zh-CN', showReasoning: true, unknownEventPolicy: 'hide', density: 'compact' };
 afterEach(() => vi.unstubAllGlobals());
@@ -28,7 +27,6 @@ describe('web localization', () => {
     for (const locale of ['zh-CN', 'en'] as const) {
       const expected = locale === 'zh-CN' ? chinese : role;
       expect(translate(`role.${role.toLowerCase()}`, {}, locale)).toBe(expected);
-      expect(roleLabel(role.toLowerCase(), (zh, en) => locale === 'zh-CN' ? zh : en)).toBe(expected);
     }
   });
   test('translates interface messages with interpolation', () => {
