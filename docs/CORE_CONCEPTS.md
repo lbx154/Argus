@@ -90,15 +90,10 @@ The term's precise meaning depends on the layer using it:
   Likewise, [campaign workdir adoption](../argus/core/campaign_workdir.py) records
   a selected repository root in `campaign-workdir.json` under the same project
   state directory; it does not create a separate Campaign identity or state root.
-- **Companion application:** [FLYWHEEL's schema](../companions/FLYWHEEL/backend/src/foundry/db.py)
-  defines a `campaigns` record with its own `id`, objective, and application-level
-  states such as execution and review state. Its separate, nullable
-  `argus_project_id` links it to an Argus Project. This is a FLYWHEEL domain entity,
-  not a new level in the core runtime hierarchy.
 
 Use **Project** and **Mission** when referring to core identity, ownership, or
 lifecycle. Qualify **campaign** by its layer (for example, "core continuous
-campaign", "FLYWHEEL campaign", or "kernel optimization campaign") rather than
+campaign" or "kernel optimization campaign") rather than
 assuming that every use denotes the same object or that Campaign and Project
 have a universal one-to-one mapping.
 
@@ -152,7 +147,7 @@ Canonical names for concepts that today carry several identifiers in code. The
 declared-layering section of `tests/test_architecture_invariants.py` pins the
 counts of the project-state-directory spellings (first row) and of `memory.root`
 so they can only go down; the other rows are conventions only. Permanent aliases
-are listed last and are not retired. Source: `docs/audits/architecture-clarity-2026-09-14.md`, 4.3.
+are listed last and are not retired.
 
 | Concept | Canonical name | Retired names | Notes |
 | --- | --- | --- | --- |
