@@ -3,8 +3,6 @@ name: research
 description: "Research that ends in a result worth publishing: where to start, how to use the machine, and the few setup errors that quietly ruin a result"
 ---
 
-A measurement, a one-off script or a comparison asked for in a sentence needs none of this.
-
 ## Start where the field is
 
 - When the operator names a field but not the question, the question is theirs: read what this
@@ -68,6 +66,7 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
 ## The paper
 
 - It argues for the claim with what ran; it is not an experiment log.
+- It states what the results show plainly; a caveat goes in only where it would change what a reader does.
 - References are copied from their source, never recalled.
 - Figures are vector PDFs with TrueType fonts.
 - The venue's rules come from its current author kit.
