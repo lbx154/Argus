@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from 'react';
 import type { Locale } from '../i18n';
 import { applicationBrand } from '../applicationBrand';
+import { isChunkLoadError, reloadForChunkError } from '../lib/retryImport';
 
 /** A failed lazy page must not take the entire cockpit down or reload forever. */
 export class WorkspaceErrorBoundary extends Component<{ children: ReactNode; locale: Locale }, { failed: boolean }> {
@@ -8,6 +9,11 @@ export class WorkspaceErrorBoundary extends Component<{ children: ReactNode; loc
 
   static getDerivedStateFromError() {
     return { failed: true };
+  }
+
+  /** A chunk that would not download, after its retries: reload once by itself. */
+  componentDidCatch(error: unknown) {
+    if (isChunkLoadError(error)) reloadForChunkError();
   }
 
   render() {
@@ -19,8 +25,8 @@ export class WorkspaceErrorBoundary extends Component<{ children: ReactNode; loc
           <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-blue">{applicationBrand().name}</p>
           <h1 className="text-lg font-semibold">{zh ? '工作台暂时无法显示' : 'The workspace could not be displayed'}</h1>
           <p className="mt-3 text-sm leading-relaxed text-ink-dim">
-            {zh ? '页面资源没能加载，多半是 Argus 刚换了版本。重新加载即可，没发出的输入会保留。'
-              : 'A page resource failed to load, most likely because Argus was just updated. Reload; unsent input is kept.'}
+            {zh ? '页面有一部分没下载下来，多半是网络不稳，也可能是 Argus 刚换了版本。重新加载即可，没发出的输入会保留。'
+              : 'Part of the page did not download, most likely because the network is unsteady, or Argus was just updated. Reload; unsent input is kept.'}
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button type="button" className="rounded-md bg-blue px-4 py-2 text-sm text-on-accent" onClick={() => window.location.reload()}>

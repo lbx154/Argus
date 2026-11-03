@@ -7,6 +7,7 @@ import { errorText } from './lib/format';
 import { Capabilities } from './lib/capabilities';
 import { I18nProvider, useI18n, translate } from './i18n';
 import { WorkspaceErrorBoundary } from './components/WorkspaceErrorBoundary';
+import { retryImport } from './lib/retryImport';
 import { queryRetryPolicy } from './hooks';
 import { persistQueryCache, restoreQueryCache } from './lib/queryPersistence';
 import { loadApplicationBrand } from './applicationBrand';
@@ -15,7 +16,7 @@ import '@fontsource-variable/geist-mono';
 import 'katex/dist/katex.min.css';
 import './index.css';
 
-const App = lazy(() => import('./App'));
+const App = lazy(() => retryImport(() => import('./App')));
 
 // This build: the entry chunk's own address, fingerprinted by what the build made.
 const build = import.meta.url;
