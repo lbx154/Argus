@@ -50,7 +50,5 @@ The frameworks log what to watch; read their names in the version you run:
   the correction discards, rather than gating training on it; look into it when it grows.
 
 Evaluate the untrained checkpoint under the identical protocol first: every gain is measured from
-it. Two traps make gains that are not the method's: on Qwen models, RL with random rewards has
-raised MATH-500 by double digits (contamination), so confirm a gain on a second model family or a
-held-out benchmark; and a 30-problem benchmark such as AIME moves by 5 to 15 points between seeds,
-so report several seeds.
+it. On Qwen models, RL with random rewards has raised MATH-500 by double digits (contamination), so
+confirm a gain on a second model family or a held-out benchmark.

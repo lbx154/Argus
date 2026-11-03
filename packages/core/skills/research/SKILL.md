@@ -52,11 +52,6 @@ description: "Research that ends in a result worth publishing: where to start, h
   - the rule that turns scores into labels: a default threshold after the class balance moved
     shows as a drop in accuracy that AUC does not show;
   - the protocol behind the published number.
-- Before calling a gap a defect or a finding, measure the same gap between two things it should not
-  separate: two seeds, two correct code paths, two graders, two models of the same kind, the same
-  runs with their condition labels shuffled. A gap no larger is noise, and the best minus the worst
-  of many conditions is such a gap, wide even when no condition matters; a bar set before that
-  measurement is a guess, which the measurement replaces.
 - Read ten raw outputs before anything expensive: most defects show in ten generations and hide
   in an aggregate.
 - A weak first result is a defect to find, not a finding. Change one thing at a time, starting
