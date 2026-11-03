@@ -1,10 +1,11 @@
 import { lazy, Suspense } from 'react';
+import { retryImport } from '../lib/retryImport';
 import { useI18n } from '../i18n';
 import type { ModelViewerProps } from './model/ModelViewer';
 
 // three.js and the model loaders load only when a model is shown. Declared
 // once at module level so the lazy component keeps its identity across renders.
-const ModelViewer = lazy(() => import('./model/ModelViewer'));
+const ModelViewer = lazy(() => retryImport(() => import('./model/ModelViewer')));
 
 function Loading({ thumbnail }: { thumbnail?: boolean }) {
   const { locale } = useI18n();

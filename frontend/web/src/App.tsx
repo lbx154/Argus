@@ -1,4 +1,5 @@
 import { ExperimentRuns } from './components/ExperimentRuns';
+import { retryImport } from './lib/retryImport';
 import { useQuery } from '@tanstack/react-query';
 import { ApiError } from '../../core/src/http';
 import type { MapSendOptions } from './map/submission';
@@ -83,11 +84,11 @@ interface ActiveMessageRequest {
 let noticeSequence = 0;
 
 const ResearchWorkbenchPanel = lazy(async () => {
-  const module = await import('./research-workbench/ResearchWorkbenchPanel');
+  const module = await retryImport(() => import('./research-workbench/ResearchWorkbenchPanel'));
   return { default: module.ResearchWorkbenchPanel };
 });
 const MapPanel = lazy(async () => {
-  const module = await import('./map/MapPanel');
+  const module = await retryImport(() => import('./map/MapPanel'));
   return { default: module.MapPanel };
 });
 
