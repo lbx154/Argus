@@ -3,8 +3,6 @@ name: research
 description: "Research that ends in a result worth publishing: where to start, how to use the machine, and the few setup errors that quietly ruin a result"
 ---
 
-A measurement, a one-off script or a comparison asked for in a sentence needs none of this.
-
 ## Start where the field is
 
 - When the operator names a field but not the question, the question is theirs: read what this
@@ -54,11 +52,6 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
   - the rule that turns scores into labels: a default threshold after the class balance moved
     shows as a drop in accuracy that AUC does not show;
   - the protocol behind the published number.
-- Before calling a gap a defect or a finding, measure the same gap between two things it should not
-  separate: two seeds, two correct code paths, two graders, two models of the same kind, the same
-  runs with their condition labels shuffled. A gap no larger is noise, and the best minus the worst
-  of many conditions is such a gap, wide even when no condition matters; a bar set before that
-  measurement is a guess, which the measurement replaces.
 - Read ten raw outputs before anything expensive: most defects show in ten generations and hide
   in an aggregate.
 - A weak first result is a defect to find, not a finding. Change one thing at a time, starting
@@ -68,6 +61,7 @@ A measurement, a one-off script or a comparison asked for in a sentence needs no
 ## The paper
 
 - It argues for the claim with what ran; it is not an experiment log.
+- It states what the results show plainly; a caveat goes in only where it would change what a reader does.
 - References are copied from their source, never recalled.
 - Figures are vector PDFs with TrueType fonts.
 - The venue's rules come from its current author kit.
