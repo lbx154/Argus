@@ -3,7 +3,7 @@
 .experience-panel label { display: flex; flex-direction: column; gap: 8px; }
 .experience-panel .brand-button { align-self: flex-start; }
 .experience-input, .experience-select {
-  min-width: 0; border: 1px solid rgb(var(--field-line)); border-radius: var(--radius-control);
+  min-width: 0; border: 1px solid rgb(var(--field-line)); border-radius: 12px;
   background: rgb(var(--surface)); color: rgb(var(--ink)); font-size: 14px; line-height: 22px;
 }
 .experience-input { width: 100%; padding: 10px 12px; }
@@ -27,7 +27,7 @@
 .settings-body { padding: 0 24px 24px; font-size: 14px; }
 .settings-sections { display: flex; flex-direction: column; gap: 24px; }
 .settings-section { border-top: 1px solid rgb(var(--line)); padding-top: 20px; }
-.settings-body :is(select, input:not([type="checkbox"])) { min-height: var(--control-height); border-color: rgb(var(--field-line)); border-radius: var(--radius-control); }
+.settings-body :is(select, input:not([type="checkbox"])) { min-height: var(--control-height); border-color: rgb(var(--field-line)); border-radius: 12px; }
 .settings-body :is(button, summary) { min-height: var(--control-height); }
 .settings-body summary { display: flex; align-items: center; }
 .settings-body :is(input, select) { max-width: 100%; }
@@ -45,7 +45,7 @@
 .edition-pane { display: flex; flex-shrink: 0; min-width: 0; flex-direction: column; }
 .edition-pane textarea, .edition-pane pre, .edition-preview, .edition-note {
   width: 100%; height: clamp(280px, 42dvh, 440px); min-height: 280px; overflow: auto; padding: 16px;
-  border: 1px solid rgb(var(--field-line)); border-radius: var(--radius-control);
+  border: 1px solid rgb(var(--field-line)); border-radius: var(--radius-panel);
   background: rgb(var(--surface)); color: rgb(var(--ink)); overflow-wrap: anywhere;
 }
 .edition-pane textarea, .edition-pane pre { font: 13px/1.75 'Geist Mono Variable', ui-monospace, monospace; white-space: pre-wrap; }

@@ -622,15 +622,6 @@ export function latestConversationDelivery(
   return undefined;
 }
 
-function fileGlyph(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? '';
-  if (['csv', 'tsv', 'xlsx', 'xls', 'parquet'].includes(ext)) return '▦';
-  if (modelFormat(path)) return '◇';
-  if (ext === 'pdf') return '◧';
-  if (['py', 'ts', 'tsx', 'js', 'sh', 'r', 'ipynb', 'json', 'yaml', 'yml'].includes(ext)) return '‹›';
-  return '▤';
-}
-
 /**
  * A delivered result in the conversation, shown as itself: a picture shows the
  * picture, files show as files. "Open" leads to the result; the process behind
@@ -683,7 +674,7 @@ function DeliveryCard({
         <p className="text-xs text-ink-faint">{deliveryTimeLabel(delivery, zh)}</p>
         {listed.length ? <ul className="result-card-files">
           {listed.map(file => <li key={file.path} title={file.path}>
-            <span aria-hidden="true">{fileGlyph(file.path)}</span>{file.label || file.path.split('/').pop()}
+            {file.label || file.path.split('/').pop()}
           </li>)}
           {others.length > listed.length ? <li className="text-ink-faint">{zh ? `另有 ${others.length - listed.length} 个文件` : `${others.length - listed.length} more files`}</li> : null}
         </ul> : null}
@@ -1038,7 +1029,7 @@ export function EventStream({
         {hasOlder && <button type="button" disabled={loadingOlder} onClick={onLoadOlder} className="block w-full py-2 text-xs text-ink-faint">{locale === 'zh-CN' ? loadingOlder ? '正在加载…' : '更早的对话' : loadingOlder ? 'Loading…' : 'Earlier conversation'}</button>}
         {deferredEvents.length === 0 ? (
           historyStatus === 'ready' ? emptyState ?? (onCompose ? <div className="mx-auto max-w-2xl px-5 pb-8 pt-[12vh]">
-            <h2 className="font-serif text-[28px] font-medium leading-tight tracking-[-0.01em] text-ink">{locale === 'zh-CN' ? '从你想完成的事开始' : 'Start with what you want to accomplish'}</h2>
+            <h2 className="text-[32px] font-bold leading-tight tracking-[-0.03em] text-ink">{locale === 'zh-CN' ? '从你想完成的事开始' : 'Start with what you want to accomplish'}</h2>
             <p className="mt-2 text-sm leading-6 text-ink-faint">{locale === 'zh-CN' ? '直接说出目标，也可以选择下面的场景，再补充你的材料和要求。' : 'Describe your goal, or choose a starting point and add your material and requirements.'}</p>
             <StartPrompts onPick={onCompose} />
             <p className="mt-6 text-xs text-ink-faint">{locale === 'zh-CN' ? '或者直接试一个实际跑过的任务' : 'Or try a task that was run end to end'}</p>

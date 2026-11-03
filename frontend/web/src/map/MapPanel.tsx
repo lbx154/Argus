@@ -93,16 +93,16 @@ export const MAP_CARD_LEGEND: Array<[[string, string], string, string]> = [
 // Minimap fills echo the card state palette a step lighter, so the overview
 // inset reads as a status heatmap instead of undifferentiated confetti.
 const MINIMAP_STATUS: Record<string, string> = {
-  done: "#a9c4b6",
-  running: "#9fb6cc",
-  question: "#dcc797",
-  failed: "#d9a79f",
-  review_unavailable: "#cdbba3",
-  held: "#cdbba3",
-  paused: "#cdbba3",
-  aborted: "#c6c8cb",
-  skipped: "#c6c8cb",
-  missing: "#c6c8cb",
+  done: "#9a9a9a",
+  running: "#86c99a",
+  question: "#bdbdbd",
+  failed: "#e0a3a3",
+  review_unavailable: "#cfcfcf",
+  held: "#cfcfcf",
+  paused: "#cfcfcf",
+  aborted: "#dedede",
+  skipped: "#dedede",
+  missing: "#dedede",
 };
 
 export function MapCanvas({
@@ -493,7 +493,7 @@ export function MapCanvas({
                   : "Related work"),
           labelStyle: {
             fontSize: 30,
-            fill: "#6685a4",
+            fill: "#737373",
           },
           labelBgPadding: [12, 6] as [number, number],
           labelBgBorderRadius: 12,
@@ -503,8 +503,8 @@ export function MapCanvas({
             stroke: e.cycle
               ? "#dc6648"
               : e.kind === "dependency"
-                  ? "#527fa7"
-                  : "#7594ad",
+                  ? "#404040"
+                  : "#8a8a8a",
             // Dependencies stay the strongest line; context is a fainter,
             // sparser dash.
             strokeWidth: highlighted ? 2.6 : e.kind === "dependency" ? 2 : 1.6,
@@ -519,7 +519,7 @@ export function MapCanvas({
           },
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            color: "#8aa5b8",
+            color: "#a3a3a3",
             width: 32,
             height: 32,
           },
@@ -958,7 +958,7 @@ export function MapCanvas({
               />
               {minimapOpen && <MiniMap<MacroNode>
                 nodeColor={(n) =>
-                  MINIMAP_STATUS[statusKey((n as MacroNode).data.task)] ?? "#c6c8cb"
+                  MINIMAP_STATUS[statusKey((n as MacroNode).data.task)] ?? "#dedede"
                 }
                 maskColor="var(--map-minimap-mask)"
                 maskStrokeColor="#6d737a"

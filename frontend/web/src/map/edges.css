@@ -5,20 +5,20 @@
  * MapRelationEdge resolves these variables into stroke and arrowhead colors,
  * so light and dark themes are tuned entirely from this file. */
 .argus-map {
-  --map-edge-dependency: #3f74a6; /* steel blue: recorded execution order */
-  --map-edge-continuation: #527fa7; /* same family: a task carrying on */
-  --map-edge-semantic: #8b95a0; /* neutral gray: related work */
-  --map-edge-context: #6f8ca8; /* slate blue, a step quieter: the order work happened in */
-  --map-edge-replacement: #af8149; /* muted amber: the plan changed course */
-  --map-edge-relation: #4f7f6a; /* sage green: a relation the records state */
+  --map-edge-dependency: rgb(var(--ink)); /* steel blue: recorded execution order */
+  --map-edge-continuation: rgb(var(--ink)); /* same family: a task carrying on */
+  --map-edge-semantic: rgb(var(--ink-faint)); /* neutral gray: related work */
+  --map-edge-context: rgb(var(--ink-dim)); /* slate blue, a step quieter: the order work happened in */
+  --map-edge-replacement: rgb(var(--ink-dim)); /* muted amber: the plan changed course */
+  --map-edge-relation: rgb(var(--ink)); /* sage green: a relation the records state */
 }
 [data-theme="dark"] .argus-map {
-  --map-edge-dependency: #7ea9cd;
-  --map-edge-continuation: #7ea9cd;
-  --map-edge-semantic: #939ea9;
-  --map-edge-context: #7d97b0;
-  --map-edge-replacement: #c79e63;
-  --map-edge-relation: #82b39c;
+  --map-edge-dependency: rgb(var(--ink-faint));
+  --map-edge-continuation: rgb(var(--ink-faint));
+  --map-edge-semantic: rgb(var(--ink-faint));
+  --map-edge-context: rgb(var(--ink-faint));
+  --map-edge-replacement: rgb(var(--ink-dim));
+  --map-edge-relation: rgb(var(--ink-dim));
 }
 
 /* Legend swatches quote the same variables so the key never drifts from the

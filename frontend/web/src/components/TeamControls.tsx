@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+import { Play, Square } from 'lucide-react';
 import type { Snapshot } from '../../../core/src/types';
 import { useI18n } from '../i18n';
 import { roleLabel } from '../lib/enumLabels';
@@ -69,7 +68,7 @@ export function RunControl({ snapshot, pending = false, busy = false, onStop, on
         else onResume();
       }} className={running ? className : resumeClassName}
       title={running ? zh ? '停止现在的工作' : 'Stop the work under way' : t('topbar.continueRunHint')}>
-      <FontAwesomeIcon icon={running ? faStop : faPlay} className="h-3 w-3" /><span>{running ? zh ? '停止' : 'Stop' : t('topbar.continueRun')}</span>
+      {running ? <Square size={12} fill="currentColor" aria-hidden="true" /> : <Play size={12} fill="currentColor" aria-hidden="true" />}<span>{running ? zh ? '停止' : 'Stop' : t('topbar.continueRun')}</span>
     </button>
     <Modal open={asking} onClose={() => setAsking(false)} label={zh ? '停止现在的工作' : 'Stop the work under way'} width="max-w-md" align="bottom">
       <div className="modal-header"><h2>{zh ? '停止现在的工作？' : 'Stop the work under way?'}</h2></div>

@@ -158,10 +158,10 @@ describe('shared frontend core', () => {
     expect(css).toContain('.role-log-group[data-open=\"true\"]');
   });
 
-  it('keeps light-theme blue info text at WCAG AA contrast', () => {
+  it('keeps light-theme faint text at WCAG AA contrast', () => {
     const css = fs.readFileSync(path.resolve('src/index.css'), 'utf8');
     const root = css.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? '';
-    const channels = root.match(/--blue:\s*(\d+)\s+(\d+)\s+(\d+)/);
+    const channels = root.match(/--ink-faint:\s*(\d+)\s+(\d+)\s+(\d+)/);
     expect(channels).not.toBeNull();
     const relativeLuminance = (rgb: number[]) => {
       const linear = rgb.map((channel) => {

@@ -342,7 +342,7 @@ describe('App session composer ownership', () => {
     act(() => renderer.root.findByType(Sidebar).props.onNew());
     expect(document.title).toBe('Argus');
   });
-  it('counts deliveries once for the sidebar and map, keeping the latest delivery as the sidebar target', () => {
+  it('counts deliveries once for the map and keeps files reachable from the results entry', () => {
     fixture.artifacts = [{ path: 'report.md', name: 'report.md', kind: 'markdown', source: 'delivery' },
       { path: 'data.csv', name: 'data.csv', kind: 'table', source: 'delivery' }] as never[];
     fixture.turns = [1, 2, 3].map(n => ({ type: 'ui.argus', ts: n, event_id: n, delivery: {
@@ -351,24 +351,16 @@ describe('App session composer ownership', () => {
       targets: fixture.artifacts.map((file: { path: string }) => ({ path: file.path, label: file.path, source: 'manager' })), primary_target: null,
     } }));
     refresh();
-    expect(renderer.root.findByType(Sidebar).props.resultsCount).toBe(3);
     act(() => renderer.root.findAll(node => node.props.className === 'workspace-tab')[1].props.onClick());
     expect(renderer.root.findByType(MapPanel).props.deliveryCount).toBe(3);
     act(() => renderer.root.findAll(node => node.props.className === 'workspace-tab')[0].props.onClick());
-    act(() => renderer.root.findByType(Sidebar).props.onOpenResults());
-    const deliveryModal = renderer.root.findAllByType(ArtifactModal).find(node => node.props.delivery)!;
-    expect(deliveryModal.props.delivery.delivery_id).toBe('d3');
-    act(() => deliveryModal.props.onClose());
     act(() => renderer.root.find(node => node.type === 'button' && node.children.includes('Results & files')).props.onClick());
     expect(renderer.root.findByType(ResearchCanvas).props.artifacts).toHaveLength(2);
   });
-  it('counts zero before any delivery exists and keeps files accessible from the file entry', () => {
+  it('keeps files accessible from the file entry before any delivery exists', () => {
     fixture.artifacts = [{ path: 'draft.md', name: 'draft.md', kind: 'markdown' }] as never[];
     refresh();
-    const sidebar = renderer.root.findByType(Sidebar);
-    expect(sidebar.props.resultsCount).toBe(0);
     expect(renderer.root.findAllByType(ResearchCanvas)).toHaveLength(0);
-    expect(renderer.root.findAll(node => node.type === 'button' && node.props['data-sidebar-results'] !== undefined).every(node => node.props.disabled)).toBe(true);
     act(() => renderer.root.find(node => node.type === 'button' && node.children.includes('Results & files')).props.onClick());
     const canvas = renderer.root.findByType(ResearchCanvas);
     expect(canvas.props.requestedPath).toBe('__argus_files__');

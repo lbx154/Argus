@@ -9,9 +9,9 @@
   position: relative;
   background: var(--map-paper);
   border: 2px solid rgb(var(--line) / 0.9);
-  border-top: 7px solid var(--state, #9babbc);
+  border-top: 7px solid var(--state, rgb(var(--ink-faint)));
   border-radius: 32px;
-  box-shadow: 0 10px 36px #24364c0b;
+  box-shadow: 0 10px 36px rgb(0 0 0 / 4%);
   opacity: var(--context-alpha);
   transition:
     opacity 150ms ease,
@@ -19,7 +19,7 @@
 }
 .map-macro[data-focused="true"] {
   opacity: 1;
-  border-color: #82a6c5;
+  border-color: rgb(var(--ink-faint));
 }
 .argus-map .map-macro > .react-flow__handle {
   width: 24px;
@@ -45,7 +45,7 @@
   min-height: 196px;
 }
 .macro-summary .map-card:focus-visible {
-  outline: 2px solid #7da6c7;
+  outline: 2px solid rgb(var(--ink-faint));
   outline-offset: 1px;
 }
 .map-card-submap-hint {
@@ -53,7 +53,7 @@
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  color: #6a8da8;
+  color: rgb(var(--ink-dim));
 }
 .macro-detail {
   position: absolute;
@@ -101,15 +101,15 @@
   text-overflow: ellipsis;
 }
 .macro-state {
-  color: color-mix(in srgb, var(--state, #859eb5) 82%, rgb(var(--ink)));
+  color: color-mix(in srgb, var(--state, rgb(var(--ink-faint))) 82%, rgb(var(--ink)));
   font-size: 12px;
   font-weight: 550;
   line-height: 1;
   white-space: nowrap;
   padding: 7px 12px;
-  border: 1px solid color-mix(in srgb, var(--state, #859eb5) 28%, transparent);
+  border: 1px solid color-mix(in srgb, var(--state, rgb(var(--ink-faint))) 28%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--state, #859eb5) 10%, transparent);
+  background: color-mix(in srgb, var(--state, rgb(var(--ink-faint))) 10%, transparent);
 }
 /* A stacked card (one column, phone width) lets its heading wrap: the title
  * on one row and the chips on the next. */
@@ -120,9 +120,9 @@
 .macro-detail[data-stacked="true"] .macro-heading > button { order: 4; white-space: nowrap; }
 .macro-detail[data-stacked="true"] .macro-stage-key { top: 222px; flex-wrap: wrap; }
 /* A subtask's verdict, where its state used to be. */
-.submap-step-meta small[data-verdict="rejected"] { color: #bd785f; font-weight: 600; }
-.submap-step-meta small[data-verdict="chosen"] { color: #3f8f68; font-weight: 600; }
-.submap-step-meta small[data-verdict="qualified"] { color: #528e73; font-weight: 600; }
+.submap-step-meta small[data-verdict="rejected"] { color: rgb(var(--err)); font-weight: 600; }
+.submap-step-meta small[data-verdict="chosen"] { color: rgb(var(--ink)); font-weight: 600; }
+.submap-step-meta small[data-verdict="qualified"] { color: rgb(var(--ink)); font-weight: 600; }
 .macro-stage-key {
   position: absolute;
   left: 48px;
@@ -170,26 +170,26 @@
   background: rgb(var(--ink-faint) / 0.45);
 }
 .macro-column-label > span {
-  color: #94a5b6;
+  color: rgb(var(--ink-faint));
   font:
     13px "Geist Mono Variable",
     monospace;
   padding-top: 3px;
 }
 .submap-kind-plan {
-  --step-color: #ad9262;
+  --step-color: rgb(var(--ink-dim));
 }
 .submap-kind-execution {
-  --step-color: #618faf;
+  --step-color: rgb(var(--ink-dim));
 }
 .submap-kind-review {
-  --step-color: #9882b0;
+  --step-color: rgb(var(--ink-dim));
 }
 .submap-kind-revision {
-  --step-color: #b48b62;
+  --step-color: rgb(var(--ink-dim));
 }
 .submap-kind-result {
-  --step-color: #609884;
+  --step-color: rgb(var(--ink-dim));
 }
 .submap-step {
   position: absolute;
@@ -203,7 +203,7 @@
   border: 1.5px solid rgb(var(--line) / 0.8);
   border-radius: 13px;
   background: var(--map-paper);
-  box-shadow: 0 4px 13px #24364c08;
+  box-shadow: 0 4px 13px rgb(0 0 0 / 3%);
   transition:
     border-color 120ms ease,
     box-shadow 120ms ease;
@@ -213,7 +213,7 @@
 .submap-step:focus-visible {
   outline: none;
   border-color: var(--step-color);
-  box-shadow: 0 4px 18px #24364c14;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 8%);
 }
 .submap-step-meta {
   display: flex;
@@ -294,7 +294,7 @@
   fill: var(--map-paper);
 }
 .submap-relation-label text {
-  fill: #8297aa;
+  fill: rgb(var(--ink-faint));
   font-size: 13px;
 }
 .macro-evidence {
@@ -323,7 +323,7 @@
 .macro-step-detail > span,
 .macro-step-detail > small {
   font-size: 12px;
-  color: #8b9faf;
+  color: rgb(var(--ink-faint));
 }
 .macro-step-detail p {
   white-space: pre-wrap;
@@ -344,16 +344,16 @@
 }
 .map-timeline-context path {
   fill: none;
-  stroke: #aabac9;
+  stroke: rgb(var(--silver));
   stroke-width: 1;
   stroke-dasharray: 3 5;
   vector-effect: non-scaling-stroke;
 }
 .map-timeline-context circle {
-  fill: #aabac9;
+  fill: rgb(var(--silver));
 }
 .map-timeline-context text {
-  fill: #899daf;
+  fill: rgb(var(--ink-faint));
   font-size: 36px;
   letter-spacing: 1px;
 }
@@ -363,21 +363,21 @@
 }
 .map-relation-label {
   position: absolute;
-  color: #426783;
+  color: rgb(var(--ink));
   background: var(--map-paper);
-  border: 1px solid #92aabd55;
+  border: 1px solid rgb(var(--ink-faint) / 33%);
   border-radius: 7px;
   padding: 3px 7px;
   font-size: 12px;
   font-weight: 500;
   line-height: 18px;
   white-space: nowrap;
-  box-shadow: 0 2px 7px #294c6a0b;
+  box-shadow: 0 2px 7px rgb(0 0 0 / 4%);
   opacity: var(--context-alpha);
   pointer-events: none;
 }
 .map-legend .replacement {
-  border-color: #a48caf;
+  border-color: rgb(var(--ink-dim));
   border-top-style: dashed;
 }
 .map-legend button:disabled {
@@ -393,7 +393,7 @@
   height: 100%;
 }
 .map-back-button {
-  color: #517fa6 !important;
+  color: rgb(var(--ink)) !important;
 }
 @media (max-width: 800px) {
   .map-legend {
@@ -420,8 +420,8 @@
 /* Focus changes the camera; content layout determines the frame dimensions. */
 .map-macro {
   box-shadow:
-    0 16px 48px #233d5818,
-    0 3px 8px #233d5810;
+    0 16px 48px rgb(0 0 0 / 9%),
+    0 3px 8px rgb(0 0 0 / 6%);
 }
 .macro-detail {
   transition: transform 260ms ease;
@@ -433,34 +433,34 @@
 }
 .submap-step {
   box-shadow:
-    0 6px 20px #233d5812,
-    0 2px 4px #233d5808;
+    0 6px 20px rgb(0 0 0 / 7%),
+    0 2px 4px rgb(0 0 0 / 3%);
 }
 /* Step entrance is driven by newly received evidence, not component mounts. */
 .map-macro[data-active="true"] {
-  border-color: #74a5c7;
+  border-color: rgb(var(--ink-faint));
 }
 .map-macro[data-active="true"] .macro-state,
 .submap-step[data-active="true"] .submap-step-meta {
-  color: color-mix(in srgb, #4a86c5 82%, rgb(var(--ink)));
+  color: color-mix(in srgb, rgb(var(--status-running)) 82%, rgb(var(--ink)));
 }
 .map-macro[data-active="true"] .map-state-dot {
   animation: map-working 2.2s ease-in-out infinite;
 }
 .submap-step[data-active="true"] {
-  border-color: #6ca1c4;
-  border-left: 3px solid #4a86c5;
+  border-color: rgb(var(--ink-faint));
+  border-left: 3px solid rgb(var(--status-running));
   animation: submap-step-pulse 2s ease-in-out infinite;
 }
 .macro-reader {
-  --reader-accent: #8facc3;
+  --reader-accent: rgb(var(--ink-faint));
   position: absolute;
   z-index: 4;
-  border: 1.5px solid #8facc3;
+  border: 1.5px solid rgb(var(--ink-faint));
   border-top: 3px solid var(--reader-accent);
   border-radius: 22px;
   background: var(--map-paper);
-  box-shadow: 0 20px 65px #28435c25;
+  box-shadow: 0 20px 65px rgb(0 0 0 / 15%);
   padding: 22px 30px 20px;
   display: flex;
   flex-direction: column;
@@ -469,19 +469,19 @@
 /* The reader follows the selected step in the detail plane, so the sibling
  * combinator can carry the step kind onto the popover without extra markup. */
 .submap-step.submap-kind-plan.is-selected ~ .macro-reader {
-  --reader-accent: #ad9262;
+  --reader-accent: rgb(var(--ink-dim));
 }
 .submap-step.submap-kind-execution.is-selected ~ .macro-reader {
-  --reader-accent: #618faf;
+  --reader-accent: rgb(var(--ink-dim));
 }
 .submap-step.submap-kind-review.is-selected ~ .macro-reader {
-  --reader-accent: #9882b0;
+  --reader-accent: rgb(var(--ink-dim));
 }
 .submap-step.submap-kind-revision.is-selected ~ .macro-reader {
-  --reader-accent: #b48b62;
+  --reader-accent: rgb(var(--ink-dim));
 }
 .submap-step.submap-kind-result.is-selected ~ .macro-reader {
-  --reader-accent: #609884;
+  --reader-accent: rgb(var(--ink-dim));
 }
 .macro-reader header {
   display: flex;
@@ -613,10 +613,10 @@
 @keyframes map-step-working {
   0%,
   100% {
-    box-shadow: 0 4px 16px #497ea51a;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 10%);
   }
   50% {
-    box-shadow: 0 5px 25px #497ea536;
+    box-shadow: 0 5px 25px rgb(0 0 0 / 21%);
   }
 }
 @media (max-width: 640px) {
@@ -641,7 +641,7 @@
 }
 
 .map-live-phase {
-  color: #5689ac;
+  color: rgb(var(--ink));
   display: flex;
   align-items: center;
   gap: 6px;
@@ -689,7 +689,7 @@
 }
 .macro-part-nav button:hover:not(:disabled),
 .macro-part-nav button:focus-visible:not(:disabled) {
-  border-color: #7ca9c8;
+  border-color: rgb(var(--ink-faint));
   color: rgb(var(--blue));
   background: rgb(var(--blue) / 0.05);
 }
@@ -712,10 +712,10 @@
     border: 1px solid rgb(var(--line) / 0.7);
     border-radius: 7px;
     background: var(--map-paper);
-    box-shadow: 0 2px 6px #24364c05;
+    box-shadow: 0 2px 6px rgb(0 0 0 / 2%);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
-    color: #527fa7;
+    color: rgb(var(--ink));
   }
   .map-part-switcher button {
     display: grid;
@@ -747,23 +747,23 @@
 /* Step outcome is legible per card: status recolors the meta, terminal failure
  * and live work mark the left edge, replaced work visibly recedes. */
 .submap-step[data-status="done"] .submap-step-meta small {
-  color: color-mix(in srgb, #528e73 78%, rgb(var(--ink)));
+  color: color-mix(in srgb, rgb(var(--ink)) 78%, rgb(var(--ink)));
 }
 .submap-step[data-status="done"] .submap-step-meta small::before {
   content: "✓ ";
-  color: color-mix(in srgb, #528e73 60%, transparent);
+  color: color-mix(in srgb, rgb(var(--ink)) 60%, transparent);
 }
 .submap-step[data-status="failed"] {
-  border-left: 3px solid color-mix(in srgb, #bd785f 75%, transparent);
+  border-left: 3px solid color-mix(in srgb, rgb(var(--err)) 75%, transparent);
 }
 .submap-step[data-status="failed"] .submap-step-meta small {
-  color: color-mix(in srgb, #bd785f 82%, rgb(var(--ink)));
+  color: color-mix(in srgb, rgb(var(--err)) 82%, rgb(var(--ink)));
 }
 .submap-step[data-status="running"] {
-  border-left: 3px solid #4a86c5;
+  border-left: 3px solid rgb(var(--status-running));
 }
 .submap-step[data-status="running"] .submap-step-meta small {
-  color: color-mix(in srgb, #4a86c5 82%, rgb(var(--ink)));
+  color: color-mix(in srgb, rgb(var(--status-running)) 82%, rgb(var(--ink)));
 }
 .submap-step.is-selected {
   outline: 2px solid color-mix(in srgb, var(--step-color) 80%, rgb(var(--ink)));
@@ -772,10 +772,10 @@
 @keyframes submap-step-pulse {
   0%,
   100% {
-    border-left-color: #4a86c573;
+    border-left-color: rgb(var(--status-running) / 45%);
   }
   50% {
-    border-left-color: #4a86c5;
+    border-left-color: rgb(var(--status-running));
   }
 }
 @media (prefers-reduced-motion: reduce) {

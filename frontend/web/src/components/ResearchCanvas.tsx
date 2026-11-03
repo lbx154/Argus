@@ -6,8 +6,6 @@ import { api } from '../api';
 import { useArtifact } from '../hooks';
 import { formatBytes } from '../lib/format';
 import { Spinner } from './primitives';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
 import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
@@ -18,7 +16,7 @@ import { modelFormat } from '../lib/modelFiles';
 import { canEditArtifact, isMarkdownArtifact } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 import { WorkStatusBar } from './WorkStatusBar';
-import { FileText } from 'lucide-react';
+import { ChevronsRight, FileText } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { deliveryFiles } from './deliveryPresentation';
 
@@ -273,19 +271,19 @@ export function ResearchCanvas({
         </div>
         {onCollapse ? (
           <button type="button" onClick={onCollapse} aria-label={t('research.collapse')} title={t('research.collapse')} className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/50 bg-bg/40 text-ink-faint hover:border-blue/50 hover:text-ink lg:flex">
-            <FontAwesomeIcon icon={faAnglesRight} className="h-3.5 w-3.5" />
+            <ChevronsRight size={16} aria-hidden="true" />
           </button>
         ) : null}
       </header>
 
       {filesFirst && latestDelivery ? (
         <button type="button" data-latest-result onClick={() => onOpenDelivery?.(latestDelivery)} disabled={!onOpenDelivery}
-          className="mx-3 mt-3 flex shrink-0 items-center gap-3 rounded-lg border border-ok/35 bg-ok/5 px-3 py-2.5 text-left hover:border-ok/60 disabled:cursor-default">
+          className="mx-3 mt-3 flex shrink-0 items-center gap-3 rounded-2xl border border-line px-4 py-3 text-left transition-colors hover:border-ink-faint disabled:cursor-default">
           <span className="min-w-0 flex-1">
-            <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-ok">{locale === 'zh-CN' ? '最新成果' : 'Latest result'}</span>
-            <span className="mt-0.5 block truncate text-sm font-medium text-ink" title={latestDelivery.title}>{latestDelivery.title}</span>
+            <span className="block text-[11px] text-ink-faint">{locale === 'zh-CN' ? '最新成果' : 'Latest result'}</span>
+            <span className="mt-0.5 block truncate text-[15px] font-semibold text-ink" title={latestDelivery.title}>{latestDelivery.title}</span>
           </span>
-          {onOpenDelivery ? <span className="shrink-0 text-xs font-medium text-ok">{locale === 'zh-CN' ? '打开' : 'Open'}</span> : null}
+          {onOpenDelivery ? <span className="shrink-0 rounded-full bg-ink px-3 py-1 text-xs font-medium text-on-accent">{locale === 'zh-CN' ? '打开' : 'Open'}</span> : null}
         </button>
       ) : null}
       {!filesFirst && snapshot ? <WorkStatusBar snapshot={snapshot} connected={connected} compact /> : null}

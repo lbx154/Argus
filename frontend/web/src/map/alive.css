@@ -9,12 +9,12 @@
 .map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .map-macro[data-lit="false"] { opacity: .48; }
 .map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .react-flow__edge:not(.is-lit) { opacity: .26; }
 .map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .react-flow__edge.is-lit .react-flow__edge-path { filter: drop-shadow(0 0 3px rgb(var(--blue) / .5)); }
-.map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .map-macro[data-lit="true"][data-hovered="false"] .map-card { box-shadow: 0 8px 26px #24364c14, 0 0 0 1px #7ca9c86b; }
-.map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .map-macro[data-lit="true"][data-hovered="true"] .map-card { box-shadow: 0 16px 40px #24364c1c, 0 2px 6px #24364c0a; }
+.map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .map-macro[data-lit="true"][data-hovered="false"] .map-card { box-shadow: 0 8px 26px rgb(0 0 0 / 8%), 0 0 0 1px rgb(var(--ink-faint) / 42%); }
+.map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .map-macro[data-lit="true"][data-hovered="true"] .map-card { box-shadow: 0 16px 40px rgb(0 0 0 / 11%), 0 2px 6px rgb(0 0 0 / 4%); }
 .argus-map .map-relation-label { transition: opacity .3s ease, box-shadow .3s ease; }
 .map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .map-relation-label[data-lit="false"] { opacity: .3; }
 .map-canvas-wrap[data-hovering="true"]:not([data-detailed="true"]) .map-relation-label[data-lit="true"] { box-shadow: 0 0 0 1px color-mix(in srgb, var(--edge-hue) 35%, transparent); }
-.map-edge-spark[data-lit="true"] { background: #7fb0cd; box-shadow: 0 0 6px 1px #7fb0cd66; animation-duration: 2s; }
+.map-edge-spark[data-lit="true"] { background: rgb(var(--status-running)); box-shadow: 0 0 6px 1px rgb(var(--status-running) / 40%); animation-duration: 2s; }
 
 /* A freshly opened map composes itself: cards rise in reading order and the
  * relations are drawn in once their source card is standing. Growth of new
@@ -28,9 +28,9 @@
 @keyframes atlas-step-settle { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
 
 /* The living status line on the card being worked on. */
-.map-card-live { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 7px; line-height: 1.4; color: color-mix(in srgb, #4a86c5 78%, rgb(var(--ink))); background: color-mix(in srgb, #4a86c5 8%, transparent); }
-.map-card-live i { position: relative; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: #4a86c5; }
-.map-card-live i::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid #4a86c5; opacity: 0; animation: atlas-live-ring 2.2s cubic-bezier(.2, .7, .3, 1) infinite; }
+.map-card-live { display: flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 7px; line-height: 1.4; color: color-mix(in srgb, rgb(var(--status-running)) 78%, rgb(var(--ink))); background: color-mix(in srgb, rgb(var(--status-running)) 8%, transparent); }
+.map-card-live i { position: relative; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: rgb(var(--status-running)); }
+.map-card-live i::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1.5px solid rgb(var(--status-running)); opacity: 0; animation: atlas-live-ring 2.2s cubic-bezier(.2, .7, .3, 1) infinite; }
 .map-card-live span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* The holder and the latest thing said on this task. */
 .map-card-now { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -49,7 +49,7 @@
 /* Replaying a live session: the same reveal strip the datasets use, with a
  * way back to the present. */
 .map-playback .map-replay-exit { margin-left: 4px; }
-.map-playback[data-floating="true"] { position: absolute; z-index: 7; left: 20px; top: 61px; height: 38px; width: min(560px, calc(100% - 40px)); padding: 0 12px; border: 1px solid rgb(var(--line) / .7); border-radius: 10px; background: var(--map-paper); box-shadow: 0 6px 22px #24364c14; animation: map-agent-enter 250ms ease-out; }
+.map-playback[data-floating="true"] { position: absolute; z-index: 7; left: 20px; top: 61px; height: 38px; width: min(560px, calc(100% - 40px)); padding: 0 12px; border: 1px solid rgb(var(--line) / .7); border-radius: 10px; background: var(--map-paper); box-shadow: 0 6px 22px rgb(0 0 0 / 8%); animation: map-agent-enter 250ms ease-out; }
 .map-playback[data-floating="true"] small { display: none; }
 @media (max-width: 640px) { .map-playback[data-floating="true"] { top: 54px; left: 12px; width: calc(100% - 24px); } }
 

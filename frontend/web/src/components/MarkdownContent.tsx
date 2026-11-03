@@ -154,10 +154,10 @@ export function MarkdownContent({
   live.current = { artifacts, onOpenArtifact, basePath, sid, delivery, locale, t };
   const rehypePlugins = useMemo(() => markdownRehypePlugins(locale === 'zh-CN'), [locale]);
   const components = useMemo((): Components => ({
-    h1: ({ children: value }) => <h1 className="mb-2 mt-3 text-base font-semibold text-ink first:mt-0">{value}</h1>,
-    h2: ({ children: value }) => <h2 className="mb-1.5 mt-3 text-sm font-semibold text-ink first:mt-0">{value}</h2>,
-    h3: ({ children: value }) => <h3 className="mb-1 mt-2 text-sm font-medium text-ink first:mt-0">{value}</h3>,
-    p: ({ children: value }) => <p className="my-1.5 whitespace-pre-wrap break-words leading-[1.625] first:mt-0 last:mb-0">{value}</p>,
+    h1: ({ children: value }) => <h1 className="mb-3 mt-6 text-[22px] font-semibold leading-snug tracking-[-0.02em] text-ink first:mt-0">{value}</h1>,
+    h2: ({ children: value }) => <h2 className="mb-2 mt-5 text-lg font-semibold leading-snug tracking-[-0.015em] text-ink first:mt-0">{value}</h2>,
+    h3: ({ children: value }) => <h3 className="mb-1.5 mt-4 text-[15px] font-semibold text-ink first:mt-0">{value}</h3>,
+    p: ({ children: value }) => <p className="my-2.5 whitespace-pre-wrap break-words leading-[1.75] first:mt-0 last:mb-0">{value}</p>,
     ul: ({ children: value }) => <ul className="my-2 list-disc space-y-1 pl-5">{value}</ul>,
     ol: ({ children: value }) => <ol className="my-2 list-decimal space-y-1 pl-5">{value}</ol>,
     li: ({ children: value }) => <li className="pl-0.5">{value}</li>,

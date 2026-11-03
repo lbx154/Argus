@@ -1,9 +1,9 @@
 .map-macro[data-growing=true]{animation:map-task-grow 650ms cubic-bezier(.18,.8,.25,1) both;transform-origin:center bottom}
 .map-macro .submap-step[data-growing=true]{animation:map-step-grow 580ms cubic-bezier(.2,.8,.24,1) both!important}
 .map-growth-mask{stroke-dasharray:1;stroke-dashoffset:0;animation:map-link-grow 700ms cubic-bezier(.25,.6,.3,1) backwards}
-.map-agent-toggle{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:5px 10px;border:1px solid #7b9eb529;border-radius:20px;background:rgb(var(--panel));color:#557f9c;cursor:pointer;font-size:11px}
-.map-summary .map-agent-toggle i{display:block;flex:0 0 5px;width:5px;height:5px;margin:0;border-radius:50%;background:#94a4b0}.map-summary .map-agent-toggle i[data-active=true]{background:#5da890}
-.map-agent-drawer{position:absolute;z-index:9;right:18px;top:62px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 130px);overflow:auto;overscroll-behavior:contain;background:rgb(var(--panel));border:1px solid rgb(var(--line));border-radius:18px;padding:18px;box-shadow:0 16px 60px #1834541c;animation:map-agent-enter 250ms ease-out}
+.map-agent-toggle{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:5px 10px;border:1px solid rgb(var(--ink-faint) / 16%);border-radius:20px;background:rgb(var(--panel));color:rgb(var(--ink-dim));cursor:pointer;font-size:11px}
+.map-summary .map-agent-toggle i{display:block;flex:0 0 5px;width:5px;height:5px;margin:0;border-radius:50%;background:rgb(var(--ink-faint))}.map-summary .map-agent-toggle i[data-active=true]{background:rgb(var(--status-running))}
+.map-agent-drawer{position:absolute;z-index:9;right:18px;top:62px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 130px);overflow:auto;overscroll-behavior:contain;background:rgb(var(--panel));border:1px solid rgb(var(--line));border-radius:18px;padding:18px;box-shadow:0 16px 60px rgb(0 0 0 / 11%);animation:map-agent-enter 250ms ease-out}
 @keyframes map-task-grow{from{opacity:0;transform:translateY(24px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
 @keyframes map-step-grow{from{opacity:0;transform:translateY(14px) scale(.94);filter:blur(2px)}to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
 @keyframes map-link-grow{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}

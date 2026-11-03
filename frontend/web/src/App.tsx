@@ -819,7 +819,7 @@ export default function App() {
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
       label: shownName(p, locale === 'zh-CN', t('sidebar.unnamedSession')),
-      hint: p.daemon_alive ? `● ${t('common.live')}` : '○',
+      hint: p.daemon_alive ? t('common.live') : undefined,
       keywords: `${p.id} ${p.display_name ?? ''} ${p.daemon_alive ? 'live running' : 'stopped idle'}`,
       group: t('palette.project'),
       run: () => selectProject(p.id),
@@ -884,16 +884,6 @@ export default function App() {
           onManage={requestManageSession}
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenLearning={openLearningLibrary}
-          onOpenResults={() => {
-            const selection = defaultDeliverySelection(deliveryHistory);
-            if (selection) openDelivery(selection.receipt, selection.path);
-            else {
-              setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 }));
-              openPreview();
-            }
-            setSidebarOpen(false);
-          }}
-          resultsCount={deliveryCount}
           onNew={() => { startNewSession(); setSidebarOpen(false); }}
           onSearch={() => setSearchOpen(true)}
           // The trial portal owns sign-in; a token kept here is this browser's own.
@@ -933,7 +923,7 @@ export default function App() {
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
               /> : <WorkspaceHeader className="project-header">
-                <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 text-ink">
+                <div className="topbar-title min-w-0 truncate text-[20px] font-semibold leading-7 text-ink">
                   {shownName(projects.find(project => project.id === activeSid) ?? {}, locale === 'zh-CN', t('sidebar.unnamedSession'))}
                 </div>
               </WorkspaceHeader>}

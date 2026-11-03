@@ -23,7 +23,7 @@ export function SubmapEdges({ layout, growing = {}, activeStep }: { layout: Subm
           markerHeight="6.5"
           orient="auto"
         >
-          <path d="M 0.6 0.9 L 9.6 5 L 0.6 9.1 L 3 5 z" fill="var(--map-edge-context, #6f8ca8)" />
+          <path d="M 0.6 0.9 L 9.6 5 L 0.6 9.1 L 3 5 z" fill="var(--map-edge-context, #737373)" />
         </marker>
       </defs>
       {layout.links.map((link) => {
@@ -54,14 +54,14 @@ export function SubmapEdges({ layout, growing = {}, activeStep }: { layout: Subm
               className="submap-relation-path"
               d={d}
               fill="none"
-              stroke="var(--map-edge-context, #6f8ca8)"
+              stroke="var(--map-edge-context, #737373)"
               strokeWidth="1.6"
               strokeLinecap="round"
               strokeDasharray={link.contextual ? "5 6" : undefined}
               markerEnd={`url(#${marker})`}
             />
             </GrowthReveal>
-            {activeStep === link.target && <path className="submap-flow" d={d} pathLength={1} fill="none" stroke="#4b9cae" strokeWidth="3" strokeDasharray=".09 .91" strokeLinecap="round" aria-hidden="true" />}
+            {activeStep === link.target && <path className="submap-flow" d={d} pathLength={1} fill="none" stroke="#22a35a" strokeWidth="3" strokeDasharray=".09 .91" strokeLinecap="round" aria-hidden="true" />}
             <g
               className="submap-relation-label"
               transform={`translate(${mx}, ${my})`}

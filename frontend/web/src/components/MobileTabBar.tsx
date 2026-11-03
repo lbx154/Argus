@@ -1,12 +1,4 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  faBars,
-  faDiagramProject,
-  faFlask,
-  faListUl,
-  faWindowMaximize,
-} from '@fortawesome/free-solid-svg-icons';
-import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import { FlaskConical, Menu, MessageSquare, Network, Package, type LucideIcon } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 export type MobileTab = 'sessions' | 'activity' | 'workbench' | 'map' | 'preview';
@@ -24,11 +16,11 @@ export function MobileTabBar({
   sidebarOpen?: boolean;
 }) {
   const { t, locale } = useI18n();
-  const tabs: { id: Exclude<MobileTab, 'sessions'>; label: string; icon: IconDefinition }[] = [
-    { id: 'activity', label: t('mobile.activity'), icon: faListUl },
-    { id: 'preview', label: locale === 'zh-CN' ? '成果与文件' : 'Results & files', icon: faWindowMaximize },
-    { id: 'map', label: t('mobile.map'), icon: faDiagramProject },
-    { id: 'workbench', label: t('mobile.workbench'), icon: faFlask },
+  const tabs: { id: Exclude<MobileTab, 'sessions'>; label: string; icon: LucideIcon }[] = [
+    { id: 'activity', label: t('mobile.activity'), icon: MessageSquare },
+    { id: 'preview', label: locale === 'zh-CN' ? '成果与文件' : 'Results & files', icon: Package },
+    { id: 'map', label: t('mobile.map'), icon: Network },
+    { id: 'workbench', label: t('mobile.workbench'), icon: FlaskConical },
   ];
 
   return (
@@ -42,10 +34,10 @@ export function MobileTabBar({
         <button
           type="button"
           onClick={onOpenSessions}
-          className="flex min-h-[3.25rem] flex-1 flex-col items-center justify-center gap-0.5 text-ink-faint active:bg-panel-raised"
+          className="flex min-h-[3.5rem] flex-1 flex-col items-center justify-center gap-1 text-ink-faint active:bg-panel-raised"
         >
-          <FontAwesomeIcon icon={faBars} className="h-4 w-4" />
-          <span className="text-[10px] leading-none">{t('mobile.sessions')}</span>
+          <Menu size={20} strokeWidth={1.75} aria-hidden="true" />
+          <span className="text-[11px] leading-none">{t('mobile.sessions')}</span>
         </button>
       ) : null}
       {tabs.map((tab) => {
@@ -56,12 +48,12 @@ export function MobileTabBar({
             type="button"
             onClick={() => onSelect(tab.id)}
             aria-current={selected ? 'page' : undefined}
-            className={`flex min-h-[3.25rem] flex-1 flex-col items-center justify-center gap-0.5 active:bg-panel-raised ${
-              selected ? 'text-blue' : 'text-ink-faint'
+            className={`flex min-h-[3.5rem] flex-1 flex-col items-center justify-center gap-1 active:bg-panel-raised ${
+              selected ? 'font-medium text-ink' : 'text-ink-faint'
             }`}
           >
-            <FontAwesomeIcon icon={tab.icon} className="h-4 w-4" />
-            <span className="text-[10px] leading-none">{tab.label}</span>
+            <tab.icon size={20} strokeWidth={selected ? 2 : 1.75} aria-hidden="true" />
+            <span className="text-[11px] leading-none">{tab.label}</span>
           </button>
         );
       })}

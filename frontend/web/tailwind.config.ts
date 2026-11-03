@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss';
 
-/** Metal research-workbench tokens (silver, gold, white, black). Hierarchy comes
- * from type and space; gold marks focus and the person's own things. */
+/** Monochrome workbench tokens (see src/index.css). Hierarchy comes from type
+ * and space, not color. */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   darkMode: 'class',
@@ -58,8 +58,7 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['Geist Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        serif: ['Source Serif 4', 'Source Serif Pro', 'Noto Serif SC', 'Songti SC', 'STSong', 'Georgia', 'Noto Serif', 'serif'],
+        sans: ['SF Pro Text', '-apple-system', 'BlinkMacSystemFont', 'Geist Variable', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['Geist Mono Variable', 'SFMono-Regular', 'Menlo', 'ui-monospace', 'monospace'],
       },
       borderRadius: { xl: '0.875rem' },

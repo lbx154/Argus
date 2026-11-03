@@ -1,5 +1,4 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBars } from '@fortawesome/free-solid-svg-icons';
+import { Menu } from 'lucide-react';
 import { BackendHandshake } from './BackendHandshake';
 import { Button } from './primitives';
 import { useI18n } from '../i18n';
@@ -55,7 +54,7 @@ export function Landing({
     <div className="landing-page" style={creating ? { display: 'none' } : undefined}>
       <div className="landing-navigation lg:hidden">
         {/* The project list opens from the same mark as on a project's page. */}
-        <Button onClick={onChoose} aria-label={t('topbar.openSessions')} title={t('topbar.openSessions')}><FontAwesomeIcon icon={faBars} className="h-4 w-4" /></Button>
+        <Button onClick={onChoose} aria-label={t('topbar.openSessions')} title={t('topbar.openSessions')}><Menu size={18} aria-hidden="true" /></Button>
       </div>
       {loading ? <BackendHandshake /> : (
         <>
@@ -80,9 +79,6 @@ export function Landing({
             return accepted;
           }} disabled={creating} pending={false} focusSignal={focusSignal}
           completionSelection={completionSelection} onCompletionSelectionChange={setCompletionSelection} />
-        <p className="landing-caption">{locale === 'zh-CN'
-          ? '发送后自动建立项目；团队干活时也可以随时说话。'
-          : 'Sending creates a project. You can write at any time while the team works.'}</p>
         <label className="landing-workdir">
           <span>{locale === 'zh-CN' ? '工作目录' : 'Folder'}</span>
           <input value={workdir} onChange={event => { setWorkdir(event.target.value); onWorkdirChange?.(); }} list="landing-workdirs" disabled={creating}

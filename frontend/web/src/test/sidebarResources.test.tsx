@@ -9,7 +9,7 @@ const props = {
   projects: [{ id: 's-A', label: 'Synthetic session A', display_name: 'Synthetic session A',
     last_active: 1, daemon_alive: false, daemon_pid: null, workdir: '/synthetic' }],
   activeId: 's-A', localCwd: '/synthetic', onSelect: vi.fn(), onManage: vi.fn(), onOpenPanel: vi.fn(),
-  onOpenLearning: vi.fn(), onOpenResults: vi.fn(), resultsCount: 2, onNew: vi.fn(), loading: false,
+  onOpenLearning: vi.fn(), onSearch: vi.fn(), onNew: vi.fn(), loading: false,
   onToggleCollapse: vi.fn(), themeMode: 'light' as const, onCycleTheme: vi.fn(),
 };
 function markup(collapsed = false) {
@@ -18,40 +18,20 @@ function markup(collapsed = false) {
   finally { client.clear(); }
 }
 describe('top resource navigation', () => {
-  it('puts Results first and folds skills under Advanced', () => {
+  it('starts with the projects: search and new on one row, skills and settings at the bottom', () => {
     const html = markup();
-    expect(html.indexOf('data-sidebar-resources')).toBeGreaterThan(0);
-    expect(html).toContain('data-sidebar-results');
-    expect(html).toContain('This project’s results');
-    expect(html).not.toContain('>2</span>');
-    expect(html.indexOf('data-sidebar-results')).toBeLessThan(html.indexOf('id="daemon-search"'));
-    expect(html).toContain('aria-expanded="false"');
-    for (const label of ['aria-label="Plugins"', 'aria-label="Skill library"']) {
-      expect(html).not.toContain(label);
-    }
+    expect(html).not.toContain('data-sidebar-results');
+    expect(html).not.toContain('data-sidebar-advanced');
+    expect(html.indexOf('aria-label="Search history and results"')).toBeLessThan(html.indexOf('id="daemon-search"'));
+    expect(html.split('aria-label="Skill library"')).toHaveLength(2);
+    expect(html.indexOf('aria-label="Skill library"')).toBeGreaterThan(html.indexOf('Synthetic session A'));
     expect(html.indexOf('aria-label="Open settings"')).toBeGreaterThan(html.indexOf('Synthetic session A'));
+    expect(html).not.toContain('aria-label="Plugins"');
   });
-  it('shows the advanced entries above project search once opened', () => {
-    vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
-    try {
-      const html = markup();
-      const labels = ['aria-label="Skill library"'];
-      for (const label of labels) {
-        expect(html).toContain(label);
-        expect(html.indexOf(label)).toBeLessThan(html.indexOf('id="daemon-search"'));
-        expect(html.split(label)).toHaveLength(2);
-      }
-      expect(labels.map(label => html.indexOf(label))).toEqual(labels.map(label => html.indexOf(label)).sort((a, b) => a - b));
-      expect(html).not.toContain('aria-label="Learning feed"');
-      expect(html).not.toContain('aria-label="Plugins"');
-    } finally { vi.unstubAllGlobals(); }
-  });
-  it('keeps a compact entry rail with Results and skills', () => {
+  it('keeps a compact entry rail with skills', () => {
     const html = markup(true);
     expect(html).toContain('aria-label="Expand projects"');
-    const labels = ['aria-label="This project’s results"', 'aria-label="Skill library"'];
-    for (const label of labels) expect(html).toContain(label);
-    expect(labels.map(label => html.indexOf(label))).toEqual(labels.map(label => html.indexOf(label)).sort((a, b) => a - b));
+    expect(html).toContain('aria-label="Skill library"');
     expect(html).not.toContain('id="daemon-search"');
   });
   it.each([false, true])('opens the learning feed from the sidebar entry (compact=%s)', (compact) => {
