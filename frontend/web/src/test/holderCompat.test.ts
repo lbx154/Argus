@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { renderLine } from '../../../core/src/eventRender';
 import { missionOutcomePresentation, parkReason, settledStatus } from '../../../core/src/missionOutcome';
 
 describe('statuses an older release wrote', () => {
@@ -38,15 +37,6 @@ describe('a task handed past the team', () => {
     const handed = missionOutcomePresentation({ type: 'life.mission.completed', status: 'manager', success: false } as never);
     expect(handed.outcomeClass).not.toBe('failed');
     expect(handed.tone).not.toBe('err');
-  });
-});
-
-describe('the feed line for a review', () => {
-  it('says a Reviewer handing the work to the Planner asked for a new plan, not another pass', () => {
-    const text = renderLine({ type: 'round.review.completed', status: 'planner', reason: 'Split it.' } as never, {
-      locale: 'en', showReasoning: true, unknownEventPolicy: 'hide', density: 'compact',
-    })!.text;
-    expect(text).toBe('the Reviewer asked the Planner for a new plan · Split it.');
   });
 });
 

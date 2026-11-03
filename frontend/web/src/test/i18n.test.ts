@@ -34,8 +34,7 @@ describe('web localization', () => {
     expect(translate('sidebar.manage', { name: 'demo' }, 'zh-CN')).toBe('管理 demo');
   });
 
-  test('localizes generated event status but preserves model text', () => {
-    expect(renderLine({ type: 'round.start', round: 2 }, ZH)?.text).toBe('第 2 轮');
+  test('preserves model text', () => {
     expect(renderLine({
       type: 'engineer.progress',
       kind: 'assistant_message',

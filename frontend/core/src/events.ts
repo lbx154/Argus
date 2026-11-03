@@ -1,5 +1,5 @@
 import type { EventMsg } from './types.js';
-import { canonicalEventType, EVENT_TYPES } from './eventCatalog.js';
+import { EVENT_TYPES } from './eventCatalog.js';
 
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -134,13 +134,8 @@ export interface EventPresentation {
 }
 
 const MILESTONE_TYPES = new Set<string>([
-  EVENT_TYPES.LIFE_MISSION_STARTED,
   EVENT_TYPES.LIFE_MISSION_COMPLETED,
-  EVENT_TYPES.LIFE_MISSION_FAILED,
-  EVENT_TYPES.LOOP_START, EVENT_TYPES.LOOP_DONE,
   EVENT_TYPES.LIFE_PLANNER_VERDICT,
-  EVENT_TYPES.LIFE_BUDGET_PAUSE,
-  EVENT_TYPES.LIFE_LIFECYCLE_BLOCK,
 ]);
 
 /** Shared filter/search semantics for the web event feed. */
@@ -150,7 +145,7 @@ export function eventMatchesView(
   filter: EventViewFilter = 'all',
   query = '',
 ): boolean {
-  const type = canonicalEventType(event.canonical_type ?? event.type);
+  const type = String(event.type ?? '');
   const kind = String(event.kind ?? '');
   if (
     filter === 'attention' &&

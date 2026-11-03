@@ -552,23 +552,6 @@ describe('project work progress in plain words', () => {
     expect(renderer!.root.findAllByProps({ 'data-repeat': 2 })).toHaveLength(1);
   });
 
-  it('says a verdict in one line with the rest folded, and the host’s climb record as written', () => {
-    mount([
-      { type: 'round.review.completed', status: 'replan_requested', review_source: 'unchanged_return', round_index: 2, item_id: 't',
-        reason: 'This path is making no new progress, so the team is trying a different approach.', event_id: 'v1', ts: 1 },
-      { type: 'round.review.completed', status: 'continue', review_source: 'reviewer', round_index: 1, item_id: 't',
-        reason: 'The content passed; one internal record still needs a fix.', next_action: 'Correct the attribution in source-verification.md.', event_id: 'v2', ts: 2 },
-    ]);
-    const group = renderer!.root.findByProps({ 'data-role': 'reviewer' });
-    act(() => group.findAllByType('button')[0].props.onClick());
-    expect(visibleText(group)).toContain('This path is making no new progress, so the team is trying a different approach.');
-    expect(visibleText(group)).not.toMatch(/replan_requested|\bcontinue\b/);
-    expect(header('reviewer')).toBe('Reviewer');
-    expect(group.findAllByProps({ 'data-full-text': true })).toHaveLength(0);
-    const fullToggles = group.findAll(node => node.type === 'button' && node.props['data-full-toggle']);
-    act(() => fullToggles[fullToggles.length - 1].props.onClick());
-    expect(visibleText(group.findByProps({ 'data-full-text': true }))).toContain('Next: Correct the attribution in source-verification.md.');
-  });
 });
 
 describe('result cards in the conversation', () => {

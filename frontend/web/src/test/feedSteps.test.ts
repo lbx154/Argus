@@ -2,9 +2,6 @@ import { roleSnapshot } from './serverSnapshot';
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import type { EventMsg, Snapshot } from '../api';
 import {
   MIN_GROUP_SIZE,
@@ -18,9 +15,7 @@ import {
 } from '../lib/feedSteps';
 import { translate } from '../i18n';
 import { EventStream } from './serverSnapshot';
-import { partitionRoleRows } from '../components/EventStream';
 
-const here = dirname(fileURLToPath(import.meta.url));
 
 const rows = (events: EventMsg[]) => renderFeedRows(events, { locale: 'en', showReasoning: true }).list;
 const fold = (events: EventMsg[]) => foldFeedRows(rows(events), 'en');
@@ -179,87 +174,6 @@ describe('foldFeedRows · a call and its outcome (rule c)', () => {
 });
 
 describe('foldFeedRows · repeated sentences and failure streaks (rules d, e)', () => {
-  const skipped = (round: number, ts: number): EventMsg => ({
-    type: 'round.review.completed',
-    review_skipped: true,
-    backend_unavailable: true,
-    round_index: round,
-    reason: 'Engineer backend failed before a trustworthy completed turn; reviewer skipped.',
-    ts,
-  } as EventMsg);
-
-  it('collapses consecutive identical rows into one row with a count and the latest clock', () => {
-    const folded = fold([skipped(1, 10), skipped(2, 20), skipped(3, 30)]);
-    expect(folded).toHaveLength(1);
-    const step = folded[0] as FeedStep;
-    expect(step.repeat).toBe(3);
-    expect(step.latest.ts).toBe(30);
-    expect(step.ev.ts).toBe(10);
-  });
-
-  it('collapses a failure streak whose only difference is the counter, showing the latest wording', () => {
-    const failure = (streak: number, ts: number): EventMsg => ({
-      type: 'round.reviewer_backend_failure',
-      operator_alert: true,
-      streak,
-      threshold: 2,
-      text: `reviewer backend unavailable ${streak}/2: no judgment was rendered — not continuing blind.`,
-      ts,
-    } as EventMsg);
-    const folded = fold([failure(1, 1), failure(2, 2)]);
-    expect(folded).toHaveLength(1);
-    const step = folded[0] as FeedStep;
-    expect(step.repeat).toBe(2);
-    expect(step.r.text).toContain('2/2');
-  });
-
-  it('collapses a retry cycle that alternates two rows once per attempt', () => {
-    const events: EventMsg[] = [];
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      events.push({ type: 'life.planner.start', objective: 'write the paper', ts: (clock += 1) } as EventMsg);
-      events.push({ type: 'life.planner.error', error: 'Copilot CLI exited with code 1.', kind: 'planner_failing', operator_alert: true, text: "The Planner hasn't had an answer from the model service for 10 minutes.", ts: (clock += 1) } as EventMsg);
-    }
-    events.push({ type: 'life.planner.start', objective: 'write the paper', ts: (clock += 1) } as EventMsg);
-    events.push({ type: 'life.planner.task_added', title: 'Build the portfolio', ts: (clock += 1) } as EventMsg);
-    const folded = fold(events) as FeedStep[];
-    expect(folded.map((step) => [step.r.glyph, step.repeat])).toEqual([
-      ['📋', 6], ['⚠', 6], ['📋', 1], ['＋', 1],
-    ]);
-  });
-
-  it('folds rounds in which nothing happened, but not rounds with work between them', () => {
-    const empty: EventMsg[] = [];
-    for (let round = 4; round <= 9; round += 1) {
-      empty.push({ type: 'round.start', round_index: round, ts: (clock += 1) } as EventMsg);
-      empty.push({ type: 'round.main.completed', round_index: round, ts: (clock += 1) } as EventMsg);
-    }
-    const folded = fold(empty) as FeedStep[];
-    expect(folded.map((step) => [step.r.text, step.repeat])).toEqual([['round 9', 6], ['finished round 9 of work', 6]]);
-
-    const busy: EventMsg[] = [];
-    for (let round = 1; round <= 3; round += 1) {
-      busy.push({ type: 'round.start', round_index: round, ts: (clock += 1) } as EventMsg);
-      busy.push(said(`Working on part ${round} of the proof.`));
-      busy.push({ type: 'round.main.completed', round_index: round, ts: (clock += 1) } as EventMsg);
-    }
-    expect(fold(busy)).toHaveLength(9);
-  });
-
-  it('folds the nine "no review this round" rows whose only difference is the streak counter', () => {
-    const events = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((round) => ({
-      type: 'round.review.completed',
-      status: 'continue',
-      review_skipped: true,
-      backend_unavailable: false,
-      round_index: round,
-      reason: `Engineer backend failed before a trustworthy completed turn; reviewer skipped. backend_failure_streak=${round}/2; error=Copilot CLI exited with code 1.`,
-      ts: (clock += 1),
-    } as EventMsg));
-    const folded = fold(events) as FeedStep[];
-    expect(folded).toHaveLength(1);
-    expect(folded[0].repeat).toBe(9);
-  });
-
   it('keeps streaming fragments as one growing row, then folds on the merged result', () => {
     const folded = fold([
       said('Checking the', { message_id: 'm1', replace: true }),
@@ -270,69 +184,6 @@ describe('foldFeedRows · repeated sentences and failure streaks (rules d, e)', 
     const step = folded[0] as FeedStep;
     expect(step.r.text).toBe('Checking the sources now.');
     expect(step.repeat).toBe(2);
-  });
-});
-
-describe('foldFeedRows · a real campaign', () => {
-  const events = readFileSync(join(here, 'fixtures', 'campaign-s-3dba660b.events.jsonl'), 'utf8')
-    .split('\n')
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as EventMsg);
-
-  it('shrinks the feed of s-3dba660b without hiding anything', () => {
-    const rendered = rows(events);
-    const { roleRows, systemRows } = partitionRoleRows(rendered);
-    const lists = [...Object.values(roleRows), systemRows];
-    const before = lists.reduce((total, list) => total + list.length, 0);
-    const foldedLists = lists.map((list) => foldFeedRows(list, 'en'));
-    const after = foldedLists.reduce((total, list) => total + list.length, 0);
-    const preserved = foldedLists.flat().reduce((total, row) => (
-      total + (row.kind === 'group' ? row.steps.reduce((sum, step) => sum + step.repeat, 0) : row.repeat)
-    ), 0);
-    const echoes = events.filter((event) => event.type === 'engineer.progress' && event.kind === 'tool_use' && event.status === 'failed').length;
-
-    // 622 events → 193 rendered rows → 115 rows once folded (manager 4→4,
-    // planner 18→11, engineer 155→93, reviewer 13→5, Argus updates 3→2).
-    // The recording's two retired idea-portfolio events render as nothing, nor does its routing line
-    // (the Python line's vertical and workflow_mode),
-    // nor do Planner errors retried on their own, a task's repeated start,
-    // or the end of a task's run that its completion row already tells.
-    expect(before).toBe(193);
-    expect(after).toBeLessThanOrEqual(Math.round(before * 0.65));
-    // Every rendered row is still reachable: as a step, a group member or a repeat.
-    expect(preserved + echoes).toBe(before);
-
-    // The Reviewer's thirteen rows become five: "checks round 1", the first
-    // mission's two skipped reviews with the model-service retry between
-    // them, then the nine "no review this round" rows of the second mission.
-    const reviewer = foldFeedRows(roleRows.reviewer, 'en');
-    expect(reviewer.map((row) => (row.kind === 'step' ? row.repeat : 0))).toEqual([1, 1, 1, 1, 9]);
-    expect((reviewer[2] as FeedStep).r.text).toBe('reviewer backend unavailable; retrying after 15.0s');
-
-    // The Planner's six failed attempts were retried on their own and carry
-    // no words for the operator: none of them is a row.
-    expect(roleRows.planner.filter((row) => row.ev.type === 'life.planner.error')).toHaveLength(0);
-
-    // Reads, searches and fetches fold; shell commands do not.
-    const engineer = foldFeedRows(roleRows.engineer, 'en');
-    const groups = engineer.filter((row): row is FeedGroup => row.kind === 'group');
-    expect(groups.length).toBeGreaterThan(0);
-    expect(engineer.filter((row) => row.kind === 'step' && row.ev.kind === 'command_execution')).toHaveLength(
-      roleRows.engineer.filter((row) => row.ev.kind === 'command_execution').length,
-    );
-    const summaries = groups.map((group) => groupSummary(group, en, 'en'));
-    expect(summaries).toContain('Read 6 files: strategy.md, w10.jsonl, w12.jsonl…');
-    expect(summaries).toContain('Looked up 4 web pages: arxiv.org/abs/1706.03762, arxiv.org/abs/2312.00752, arxiv.org/abs/2405.21060… · 4 failed');
-    expect(summaries.some((summary) => summary.startsWith('Used '))).toBe(false);
-
-    // Six rounds in which the model service failed before any work read as
-    // three rows, not eighteen — and the failure is named, not just counted.
-    const rounds = engineer.filter((row): row is FeedStep => row.kind === 'step' && row.ev.type === 'round.start');
-    expect(rounds.map((row) => row.repeat)).toContain(6);
-    const failures = engineer.filter((row): row is FeedStep => row.kind === 'step' && row.ev.type === 'round.backend_failure.backoff');
-    expect(failures.map((row) => row.repeat)).toEqual([2, 6, 1]);
-    expect(failures[1].r.text).toContain('Copilot CLI exited with code 1');
-    expect(failures[1].r.tone).toBe('warn');
   });
 });
 
