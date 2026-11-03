@@ -94,6 +94,9 @@ export interface Project {
   forManager?: ManagerLetter[];
   /** Backend session per role: manager, planner, <task>.engineer. Review turns start afresh. */
   sessions: Record<string, string>;
+  /** For each session, a digest of the standing instructions it was last given: a resumed session
+   * is not given them again by its backend, so a change goes in its next prompt. */
+  instructed?: Record<string, string>;
   /** The versions kept of each file a result was delivered with, oldest first: copies in delivered/. */
   delivered?: Record<string, string[]>;
   /** The operator's chief: one project above the others, whose roles read every project's record. */

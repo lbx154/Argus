@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
-import { Store, type FlowEvent, type Question } from '../src/store.js';
+import { Store, type FlowEvent, type Project, type Question } from '../src/store.js';
 import { Flow, title } from '../src/flow.js';
 import { conversationRows, daemon, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
 import { words } from './helpers/words.js';
@@ -1333,4 +1333,14 @@ test('an Engineer writes to the Reviewer as their turn goes on, copied to the Pl
   assert.match(planner?.prompt ?? '', /copied to the Planner:\nIs the delimiter handling right so far\?/);
   assert.ok(events().some(event => event.type === 'letter' && event.to[0] === 'reviewer' && event.cc[0] === 'planner'));
   assert.equal(project.tasks[0]!.status, 'closed');
+});
+
+test('a resumed session is given its standing instructions again only when they changed since it was given them', async t => {
+  const { flow, id, requests } = await setup(t, [report, report, report]);
+  await say(flow, id, 'first');
+  await say(flow, id, 'second');
+  assert.doesNotMatch(requests[1]!.prompt, /standing instructions, as they now are/);
+  (flow as unknown as { projects: Map<string, Project> }).projects.get(id)!.instructed!.manager = 'older';
+  await say(flow, id, 'third');
+  assert.match(requests[2]!.prompt, /^## Your standing instructions, as they now are[^\n]*\n[\s\S]*## Where things are[\s\S]*third/);
 });

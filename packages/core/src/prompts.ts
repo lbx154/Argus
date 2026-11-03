@@ -105,6 +105,10 @@ export const rewritePrompt = (draft: string): string => join(
 /** A letter to a task that is not open, or closed before its holder read it, back to its writer. */
 export const unread = (task: string, letter: string): string => `Your letter to task ${task}, which is not open, was not read:\n${letter}`;
 
+/** Standing instructions changed since a resumed session was given them, ahead of its prompt. */
+export const reinstructed = (instructions: string, prompt: string): string =>
+  join(section('Your standing instructions, as they now are (they replace those you were given before)', instructions), prompt);
+
 /** A letter put into a turn under way. */
 export const letterPrompt = (from: Note['from'], text: string): string => section(`From the ${NAMES[from]}, during your turn`, text);
 

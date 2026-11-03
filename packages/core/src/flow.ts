@@ -9,12 +9,12 @@
 // waits for the operator while the rest of the work goes on. Nothing retries a failed turn; a
 // hand-off Argus refuses goes back to its writer once.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, copied, handedTo, posted, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, copied, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
@@ -428,11 +428,17 @@ export class Flow {
     const dir = this.store.dir(project.id);
     const own = task && typeof task.place === 'object' ? task.place : null;
     this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
+    const standing = instructions(role, project, this.store);
+    // Only what the session has not been told: a resumed one learns of changed instructions in its prompt.
+    // The digest leaves out the date and the machine's load, which change by themselves.
+    const digest = createHash('sha256').update(standing.replace(/^Today is .*$|^\d+ logical CPUs.*$/gm, '')).digest('hex').slice(0, 16);
+    const told = resume !== undefined && project.instructed?.[key] !== digest;
+    (project.instructed ??= {})[key] = digest;
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: instructions(role, project, this.store),
-        prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : prompt(resume !== undefined),
+        backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
+        prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills; a role that writes may write skills too.
         readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home), ...own ? [project.workdir] : []], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
