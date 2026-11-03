@@ -10,13 +10,12 @@ import { errorText, shortcut } from '../lib/format';
 import { filterProjects } from '../../../core/src/projects';
 import type { ThemeMode } from './TopBar';
 import { useI18n } from '../i18n';
-import { Archive, ChevronDown, ChevronRight, Folder, MoreHorizontal, PackageCheck, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut, Clock } from 'lucide-react';
+import { Archive, ChevronDown, Folder, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pin, Flag, Search, Settings, LogOut, Clock, BookOpen } from 'lucide-react';
 import { dailyText, localTime, shownName, utcTime } from '../lib/daily';
-import { readLocalStorage, writeLocalStorage } from '../lib/storage';
+import { writeLocalStorage } from '../lib/storage';
 import { SETTINGS_CAPABILITY, useCapability } from '../lib/capabilities';
 import { projectSpendTotal, SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
 
-const ADVANCED_KEY = 'argus.sidebar.advanced.v1';
 
 type Scope = 'local' | 'all';
 const rankChiefFirst = (rows: ProjectRow[]): ProjectRow[] => [...rows.filter(row => row.chief), ...rows.filter(row => !row.chief)];
@@ -70,8 +69,6 @@ export function Sidebar({
   onManage,
   onOpenPanel,
   onOpenLearning,
-  onOpenResults,
-  resultsCount = 0,
   onNew,
   onSearch,
   onOpenTrash,
@@ -98,8 +95,6 @@ export function Sidebar({
   onOpenPanel: (p: 'config') => void;
   onOpenLearning?: (scope: LearningScope) => void;
   /** Opens the current project's delivered results. */
-  onOpenResults?: () => void;
-  resultsCount?: number;
   onNew: () => void;
   onSearch?: () => void;
   onOpenTrash?: () => void;
@@ -142,16 +137,9 @@ export function Sidebar({
   const [settingsHint, setSettingsHint] = useState(false);
   const settings = useCapability(SETTINGS_CAPABILITY);
   const zh = locale === 'zh-CN';
-  // The skill library is under Advanced.
-  const [advancedOpen, setAdvancedOpen] = useState(() => readLocalStorage(ADVANCED_KEY) === 'open');
-  const toggleAdvanced = () => setAdvancedOpen((open) => { writeLocalStorage(ADVANCED_KEY, open ? 'closed' : 'open'); return !open; });
   const openKnowledge = onOpenLearning;
-  const resultsLabel = zh ? '本项目成果' : 'This project’s results';
   const spendHint = `${SPEND_ESTIMATE_HINT[zh ? 'zh' : 'en']} ${zh ? '不含进行中的调用。' : 'Excludes calls in progress.'}`;
   const totalSpend = spendEstimateLabel(projectSpendTotal(projects), zh, true) || '—';
-  const resultsTitle = !activeId ? (zh ? '先选择一个项目' : 'Select a project first')
-    : resultsCount ? (zh ? '查看本项目已交付的成果' : 'Open results delivered in this project')
-      : (zh ? '这个项目还没有交付成果' : 'No results delivered in this project yet');
   const preference = (id: string) => organization.values[id] ?? DEFAULT_PREFERENCE;
   useEffect(() => {
     const focus = () => setSyncAttempt(value => value + 1);
@@ -278,34 +266,9 @@ export function Sidebar({
         </div>
       ) : null}
 
-      {slim && onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} aria-label={resultsLabel} title={resultsTitle} data-sidebar-results
-        className="relative mx-auto my-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-ink-dim hover:bg-bg hover:text-ink disabled:opacity-40">
-        <PackageCheck size={17} strokeWidth={1.5} />{resultsCount ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" /> : null}
-      </button> : null}
       {slim && openKnowledge ? <LearningLibraryEntry onOpen={openKnowledge} compact /> : null}
       {!slim ? (
         <>
-          <nav aria-label={locale === 'zh-CN' ? '成果与工具' : 'Results and tools'} data-sidebar-resources
-            className="shrink-0 overflow-y-auto overscroll-contain border-b border-line/50 px-2 py-2 scroll-thin [&>section]:mx-2 [&>section]:border-0 [&>section]:py-0 [&>section>div>button:first-child]:px-3"
-            style={{ maxHeight: 'min(40dvh, 360px)' }}>
-            {onOpenResults ? <button type="button" onClick={onOpenResults} disabled={!resultsCount} title={resultsTitle} data-sidebar-results
-              className="mx-2 my-1 flex h-9 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-sm text-ink-dim transition-colors hover:bg-bg hover:text-ink disabled:opacity-50 disabled:hover:bg-transparent">
-              <PackageCheck size={17} strokeWidth={1.5} /><span>{resultsLabel}</span>
-            </button> : null}
-            <button type="button" onClick={toggleAdvanced} aria-expanded={advancedOpen} data-sidebar-advanced
-              title={zh ? '技能库' : 'Skill library'}
-              className="mx-2 my-1 flex h-8 w-[calc(100%-1rem)] shrink-0 items-center gap-2 rounded-md px-3 text-xs text-ink-faint hover:bg-bg hover:text-ink-dim">
-              <ChevronRight size={13} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
-              <span>{zh ? '高级工具' : 'Advanced tools'}</span>
-            </button>
-            {advancedOpen ? <>
-              {openKnowledge && <LearningLibraryEntry onOpen={openKnowledge} />}
-            </> : null}
-          </nav>
-          {onSearch && <button type="button" onClick={onSearch}
-            className="sidebar-global-search">
-            <Search size={16} />{zh ? '搜索历史与成果' : 'Search history and results'}
-          </button>}
           <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3">
             <span className="text-xs font-medium text-ink-faint">{locale === 'zh-CN' ? '项目' : 'Projects'}</span>
             <span data-project-spend-total className="text-[11px] tabular-nums text-ink-faint" title={spendHint}
@@ -313,12 +276,15 @@ export function Sidebar({
             {localProjects.length > 0 && localProjects.length < projects.length ? <select aria-label={locale === 'zh-CN' ? '项目范围' : 'Project scope'} value={scope} onChange={event => setScope(event.target.value as Scope)} className="min-w-0 bg-transparent text-xs text-ink-faint">
               <option value="local">{t('common.local')}</option><option value="all">{t('common.all')}</option>
             </select> : null}
+            {onSearch && <button type="button" onClick={onSearch} className="sidebar-search ml-auto" aria-label={zh ? '搜索历史与成果' : 'Search history and results'} title={zh ? '搜索历史与成果' : 'Search history and results'}>
+              <Search size={15} />
+            </button>}
             <button
               type="button"
               onClick={onNew}
               disabled={creating}
               title={t('sidebar.create')}
-              className="sidebar-new ml-auto"
+              className={onSearch ? 'sidebar-new' : 'sidebar-new ml-auto'}
             >
               {creating ? '…' : locale === 'zh-CN' ? '新建' : 'New'}
             </button>
@@ -469,6 +435,9 @@ export function Sidebar({
           <div className="sidebar-footer">
             {settings && <button type="button" onClick={() => activeId ? onOpenPanel('config') : setSettingsHint(true)} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={t('sidebar.openSettings')} title={zh ? '项目设置' : 'Project settings'}>
               <Settings size={15} />{zh ? '设置' : 'Settings'}
+            </button>}
+            {openKnowledge && <button type="button" onClick={() => openKnowledge('feed')} className="icon-control flex h-8 items-center gap-2 px-2 text-xs" aria-label={zh ? '技能库' : 'Skill library'}>
+              <BookOpen size={15} />{zh ? '技能库' : 'Skill library'}
             </button>}
             <details className="sidebar-more">
               <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '语言、外观与登录' : 'Language, appearance and sign-in'}>

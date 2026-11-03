@@ -622,15 +622,6 @@ export function latestConversationDelivery(
   return undefined;
 }
 
-function fileGlyph(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase() ?? '';
-  if (['csv', 'tsv', 'xlsx', 'xls', 'parquet'].includes(ext)) return '▦';
-  if (modelFormat(path)) return '◇';
-  if (ext === 'pdf') return '◧';
-  if (['py', 'ts', 'tsx', 'js', 'sh', 'r', 'ipynb', 'json', 'yaml', 'yml'].includes(ext)) return '‹›';
-  return '▤';
-}
-
 /**
  * A delivered result in the conversation, shown as itself: a picture shows the
  * picture, files show as files. "Open" leads to the result; the process behind
@@ -683,7 +674,7 @@ function DeliveryCard({
         <p className="text-xs text-ink-faint">{deliveryTimeLabel(delivery, zh)}</p>
         {listed.length ? <ul className="result-card-files">
           {listed.map(file => <li key={file.path} title={file.path}>
-            <span aria-hidden="true">{fileGlyph(file.path)}</span>{file.label || file.path.split('/').pop()}
+            {file.label || file.path.split('/').pop()}
           </li>)}
           {others.length > listed.length ? <li className="text-ink-faint">{zh ? `另有 ${others.length - listed.length} 个文件` : `${others.length - listed.length} more files`}</li> : null}
         </ul> : null}

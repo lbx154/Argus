@@ -21,7 +21,6 @@ describe('attachments a researcher actually has', () => {
 
 describe('sidebar skill entry', () => {
   it('opens everything the library holds instead of the raw learning feed', async () => {
-    vi.stubGlobal('localStorage', { getItem: (key: string) => key === 'argus.sidebar.advanced.v1' ? 'open' : null, setItem: vi.fn(), removeItem: vi.fn() });
     vi.stubGlobal('window', new EventTarget());
     vi.spyOn(api, 'organization').mockResolvedValue({ value: {}, revision: 0 });
     const onOpenLearning = vi.fn();

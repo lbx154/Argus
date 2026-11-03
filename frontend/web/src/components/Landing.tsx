@@ -80,9 +80,6 @@ export function Landing({
             return accepted;
           }} disabled={creating} pending={false} focusSignal={focusSignal}
           completionSelection={completionSelection} onCompletionSelectionChange={setCompletionSelection} />
-        <p className="landing-caption">{locale === 'zh-CN'
-          ? '发送后自动建立项目；团队干活时也可以随时说话。'
-          : 'Sending creates a project. You can write at any time while the team works.'}</p>
         <label className="landing-workdir">
           <span>{locale === 'zh-CN' ? '工作目录' : 'Folder'}</span>
           <input value={workdir} onChange={event => { setWorkdir(event.target.value); onWorkdirChange?.(); }} list="landing-workdirs" disabled={creating}

@@ -969,35 +969,34 @@ button {
   background: rgb(var(--surface));
   transition: box-shadow 180ms ease, border-color 180ms ease;
 }
-.result-card:hover { border-color: rgb(var(--silver)); box-shadow: var(--shadow-lift); }
+.result-card:hover { border-color: rgb(var(--silver)); }
 .result-card-preview {
   display: flex;
   justify-content: center;
   padding: 16px;
-  border-bottom: 1px solid rgb(var(--line));
-  background: rgb(var(--surface-2) / 55%);
+  background: rgb(var(--surface-2));
 }
 .result-card-preview[data-delivery-thumbnail] { aspect-ratio: 16 / 9; align-items: center; }
 .result-card-preview[data-delivery-thumbnail] > button { width: 100%; height: 100%; }
 .result-card-preview[data-delivery-thumbnail] img { width: 100%; height: 100%; max-height: 100%; object-fit: contain; }
 .result-card-preview img { border-radius: var(--radius-sm); cursor: zoom-in; }
 .result-card-model { display: block; padding: 10px; }
-.result-card-body { padding: 14px 18px 12px; }
+.result-card-body { padding: 20px 24px 22px; }
 .result-card-kind { display: flex; align-items: center; gap: 8px; color: rgb(var(--ink-faint)); font-size: 12px; }
 .result-card-title {
-  margin-top: 4px;
+  margin-top: 6px;
   overflow: hidden;
   color: rgb(var(--ink));
-  font-size: 18px;
-  font-weight: 500;
-  line-height: 1.4;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .result-card-files { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 8px; color: rgb(var(--ink-dim)); font-size: 13px; }
 .result-card-files li { display: flex; min-width: 0; align-items: center; gap: 6px; }
-.result-card-files li > span { color: rgb(var(--ink-faint)); font-size: 11px; }
-.result-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 12px 0 0; }
+.result-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 16px 0 0; }
 .result-card-actions button {
   min-height: 30px;
   border-radius: var(--radius-control);
@@ -1008,7 +1007,8 @@ button {
 }
 .result-card-actions button:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 /* Opening the result is the card's one action, and looks like a button. */
-.result-card-actions .result-card-open { border: 1px solid rgb(var(--line)); background: rgb(var(--surface)); color: rgb(var(--ink)); font-weight: 500; padding-inline: 16px; }
+.result-card-actions .result-card-open { min-height: 34px; background: rgb(var(--ink)); color: rgb(var(--on-accent)); font-weight: 500; padding-inline: 20px; }
+.result-card-actions .result-card-open:hover { background: rgb(var(--accent-hover)); color: rgb(var(--on-accent)); }
 @media (max-width: 640px), (pointer: coarse) {
   .result-card-actions button, .chat-context-tools button, .task-line-action { min-height: 44px; }
   .chat-context { padding: 8px 16px 6px; align-items: center; }

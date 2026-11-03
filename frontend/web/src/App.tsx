@@ -883,16 +883,6 @@ export default function App() {
           onManage={requestManageSession}
           onOpenPanel={(panel) => setOverlay(panel)}
           onOpenLearning={openLearningLibrary}
-          onOpenResults={() => {
-            const selection = defaultDeliverySelection(deliveryHistory);
-            if (selection) openDelivery(selection.receipt, selection.path);
-            else {
-              setPreviewPathRequest(current => ({ path: FILES_PATH, token: current.token + 1 }));
-              openPreview();
-            }
-            setSidebarOpen(false);
-          }}
-          resultsCount={deliveryCount}
           onNew={() => { startNewSession(); setSidebarOpen(false); }}
           onSearch={() => setSearchOpen(true)}
           // The trial portal owns sign-in; a token kept here is this browser's own.
