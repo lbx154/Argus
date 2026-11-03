@@ -89,7 +89,12 @@ export const codex: StartBackend = (request, { confined, schema }) => {
           const step = said(text = String(item.text ?? ''));
           if (step) { onStep(step); now.onWords?.(''); }
         } else if (method === 'item/completed' && item.type === 'reasoning') onStep(thought(item.summary));
-        else if (method === 'error' && isJsonObject(params.error) && params.willRetry !== true) error = String(params.error.message ?? error);
+        else if (method === 'error' && isJsonObject(params.error)) {
+          // Codex tries a failed model request again on its own, up to its provider's limit: the
+          // operator reads each try as it happens, not a silent wait for the last.
+          if (params.willRetry === true) now.onWords?.(retrying(params.error), 'process');
+          else error = String(params.error.message ?? error);
+        }
         else if (method === 'turn/completed' && isJsonObject(params.turn)) {
           status = String(params.turn.status);
           if (isJsonObject(params.turn.error)) error = String(params.turn.error.message ?? error);
@@ -127,6 +132,14 @@ export const codex: StartBackend = (request, { confined, schema }) => {
     },
   };
 };
+
+/** A model request Codex will try again, as the operator reads it: what the service answered
+ * (`unexpected status 401 Unauthorized: <its words>, url: …`, or how the stream broke) and the try. */
+export function retrying(error: Record<string, unknown>): string {
+  const details = String(error.additionalDetails ?? '').replace(/, url: [\s\S]*$/, '').replace(/^unexpected status /, '').trim();
+  const tries = /(\d+)\/(\d+)/.exec(String(error.message ?? ''));
+  return `The model service failed${details ? ` (${details})` : ''}; Codex is trying again${tries ? `, ${tries[1]} of ${tries[2]}` : ''}.`;
+}
 
 /** The form in the turn's last message. */
 function form(text: string): unknown {
