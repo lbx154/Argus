@@ -30,72 +30,29 @@ permissions:
   contents: read
 
 jobs:
-  python:
-    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'all'
-    name: build · wheel + sdist
+  versions:
+    if: startsWith(github.ref, 'refs/tags/v')
+    name: check · tag matches the desktop version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22.12.0"
-          cache: npm
-          cache-dependency-path: |
-            frontend/web/package-lock.json
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - name: Install build dependencies
+      - name: Tag and the three desktop version fields agree
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . build
-          npm --prefix frontend/web ci
-      - name: Build release sources
-        run: |
-          npm --prefix frontend/web run build
-      - name: Validate tag and package versions
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import json
           import os
           import tomllib
           from pathlib import Path
 
-          python_version = tomllib.loads(
-              Path("pyproject.toml").read_text(encoding="utf-8")
-          )["project"]["version"]
-          tauri_desktop_version = json.loads(
-              Path("desktop-tauri/package.json").read_text(encoding="utf-8")
-          )["version"]
-          cargo_version = tomllib.loads(
-              Path("desktop-tauri/src-tauri/Cargo.toml").read_text(encoding="utf-8")
-          )["package"]["version"]
-          tauri_config_version = json.loads(
-              Path("desktop-tauri/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
-          )["version"]
+          versions = {
+              "Tauri desktop": json.loads(Path("desktop-tauri/package.json").read_text(encoding="utf-8"))["version"],
+              "Tauri Cargo": tomllib.loads(Path("desktop-tauri/src-tauri/Cargo.toml").read_text(encoding="utf-8"))["package"]["version"],
+              "Tauri config": json.loads(Path("desktop-tauri/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"],
+          }
           tag = os.environ["GITHUB_REF_NAME"]
-          assert tag == f"v{python_version}", (
-              f"tag {tag!r} does not match Python package version {python_version!r}"
-          )
-          for name, version in {
-              "Tauri desktop": tauri_desktop_version,
-              "Tauri Cargo": cargo_version,
-              "Tauri config": tauri_config_version,
-          }.items():
-              assert version == python_version, (
-                  f"{name} version {version!r} does not match Python package version "
-                  f"{python_version!r}"
-              )
+          for name, version in versions.items():
+              assert tag == f"v{version}", f"tag {tag!r} does not match {name} version {version!r}"
           PY
-      - name: Build distributions
-        run: python -m build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: python-dist
-          path: dist/*
 
   desktop:
     name: build · ${{ matrix.platform }} desktop
@@ -185,42 +142,14 @@ jobs:
           path: desktop-tauri/release/*
           if-no-files-found: error
 
-  pypi:
-    name: publish · PyPI
-    # Disabled with the 2026-09-14 rename: the distribution is now ``argus``,
-    # and that name on PyPI belongs to an unrelated 2019 project. Argus is
-    # installed from Git (README "Install"); re-enable once a PyPI name is
-    # secured and the environment URL below points at it.
-    if: false && startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2' && github.ref != 'refs/tags/v0.1.3' && github.ref != 'refs/tags/v0.1.4' && github.ref != 'refs/tags/v0.1.5' && github.ref != 'refs/tags/v0.1.6'
-    needs: [python, desktop]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    environment:
-      name: pypi
-      url: https://pypi.org/project/argus/
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: python-dist
-          path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          skip-existing: true
-
   github:
     name: publish · GitHub Release
     if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.1.2' && github.ref != 'refs/tags/v0.1.4'
-    needs: [python, desktop]
+    needs: [versions, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: python-dist
-          path: release-assets
       - uses: actions/download-artifact@v4
         with:
           pattern: desktop-*

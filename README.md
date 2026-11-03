@@ -270,11 +270,10 @@ it only if you want all of that gone.
 
 ## Projects started with the Python runtime
 
-The earlier Python runtime (`argus/`) is still in this repository only so that projects
-started with it can finish; after that it will be removed, and it is not for new
-installations. Its state is in `~/.argus-skill`, separate from `~/.argus`. Keep running
-those projects with the installation you started them with. Both installations provide a
-command called `argus`; on a machine with both, check which one runs (`type -a argus`, or
+The earlier Python runtime was removed from this repository on 2026-11-03; its last
+version is commit `4c91c788b`. An installation made from it keeps working, with its state
+in `~/.argus-skill`, separate from `~/.argus`. Both installations provide a command called
+`argus`; on a machine with both, check which one runs (`type -a argus`, or
 `Get-Command argus -All` in PowerShell).
 
 ## Repository layout
@@ -286,8 +285,6 @@ command called `argus`; on a machine with both, check which one runs (`type -a a
   core when it is built.
 - `frontend/web/` — the web page's source; the package carries a build of it.
 - `desktop-tauri/` — the desktop shell.
-- `argus/`, `tests/` — the Python runtime and its tests, kept until the projects started
-  with it end.
 
 ## Further reading
 

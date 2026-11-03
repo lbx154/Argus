@@ -7,7 +7,7 @@ import {
 } from '../lib/modelFiles';
 
 // A real agent-made URDF: a five-bar platform whose loop closes outside the tree.
-const FIVEBAR = readFileSync(fileURLToPath(new URL('../../../../tests/fixtures/robot/adjustable_fivebar.urdf', import.meta.url)), 'utf8');
+const FIVEBAR = readFileSync(fileURLToPath(new URL('./fixtures/robot/adjustable_fivebar.urdf', import.meta.url)), 'utf8');
 
 describe('URDF reading', () => {
   it('reads the five-bar fixture: links, joints, limits and mimic', () => {
