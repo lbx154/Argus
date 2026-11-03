@@ -176,7 +176,6 @@ describe('project organization', () => {
     act(() => button('待跟进').props.onClick());
     expect(text(view.root)).toContain('Beta');
     expect(text(view.root)).not.toContain('Alpha');
-    expect(text(view.root)).toContain('你标记为待跟进的项目');
     act(() => manage('Beta').props.onClick({ stopPropagation: vi.fn() }));
     await act(async () => button('归档项目').props.onClick());
     expect(text(view.root)).not.toContain('Beta');

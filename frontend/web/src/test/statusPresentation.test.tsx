@@ -1,5 +1,4 @@
 import { fileURLToPath } from 'node:url';
-import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { NodeProps } from '@xyflow/react';
@@ -99,29 +98,3 @@ it.each(['p-c855623c', 'p-0444b8d3'])('%s uses Chinese status when supplemented 
   expect(html).not.toContain(thought.text.slice(2, -2));
 });
 
-it('ticks live work once for overlapping calls and freezes on the completed server snapshot', () => {
-  vi.useFakeTimers();
-  const at = Date.now();
-  vi.setSystemTime(at);
-  const snap = snapshot(store, original, { since: at / 1000 - 12, requests: [], calls: [
-    { role: 'manager', task: undefined, started_ts: at / 1000 - 12 },
-    { role: 'engineer', task: 't1', started_ts: at / 1000 - 5 },
-  ] });
-  let view!: ReactTestRenderer;
-  const draw = (value: typeof snap) => <TopBar snap={value} streamOk onStart={vi.fn()} onStop={vi.fn()} onManage={vi.fn()} busy={false} />;
-  const duration = () => view.root.findByProps({ 'data-work-duration': true }).children.join('');
-  try {
-    act(() => { view = create(draw(snap)); });
-    expect(duration()).toBe('Worked 12s');
-    act(() => { vi.advanceTimersByTime(3000); });
-    expect(duration()).toBe('Worked 15s');
-    const done = { ...snap, read_at: at + 3000, daemon: { ...snap.daemon, calls: [] },
-      usage_summary: { ...snap.usage_summary!, work_duration_ms: 15000 } };
-    act(() => view.update(draw(done)));
-    act(() => { vi.advanceTimersByTime(10000); });
-    expect(duration()).toBe('Worked 15s');
-  } finally {
-    act(() => view?.unmount());
-    vi.useRealTimers();
-  }
-});

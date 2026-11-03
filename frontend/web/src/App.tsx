@@ -932,7 +932,7 @@ export default function App() {
                 snapshotStale={snapQ.isError}
                 readOnly={kiosk}
               /> : <WorkspaceHeader className="project-header">
-                <div className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 text-ink">
+                <div className="topbar-title min-w-0 truncate text-[19px] font-semibold leading-6 text-ink">
                   {shownName(projects.find(project => project.id === activeSid) ?? {}, locale === 'zh-CN', t('sidebar.unnamedSession'))}
                 </div>
               </WorkspaceHeader>}

@@ -2,7 +2,7 @@
 .delivery-heading { display: flex; align-items: center; gap: 12px; }
 .delivery-mark { display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid rgb(var(--line)); border-radius: 12px; color: rgb(var(--ink-dim)); background: var(--sheen-silver); }
 .delivery-heading p { font-size: 12px; color: rgb(var(--ink-faint)); }
-.delivery-heading h2 { font-family: var(--font-serif); font-size: 24px; font-weight: 500; line-height: 1.25; letter-spacing: -.01em; margin-top: 2px; }
+.delivery-heading h2 { font-size: 24px; font-weight: 600; line-height: 1.25; letter-spacing: -.02em; margin-top: 2px; }
 .delivery-return { margin-left: auto; align-self: flex-start; border: 1px solid transparent; border-radius: var(--radius-control); padding: 6px 10px; color: rgb(var(--ink-dim)); font-size: 13px; white-space: nowrap; transition: background-color 150ms ease, color 150ms ease; }
 .delivery-return:hover { background: rgb(var(--surface-2)); color: rgb(var(--ink)); }
 .delivery-task-select { margin-top: 12px; max-width: 100%; font-size: 14px; border: 1px solid rgb(var(--line)); border-radius: var(--radius-control); padding: 5px 8px; background: rgb(var(--panel)); }

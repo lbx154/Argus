@@ -60,12 +60,13 @@ function sidebarMarkup(
 }
 
 describe('Sidebar session identity and health', () => {
-  it('uses the same server preview for the project list and shows recorded-call costs and their total', () => {
+  it('uses the same server preview for the project list and shows only the total cost', () => {
     const markup = sidebarMarkup([
       { ...rows[0], last_message: 'Excel or CSV?', spend_usd: 1.25, spend_status: 'priced' },
       { ...rows[1], last_message: 'Model is unavailable', spend_usd: 2, spend_status: 'priced' },
     ]);
-    for (const text of ['Excel or CSV?', 'Model is unavailable', '≈$1.25', '≈$2.00', '≈$3.25', 'excludes calls in progress']) expect(markup).toContain(text);
+    for (const text of ['Excel or CSV?', 'Model is unavailable', '≈$3.25', 'Excludes calls in progress']) expect(markup).toContain(text);
+    expect(markup).not.toContain('≈$1.25');
     expect(markup).toContain('data-project-spend-total');
   });
 
@@ -77,9 +78,7 @@ describe('Sidebar session identity and health', () => {
     expect(spendEstimateLabel(projectSpendTotal([unknown]), false, true)).toBe('Unpriced');
     expect(projectSpendTotal([{ ...rows[0], spend_usd: null, spend_status: 'empty' }])).toEqual({ spendUsd: null, spendStatus: 'empty' });
     expect(projectSpendTotal([{ ...rows[0], spend_usd: 0, spend_status: 'priced' }, unknown])).toEqual({ spendUsd: null, spendStatus: 'partial' });
-    const markup = sidebarMarkup([{ ...rows[0], spend_usd: 0, spend_status: 'priced' }, unknown]);
-    expect(markup).toContain('≈$0.00');
-    expect(markup).toContain('Unpriced');
+    expect(sidebarMarkup([{ ...rows[0], spend_usd: 0, spend_status: 'priced' }, unknown])).toContain('Unpriced');
     expect(spendEstimateLabel({ spendUsd: 1.25, spendStatus: 'unpriced' }, false, true)).toBe('≥$1.25');
   });
   it('keeps stable identifiers in the tooltip when unnamed sessions would otherwise look identical', () => {

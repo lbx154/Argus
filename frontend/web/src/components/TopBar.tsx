@@ -1,4 +1,3 @@
-import { useElapsed } from '../map/LiveLine';
 import { WorkspaceHeader } from './WorkspaceShell';
 import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot } from '../api';
@@ -8,7 +7,7 @@ import { useI18n } from '../i18n';
 import { currentWorkStatus, workStatusLabel } from '../lib/workStatus';
 import { relativizeWorkspacePaths } from '../lib/workspacePaths';
 import { clockOf } from '../lib/format';
-import { SPEND_ESTIMATE_HINT, spendEstimateLabel, workDurationLabel } from '../lib/projectOverview';
+import { SPEND_ESTIMATE_HINT, spendEstimateLabel } from '../lib/projectOverview';
 import { shownName } from '../lib/daily';
 
 export type ThemeMode = 'light' | 'dark';
@@ -67,15 +66,7 @@ export function TopBar({
   const phase = teamPhase(work);
   const statusWords = workStatusLabel(work, locale);
   const activityAt = work.activityAt ?? snap.session.last_active;
-  const spendLabel = spendEstimateLabel({ spendUsd: snap.spend_usd ?? null, spendStatus: snap.spend_status }, locale === 'zh-CN');
-  // All live intervals reach read_at, so their union grows once per elapsed
-  // second, regardless of how many calls overlap. Reuse the reply's clock.
-  const elapsed = useElapsed(snap.daemon.calls?.length && snap.read_at != null ? snap.read_at / 1000 : null);
-  const duration = snap.usage_summary && <span data-work-duration title={locale === 'zh-CN'
-    ? '合并有用量记录及正在进行的调用区间；重叠只计一次，间歇不计；缺失时长的旧调用未计入。'
-    : 'Union of calls with usage records and calls in progress; overlaps count once, gaps and calls without durations add no time.'}>
-    {workDurationLabel(snap.usage_summary.work_duration_ms + Math.max(0, elapsed ?? 0) * 1000, locale === 'zh-CN', snap.usage_summary.calls_without_duration > 0)}
-  </span>;
+  const spendLabel = spendEstimateLabel({ spendUsd: snap.spend_usd ?? null, spendStatus: snap.spend_status }, locale === 'zh-CN', true);
   const healthTitle = snapshotStale
     ? t('common.stale')
     : streamOk
@@ -84,7 +75,7 @@ export function TopBar({
 
   return (
     <WorkspaceHeader className="project-header">
-      <h1 className="topbar-title min-w-0 truncate font-serif text-[19px] font-medium leading-6 tracking-[-0.005em] text-ink" title={title}>
+      <h1 className="topbar-title min-w-0 truncate text-[19px] font-semibold leading-6 tracking-[-0.015em] text-ink" title={title}>
         {title}
       </h1>
       <div className={showStatus ? "topbar-status min-w-0 items-center text-xs text-ink-faint" : "sr-only"} title={focus ? `${statusWords} · ${focus}` : statusWords}>
@@ -98,10 +89,8 @@ export function TopBar({
         <span role="status" className="topbar-work-status text-ink-dim">{statusWords}</span>
         {showStatus && activityAt ? <><span aria-hidden="true">·</span><time dateTime={new Date(activityAt * 1000).toISOString()}>{clockOf({ ts: activityAt })}</time></> : null}
         {showStatus && spendLabel ? <><span aria-hidden="true">·</span><span title={SPEND_ESTIMATE_HINT[locale === 'zh-CN' ? 'zh' : 'en']}>{spendLabel}</span></> : null}
-        {showStatus && duration}
         {showStatus && <div className="hidden sm:block"><SessionWorkdir session={snap.session} /></div>}
       </div>
-      {!showStatus && duration && <div className="topbar-duration text-xs text-ink-faint">{duration}</div>}
       <div className="topbar-actions flex shrink-0 items-center gap-2 sm:gap-3">
         {onOpenSessions ? (
           <button type="button" onClick={onOpenSessions} aria-label={t('topbar.openSessions')} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-bg hover:text-ink lg:hidden">

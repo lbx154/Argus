@@ -318,12 +318,11 @@ export function Sidebar({
               onClick={onNew}
               disabled={creating}
               title={t('sidebar.create')}
-              className="ml-auto flex h-8 items-center justify-center rounded-md px-2 text-xs text-ink-dim hover:bg-bg disabled:opacity-40"
+              className="sidebar-new ml-auto"
             >
-              {creating ? '…' : locale === 'zh-CN' ? '+ 新建' : '+ New'}
+              {creating ? '…' : locale === 'zh-CN' ? '新建' : 'New'}
             </button>
           </div>
-          <p className="px-4 text-[10px] leading-4 text-ink-faint">{zh ? '全部项目合计 · 不含进行中的调用' : 'All projects · excludes calls in progress'}</p>
 
           <div className="px-3 py-2">
             <label className="sr-only" htmlFor="daemon-search">{zh ? '筛选项目名称' : 'Filter project names'}</label>
@@ -341,20 +340,17 @@ export function Sidebar({
               ) : null}
             </div>
           </div>
-          {onOpenTrash && <button type="button" className="mx-4 mb-2 text-left text-xs text-ink-dim hover:text-ink" onClick={onOpenTrash}>
-            {zh ? '回收站' : 'Trash'}
-          </button>}
           <div className="sidebar-project-filters" role="group" aria-label={zh ? '整理项目' : 'Organize projects'}>
             {(['active', 'followup', 'archived'] as const).map(filter => <button type="button" key={filter}
               aria-pressed={projectFilter === filter} onClick={() => { setProjectFilter(filter); setOrganizing(null); }}
               >
               {filter === 'active' ? zh ? '最近' : 'Recent' : filter === 'followup' ? zh ? '待跟进' : 'Follow up' : zh ? '已归档' : 'Archived'}
             </button>)}
+            {onOpenTrash && <button type="button" className="sidebar-trash" onClick={onOpenTrash}>{zh ? '回收站' : 'Trash'}</button>}
           </div>
           {organization.error && <p role="alert" className="px-4 pb-2 text-xs text-warn">{zh ? '浏览器无法读取或保存项目标记。' : 'This browser cannot read or save project markers.'}</p>}
           {organizationNotice && <p role="status" className="px-4 pb-2 text-[11px] leading-5 text-ink-faint">{organizationNotice}
             <button type="button" disabled={syncingOrganization} onClick={() => setSyncAttempt(value => value + 1)} className="ml-2 underline">{zh ? '重新同步' : 'Sync again'}</button></p>}
-          {projectFilter === 'followup' && <p className="px-4 pb-2 text-[11px] text-ink-faint">{zh ? '你标记为待跟进的项目。' : 'Projects you marked to follow up.'}</p>}
 
           <div className="mobile-scroll-region min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-3 scroll-thin">
             {loading && projects.length === 0 ? <div className="px-1 py-3 text-xs text-ink-faint">{t('common.loading')}</div> : null}
@@ -402,7 +398,6 @@ export function Sidebar({
                   const work = project.work_status;
                   const workLabel = work?.label[locale === 'zh-CN' ? 'zh-CN' : 'en'];
                   const message = project.last_message || workLabel;
-                  const spend = spendEstimateLabel({ spendUsd: project.spend_usd ?? null, spendStatus: project.spend_status }, zh, true) || '—';
                   const name = shownName(project, zh, t('sidebar.unnamedSession'));
                   return (
                     <div
@@ -434,11 +429,10 @@ export function Sidebar({
                           {preference(project.id).followup && <Flag size={12} className="shrink-0 text-warn" aria-label={zh ? '待跟进' : 'Follow up'} />}
                         </div>
                         <div className={`mt-1 flex min-w-0 items-start gap-1.5 pl-3.5 text-[11px] leading-4 ${active ? 'text-ink-dim' : 'text-ink-faint'}`}>
-                          <span className="min-w-0 flex-1 line-clamp-2 break-words" title={message}
+                          <span className="min-w-0 flex-1 truncate" title={message}
                             data-session-work-state={work?.state}>
                             {message}
                           </span>
-                          <span data-project-spend className="shrink-0 tabular-nums" title={spendHint}>{spend}</span>
                         </div>
                       </button>
                       <button

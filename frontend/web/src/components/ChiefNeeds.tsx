@@ -21,7 +21,7 @@ export function ChiefNeeds({ zh, onStart }: {
   };
   return (
     <section className="chief-needs mx-auto max-w-2xl px-5 pb-8 pt-[8vh]">
-      <h2 className="font-serif text-[28px] font-medium leading-tight tracking-[-0.01em] text-ink">{zh ? '你的总负责人' : 'Your chief'}</h2>
+      <h2 className="text-[32px] font-bold leading-tight tracking-[-0.03em] text-ink">{zh ? '你的总负责人' : 'Your chief'}</h2>
       <p className="mt-2 text-sm leading-6 text-ink-faint">{zh
         ? '它照看你所有的项目，盯着你关心的方向，有值得说的会主动来找你。勾选你需要的就行。'
         : 'It looks after all your projects, follows your directions, and comes to you when something is worth it. Tick what you need.'}</p>
