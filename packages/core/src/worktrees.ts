@@ -1,10 +1,10 @@
 // A task that begins while another works in the workspace gets a git worktree of its own, so that
 // tasks side by side do not overwrite each other's files. Argus makes it from the workspace as it is
-// then, uncommitted and new files included, and removes it once its task has closed with every change
-// it made also in the workspace; bringing the changes there is the task's own work.
+// then, uncommitted and new files included. Bringing the changes back to the workspace, and deleting
+// the worktree once nothing in it is needed, is the task's own work: Argus only forgets one deleted.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -43,27 +43,9 @@ export function makeWorktree(workdir: string, id: string): { dir: string; base: 
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 
-/** The files the worktree changed since `base`, new ones included, by their paths in it. */
-function changed(dir: string, base: string): string[] {
-  const listed = git(dir, ['-c', 'core.quotepath=off', 'diff', '--name-only', '--no-renames', base]).split('\n');
-  const untracked = git(dir, ['-c', 'core.quotepath=off', 'ls-files', '--others', '--exclude-standard']).split('\n');
-  return [...new Set([...listed, ...untracked].filter(Boolean))];
-}
-
-const content = (path: string): Buffer | null => { try { return readFileSync(path); } catch { return null; } };
-
-/** Removes the worktree when every change it made is also in the workspace (none at all, or brought
- * over); otherwise keeps it, and says which files are not, so nothing a task did is lost. */
-export function settleWorktree(workdir: string, worktree: { dir: string; base: string }): string[] {
-  if (!existsSync(worktree.dir)) return [];
-  let missing: string[];
-  try {
-    missing = changed(worktree.dir, worktree.base).filter(path => {
-      const theirs = content(join(worktree.dir, path)), ours = content(join(workdir, path));
-      return theirs === null ? ours !== null : ours === null || !theirs.equals(ours);
-    });
-  } catch { return [worktree.dir]; }
-  if (missing.length) return missing;
-  git(workdir, ['worktree', 'remove', '--force', worktree.dir]);
-  return [];
+/** Whether the task deleted its worktree; if so, git's record of it is dropped too. */
+export function forgetWorktree(workdir: string, dir: string): boolean {
+  if (existsSync(dir)) return false;
+  git(workdir, ['worktree', 'prune']);
+  return true;
 }
