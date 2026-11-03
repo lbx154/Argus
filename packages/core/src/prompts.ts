@@ -10,6 +10,7 @@ import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
 import { isCheckout, WORKTREES } from './worktrees.js';
 import { lettersOn } from './letters.js';
+import { packSetups } from './packSetup.js';
 
 export const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
@@ -71,6 +72,9 @@ function where(project: Project, store: Store, role: Role): string {
       ? `Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager's and the Planner's, till the project's work comes to rest).${role === 'reviewer' ? ' On a task you are one Reviewer from its first look to its last review: what you saw and said before is yours to build on.' : ''}`
       : 'Your session ends with each turn, and everything you started with it.',
     lettersOn() && letters(role),
+    ...packSetups(store.home).map(pack => pack.state === 'ready'
+      ? `The ${pack.name} pack's tools are installed in ${pack.home}; what its setup set for your commands is in ${resolve(pack.home, 'env')} (already in your environment).`
+      : `The ${pack.name} pack's setup ${pack.state === 'failed' ? 'failed' : 'has not finished'}: its tools are not installed. Its output: ${pack.log}.`),
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,
     machine(),
   ].filter(Boolean).join('\n'));

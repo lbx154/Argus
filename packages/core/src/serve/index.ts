@@ -32,6 +32,7 @@ import { versions } from './versions.js';
 import { daemon, follow, progressMap, projectRow, snapshot, taskTrace, readRecord, conversationRows, conversationPage } from './views.js';
 import { workspace } from './workspace.js';
 import { boxAt, lettersAt, readers } from '../letters.js';
+import { forgetFailures, prepare } from '../packSetup.js';
 
 export interface ServeOptions {
   store: Store;
@@ -487,6 +488,9 @@ export async function serve(options: ServeOptions): Promise<Served> {
   // Roles write letters to this server as they work, on this machine.
   const listening = (server.address() as AddressInfo).port;
   lettersAt(`http://${hostPort(host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host, listening)}`);
+  // Installed packs ready their tools from the start; one whose setup failed tries again.
+  forgetFailures(store.home);
+  void prepare(store.home).catch(error => process.stderr.write(`pack setup: ${String(error)}\n`));
   // Work a shutdown cut off goes on, the Manager's answer to a message too; what the operator stopped
   // stays stopped, a message being answered in it included, as if stopped again; a failure waits for
   // the operator.

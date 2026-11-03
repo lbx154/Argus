@@ -1373,3 +1373,18 @@ test("two looks at once on a task take turns in the task's one Reviewer session,
   const notes = flow.store.load(id).tasks[0]!;
   assert.equal(notes.status, 'closed');
 });
+
+test("an installed pack's tools are set up before the first turn, writable to the Engineer, read-only to the Reviewer, and its env is in every role's commands", async t => {
+  const { flow, id, requests, home } = await setup(t, [toEngineer, { role: 'engineer', to: 'reviewer', letter: 'built' }, { role: 'reviewer', to: 'manager', letter: 'ok' }, report]);
+  const dir = join(home, 'skill-packs', 'prover');
+  mkdirSync(join(dir, 'setup'), { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), '---\nname: prover\ndescription: test pack\nversion: 1\nsetup: setup/install\n---\n');
+  writeFileSync(join(dir, 'setup', 'install'), '#!/bin/sh\necho \'PROVER_HOME=${ARGUS_PACK_HOME}\' > "$ARGUS_PACK_HOME/env"\n', { mode: 0o755 });
+  await say(flow, id, 'Build it');
+  const packHome = join(home, 'pack-homes', 'prover', '1');
+  assert.ok(requests.every(request => request.env?.PROVER_HOME === packHome));
+  const engineer = requests.find(request => request.role === 'engineer')!, reviewer = requests.find(request => request.role === 'reviewer')!;
+  assert.ok(engineer.writeDirs?.includes(packHome) && !engineer.readDirs?.includes(packHome));
+  assert.ok(reviewer.readDirs?.includes(packHome) && !reviewer.writeDirs?.includes(packHome));
+  assert.match(engineer.instructions ?? '', /The prover pack's tools are installed in /);
+});
