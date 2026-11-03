@@ -402,18 +402,22 @@ test('an Engineer whose workdir holds Argus home writes the workdir, not the rec
   assert.equal(readFileSync(kept, 'utf8'), 'record');
 });
 
-test('a review uses disk /tmp under Argus home and cleans it when the CLI ends', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
+test('a review uses disk /tmp under Argus home and cleans it when the CLI ends, with its task', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
   const { readdirSync } = await import('node:fs');
   const temps = privatePath('/tmp', work);
   const result = await call('codex', { tempProbe: true, output: { to: 'manager', letter: 'probe', open: [] } },
     { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-review/t1.reviewer' });
   assert.equal(result.completed, true, result.error ?? 'review failed');
   assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), { device: statSync(temps).dev, writable: false });
-  assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
+  // The Reviewer's session keeps its /tmp between its turns, till its CLI ends with the task.
+  assert.equal(readdirSync(temps).filter(name => name.startsWith('review-')).length, 1);
   assert.equal(await callAgent.steer!('p-review/t1.reviewer', 'late'), false);
+  await callAgent.close!('p-review/');
+  assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
   const failed = await call('codex', { tempProbe: true, fail: 'review backend failed', output: { to: 'manager', letter: 'probe', open: [] } },
     { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-review/t1.reviewer' });
   assert.equal(failed.completed, false);
+  await callAgent.close!('p-review/');
   assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
 });
 
@@ -445,5 +449,6 @@ test('parallel reviewers and an already running Engineer cannot read or overwrit
   assert.equal(readFileSync(files[0]!, 'utf8'), 'private review content');
   await callAgent.steer!('p-isolation/t1.reviewer', 'Finish');
   assert.equal((await first).completed, true);
+  await callAgent.close!('p-isolation/t1.reviewer');
   assert.ok(files.every(path => !existsSync(path)));
 });

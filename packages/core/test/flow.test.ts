@@ -276,7 +276,7 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   ]);
 });
 
-test('a review returns the work once; the Engineer resumes and the Reviewer starts afresh', async t => {
+test('a review returns the work once; the Engineer and the Reviewer each go on in their own session', async t => {
   const { flow, id, requests } = await setup(t, [
     toEngineer,
     { role: 'engineer', to: 'reviewer', letter: 'v1' },
@@ -289,10 +289,10 @@ test('a review returns the work once; the Engineer resumes and the Reviewer star
   const [, , , engineer, reviewer] = requests;
   assert.equal(engineer?.resume, 'engineer-2');
   assert.equal(engineer?.prompt, '## From the Reviewer\nTotals skip the last row.');
-  assert.equal(reviewer?.resume, undefined);
-  assert.match(reviewer?.prompt ?? '', /^## Task t1, from the Manager[\s\S]*## From the Engineer\nv2 counts the last row$/);
-  assert.doesNotMatch(reviewer?.prompt ?? '', /earlier judgment|Judge the current files afresh/);
-  assert.match(reviewer?.instructions ?? '', /Your session ends with each turn/);
+  // The Reviewer remembers what it found in v1: the second round goes on in its session.
+  assert.equal(reviewer?.resume, 'reviewer-3');
+  assert.equal(reviewer?.prompt, '## From the Engineer\nv2 counts the last row');
+  assert.match(reviewer?.instructions ?? '', /one Reviewer from its first look to its last review/);
 });
 
 test("the Engineer's question holds up its task until the operator answers", async t => {
@@ -907,8 +907,8 @@ test('a restarted process continues from project.json', async t => {
   const project = await say(new Flow(store, next.callAgent), id, 'continue');
   assert.equal(project.status, 'idle');
   assert.equal(next.requests[0]?.resume, 'manager-1');
-  // A restarted review reads the full brief and current letter in a fresh session.
-  assert.equal(next.requests[1]?.resume, undefined);
+  // A restarted review goes on in the Reviewer's session, with the letter it was reading.
+  assert.equal(next.requests[1]?.resume, 'reviewer-3');
   assert.match(next.requests[1]?.prompt ?? '', /## From the Engineer\nsummary\.py added$/);
 });
 
@@ -1024,7 +1024,7 @@ test('concurrent operator requests keep their own verbatim briefs; team mail sup
   assert.equal(store.load(id).tasks[1]!.objective, 'Follow up on the team result');
 });
 
-test('review rounds end their processes and ignore stored review sessions after restart', async t => {
+test("a task's Reviewer keeps one session across review rounds, after a restart too", async t => {
   const { flow, id, callAgent, requests, store } = await setup(t, [
     toEngineer,
     { role: 'engineer', to: 'reviewer', letter: 'first delivery' },
@@ -1036,9 +1036,11 @@ test('review rounds end their processes and ignore stored review sessions after 
   callAgent.close = async prefix => { closed.push(prefix); };
   flow.edit(id, project => { project.sessions['t1.reviewer'] = 'old-judgment'; });
   await say(flow, id, 'Fix the parser');
-  assert.deepEqual(requests.filter(request => request.role === 'reviewer').map(request => request.resume), [undefined, undefined]);
-  assert.equal(closed.filter(prefix => prefix === `${id}/t1.reviewer`).length, 2);
-  assert.equal(store.load(id).sessions['t1.reviewer'], undefined);
+  assert.deepEqual(requests.filter(request => request.role === 'reviewer').map(request => request.resume), ['old-judgment', 'old-judgment']);
+  // Its process ends with the task's, once the task closes, not after each round.
+  assert.equal(closed.filter(prefix => prefix === `${id}/t1.reviewer`).length, 0);
+  assert.ok(closed.includes(`${id}/t1.`));
+  assert.equal(store.load(id).sessions['t1.reviewer'], 'old-judgment');
 });
 
 test('a legacy project saves its first reported model for later roles and restart', async t => {
@@ -1058,16 +1060,16 @@ test('a legacy project saves its first reported model for later roles and restar
   assert.equal(next.requests[0]!.model, 'fake');
 });
 
-test('a refused review form keeps the full task brief when it opens a fresh correction session', async t => {
+test('a refused review form goes back to the Reviewer in its session', async t => {
   const { flow, id, requests } = await setup(t, [toEngineer,
     { role: 'engineer', to: 'reviewer', letter: 'current delivery' },
     { role: 'reviewer' }, { role: 'reviewer', to: 'manager', letter: 'accepted' }, report]);
   await say(flow, id, 'Check this exact request');
   const reviews = requests.filter(request => request.role === 'reviewer');
   assert.equal(reviews.length, 2);
-  assert.ok(reviews.every(request => request.resume === undefined));
-  assert.ok(reviews[1]!.prompt.startsWith(reviews[0]!.prompt));
-  assert.ok(reviews[1]!.prompt.includes('Argus refused your hand-off:'));
+  assert.equal(reviews[0]!.resume, undefined);
+  assert.equal(reviews[1]!.resume, 'reviewer-3');
+  assert.ok(reviews[1]!.prompt.startsWith('Argus refused your hand-off:'));
 });
 
 for (const role of ['planner', 'manager'] as const) {
@@ -1345,7 +1347,7 @@ test('a resumed session is given its standing instructions again only when they 
   assert.match(requests[2]!.prompt, /^## Your standing instructions, as they now are[^\n]*\n[\s\S]*## Where things are[\s\S]*third/);
 });
 
-test('two looks at once on a task have sessions of their own, and one that fails holds nothing up: the Engineer hears of it', async t => {
+test("two looks at once on a task take turns in the task's one Reviewer session, and one that fails holds nothing up: the Engineer hears of it", async t => {
   lettersAt('http://127.0.0.1:1');
   t.after(() => lettersAt(null));
   let release = (): void => {};
@@ -1367,7 +1369,7 @@ test('two looks at once on a task have sessions of their own, and one that fails
   assert.equal(project.failures, undefined);
   const looks = requests.filter(request => request.prompt.includes('asks you to look now'));
   assert.equal(looks.length, 2);
-  assert.notEqual(looks[0]!.session, looks[1]!.session);
+  assert.equal(looks[0]!.session, looks[1]!.session);
   const notes = flow.store.load(id).tasks[0]!;
   assert.equal(notes.status, 'closed');
 });

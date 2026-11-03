@@ -142,7 +142,6 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
     }
     return result;
   } finally {
-    if (request.role === 'reviewer') await end(key);
     await new Promise(resolve => raw.end(resolve));
   }
 }, {

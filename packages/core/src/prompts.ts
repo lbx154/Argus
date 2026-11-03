@@ -67,8 +67,8 @@ function where(project: Project, store: Store, role: Role): string {
     role === 'planner' && isCheckout(project.workdir) && `A task that begins while another task works in the workspace works in a git worktree of its own, under ${WORKTREES}/, so tasks side by side do not overwrite each other's files.`,
     `Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
-    role !== 'reviewer' && KEPT.includes(project.backend)
-      ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
+    KEPT.includes(project.backend)
+      ? `Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager's and the Planner's, till the project's work comes to rest).${role === 'reviewer' ? ' On a task you are one Reviewer from its first look to its last review: what you saw and said before is yours to build on.' : ''}`
       : 'Your session ends with each turn, and everything you started with it.',
     lettersOn() && letters(role),
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,
@@ -159,8 +159,8 @@ export function posted(from: Role, task: Task | null, to: string[], cc: string[]
 }
 
 /** A Reviewer's look at work under way, which the Engineer asked for while going on. */
-export function lookPrompt(project: Project, task: Task, look: string): string {
-  return join(taskPrompt(project, task, false),
+export function lookPrompt(project: Project, task: Task, look: string, resumed = false): string {
+  return join(!resumed && taskPrompt(project, task, false),
     section('The Engineer asks you to look now, while they go on working', look),
     'Your letter reaches the Engineer as they work: what you see that they should know now. It is not your review of their delivery, which comes when they hand it over.');
 }
