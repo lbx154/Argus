@@ -3,7 +3,6 @@ import type { TypedArgusEvent } from '../eventPayloads.generated.js';
 import { canonicalEventType } from '../eventCatalog.js';
 import { isStructuredAgentPayload, visibleAgentText } from '../events.js';
 import { missionOutcomePresentation, settledStatus, stopClause } from '../missionOutcome.js';
-import { managerIntentSummary } from '../managerIntent.js';
 
 export type RenderLocale = 'en' | 'zh-CN';
 export type RenderTone = 'bright' | 'dim' | 'accent' | 'ok' | 'warn' | 'err' | 'info';
@@ -306,8 +305,9 @@ export function renderEvent(event: TypedArgusEvent, context: RenderContext): Ren
       return progress(event, context);
     case 'life.manager.intent.started':
       return model('manager', 'role.manager', '🧭', localized(context, 'Working out how to handle your request…', '正在安排处理方式…'), 'info');
+    // The Python line's routing (vertical, workflow_mode, research_target_level): TS Argus has none to show.
     case 'life.manager.intent.completed':
-      return model('manager', 'role.manager', '🧭', managerIntentSummary(row(event), context.locale), 'info', { expandable: true });
+      return hidden();
     case 'life.manager.intent.failed':
       return model('manager', 'role.manager', '⚠', managerFailure(event, context), 'err', { expandable: context.density === 'full' });
     case 'life.manager.stage_decision':
