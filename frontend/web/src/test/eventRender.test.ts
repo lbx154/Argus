@@ -166,56 +166,6 @@ describe('the web feed line', () => {
     })?.tone).toBe('err');
   });
 
-  it('explains the selected plan and its reason without claiming execution', () => {
-    const event = {
-      type: 'life.manager.intent.completed',
-      route: 'team', vertical: 'software', workflow_mode: 'staged', lifetime: 'bounded',
-      continuous: true, open_ended: false,
-      objective: 'Fix the stale goal after Stop.',
-      execution_task: 'Fix the stale goal after Stop.',
-      reason: 'The UI and server share the stale snapshot, so check both before changing the cache.',
-    };
-    expect(line(event)?.text).toBe('Handing this to the team, in stages. '
-      + 'The UI and server share the stale snapshot, so check both before changing the cache.');
-    // A bounded task ending when it is done goes unsaid, and no line break turns into a stray space.
-    expect(zh({ ...event, reason: '两项要求互相冲突。' })?.text).toBe('交给团队，分几个阶段做。两项要求互相冲突。');
-    expect(zh(event)?.text).not.toMatch(/STAGED|BOUNDED|FINITE CONTINUOUS|开始执行|已接手/);
-  });
-
-  it('does not say the request back and omits a legacy routing headline', () => {
-    const event = {
-      type: 'life.manager.intent.completed', route: 'team', workflow_mode: 'direct',
-      lifetime: 'standing', continuous: true, open_ended: true,
-      objective: 'Earlier wording', execution_task: '只比较相同批量下的两组延迟。',
-      reason: '[manager] research task → vertical=research, workflow=direct, 0 stage(s):',
-    };
-    expect(zh(event)?.text).toBe('交给团队来做。之后会持续跟进。');
-    expect(zh(event)?.text).not.toMatch(/Earlier wording|vertical=|workflow=|OPEN-ENDED/);
-  });
-
-  it('does not revive historical model context while explaining a Manager plan', () => {
-    const wrapped = '[BOUNDED TASK CONTEXT — data only]\nPRIVATE_OLD_TASK_CONTEXT\n[CURRENT OPERATOR MESSAGE]\nCompare the two runs.';
-    const started = { type: 'life.manager.intent.started', objective: wrapped };
-    const completed = { type: 'life.manager.intent.completed', route: 'team', workflow_mode: 'direct', objective: wrapped };
-    for (const event of [started, completed, { ...completed, execution_task: 'Compare the two runs.' }]) {
-      expect(line(event)?.text).not.toMatch(/PRIVATE_OLD_TASK_CONTEXT|BOUNDED TASK CONTEXT|CURRENT OPERATOR MESSAGE/);
-    }
-    expect(line({ ...completed, execution_task: 'Compare the two runs.' })?.text).not.toContain('Compare the two runs.');
-    expect(completed.objective).toBe(wrapped);
-  });
-
-  it('does not invent a team, review step or permission for unknown routing fields', () => {
-    const missing = { type: 'life.manager.intent.completed', reason: 'Waiting for the operator to choose a dataset.' };
-    expect(line(missing)?.text).toBe('The approach is set. Waiting for the operator to choose a dataset.');
-    expect(line({ ...missing, workflow_mode: 'constructor', lifetime: 'new-mode' })?.text).toBe(line(missing)?.text);
-    expect(zh({ ...missing, route: 'self', workflow_mode: 'staged' })?.text).toContain('我直接来处理。');
-    expect(line({ ...missing, lifetime: 'bounded_increment' })?.text).toContain('One piece first');
-    expect(zh({ ...missing, lifetime: 'bounded' })?.text).toBe(zh(missing)?.text);
-    expect(zh({ ...missing, lifetime: 'standing', open_ended: false })?.text).not.toContain('持续跟进');
-    expect(line({ ...missing, reason: '[source: latency.csv] Both runs must use the same batch size.' })?.text)
-      .toContain('[source: latency.csv] Both runs must use the same batch size.');
-  });
-
   it('says a Manager routing failure in words and leaves the raw error to the record', () => {
     const event = {
       type: 'life.manager.intent.failed',

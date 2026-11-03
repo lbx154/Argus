@@ -291,12 +291,13 @@ describe('foldFeedRows · a real campaign', () => {
     ), 0);
     const echoes = events.filter((event) => event.type === 'engineer.progress' && event.kind === 'tool_use' && event.status === 'failed').length;
 
-    // 622 events → 194 rendered rows → 116 rows once folded (manager 5→5,
+    // 622 events → 193 rendered rows → 115 rows once folded (manager 4→4,
     // planner 18→11, engineer 155→93, reviewer 13→5, Argus updates 3→2).
-    // The recording's two retired idea-portfolio events render as nothing,
+    // The recording's two retired idea-portfolio events render as nothing, nor does its routing line
+    // (the Python line's vertical and workflow_mode),
     // nor do Planner errors retried on their own, a task's repeated start,
     // or the end of a task's run that its completion row already tells.
-    expect(before).toBe(194);
+    expect(before).toBe(193);
     expect(after).toBeLessThanOrEqual(Math.round(before * 0.65));
     // Every rendered row is still reachable: as a step, a group member or a repeat.
     expect(preserved + echoes).toBe(before);
