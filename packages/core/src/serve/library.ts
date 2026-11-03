@@ -5,6 +5,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { add, catalog, contribute, contribution, installed, offered, Refused, remove } from '../packs.js';
+import { prepare } from '../packSetup.js';
 import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
@@ -24,6 +25,8 @@ export function library(store: Store): [string, RegExp, Handler][] {
       if (typeof name !== 'string') throw new HttpError(400, 'Name required');
       try { await action(store.home, name); }
       catch (error) { throw new HttpError(400, error instanceof Error ? error.message : String(error), error instanceof Refused ? 'not_for_store' : ''); }
+      // A pack just installed readies its tools now, not at its first role's turn.
+      if (action === add) void prepare(store.home);
       return { ok: true };
     }] as [string, RegExp, Handler]),
     // Argus's own skills are the page's 'bundled' library, the roles' and the operator's its 'shared' one;

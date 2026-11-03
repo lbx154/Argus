@@ -49,8 +49,8 @@ interface Live { cli: Cli; conversation: Conversation; settings: string; thread:
 const live = new Map<string, Live>();
 
 /** What a CLI is started with: a turn that asks for others starts a new one. */
-const settings = ({ backend, cwd, access, readDirs, writeDirs, model, effort }: AgentRequest): string =>
-  JSON.stringify([backend, cwd, access, readDirs, writeDirs, model, effort]);
+const settings = ({ backend, cwd, access, readDirs, writeDirs, model, effort, env }: AgentRequest): string =>
+  JSON.stringify([backend, cwd, access, readDirs, writeDirs, model, effort, env ?? {}]);
 
 /** The session's CLI as it runs, or a new one, which resumes the session from the backend's record. */
 async function session(key: string, request: AgentRequest, stem: string): Promise<Live> {
@@ -66,7 +66,7 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
     const conversation = START[request.backend](request, { confined, schema: formSchema(request.form, request.giver), stem });
     const argv = confined ? confine([request.backend, ...conversation.args], request, temp) : [...launcher(request.backend), ...conversation.args];
     const started: Live = {
-      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp } : {}, ...request.letters ? { ARGUS_LETTERS: request.letters } : {} }),
+      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp } : {}, ...request.letters ? { ARGUS_LETTERS: request.letters } : {}, ...request.env }),
       conversation, settings: settings(request), thread: request.resume ?? null, tempRoot,
     };
     live.set(key, started);

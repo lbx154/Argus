@@ -48,6 +48,8 @@ export interface AgentRequest {
   signal?: AbortSignal;
   /** The session's letterbox, where it writes letters as its turn goes on (ARGUS_LETTERS). */
   letters?: string;
+  /** Variables the turn's commands get beyond the backend's own: those installed packs' setups wrote. */
+  env?: Record<string, string>;
 }
 
 /** What a role does as its turn goes on, as the operator follows it: what it says, a command it

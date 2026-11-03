@@ -19,6 +19,7 @@ import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
 import { letterbox } from './letters.js';
+import { packEnv, prepare } from './packSetup.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -446,6 +447,9 @@ export class Flow {
     const dir = this.store.dir(project.id);
     const own = task && typeof task.place === 'object' ? task.place : null;
     this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
+    // A pack's tools are ready before any role works: the first turn waits for its setup.
+    const packs = await prepare(this.store.home);
+    const ready = packs.filter(pack => pack.state === 'ready').map(pack => pack.home);
     const standing = instructions(role, project, this.store);
     // Only what the session has not been told: a resumed one learns of changed instructions in its prompt.
     // The digest leaves out the date and the machine's load, which change by themselves.
@@ -458,7 +462,8 @@ export class Flow {
         backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
         prompt: refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills; a role that writes may write skills too.
-        readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home), ...own ? [project.workdir] : []], ...(project.model ? { model: project.model } : {}),
+        readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home), ...TURN[role].access === 'write' ? [] : ready], writeDirs: [skillsHome(this.store.home), ...own ? [project.workdir] : [], ...TURN[role].access === 'write' ? ready : []],
+        env: packEnv(packs, project.workdir, process.env), ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), ...this.box(project, role, task, `${project.id}/${key}`), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
