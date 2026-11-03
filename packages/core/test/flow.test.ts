@@ -1344,3 +1344,30 @@ test('a resumed session is given its standing instructions again only when they 
   await say(flow, id, 'third');
   assert.match(requests[2]!.prompt, /^## Your standing instructions, as they now are[^\n]*\n[\s\S]*## Where things are[\s\S]*third/);
 });
+
+test('two looks at once on a task have sessions of their own, and one that fails holds nothing up: the Engineer hears of it', async t => {
+  lettersAt('http://127.0.0.1:1');
+  t.after(() => lettersAt(null));
+  let release = (): void => {};
+  const looked = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', posts: [{ to: ['reviewer'], text: 'Look at the parser.' }, { to: ['reviewer'], text: 'Look at the totals.' }],
+      waits: looked, to: 'reviewer', letter: 'summary.py prints the totals.' },
+    { role: 'reviewer', throws: 'The backend CLI exited with 0.' },
+    { role: 'reviewer', to: 'engineer', letter: 'Totals look right.' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  void flow.say(id, 'Build the summary');
+  while ((flow.store.load(id).tasks[0]?.unread?.length ?? 0) < 2) await new Promise(resolve => setImmediate(resolve));
+  release();
+  const project = await flow.settled(id);
+  assert.equal(project.status, 'idle');
+  assert.equal(project.failures, undefined);
+  const looks = requests.filter(request => request.prompt.includes('asks you to look now'));
+  assert.equal(looks.length, 2);
+  assert.notEqual(looks[0]!.session, looks[1]!.session);
+  const notes = flow.store.load(id).tasks[0]!;
+  assert.equal(notes.status, 'closed');
+});

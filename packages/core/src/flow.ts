@@ -286,11 +286,12 @@ export class Flow {
     const looks = this.looks.get(project.id) ?? new Set<Promise<void>>();
     this.looks.set(project.id, looks);
     const going = (async () => {
-      const handoff = (await this.call(project, 'reviewer', task, () => lookPrompt(project, task, look), { look: true }))?.handoff;
-      if (!handoff) return;
+      // Each look has a session of its own: two at once on a task must not end each other's.
+      const handoff = (await this.call(project, 'reviewer', task, () => lookPrompt(project, task, look), { look: `look${++this.looked}` }))?.handoff;
+      if (!handoff) return this.lookFailed(project, task);
       for (const { task: id, letter } of handoff.tell ?? []) if (id !== task.id) await this.taskLetter(project, 'reviewer', id, letter);
       if (task.status === 'open') await this.taskLetter(project, 'reviewer', task.id, read(handoff));
-    })().catch(error => this.fail(project, 'reviewer', task, String(error))).finally(() => {
+    })().catch(() => this.lookFailed(project, task)).finally(() => {
       looks.delete(going);
       this.works.get(project.id)?.wake();
     });
@@ -336,6 +337,14 @@ export class Flow {
       return letter => this.taskLetter(project, role, name, letter);
     }
     throw new Error(`no reader ${JSON.stringify(name)}: name manager, planner, reviewer, engineer or a task id such as t3`);
+  }
+
+  /** Looks begun in this process, which name their sessions. */
+  private looked = 0;
+
+  /** A look that failed holds nothing up: the Engineer hears of it, and goes on. */
+  private async lookFailed(project: Project, task: Task): Promise<void> {
+    if (task.status === 'open') await this.taskLetter(project, 'reviewer', task.id, 'The look you asked for failed before the Reviewer wrote back. Go on; ask again if you still need it.');
   }
 
   /** A letter to the Manager stays in the record until a Manager turn takes it. */
@@ -413,13 +422,13 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: true } = {}): Promise<AgentResult | null> {
+                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: string } = {}): Promise<AgentResult | null> {
     const { refused, answers, input_id } = turn;
     const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
     if (signal?.aborted) return null;
-    // A Reviewer's look has a session of its own, beside the review of the delivery.
-    const key = task ? `${task.id}.${turn.look ? 'look' : role}` : role;
+    // A Reviewer's look has a session of its own, beside the review of the delivery and other looks.
+    const key = task ? `${task.id}.${turn.look ?? role}` : role;
     // Review rounds have no earlier judgment in their context, including after a restart.
     if (role === 'reviewer') delete project.sessions[key];
     const resume = project.sessions[key];
@@ -433,7 +442,7 @@ export class Flow {
     // The digest leaves out the date and the machine's load, which change by themselves.
     const digest = createHash('sha256').update(standing.replace(/^Today is .*$|^\d+ logical CPUs.*$/gm, '')).digest('hex').slice(0, 16);
     const told = resume !== undefined && project.instructed?.[key] !== digest;
-    (project.instructed ??= {})[key] = digest;
+    if (role !== 'reviewer') (project.instructed ??= {})[key] = digest;
     let result: AgentResult;
     try {
       result = await this.callAgent({
@@ -449,7 +458,7 @@ export class Flow {
       // The call never ran to an end of its own: it is recorded as ended, failed.
       const error = thrown instanceof Error ? thrown.message : String(thrown);
       this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
-      if (!signal?.aborted) this.fail(project, role, task, error);
+      if (!signal?.aborted && !turn.look) this.fail(project, role, task, error);
       return null;
     } finally {
       if (role === 'reviewer') await this.callAgent.close?.(`${project.id}/${key}`);
@@ -485,7 +494,7 @@ export class Flow {
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
-    if (!signal?.aborted) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
+    if (!signal?.aborted && !turn.look) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
     return null;
   }
 
