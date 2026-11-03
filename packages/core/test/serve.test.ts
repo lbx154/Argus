@@ -723,7 +723,7 @@ test("a project whose work comes to rest ends its sessions, unless a question wa
   assert.deepEqual(closed, [`${sid}/`, `${sid}/`]);
 });
 
-test('a failed review ends its review sessions while the Engineer’s background work runs on', async t => {
+test('a failed review holds up its task and leaves its sessions running, the Engineer’s background work and the Reviewer’s alike', async t => {
   const { store, post, closed } = await setup(t, [
     { role: 'manager', to: 'engineer', letter: brief },
     { role: 'engineer', to: 'reviewer', letter: 'Training runs in the background; the first checkpoint is in two hours.' },
@@ -734,7 +734,8 @@ test('a failed review ends its review sessions while the Engineer’s background
   await frames(await post(`/api/projects/${sid}/message/stream`, { text: 'Train it', request_id: 'r1' }));
   await eventually(async () => store.load(sid).status, status => status === 'failed');
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(closed, [`${sid}/t1.reviewer`, `${sid}/t1.reviewer`]);
+  // The task is open, held up for the operator: none of its sessions ends.
+  assert.ok(!closed.some(prefix => [`${sid}/t1.`, `${sid}/t1.reviewer`, `${sid}/t1.engineer`].includes(prefix)));
 });
 
 test('work a shutdown cut off goes on when Argus starts again; what the operator stopped stays stopped', async t => {

@@ -34,19 +34,24 @@ for (const name of ['CODEX_HOME', 'CLAUDE_CONFIG_DIR', 'COPILOT_HOME', 'PI_CODIN
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const usageFile = join(root, 'argus', 'usage.jsonl');
+/** An Engineer's or Reviewer's form also holds its letters to other tasks, and an Engineer's its ask for a look. */
+const formed = (form: string, output: unknown): unknown => output && typeof output === 'object' && !Array.isArray(output) && 'to' in output
+  ? { ...output, ...(form === 'engineer' || form === 'review') && !('tell' in output) ? { tell: [] } : {},
+      ...form === 'engineer' && !('look' in output) ? { look: '' } : {} } : output;
 const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = {}) => callAgent({
-  backend, role: 'engineer', form: 'engineer', prompt: JSON.stringify(scenario), cwd: work, access: 'write',
+  backend, role: 'engineer', form: 'engineer', cwd: work, access: 'write',
+  prompt: JSON.stringify({ ...scenario, ...'output' in scenario ? { output: formed(more.form ?? 'engineer', (scenario as { output: unknown }).output) } : {} }),
   callsDir: join(root, 'argus', 'calls'), usageFile, ...more,
 });
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
   schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string; run: string; model?: string;
   steered?: string;
 };
-const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.', open: [] };
+const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.', open: [], tell: [], look: '' };
 
 test('a hand-off is a letter to one of the places its role can write to', () => {
   assert.deepEqual(schemaErrors({ to: 'done', letter: '', open: [], extra: 1 }, formSchema('engineer')), [
-    'to must be one of ["reviewer","engineer","planner","manager","operator"]', 'letter must have length >= 1', 'extra is not allowed',
+    'tell is required', 'look is required', 'to must be one of ["reviewer","engineer","planner","manager","operator"]', 'letter must have length >= 1', 'extra is not allowed',
   ]);
   assert.deepEqual(schemaErrors({ to: 'planner' }, formSchema('manager')), ['letter is required', 'open is required', 'task is required']);
   // A letter that hands over a result names its files; the Planner's letters hand over none.
@@ -56,7 +61,7 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   // Only letters to the Engineer are for tasks: the Planner's question naming one is for none, so its answer finds it.
   assert.deepEqual(judge('plan', formSchema('plan'), { to: 'operator', letters: [{ letter: 'Which dataset should t1 use?', task: 't1', after: [] }] }),
     { form: 'plan', to: 'operator', letters: ['Which dataset should t1 use?'] });
-  assert.deepEqual(judge('review', formSchema('review', 'planner'), { to: 'planner', letter: report.letter, open: report.open }),
+  assert.deepEqual(judge('review', formSchema('review', 'planner'), { to: 'planner', letter: report.letter, open: report.open, tell: [] }),
     { form: 'review', to: 'planner', letters: ['The report is done.'], open: report.open });
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [], task: '' }], open: [] }, formSchema('plan')), ['open is not allowed']);
   // A task's form offers its giver: the Planner, which never had a task the Manager gave, is not on its form.
@@ -397,18 +402,22 @@ test('an Engineer whose workdir holds Argus home writes the workdir, not the rec
   assert.equal(readFileSync(kept, 'utf8'), 'record');
 });
 
-test('a review uses disk /tmp under Argus home and cleans it when the CLI ends', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
+test('a review uses disk /tmp under Argus home and cleans it when the CLI ends, with its task', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {
   const { readdirSync } = await import('node:fs');
   const temps = privatePath('/tmp', work);
   const result = await call('codex', { tempProbe: true, output: { to: 'manager', letter: 'probe', open: [] } },
     { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-review/t1.reviewer' });
   assert.equal(result.completed, true, result.error ?? 'review failed');
   assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), { device: statSync(temps).dev, writable: false });
-  assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
+  // The Reviewer's session keeps its /tmp between its turns, till its CLI ends with the task.
+  assert.equal(readdirSync(temps).filter(name => name.startsWith('review-')).length, 1);
   assert.equal(await callAgent.steer!('p-review/t1.reviewer', 'late'), false);
+  await callAgent.close!('p-review/');
+  assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
   const failed = await call('codex', { tempProbe: true, fail: 'review backend failed', output: { to: 'manager', letter: 'probe', open: [] } },
     { role: 'reviewer', form: 'review', access: 'read', giver: 'manager', session: 'p-review/t1.reviewer' });
   assert.equal(failed.completed, false);
+  await callAgent.close!('p-review/');
   assert.deepEqual(readdirSync(temps).filter(name => name.startsWith('review-')), []);
 });
 
@@ -440,5 +449,6 @@ test('parallel reviewers and an already running Engineer cannot read or overwrit
   assert.equal(readFileSync(files[0]!, 'utf8'), 'private review content');
   await callAgent.steer!('p-isolation/t1.reviewer', 'Finish');
   assert.equal((await first).completed, true);
+  await callAgent.close!('p-isolation/t1.reviewer');
   assert.ok(files.every(path => !existsSync(path)));
 });

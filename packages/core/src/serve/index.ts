@@ -31,6 +31,7 @@ import { trash } from './trash.js';
 import { versions } from './versions.js';
 import { daemon, follow, progressMap, projectRow, snapshot, taskTrace, readRecord, conversationRows, conversationPage } from './views.js';
 import { workspace } from './workspace.js';
+import { boxAt, lettersAt, readers } from '../letters.js';
 
 export interface ServeOptions {
   store: Store;
@@ -430,6 +431,20 @@ export async function serve(options: ServeOptions): Promise<Served> {
     if (sites.isHost(incoming.hostname)) return sites.handle(request, response);
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const method = request.method === 'HEAD' ? 'GET' : request.method;
+    // A role's letter as its turn goes on: its letterbox's address is its secret, so no bearer token.
+    const box = /^\/letters\/([0-9a-f]{32})$/.exec(url.pathname);
+    if (box && method === 'POST') {
+      const post = boxAt(box[1]!);
+      if (!post) throw new HttpError(404, 'no such letterbox');
+      const text = await readText(request);
+      try {
+        const reached = await post(readers(url.searchParams.get('to')), readers(url.searchParams.get('cc')), text);
+        response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(`Delivered to ${reached.join(', ')}. Go on with your turn.\n`);
+      } catch (error) {
+        response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end(`Not delivered: ${error instanceof Error ? error.message : String(error)}\n`);
+      }
+      return;
+    }
     if (!url.pathname.startsWith('/api/')) {
       if (method === 'GET' && sendStatic(request, response, options.web, decodeURIComponent(url.pathname))) return;
       throw new HttpError(404, 'Not Found');
@@ -469,6 +484,9 @@ export async function serve(options: ServeOptions): Promise<Served> {
   await new Promise<void>((resolveListen, reject) => {
     server.once('error', reject).listen(options.port, host, resolveListen);
   });
+  // Roles write letters to this server as they work, on this machine.
+  const listening = (server.address() as AddressInfo).port;
+  lettersAt(`http://${hostPort(host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host, listening)}`);
   // Work a shutdown cut off goes on, the Manager's answer to a message too; what the operator stopped
   // stays stopped, a message being answered in it included, as if stopped again; a failure waits for
   // the operator.
@@ -481,6 +499,7 @@ export async function serve(options: ServeOptions): Promise<Served> {
     close: async () => {
       daily.close();
       await runs.stopAll();
+      lettersAt(null);
       await sites.close();
       server.closeAllConnections();
       await new Promise(resolveClose => server.close(resolveClose));
@@ -511,6 +530,16 @@ function same(offered: string | undefined, expected: string): boolean {
 
 function json(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+}
+
+async function readText(request: IncomingMessage): Promise<string> {
+  request.setEncoding('utf8');
+  let text = '';
+  for await (const chunk of request) {
+    text += chunk;
+    if (text.length > BODY_LIMIT) throw new HttpError(413, 'request body too large', 'tooLarge');
+  }
+  return text;
 }
 
 async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {

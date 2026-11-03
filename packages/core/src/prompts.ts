@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
 import { isCheckout, WORKTREES } from './worktrees.js';
+import { lettersOn } from './letters.js';
 
 export const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
@@ -66,13 +67,25 @@ function where(project: Project, store: Store, role: Role): string {
     role === 'planner' && isCheckout(project.workdir) && `A task that begins while another task works in the workspace works in a git worktree of its own, under ${WORKTREES}/, so tasks side by side do not overwrite each other's files.`,
     `Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
-    role !== 'reviewer' && KEPT.includes(project.backend)
-      ? 'Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager\'s and the Planner\'s, till the project\'s work comes to rest).'
+    KEPT.includes(project.backend)
+      ? `Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager's and the Planner's, till the project's work comes to rest).${role === 'reviewer' ? ' On a task you are one Reviewer from its first look to its last review: what you saw and said before is yours to build on.' : ''}`
       : 'Your session ends with each turn, and everything you started with it.',
+    lettersOn() && letters(role),
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,
     machine(),
   ].filter(Boolean).join('\n'));
 }
+
+/** How a role writes to others while its turn goes on. */
+const letters = (role: Role): string => [
+  'You can write to others while your turn goes on, without ending it; they have the letter as they work, and you go on:',
+  '  curl -s --data-binary @- "$ARGUS_LETTERS?to=READERS&cc=READERS" <<\'EOF\'',
+  '  (the letter)',
+  '  EOF',
+  `Readers, comma-separated: manager, planner, an open task by its id (its holder reads it)${role === 'engineer'
+    ? ', and reviewer: the Reviewer of your task looks now at what your letter asks, beside your work, and writes back into your turn'
+    : role === 'reviewer' ? ', and engineer, while the Engineer of your task works on (when you look at their work under way)' : ''}. cc sends a copy, marked as one, the same way. Your turn still ends with your hand-off.`,
+].join('\n');
 
 /** The machine the work runs on, as far as Argus knows it. */
 function machine(): string {
@@ -91,6 +104,10 @@ export const rewritePrompt = (draft: string): string => join(
 
 /** A letter to a task that is not open, or closed before its holder read it, back to its writer. */
 export const unread = (task: string, letter: string): string => `Your letter to task ${task}, which is not open, was not read:\n${letter}`;
+
+/** Standing instructions changed since a resumed session was given them, ahead of its prompt. */
+export const reinstructed = (instructions: string, prompt: string): string =>
+  join(section('Your standing instructions, as they now are (they replace those you were given before)', instructions), prompt);
 
 /** A letter put into a turn under way. */
 export const letterPrompt = (from: Note['from'], text: string): string => section(`From the ${NAMES[from]}, during your turn`, text);
@@ -127,6 +144,25 @@ export function plannerPrompt(project: Project): string {
 /** A letter that reaches the Planner or the Manager from another role. */
 export function handedTo(role: Role, task: Task | null, letter: string): string {
   return `From the ${NAMES[role]}${task ? `, on task ${task.id} (${task.title})` : ''}:\n${letter}`;
+}
+
+/** A hand-over inside a task, which the Planner reads as the work goes, to steer it or the tasks beside it. */
+export function copied(from: Role, to: Role, task: Task, letter: string): string {
+  return `From the ${NAMES[from]} to the ${NAMES[to]}, on task ${task.id} (${task.title}), as the work goes:\n${letter}`;
+}
+
+/** A letter written during a turn, as its readers have it: who wrote it, on which task, to whom, copied to whom. */
+export function posted(from: Role, task: Task | null, to: string[], cc: string[], text: string): string {
+  const named = (names: string[]) => names.map(name => /^t\d+$/.test(name) ? `task ${name}` : `the ${NAMES[name as Role] ?? name}`).join(', ');
+  const on = task ? ` on task ${task.id} (${task.title})` : '';
+  return `From the ${NAMES[from]}${on}, as their turn goes on, to ${to.length ? named(to) : '(copies only)'}${cc.length ? `; copied to ${named(cc)}` : ''}:\n${text}`;
+}
+
+/** A Reviewer's look at work under way, which the Engineer asked for while going on. */
+export function lookPrompt(project: Project, task: Task, look: string, resumed = false): string {
+  return join(!resumed && taskPrompt(project, task, false),
+    section('The Engineer asks you to look now, while they go on working', look),
+    'Your letter reaches the Engineer as they work: what you see that they should know now. It is not your review of their delivery, which comes when they hand it over.');
 }
 
 export function refusedPrompt(reason: string): string {

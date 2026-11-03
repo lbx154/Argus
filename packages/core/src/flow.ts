@@ -9,15 +9,16 @@
 // waits for the operator while the rest of the work goes on. Nothing retries a failed turn; a
 // hand-off Argus refuses goes back to its writer once.
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, copied, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
+import { letterbox } from './letters.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -43,6 +44,8 @@ export class Flow {
   private readonly projects = new Map<string, Project>();
   /** Each project's work under way, and how to wake it when a Manager turn adds to it. */
   private readonly works = new Map<string, { done: Promise<void>; wake: () => void }>();
+  /** Reviewers' looks at work under way, which the work waits for before it rests. */
+  private readonly looks = new Map<string, Set<Promise<void>>>();
   /** Each project's last Manager turn, which its next one follows. */
   private readonly managing = new Map<string, Promise<unknown>>();
 
@@ -165,8 +168,9 @@ export class Flow {
         for (const task of openTasks(project)) if (!running.has(task) && ready(project, task)) start(task, () => this.carry(project, task));
         if (!running.has('planner') && project.inbox.length && !held(project, null)) start('planner', () => this.plan(project));
       }
-      if (!running.size) break;
-      await Promise.race([...running.values(), new Promise<void>(resolve => { work.wake = resolve; })]);
+      const looks = this.looks.get(project.id) ?? new Set<Promise<void>>();
+      if (!running.size && !looks.size) break;
+      await Promise.race([...running.values(), ...looks, new Promise<void>(resolve => { work.wake = resolve; })]);
     }
     // At rest, what still waits is for the operator: a failed turn to resume, or a question.
     if (this.going(project)) {
@@ -244,16 +248,26 @@ export class Flow {
     const role = task.holder;
     // The letters the turn reads: those on the task as it begins, and those put into it as it goes.
     const taken = new Set(task.unread);
-    const handoff = (await this.call(project, role, task, resumed => taskPrompt(project, task, resumed)))?.handoff;
+    const turn = () => this.call(project, role, task, resumed => taskPrompt(project, task, resumed));
+    const handoff = (await (role === 'reviewer' ? this.reviewTurn(task, turn) : turn()))?.handoff;
     if (!handoff) return;
     const unread = task.unread?.filter(note => !taken.has(note) && !this.steered.has(note)) ?? [];
     if (unread.length) task.unread = unread;
     else delete task.unread;
     const { to } = handoff;
     const letter = read(handoff);
+    // Letters to the tasks beside it reach their holders as they work.
+    for (const { task: id, letter: text } of handoff.tell ?? []) if (id !== task.id) await this.taskLetter(project, role, id, text);
+    if (handoff.look) this.lookAt(project, task, handoff.look);
     switch (to) {
       case 'engineer': case 'reviewer':
         Object.assign(task, { holder: to, note: { from: role, text: letter } });
+        // Beside other tasks, the Planner reads each hand-over in one it gave as the work goes, and may
+        // steer this task or those beside it.
+        if (to !== role && task.from === 'planner' && openTasks(project).some(other => other !== task)) {
+          project.inbox.push(copied(role, to, task, letter));
+          this.works.get(project.id)?.wake();
+        }
         break;
       case 'planner':
         this.close(project, task, role, letter);
@@ -266,6 +280,82 @@ export class Flow {
       case 'operator':
         this.ask(project, role, task, letter);
     }
+  }
+
+  /** The Reviewer looks at a task's work under way, beside its Engineer's turns; the letter goes to the task's holder. */
+  private lookAt(project: Project, task: Task, look: string): void {
+    const looks = this.looks.get(project.id) ?? new Set<Promise<void>>();
+    this.looks.set(project.id, looks);
+    const going = (async () => {
+      // The task's one Reviewer, already at work on it, reads the request in that turn and answers in it.
+      if (this.reviewing.has(task) && await this.callAgent.steer?.(`${project.id}/${task.id}.reviewer`, letterPrompt('engineer', look))) return;
+      const handoff = (await this.reviewTurn(task, () => this.call(project, 'reviewer', task, resumed => lookPrompt(project, task, look, resumed), { look: true })))?.handoff;
+      if (!handoff) return this.lookFailed(project, task);
+      for (const { task: id, letter } of handoff.tell ?? []) if (id !== task.id) await this.taskLetter(project, 'reviewer', id, letter);
+      if (task.status === 'open') await this.taskLetter(project, 'reviewer', task.id, read(handoff));
+    })().catch(() => this.lookFailed(project, task)).finally(() => {
+      looks.delete(going);
+      this.works.get(project.id)?.wake();
+    });
+    looks.add(going);
+  }
+
+  /** The session's letterbox, where its role writes as its turn goes on: none outside a server. */
+  private box(project: Project, role: Role, task: Task | null, key: string): { letters?: string } {
+    const letters = letterbox(key, (to, cc, text) => this.post(project, role, task, to, cc, text));
+    return letters ? { letters } : {};
+  }
+
+  /** A letter written during a turn, which goes on: each reader named, or copied, has it as they work.
+   * Readers: the Manager, the Planner, an open task (its holder), and on the writer's own task the
+   * Reviewer, whom the Engineer asks to look now, or the Engineer, whom a Reviewer looking writes to. */
+  private async post(project: Project, role: Role, task: Task | null, to: string[], cc: string[], text: string): Promise<string[]> {
+    const names = [...new Set([...to, ...cc])];
+    if (!names.length) throw new Error('name a reader: to=manager, planner, reviewer, engineer or a task id such as t3 (comma-separated); cc= the same');
+    if (!text.trim()) throw new Error('the letter is empty: write it as the request body');
+    if (project.status !== 'working') throw new Error(`the project's work is ${project.status}`);
+    const deliver = names.map(name => this.reader(project, role, task, name));
+    const letter = posted(role, task, to, cc, text);
+    for (const reach of deliver) await reach(letter);
+    this.record(project, { type: 'letter', role, ...task ? { task: task.id } : {}, to, cc, text });
+    return names;
+  }
+
+  /** How a letter written during a turn reaches `name`; throws when no such reader can have it. */
+  private reader(project: Project, role: Role, task: Task | null, name: string): (letter: string) => Promise<void> {
+    if (name === 'manager') return async letter => { void this.writeToManager(project, letter).catch(error => this.fail(project, 'manager', null, String(error))); };
+    if (name === 'planner') return async letter => { project.inbox.push(letter); this.store.save(project); this.works.get(project.id)?.wake(); };
+    if (name === 'reviewer') {
+      if (role !== 'engineer' || !task) throw new Error('only an Engineer writes to the Reviewer of their task; for another task, name the task');
+      return async letter => this.lookAt(project, task, letter);
+    }
+    if (name === 'engineer') {
+      if (role !== 'reviewer' || !task || task.holder !== 'engineer') throw new Error('the Engineer of your task is not working now: your hand-off reaches them; for another task, name the task');
+      return letter => this.taskLetter(project, 'reviewer', task.id, letter);
+    }
+    if (/^t\d+$/.test(name)) {
+      if (name === task?.id) throw new Error(`${name} is your own task: name its reviewer or engineer`);
+      if (!openTasks(project).some(open => open.id === name)) throw new Error(`task ${name} is not open`);
+      return letter => this.taskLetter(project, role, name, letter);
+    }
+    throw new Error(`no reader ${JSON.stringify(name)}: name manager, planner, reviewer, engineer or a task id such as t3`);
+  }
+
+  /** Each task's Reviewer turns, its looks and reviews alike, one after another in its one session. */
+  private readonly reviewing = new Map<Task, Promise<unknown>>();
+
+  private reviewTurn<T>(task: Task, turn: () => Promise<T>): Promise<T> {
+    // With none under way the turn starts now, else once the one before it has ended.
+    const before = this.reviewing.get(task);
+    const next = before ? before.catch(() => {}).then(turn) : turn();
+    const settled: Promise<unknown> = next.catch(() => {}).finally(() => { if (this.reviewing.get(task) === settled) this.reviewing.delete(task); });
+    this.reviewing.set(task, settled);
+    return next;
+  }
+
+  /** A look that failed holds nothing up: the Engineer hears of it, and goes on. */
+  private async lookFailed(project: Project, task: Task): Promise<void> {
+    if (task.status === 'open') await this.taskLetter(project, 'reviewer', task.id, 'The look you asked for failed before the Reviewer wrote back. Go on; ask again if you still need it.');
   }
 
   /** A letter to the Manager stays in the record until a Manager turn takes it. */
@@ -324,7 +414,7 @@ export class Flow {
   }
 
   /** A letter stays on its task till a turn that read it ends; a backend that takes one reads it as it goes. */
-  private async taskLetter(project: Project, from: Task['from'], id: string, letter: string): Promise<void> {
+  private async taskLetter(project: Project, from: Note['from'], id: string, letter: string): Promise<void> {
     const task = openTasks(project).find(task => task.id === id);
     if (!task) return this.returnLetter(project, from, id, letter);
     const note = { from, text: letter };
@@ -334,7 +424,7 @@ export class Flow {
   }
 
   /** An unread letter goes back to its writer; a Manager's waits until its current turn ends. */
-  private returnLetter(project: Project, from: Task['from'], task: string, letter: string): void {
+  private returnLetter(project: Project, from: Note['from'], task: string, letter: string): void {
     const note = unread(task, letter);
     if (from === 'manager') void this.writeToManager(project, note).catch(error => this.fail(project, 'manager', null, String(error)));
     else project.inbox.push(note);
@@ -343,46 +433,49 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number } = {}): Promise<AgentResult | null> {
+                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: true } = {}): Promise<AgentResult | null> {
     const { refused, answers, input_id } = turn;
     const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
     if (signal?.aborted) return null;
+    // A task's Reviewer is one session, its looks and reviews alike, kept like the Engineer's.
     const key = task ? `${task.id}.${role}` : role;
-    // Review rounds have no earlier judgment in their context, including after a restart.
-    if (role === 'reviewer') delete project.sessions[key];
     const resume = project.sessions[key];
     let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
     const own = task && typeof task.place === 'object' ? task.place : null;
     this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
+    const standing = instructions(role, project, this.store);
+    // Only what the session has not been told: a resumed one learns of changed instructions in its prompt.
+    // The digest leaves out the date and the machine's load, which change by themselves.
+    const digest = createHash('sha256').update(standing.replace(/^Today is .*$|^\d+ logical CPUs.*$/gm, '')).digest('hex').slice(0, 16);
+    const told = resume !== undefined && project.instructed?.[key] !== digest;
+    (project.instructed ??= {})[key] = digest;
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: instructions(role, project, this.store),
-        prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : prompt(resume !== undefined),
+        backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
+        prompt: refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills; a role that writes may write skills too.
         readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home), ...own ? [project.workdir] : []], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
-        ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
+        ...(task ? { giver: task.from } : {}), ...this.box(project, role, task, `${project.id}/${key}`), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
       // The call never ran to an end of its own: it is recorded as ended, failed.
       const error = thrown instanceof Error ? thrown.message : String(thrown);
       this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
-      if (!signal?.aborted) this.fail(project, role, task, error);
+      if (!signal?.aborted && !turn.look) this.fail(project, role, task, error);
       return null;
-    } finally {
-      if (role === 'reviewer') await this.callAgent.close?.(`${project.id}/${key}`);
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid } = result;
     // A turn goes on next time in the session its backend reported, whether it ended, was cut off
     // or failed: its work is not done again. With none reported, or a new one whose turn failed before
     // a step, which holds no work and may hold the settings it failed on, the role starts afresh; and
     // a session reset while the turn went on stays reset.
-    if (role !== 'reviewer' && project.sessions[key] === resume) {
+    if (project.sessions[key] === resume) {
       if (threadId && (resume || completed || stepped || signal?.aborted)) project.sessions[key] = threadId;
       else delete project.sessions[key];
     }
@@ -408,7 +501,7 @@ export class Flow {
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
-    if (!signal?.aborted) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
+    if (!signal?.aborted && !turn.look) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
     return null;
   }
 

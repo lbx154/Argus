@@ -66,7 +66,7 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
     const conversation = START[request.backend](request, { confined, schema: formSchema(request.form, request.giver), stem });
     const argv = confined ? confine([request.backend, ...conversation.args], request, temp) : [...launcher(request.backend), ...conversation.args];
     const started: Live = {
-      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp } : {} }),
+      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp } : {}, ...request.letters ? { ARGUS_LETTERS: request.letters } : {} }),
       conversation, settings: settings(request), thread: request.resume ?? null, tempRoot,
     };
     live.set(key, started);
@@ -142,7 +142,6 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
     }
     return result;
   } finally {
-    if (request.role === 'reviewer') await end(key);
     await new Promise(resolve => raw.end(resolve));
   }
 }, {
