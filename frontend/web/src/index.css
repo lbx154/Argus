@@ -484,10 +484,10 @@ select optgroup {
   flex-shrink: 0;
   white-space: nowrap;
   padding: 0 0.125rem;
-  border-bottom: 1px solid transparent;
+  border-bottom: 2px solid transparent;
   color: rgb(var(--ink-faint));
   font-size: 0.875rem;
-  letter-spacing: .01em;
+  font-weight: 500;
   transition: color 180ms ease, border-color 180ms ease;
 }
 
@@ -495,7 +495,7 @@ select optgroup {
 
 .workspace-tab[aria-current='page'] {
   color: rgb(var(--ink));
-  border-bottom-color: rgb(var(--accent));
+  border-bottom-color: rgb(var(--ink));
 }
 
 .workspace-more { position: relative; color: rgb(var(--ink-dim)); font-size: 0.875rem; }
@@ -894,10 +894,10 @@ button {
 .project-header {
   display: grid;
   height: auto;
-  min-height: 56px;
+  min-height: 72px;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 12px;
-  padding-block: 8px;
+  gap: 4px 16px;
+  padding-block: 16px 10px;
 }
 .project-header .topbar-title { grid-column: 1; grid-row: 1; }
 .project-header .topbar-status { display: flex; flex-wrap: wrap; white-space: nowrap; grid-column: 1 / -1; grid-row: 2; gap: 0 6px; }
@@ -948,6 +948,7 @@ button {
 }
 .conversation-row[data-operator='true'] { --conversation-enter-x: 12px; --conversation-enter-y: 0px; }
 .conversation-row .prose :is(h1, h2, h3) { font-weight: 600; letter-spacing: -.015em; }
+.conversation-row li::marker { color: rgb(var(--ink-faint)); }
 
 /* A task in the conversation is one faint line that unfolds. */
 .task-line-row { padding: 6px 0; color: rgb(var(--ink-dim)); }

@@ -1,3 +1,4 @@
+import { MoreHorizontal } from 'lucide-react';
 import { WorkspaceHeader } from './WorkspaceShell';
 import { SessionWorkdir } from './SessionWorkdir';
 import type { Snapshot } from '../api';
@@ -75,7 +76,7 @@ export function TopBar({
 
   return (
     <WorkspaceHeader className="project-header">
-      <h1 className="topbar-title min-w-0 truncate text-[19px] font-semibold leading-6 tracking-[-0.015em] text-ink" title={title}>
+      <h1 className="topbar-title min-w-0 truncate text-[20px] font-semibold leading-7 tracking-[-0.015em] text-ink" title={title}>
         {title}
       </h1>
       <div className={showStatus ? "topbar-status min-w-0 items-center text-xs text-ink-faint" : "sr-only"} title={focus ? `${statusWords} · ${focus}` : statusWords}>
@@ -130,9 +131,9 @@ export function TopBar({
               aria-label={t('topbar.manageSession')}
               title={t('topbar.manageSession')}
               onClick={onManage}
-              className="icon-control flex h-8 w-8 shrink-0 items-center justify-center text-base leading-none tracking-[0.12em] text-ink-dim"
+              className="icon-control flex h-8 w-8 shrink-0 items-center justify-center text-ink-dim"
             >
-              ···
+              <MoreHorizontal size={18} aria-hidden="true" />
             </button>
           </>
         ) : null}

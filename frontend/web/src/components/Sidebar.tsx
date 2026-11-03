@@ -441,7 +441,7 @@ export function Sidebar({
             </button>}
             <details className="sidebar-more">
               <summary className="icon-control flex h-8 w-8 items-center justify-center" aria-label={zh ? '更多' : 'More'} title={zh ? '语言、外观与登录' : 'Language, appearance and sign-in'}>
-                <span aria-hidden="true" className="tracking-[0.12em]">···</span>
+                <MoreHorizontal size={16} aria-hidden="true" />
               </summary>
               <div className="sidebar-more-menu">
                 {onSignOut && <button type="button" onClick={onSignOut} className="icon-control flex h-8 items-center gap-2 px-2 text-xs"><LogOut size={15} />{zh ? '退出登录' : 'Sign out'}</button>}
