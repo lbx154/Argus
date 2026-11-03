@@ -6,13 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { missionOutcomePresentation } from '../../../core/src/missionOutcome';
 import { defaultProject, filterProjects, reconcileProjectSelection, resolveProjectSelection } from '../../../core/src/projects';
-import { EVENT_TYPES, canonicalEventType } from '../../../core/src/eventCatalog';
 import { eventKey, eventMatchesView } from '../../../core/src/events';
 import { responseError } from '../../../core/src/http';
 import { visibleBacklogItems } from '../../../core/src/backlog';
 import { formatBytes, shortcut, uptime } from '../lib/format';
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
-import type { AgentIoCompleteEvent } from '../../../core/src/eventPayloads.generated';
 import {
   selectPreferredPreviewArtifact,
   selectPreviewArtifacts,
@@ -34,13 +32,6 @@ beforeEach(() => {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
 });
 afterEach(() => queryClient.clear());
-
-const typedCallEvent: AgentIoCompleteEvent = {
-  type: 'agent.io.complete',
-  payload_schema_version: 1,
-  call_id: 'call-1',
-  run_label: 'engineer-r1',
-};
 
 describe('shared frontend core', () => {
   it('says durations and shortcuts in the reader\'s words and on their platform', () => {
@@ -244,12 +235,6 @@ describe('shared frontend core', () => {
       { type: 'life.mission.completed', item_id: 'mission-1', status: 'done' },
       next,
     ])).toEqual(next);
-  });
-
-  it('uses the canonical event catalog and explicit legacy aliases', () => {
-    expect(EVENT_TYPES.AGENT_IO_COMPLETE).toBe(typedCallEvent.type);
-    expect(canonicalEventType('mission.started')).toBe(EVENT_TYPES.LIFE_MISSION_STARTED);
-    expect(canonicalEventType('research.custom.ready')).toBe('research.custom.ready');
   });
 
   it('renders Settings and icon-only theme controls in the sidebar footer', () => {

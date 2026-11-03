@@ -8,7 +8,6 @@ export * from './accounting.js';
 export * from './usage.js';
 export * from './processGuard.js';
 export * from './schema.js';
-export * from './eventValidation.js';
 export * from './models.js';
 export * from './decisions.js';
 export * from './protocol.js';

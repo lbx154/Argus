@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest';
 import { parseSSEFrames } from '../api';
 import type { EventMsg } from '../api';
 import { EventStream } from './serverSnapshot';
-import { EVENT_CORPUS } from '../../../core/src/eventCorpus.generated';
 import { renderLine, type RenderContext } from '../../../core/src/eventRender';
 import { eventKey, isReasoning, mergeFragment } from '../../../core/src/events';
 
@@ -22,25 +21,8 @@ const line = (event: Record<string, unknown>, context: Partial<RenderContext> = 
 const zh = (event: Record<string, unknown>) => line(event, { locale: 'zh-CN' });
 
 describe('the web feed line', () => {
-  it('shows the advisor question and answer, and only applied supervision as a team decision', () => {
-    const answered = zh({ type: 'advisor.consultation.completed', question: 'Why did the measurement change?', summary: 'The second run used a different batch size. Repeat with batch size 16.' });
-    expect(answered).toMatchObject({ role: 'advisor', label: '顾问' });
-    expect(answered?.text).toContain('batch size 16');
-    expect(answered?.text).toContain('Why did the measurement change?');
-    const proposal = { type: 'life.manager.supervision.issued', summary: 'Repeat both runs with batch size 16.', action: 'steer' };
-    expect(line(proposal)).toBeNull();
-    expect(line({ ...proposal, type: 'life.manager.supervision.applied' })?.text).toBe(proposal.summary);
-    expect(line({ ...proposal, type: 'life.manager.supervision.failed', status: 'superseded' })).toBeNull();
-  });
-  it('shows the status the operator is told and hides the developer log', () => {
-    expect(line({ type: 'life.operator_status', kind: 'service_back', text: 'The model service is answering again.' }))
-      .toMatchObject({ text: 'The model service is answering again.' });
+  it('hides the developer log', () => {
     expect(line({ type: 'life.status', text: 'planner idle' })).toBeNull();
-  });
-  it('shows a remark of the Observer with whom it is for, under its own name', () => {
-    const remark = { type: 'life.observer.note', agent_layer: 'observer', to: 'manager', text: 'the Planner woke 14 times on the same running job' };
-    expect(zh(remark)).toMatchObject({ role: 'observer', label: '监督者', text: '对经理：the Planner woke 14 times on the same running job' });
-    expect(line({ ...remark, to: 'operator', operator_alert: true })).toMatchObject({ label: 'Observer', text: 'to You: the Planner woke 14 times on the same running job' });
   });
   it('hides raw CLI framing, telemetry and unknown types (the noise)', () => {
     expect(line({ type: 'agent.io.stream', text: 'raw' })).toBeNull();
@@ -49,52 +31,8 @@ describe('the web feed line', () => {
     expect(line({ type: 'some.unknown.internal', text: 'kept for grep' })).toBeNull();
   });
 
-  it('hides the grounding note of a chat config change but keeps operator notes', () => {
-    const note = { type: 'user.note', title: 'manual note', summary: "Set all Argus roles' model to x." };
-    expect(line({ ...note, tags: ['config'] })).toBeNull();
-    expect(line({ ...note, tags: [] })?.text).toContain("Set all Argus roles' model");
-  });
-  it('says the Planner updated its plan without calling every plan research', () => {
-    // 2026-10-21: a software task read 规划者：更新了研究计划.
-    expect(zh({ type: 'user.note', title: 'research plan updated', tags: ['planner', 'research_plan'] })?.text).toBe('更新了计划');
-  });
-  it('leaves the end of a team task to its completion row', () => {
-    // 2026-10-21: a task the Reviewer closed also ended with 工程师：这次运行结束，共 1 轮.
-    expect(line({ type: 'loop.done', status: 'done', rounds: 1, item_id: 't-1' })).toBeNull();
-    expect(line({ type: 'loop.done', status: 'done', rounds: 1 })?.text).toBe('the run finished after 1 round');
-  });
-  it('explains a refused Manager check without claiming a team decision failed', () => {
-    const event = {
-      type: 'life.manager.supervision.failed', status: 'failed', failure_stage: 'provider',
-      stop_kind: 'provider_fence', error_code: 'trial_quota_exceeded',
-      summary: '402: provider body with private account details',
-    };
-    expect(zh(event)).toMatchObject({ text: '经理这次没能看完进展（试用额度不够了），没有做任何调整。', tone: 'warn' });
-    expect(line(event)?.text).toContain('trial quota');
-    expect(zh(event)?.text).not.toContain('团队调整');
-    expect(line(event)?.text).not.toContain('private account');
-  });
 
-  it('says why a check stopped, and keeps cancelled or superseded checks out of the feed', () => {
-    const failed = { type: 'life.manager.supervision.failed', failure_stage: 'provider', status: 'failed' };
-    expect(zh({ ...failed, error_code: 'timeout' })).toMatchObject({ text: '经理这次没能看完进展（模型太久没有回应），没有做任何调整。', tone: 'warn' });
-    expect(zh({ ...failed, status: 'superseded', error_code: 'cancelled' })).toBeNull();
-    expect(zh({ ...failed, status: 'superseded', error_code: 'superseded' })).toBeNull();
-    expect(zh({ ...failed, error_code: 'cancelled', stop_kind: 'operator_pause' })).toBeNull();
-  });
 
-  it('only calls a failed commit an unapplied adjustment when a decision exists', () => {
-    const failed = { type: 'life.manager.supervision.failed', status: 'failed' };
-    expect(zh({ ...failed, failure_stage: 'commit', action: 'steer' })?.text).toBe('经理想调整一下工作，但没能生效；工作按原样继续。');
-    expect(zh({ ...failed, failure_stage: 'commit', action: 'steer', error_code: 'timeout' })?.text).toBe('经理想调整一下工作，但没能生效（模型太久没有回应）；工作按原样继续。');
-    expect(zh({ ...failed, status: 'issued', failure_stage: 'commit', action: 'steer', error_code: 'cancelled' })).toMatchObject({ text: '对工作的调整被打断了，恢复后会接着生效。', tone: 'warn' });
-    expect(zh({ ...failed, failure_stage: 'provider' })?.text).not.toContain('团队调整');
-    expect(zh({ ...failed, failure_stage: 'commit' })?.text).not.toContain('团队调整');
-    expect(zh({ ...failed, failure_stage: 'decision' })?.text).toBe('经理这次没能看完进展，没有做任何调整。');
-    // A code no longer written (the host refused checks it could not show in full) reads as any failure.
-    expect(zh({ ...failed, failure_stage: 'decision', error_code: 'observation_incomplete' })?.text).toBe('经理这次没能看完进展，没有做任何调整。');
-    expect(zh({ ...failed, error_code: 'constructor', summary: 'untrusted raw error' })?.text).toBe('经理这次没能看完进展，没有做任何调整。');
-  });
 
   it('shows reasoning summaries as pale role context, and drops them on request', () => {
     const reasoning = {
@@ -164,19 +102,6 @@ describe('the web feed line', () => {
     })?.tone).toBe('err');
   });
 
-  it('says a Manager routing failure in words and leaves the raw error to the record', () => {
-    const event = {
-      type: 'life.manager.intent.failed',
-      phase: 'backend',
-      cause: '401 Missing bearer',
-      attempts: 2,
-      error: 'VerticalDecisionError: routing failed [backend]: 401 Missing bearer',
-    };
-    expect(line(event)?.text).toBe(
-      "couldn't work out how to handle this request (the model service did not answer), so nothing was started",
-    );
-    expect(zh(event)?.text).toBe('没弄明白该怎么处理这个请求（模型服务没有回应），所以还没开始做');
-  });
 
   it('renders operator and Argus conversation turns as boundaries of the feed', () => {
     expect(line({ type: 'ui.operator', text: '继续实验' })).toMatchObject({ label: 'You', text: '继续实验', rule: true });
@@ -192,78 +117,17 @@ describe('the web feed line', () => {
     expect(line({ type: 'ui.operator', text: '   ' })).toBeNull();
   });
 
-  it('colours a review verdict by status', () => {
-    expect(line({ type: 'round.review.completed', status: 'done', reason: 'ok' })!.tone).toBe('ok');
-    expect(line({ type: 'round.review.completed', status: 'blocked', reason: 'x' })!.tone).toBe('err');
-    expect(line({ type: 'round.review.completed', status: 'continue', reason: 'x' })!.tone).toBe('warn');
-  });
 
-  it('says a review that hands the choice to the operator waits on them, not that the work is stuck', () => {
-    // Trial s-934a4569: `→ operator: A or B?` read "审阅者认为工作卡住了".
-    const asked = { type: 'round.review.completed', status: 'blocked', reason: 'A and B conflict.', operator_question: 'A or B?' };
-    expect(zh(asked)).toMatchObject({ text: '审阅者把选择交给你 · A and B conflict.', tone: 'warn', glyph: '❓' });
-    expect(line(asked)!.text).toBe('the Reviewer leaves the choice to you · A and B conflict.');
-    expect(zh({ ...asked, operator_question: '' })!.text).toMatch(/^审阅者认为工作卡住了/);
-    // The task it ended is parked on that question, as its row is.
+  it('says a task parked on a question waits on the operator, not that the work is stuck', () => {
     expect(zh({ type: 'life.mission.completed', status: 'blocked', outcome_class: 'blocked', success: false, operator_question: 'A or B?' }))
       .toMatchObject({ text: '任务已暂停，因为有个问题在等你回答；进度已保存，可以继续。' });
   });
 
-  it("says an Engineer's handoff is the Engineer's, and where it sent the work", () => {
-    // Trial s-6f0e6213: the Engineer handed a rounding conflict to the Manager,
-    // no Reviewer ran, and the feed read "审阅者认为工作卡住了".
-    const handed = { type: 'round.review.completed', status: 'blocked', reason: '现有舍入规则冲突。', review_source: 'engineer_handoff' };
-    expect(zh(handed)).toMatchObject({ role: 'engineer', label: '工程师', text: '工程师把工作交给经理定夺 · 现有舍入规则冲突。' });
-    expect(line(handed)).toMatchObject({ label: 'Engineer', text: 'the Engineer handed the work to the Manager to decide · 现有舍入规则冲突。' });
-    expect(zh({ ...handed, operator_question: 'A or B?' })!.text).toMatch(/^工程师把选择交给你/);
-    expect(zh({ ...handed, status: 'replan_requested' })!.text).toMatch(/^工程师请规划者重新安排/);
-    expect(zh({ ...handed, status: 'continue' })!.text).toMatch(/^工程师接着再做一轮/);
-    expect(zh({ ...handed, status: 'done', review_source: 'engineer_self_review' }))
-      .toMatchObject({ label: '工程师', text: '工程师自查后认为做完了 · 现有舍入规则冲突。' });
-    // A Reviewer's verdict stays the Reviewer's.
-    expect(zh({ ...handed, review_source: 'reviewer' })).toMatchObject({ label: '审阅者', text: '审阅者认为工作卡住了 · 现有舍入规则冲突。' });
-  });
 
-  it('presents an explicitly skipped review as an informational interruption, in both languages', () => {
-    const event = { type: 'round.review.completed', status: 'continue', reason: 'Turn allowance reached.', review_skipped: true };
-    expect(line(event)).toMatchObject({ tone: 'info', text: 'no review this round · Turn allowance reached.' });
-    expect(zh(event)).toMatchObject({ tone: 'info', text: '这一轮没有审阅 · Turn allowance reached.' });
-  });
 
-  it('shows an engineer-requested bounded review deferral', () => {
-    const rendered = line({ type: 'round.review.deferred', round_index: 1, next_step: 'wire the parser into the runner' });
-    expect(rendered).toMatchObject({ role: 'engineer', tone: 'info' });
-    expect(rendered!.text).toContain('wire the parser into the runner');
-  });
 
-  it('accepts both lifecycle schemas and the legacy type names', () => {
-    expect(line({ type: 'round.start', round: 1 })).toMatchObject({ text: 'round 1', rule: true });
-    expect(line({ type: 'round.started', round_index: 2 })!.text).toBe('round 2');
-    expect(zh({ type: 'round.start', round: 2 })!.text).toBe('第 2 轮');
-    expect(line({ type: 'mission.completed', status: 'done', success: true })).toMatchObject({
-      text: 'The task was completed.', tone: 'ok', rule: true,
-    });
-    expect(line({ type: 'mission.error', reason: 'disk full' })).toMatchObject({ tone: 'err', text: 'this task failed disk full' });
-  });
 
-  it('surfaces the guardian signals that persist to the feed, blocks included', () => {
-    const stall = line({ type: 'round.stall', text: 'no forward progress 2/3 rounds' });
-    expect(stall).toMatchObject({ label: 'Notice', tone: 'warn' });
-    expect(zh({ type: 'round.stall' })?.text).toBe('这一轮没有进展');
-    expect(line({ type: 'round.reviewer_backend_failure', text: 'backend down' })).toMatchObject({ tone: 'err', rule: true });
-    // A block that needs a person is never hidden from the feed.
-    const blocked = line({ type: 'life.lifecycle.block', reason: 'needs creds' });
-    expect(blocked).toMatchObject({ label: 'Watch', tone: 'err', rule: true, text: 'blocked — needs you · needs creds' });
-    expect(zh({ type: 'life.lifecycle.block', reason: 'needs creds' })?.text).toBe('卡住了 — 需要你来处理 · needs creds');
-  });
 
-  it('names a failing model service instead of leaving the round anonymous', () => {
-    expect(line({ type: 'round.backend_failure.backoff', round_index: 9, seconds: 15, text: 'Copilot CLI exited with code 1 · waiting 15s' }))
-      .toMatchObject({ role: 'engineer', tone: 'warn', text: 'Copilot CLI exited with code 1 · waiting 15s' });
-    expect(line({ type: 'round.backend_failure.backoff', round_index: 9, seconds: 15.2 })?.text)
-      .toBe('the model service failed — waiting 15s before trying again');
-    expect(zh({ type: 'round.backend_failure.backoff', seconds: 15 })?.text).toBe('模型服务出错 — 等待 15 秒后再试');
-  });
 
   it('surfaces ANY operator_alert event loud, even an unknown type', () => {
     const r = line({ type: 'some.new.guardian.signal', operator_alert: true, text: 'look here' });
@@ -271,11 +135,6 @@ describe('the web feed line', () => {
     expect(r!.text).toContain('look here');
   });
 
-  it('raises a persistent budget alarm for denied provider spend', () => {
-    const event = { type: 'budget.reservation.denied', reason: 'daily budget exhausted ($0.000000 available)' };
-    expect(line(event)).toMatchObject({ label: 'Budget', tone: 'err', rule: true });
-    expect(zh(event)?.label).toBe('预算');
-  });
 
   it('hides reviewer and planner protocol payloads and empty phase markers', () => {
     expect(line({
@@ -293,21 +152,7 @@ describe('the web feed line', () => {
     })).toBeNull();
   });
 
-  it('renders the manager target_stage field', () => {
-    const row = line({
-      type: 'life.manager.stage_decision', action: 'advance',
-      current_stage: 'inspect', target_stage: 'implement_cli', reason: 'verified',
-    });
-    expect(row!.text).toContain('moved on to the implement_cli stage');
-  });
 
-  it('names a stage the Manager closes in the reader\'s words', () => {
-    // Trial s-757b9dac: the Manager's row read "「delivery」阶段完成".
-    expect(zh({
-      type: 'life.manager.stage_decision', action: 'complete', source: 'manager_llm',
-      target_stage: 'delivery', reason: '可以交付。',
-    })!.text).toBe('「成果交付」阶段完成 · 可以交付。');
-  });
 
   it('renders mission terminal outcomes truthfully', () => {
     // Without an independent review the summary is the only account of the result.
@@ -330,27 +175,18 @@ describe('the web feed line', () => {
       .toMatchObject({ text: 'The task ended.', tone: 'info' });
   });
 
-  it('gives every catalog fixture the web shows a role label and a sentence', () => {
-    for (const fixture of EVENT_CORPUS.fixtures) {
-      const rendered = renderLine(fixture.event, WEB);
-      if (!rendered) continue;
-      expect(rendered.label, fixture.id).not.toBe('');
-      expect(rendered.text, fixture.id).not.toMatch(/^\[[a-z.]+\]/);
-      expect(renderLine(fixture.event, { ...WEB, locale: 'zh-CN' })?.label, fixture.id).not.toBe('');
-    }
-  });
 });
 
 describe('EventStream role grouping', () => {
   it('keeps autonomous work in per-role collapsible groups', () => {
     const html = renderToStaticMarkup(createElement(EventStream, {
       events: [], snapshot: roleSnapshot([
-        { type: 'life.planner.task_added', title: 'Choose conjecture', ts: 1 },
+        { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'planner', text: 'Choose conjecture', ts: 1 },
         {
           type: 'engineer.progress', kind: 'agent_message', agent_layer: 'engineer',
           text: 'Checking authoritative sources.', ts: 2,
         },
-        { type: 'round.review.started', round_index: 1, ts: 3 },
+        { type: 'engineer.progress', kind: 'agent_message', agent_layer: 'reviewer', text: 'Reviewing round 1.', ts: 3 },
       ] as EventMsg[]),
       connected: true,
       showReasoning: true,

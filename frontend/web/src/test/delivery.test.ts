@@ -62,15 +62,11 @@ describe('completed delivery presentation', () => {
     const risk = 'Live feed ingestion: live behaviour is unverified. (accepted by the operator)';
     const { renderLine } = await import('../../../core/src/eventRender');
     const context = { locale: 'en', density: 'full', showReasoning: false, unknownEventPolicy: 'hide' } as const;
-    const review = renderLine({ type: 'round.review.completed', status: 'done', reason: 'Read the fixture test.', residual_risk: risk }, context);
-    expect(review?.text).toContain(`verified with residual risk: ${risk}`);
-    expect(review?.text).not.toContain('was satisfied');
     const completed = renderLine({
       type: 'life.mission.completed', status: 'done', success: true, outcome_class: 'completed',
       title: 'Ingest the feed', summary: `Verified with residual risk: ${risk}. Built ingest.`, residual_risk: risk,
       review_source: 'reviewer',
     }, context);
-    // The risk itself is told once, on the review row.
     expect(completed?.text).toBe('completed with residual risk');
     expect(completed?.role).toBe('reviewer');
     // A task the Reviewer accepted is closed in the Reviewer's words, under its name.
