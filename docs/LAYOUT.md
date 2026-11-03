@@ -13,8 +13,7 @@ the test, to the table below, and to the Packages section. The test reads only t
 Layer and Packages cells of the table; the May-import column is prose, except the
 `engineer`/`reviewer` clause, which section 2 of the same file enforces.
 
-Background, measurements and the decision cards are in
-`docs/audits/architecture-clarity-2026-09-14.md`. The runtime maintenance map
+The runtime maintenance map
 (`docs/runtime-maintainability.md`, maintained by the runtime session) covers code
 entry points, state ownership and recovery boundaries; this file covers package
 placement and the dependency direction between packages. Vocabulary is in
@@ -118,10 +117,9 @@ shipped" means no CI job, no test, and no wheel content comes from the directory
 - `.github/` - CI workflows: `tests` (ruff and full pytest on Linux, TypeScript packages on Linux/macOS/Windows, frontend contract consumers on Linux), `extended` (mypy, additional portability/frontend/Windows checks; on demand), `pr-gate`, `release`, `desktop-cache`, `desktop` (the desktop app and the Argus it ships, on Windows/macOS/Linux), `core` (the TypeScript core); plus Copilot instructions.
 - `argus/` - the Python package; everything above. Also carries `plugin_catalog.json`.
 - `argus_skill/` - the two-file import alias for the package's pre-rename name (`__init__.py` installs a `sys.meta_path` finder so `argus_skill[.x]` is the same module object as `argus[.x]`; `__main__.py` delegates to `argus.__main__`). Shipped in the wheel for one release after 2026-09-14, then removed. Not a package of its own, not type-checked, no layer.
-- `companions/` - `FLYWHEEL`, a standalone research-data-flywheel control plane that talks to Argus only over the versioned WebAPI. Not built, not tested, not shipped.
 - `contrib/` - community contributions (`figure-studio` paper-figure pipeline, `pi-research-workflow-skill` for Pi/Hermes). Not built, not tested, not shipped.
 - `desktop-tauri/` - the Tauri desktop shell; it ships the TypeScript core (`packages/core`) and runs it with the system's Node.js.
-- `docs/` - operator and developer documentation; `docs/audits/` holds dated audit reports and their data attachments.
+- `docs/` - operator and developer documentation.
 - `examples/` - worked examples the guides refer to: `verticals/` holds the small `lab_notebook` vertical built in `docs/building-a-vertical.md` and the helper that packages a vertical into a local store catalog. Not built, not tested, not shipped.
 - `hosting/` - optional git submodule of [argus-hosting](https://github.com/lbx154/argus-hosting) (Python package `argus_hosting`): the PR gate (description gate run by the `pr-gate` workflow, the local regression gate behind `scripts/pr-gate`, and the historical 50-PR regression study). Argus does not import it at run time; it is not built or shipped in the wheel or sdist, and tests that need it skip when it is not checked out (`git submodule update --init hosting`).
 - `frontend/` - `core` (shared TypeScript), `web` (React web cockpit). The built cockpit is not committed: the npm package builds its own (`packages/core/web`).
@@ -144,7 +142,6 @@ Root files that puzzle newcomers:
 Each move phase is a zero-content `git mv` commit, a one-line import commit with a
 `sys.modules` alias shim, and one allowlist line deleted. Every phase from 1 onward
 requires restarting daemons and the processes running from the dev-tree `.venv`.
-Details and decision cards: `docs/audits/architecture-clarity-2026-09-14.md`, 4.4 and 5.
 
 1. `core` becomes a module-level leaf (except `core/usage.py`, card 12): `agent_cli/runner_backend.py` -> `core/backend_names.py` (`BackendName`), `agent_cli/_process_control.py` -> `core/process_control.py`, `life/event_log.py` -> `core/event_log.py`, `life/mission_outcome.py` -> `core/mission_outcome.py`, `tools/capability_vault.py` -> `core/capability_vault.py` (forwarder stays), `core/agent_probe.py` -> `adapters/agent_probe.py`, new `core/version.py`.
 2. Contract owns its value types: `ChecklistItem` -> `core/vertical_contract.py`; new `verticals/inventory.py` (`VERTICALS`, `DEFAULT_VERTICAL`, aliases); RL gates -> `verticals/research/`, re-exported through `verticals/research_bridge.py`.
