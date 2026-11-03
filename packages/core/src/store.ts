@@ -35,6 +35,9 @@ export interface Task {
   after?: string[];
   /** Letters to whoever holds it, written while they worked, that their turn could not take: they read them at their next. */
   unread?: { from: Task['from']; text: string }[];
+  /** Where it works, set as it begins: the workspace itself, or a git worktree of its own when
+   * another open task already works in the workspace (base: the commit it was made from). */
+  place?: 'workspace' | { dir: string; base: string };
 }
 
 /** A question to the operator: its asker, the task's holder or the Planner, waits for the answer. */
@@ -118,6 +121,7 @@ export type FlowEvent =
   | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[]; title?: string; answers?: string; input_id?: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
+  | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; kept?: string[]; error?: string }
   | ({ type: 'step'; role: Role; task?: string } & Step)
   | { type: 'status'; status: Status; error?: string };
 

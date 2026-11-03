@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
+import { isCheckout, WORKTREES } from './worktrees.js';
 
 export const NAMES: Record<Note['from'], string> = {
   manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator',
@@ -62,6 +63,7 @@ function where(project: Project, store: Store, role: Role): string {
     project.repeat && `Each day at ${project.repeat.at} UTC Argus sends this project the operator's message: ${project.repeat.text}`,
     project.every && `Every ${project.every.hours} hours (counted from midnight UTC) Argus sends this project the operator's message: ${project.every.text}`,
     project.onRest && `When another project's work comes to rest, Argus sends you the operator's message, with that project and how it rests: ${project.onRest}`,
+    role === 'planner' && isCheckout(project.workdir) && `A task that begins while another task works in the workspace works in a git worktree of its own, under ${WORKTREES}/, so tasks side by side do not overwrite each other's files.`,
     `Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
     role !== 'reviewer' && KEPT.includes(project.backend)
@@ -102,8 +104,11 @@ export function taskPrompt(project: Project, task: Task, resumed: boolean): stri
   const earlier = project.tasks.filter(other => other.status === 'closed')
     .map(({ id, title, note }) => `- ${id} ${title}${note ? `. Its last word, from the ${NAMES[note.from]}: ${note.text.split('\n')[0]}` : ''}`);
   const beside = project.tasks.filter(other => other.status === 'open' && other !== task).map(({ id, title }) => `- ${id} ${title}`);
+  const own = typeof task.place === 'object' ? task.place : null;
+  const inWorkspace = project.tasks.filter(other => other.status === 'open' && other !== task && other.place === 'workspace').map(({ id }) => id);
   return join(earlier.length > 0 && section('Earlier tasks', earlier.join('\n')),
-    beside.length > 0 && section('Running beside it, in the same workspace', beside.join('\n')),
+    beside.length > 0 && section(own ? 'Running beside it' : 'Running beside it, in the same workspace', beside.join('\n')),
+    own && section('Where this task works', `In ${own.dir}, a git worktree of the workspace made from it as it was when the task began (commit ${own.base}, uncommitted and new files included), because ${inWorkspace.join(', ') || 'another task'} works in the workspace itself. The task's work counts once it is in the workspace, ${project.workdir}: \`git diff ${own.base}\` and \`git status\` in the worktree show what it changed, and settling a conflict with what changed in the workspace meanwhile is part of the task. Argus removes the worktree when the task closes with every change it made in the workspace too.`),
     section(`Task ${task.id}, from the ${NAMES[task.from]}`, task.objective), note);
 }
 

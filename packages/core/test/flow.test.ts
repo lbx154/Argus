@@ -1193,3 +1193,44 @@ for (const legacy of [false, true]) test(`${legacy ? 'legacy' : 'named'} A form 
   assert.deepEqual(rows().find(row => row.row_id === aReply.row_id), aReply);
   assert.equal(rows().filter(row => row.type === 'ui.argus').length, 3);
 });
+
+/** A git checkout with one commit, as the operator's workspace. */
+function checkout(dir: string): void {
+  const git = (...args: string[]) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir }).status, 0, args.join(' '));
+  git('init', '-q');
+  writeFileSync(join(dir, 'summary.py'), 'print(1)\n');
+  writeFileSync(join(dir, '.gitignore'), 'projects/\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'start');
+}
+
+test('a task that begins while another works in a git workspace works in a worktree of its own, and the Planner is told so', async t => {
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const { home, flow, id, requests, events } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
+    { role: 'engineer', waits: held, to: 'planner', letter: 'Parsed 1.' },
+    { role: 'engineer', to: 'planner', letter: 'Parsed 2.' },
+    { role: 'planner', later: true, to: 'planner', letter: 'Waiting for t1.' },
+    { role: 'planner', to: 'manager', letter: 'Both parsed.' },
+    report,
+  ]);
+  checkout(home);
+  writeFileSync(join(home, 'draft.txt'), 'uncommitted\n');
+  await flow.say(id, 'Parse both files');
+  while (requests.length < 4) await new Promise(resolve => setImmediate(resolve));
+  release();
+  const project = await flow.settled(id);
+  assert.match(requests[1]!.instructions ?? "", /begins while another task works in the workspace works in a git worktree of its own/);
+  const [first, second] = [requests[2]!, requests[3]!];
+  assert.equal(first.cwd, home);
+  assert.equal(second.cwd, join(home, '.argus-worktrees', 't2'));
+  assert.ok(second.writeDirs?.includes(home));
+  assert.match(second.prompt, /## Where this task works\nIn .*\.argus-worktrees\/t2, a git worktree of the workspace .* because t1 works in the workspace itself/);
+  // Made from the workspace as it was, its uncommitted files included; removed once nothing it changed is missing from the workspace.
+  const made = events().find(event => event.type === 'task.worktree' && event.base);
+  assert.ok(made);
+  assert.deepEqual(project.tasks.map(task => typeof task.place === 'object' ? task.id : task.place), ['workspace', 't2']);
+  assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.removed));
+});

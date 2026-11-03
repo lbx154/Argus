@@ -1,0 +1,69 @@
+// A task that begins while another works in the workspace gets a git worktree of its own, so that
+// tasks side by side do not overwrite each other's files. Argus makes it from the workspace as it is
+// then, uncommitted and new files included, and removes it once its task has closed with every change
+// it made also in the workspace; bringing the changes there is the task's own work.
+
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, appendFileSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+/** Where a workspace keeps its tasks' worktrees, hidden from the operator's file view. */
+export const WORKTREES = '.argus-worktrees';
+
+// Git as the operator's shell would run it, never steered by a caller's GIT_DIR or index.
+function git(cwd: string, args: string[], env: Record<string, string> = {}): string {
+  const clean = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('GIT_')));
+  return execFileSync('git', ['-c', 'gc.auto=0', ...args], { cwd, env: { ...clean, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+
+/** Whether `workdir` is the top of a git checkout, the one place a task worktree can be made from. */
+export function isCheckout(workdir: string): boolean {
+  try { return realpathSync(git(workdir, ['rev-parse', '--show-toplevel'])) === realpathSync(workdir); } catch { return false; }
+}
+
+/** A worktree for task `id` at `<workdir>/.argus-worktrees/<id>`, checked out at a commit of the
+ * workspace as it is now (the branch and index of the workspace untouched); its commit is `base`. */
+export function makeWorktree(workdir: string, id: string): { dir: string; base: string } {
+  const common = resolve(workdir, git(workdir, ['rev-parse', '--git-common-dir']));
+  const exclude = join(common, 'info', 'exclude');
+  mkdirSync(join(common, 'info'), { recursive: true });
+  if (!(existsSync(exclude) && readFileSync(exclude, 'utf8').split('\n').includes(`/${WORKTREES}/`))) appendFileSync(exclude, `\n/${WORKTREES}/\n`);
+  const scratch = mkdtempSync(join(tmpdir(), 'argus-snapshot-'));
+  try {
+    const index = { GIT_INDEX_FILE: join(scratch, 'index') };
+    git(workdir, ['add', '-A', '.'], index);
+    const tree = git(workdir, ['write-tree'], index);
+    let parent: string[] = [];
+    try { parent = ['-p', git(workdir, ['rev-parse', '--verify', 'HEAD'])]; } catch { /* a repository with no commit yet */ }
+    const base = git(workdir, ['-c', 'user.name=Argus', '-c', 'user.email=argus@localhost', 'commit-tree', tree, ...parent, '-m', `Argus: the workspace as task ${id} began`]);
+    const dir = join(workdir, WORKTREES, id);
+    git(workdir, ['worktree', 'add', '--detach', dir, base]);
+    return { dir, base };
+  } finally { rmSync(scratch, { recursive: true, force: true }); }
+}
+
+/** The files the worktree changed since `base`, new ones included, by their paths in it. */
+function changed(dir: string, base: string): string[] {
+  const listed = git(dir, ['-c', 'core.quotepath=off', 'diff', '--name-only', '--no-renames', base]).split('\n');
+  const untracked = git(dir, ['-c', 'core.quotepath=off', 'ls-files', '--others', '--exclude-standard']).split('\n');
+  return [...new Set([...listed, ...untracked].filter(Boolean))];
+}
+
+const content = (path: string): Buffer | null => { try { return readFileSync(path); } catch { return null; } };
+
+/** Removes the worktree when every change it made is also in the workspace (none at all, or brought
+ * over); otherwise keeps it, and says which files are not, so nothing a task did is lost. */
+export function settleWorktree(workdir: string, worktree: { dir: string; base: string }): string[] {
+  if (!existsSync(worktree.dir)) return [];
+  let missing: string[];
+  try {
+    missing = changed(worktree.dir, worktree.base).filter(path => {
+      const theirs = content(join(worktree.dir, path)), ours = content(join(workdir, path));
+      return theirs === null ? ours !== null : ours === null || !theirs.equals(ours);
+    });
+  } catch { return [worktree.dir]; }
+  if (missing.length) return missing;
+  git(workdir, ['worktree', 'remove', '--force', worktree.dir]);
+  return [];
+}
