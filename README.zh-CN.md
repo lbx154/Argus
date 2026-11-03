@@ -245,10 +245,10 @@ npm rm -g @lbx154/argus
 
 ## 用 Python 运行时开始的项目
 
-早先的 Python 运行时（`argus/`）还留在仓库里，只是为了让用它开始的项目跑完；之后会删除，
-不要再用它做新安装。它的状态在 `~/.argus-skill`，和 `~/.argus` 互不相干。这些项目请继续用
-当初的安装来跑。两种安装都会提供名为 `argus` 的命令；同一台机器上两者都有时，先确认实际
-运行的是哪一个（`type -a argus`，PowerShell 里用 `Get-Command argus -All`）。
+早先的 Python 运行时已于 2026-11-03 从仓库删除，最后一版是提交 `4c91c788b`。用它做的安装
+仍可继续使用，状态在 `~/.argus-skill`，和 `~/.argus` 互不相干。两种安装都会提供名为 `argus`
+的命令；同一台机器上两者都有时，先确认实际运行的是哪一个（`type -a argus`，PowerShell 里用
+`Get-Command argus -All`）。
 
 ## 仓库布局
 
@@ -257,7 +257,6 @@ npm rm -g @lbx154/argus
 - `packages/contracts/`、`packages/runtime/` —— 共享类型和工具代码，构建时打包进核心。
 - `frontend/web/` —— 网页源码；包里带的是它的构建产物。
 - `desktop-tauri/` —— 桌面外壳。
-- `argus/`、`tests/` —— Python 运行时及其测试，保留到用它开始的项目结束。
 
 ## 延伸阅读
 

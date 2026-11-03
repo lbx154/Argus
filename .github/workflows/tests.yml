@@ -1,12 +1,10 @@
 name: tests
 
-# Python lint/tests on Linux and the TypeScript runtime on all supported hosts.
+# The TypeScript runtime on all supported hosts.
 # The TypeScript job also checks the existing frontend contract consumers.
 #
-# Everything else -- the mypy type gate, the platform-portability, frontend
-# and Windows desktop-package checks -- live in extended.yml and run only on
-# demand (workflow_dispatch): before a release, or when a change touches the
-# chat bridges, the pairing/QR path, the cockpits or the Tauri host.
+# The web cockpit's own tests live in extended.yml and run only on demand
+# (workflow_dispatch).
 
 on:
   push:
@@ -19,46 +17,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  linux:
-    name: linux · lint + tests
-    runs-on: ubuntu-latest
-    env:
-      ARGUS_VERTICALS_REPO: ${{ github.workspace }}/.integration/argus-verticals
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check out paired Store providers
-        uses: actions/checkout@v4
-        with:
-          repository: Argus-AiTeam/argus-verticals
-          ref: 7194d773092d653a6aa03da1631ee37e51937c6e
-          path: .integration/argus-verticals
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.12.0'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: pip
-      - name: Install
-        # The project's own dev extra, rather than a hand-listed subset that
-        # drifts. The community verticals (argus-verticals) and their heavy
-        # scientific stack are not installed here. The pinned source checkout
-        # is consumed only by the existing isolated Store integration tests.
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[dev,qr,trial]'
-      - name: Lint
-        run: python -m ruff check argus argus_skill tests
-      - name: Build Node packages for Python integration tests
-        run: |
-          npm ci
-          npm run build
-      - name: Install the bounded Store reference simulator
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends iverilog
-      - name: Test
-        run: python -m pytest -q -n auto
-
   typescript:
     name: typescript · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -74,15 +32,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
-      - uses: actions/setup-python@v5
-        if: runner.os != 'Linux'
-        with:
-          python-version: '3.11'
-      - name: Verify process guard and ledger repair on macOS and Windows
-        if: runner.os != 'Linux'
-        run: |
-          python -m pip install -e '.[dev]'
-          python -m pytest tests/core/test_process_guard.py tests/core/test_accounting_integrity.py -o addopts='' -q
       - name: Check existing frontend consumers
         if: runner.os == 'Linux'
         run: |
