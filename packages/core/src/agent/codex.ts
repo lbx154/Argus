@@ -92,8 +92,13 @@ export const codex: StartBackend = (request, { confined, schema }) => {
         else if (method === 'error' && isJsonObject(params.error)) {
           // Codex tries a failed model request again on its own, up to its provider's limit: the
           // operator reads each try as it happens, not a silent wait for the last.
-          if (params.willRetry === true) now.onWords?.(retrying(params.error), 'process');
-          else error = String(params.error.message ?? error);
+          if (params.willRetry !== true) error = String(params.error.message ?? error);
+          else if (/^unexpected status 402\b/.test(String(params.error.additionalDetails ?? ''))) {
+            // A service that serves no turn till it is paid answers every try the same: the turn
+            // ends at the first, in the service's words, not after Codex has tried them all.
+            error = String(params.error.additionalDetails);
+            void cli.request('turn/interrupt', { threadId: thread, turnId: of ?? turnId }).catch(() => {});
+          } else now.onWords?.(retrying(params.error), 'process');
         }
         else if (method === 'turn/completed' && isJsonObject(params.turn)) {
           status = String(params.turn.status);

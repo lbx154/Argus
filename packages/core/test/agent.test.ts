@@ -309,6 +309,13 @@ test('codex: each model request Codex tries again is read as it happens, not onl
   assert.equal(result.error, 'token authentication failed (401 Unauthorized from the model service at 127.0.0.1).');
 });
 
+test('codex: a model service that wants paying ends the turn at its first refusal, in its own words', async () => {
+  const words: string[] = [];
+  const quota = '试用额度已用完：这个邀请码的 50 美元已经用完。';
+  const result = await call('codex', { retries: 8, unpaid: quota }, { onWords: text => { words.push(text); } });
+  assert.deepEqual([result.completed, result.error, result.unpaid, words], [false, quota, true, []]);
+});
+
 test('the words of a form being written are its letter so far, an escape cut short left for the next', () => {
   assert.deepEqual(['{"to":"operator","letter":"Hel', '{"to":"operator","letter":"a\\nb\\u4f', '{"to":"oper', 'Working'].map(writing),
     ['Hel', 'a\nb', '', 'Working']);
