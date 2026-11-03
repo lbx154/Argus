@@ -160,11 +160,14 @@ const tokens = ({ cost_usd: _, ...counts }: Usage): Omit<Usage, 'cost_usd'> => c
 /** A model service's refusal in its own words, which codex wraps as `unexpected status 402 Payment
  * Required: <message>, url: <its address>`; where it gave none (an empty body, a page, JSON
  * without one), its status. HTTP 402 is a service that serves no turn till it is paid; HTTP 401, one
- * that does not know who asks, which for a CLI the operator has not signed in to says how to. */
+ * that does not know who asks: the CLI's own service, one the operator signs in to, says how to;
+ * another (a provider in codex's config, a proxy) is named, its key being no sign-in of the CLI's. */
 function refusal(backend: Backend, error: string | null): Pick<AgentResult, 'error' | 'unpaid'> {
-  const [, status, code, message = ''] = /^unexpected status ((\d{3})[^:]*): ([\s\S]*?)(?:, url: [\s\S]*)?$/.exec(error ?? '') ?? [];
+  const [, status, code, message = '', url = ''] = /^unexpected status ((\d{3})[^:]*): ([\s\S]*?)(?:, url: (\S*)[\s\S]*)?$/.exec(error ?? '') ?? [];
   if (!status) return { error };
   const said = /^(?:Unknown error)?$|^[<{[]/.test(message.trim()) ? status : message.trim();
+  const host = /^https?:\/\/([^/:]+)/.exec(url)?.[1] ?? '';
+  if (code === '401' && host && !/(^|\.)(openai|chatgpt)\.com$/.test(host)) return { error: `${said} (${status} from the model service at ${host}).` };
   if (code === '401') return { error: `${said}. ${backend} is not signed in, or its sign-in has expired: ${SIGN_IN[backend]}, then send the message again.` };
   return { error: said, ...code === '402' ? { unpaid: true } : {} };
 }

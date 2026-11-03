@@ -289,12 +289,24 @@ test('codex: a model service refusing a turn is reported in its own words, witho
     [`unexpected status 502 Bad Gateway: Unknown error${url}, request id: req-1`, '502 Bad Gateway', undefined],
     [`unexpected status 503 Service Unavailable: <html><body>down</body></html>${url}`, '503 Service Unavailable', undefined],
     // As a fresh install with Codex not signed in recorded it (2026-11-02): how to sign in, beside the service's words.
-    [`unexpected status 401 Unauthorized: Missing bearer or basic authentication in header${url}`,
+    ['unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses',
       'Missing bearer or basic authentication in header. codex is not signed in, or its sign-in has expired: run `codex login` in a terminal, then send the message again.', undefined],
+    // A provider of codex's config refusing its key (the trial's relay, 2026-11-02): no sign-in of codex's would help.
+    [`unexpected status 401 Unauthorized: token authentication failed${url}`,
+      'token authentication failed (401 Unauthorized from the model service at 127.0.0.1).', undefined],
   ] as const) {
     const result = await call('codex', { fail });
     assert.deepEqual([result.completed, result.error, result.unpaid], [false, error, unpaid]);
   }
+});
+
+test('codex: each model request Codex tries again is read as it happens, not only its last failure', async () => {
+  const words: string[] = [];
+  const result = await call('codex', { retries: 2, fail: 'unexpected status 401 Unauthorized: token authentication failed, url: http://127.0.0.1:9011/v1/responses' },
+    { onWords: text => { words.push(text); } });
+  assert.deepEqual(words, [1, 2].map(at =>
+    `The model service failed (401 Unauthorized: token authentication failed); Codex is trying again, ${at} of 2.`));
+  assert.equal(result.error, 'token authentication failed (401 Unauthorized from the model service at 127.0.0.1).');
 });
 
 test('the words of a form being written are its letter so far, an escape cut short left for the next', () => {
