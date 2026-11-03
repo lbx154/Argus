@@ -119,6 +119,8 @@ export type FlowEvent =
       error: string | null; model: string | null; usage: Usage | null; ms: number }
   /** A delivered result's files (`open`), each as it was then (`snapshots`). */
   | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[]; title?: string; answers?: string; input_id?: string }
+  /** A letter written during a turn, to its readers and copied to others, as the work goes on. */
+  | { type: 'letter'; role: Role; task?: string; to: string[]; cc: string[]; text: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
   | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; kept?: true; error?: string }

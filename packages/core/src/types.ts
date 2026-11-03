@@ -46,6 +46,8 @@ export interface AgentRequest {
   callsDir: string;
   usageFile: string;
   signal?: AbortSignal;
+  /** The session's letterbox, where it writes letters as its turn goes on (ARGUS_LETTERS). */
+  letters?: string;
 }
 
 /** What a role does as its turn goes on, as the operator follows it: what it says, a command it

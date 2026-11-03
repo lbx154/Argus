@@ -13,6 +13,7 @@ import { conversationRows, daemon, named, progressMap, projectRecord, readEvents
 import { words } from './helpers/words.js';
 import { packsHome, SKILLS } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
+import { boxAt, lettersAt } from '../src/letters.js';
 
 /** One scripted turn: the role expected, and the letter it ends with (no `to`: none). */
 interface Step {
@@ -29,6 +30,8 @@ interface Step {
   tell?: { task: string; letter: string }[];
   /** What an Engineer going on asks the Reviewer to look at now. */
   look?: string;
+  /** Letters the role writes as its turn goes on, before it ends; `refused` those Argus must refuse. */
+  posts?: { to: string[]; cc?: string[]; text: string; refused?: RegExp }[];
   /** The turn ends after the turns already under way have. */
   later?: boolean;
   /** The turn ends once this has settled. */
@@ -49,6 +52,11 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     assert.equal(request.role, step.role);
     if (step.later) await new Promise(resolve => setImmediate(resolve));
     if (step.says) request.onStep?.({ kind: 'message', text: step.says });
+    for (const { to, cc = [], text, refused } of step.posts ?? []) {
+      const post = boxAt(new URL(request.letters!).pathname.split('/').pop()!)!;
+      if (refused) await assert.rejects(post(to, cc, text), refused);
+      else await post(to, cc, text);
+    }
     await step.waits;
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
@@ -1293,5 +1301,36 @@ test("an Engineer going on asks the Reviewer to look now; the look's letter reac
   // The look's letter is read by the Engineer, not taken as the review of the delivery.
   const after = requests.filter(request => request.role === 'engineer').at(-1);
   assert.match(after?.prompt ?? '', /From the Reviewer, since the task's last turn\nSo far right; mind empty lines\./);
+  assert.equal(project.tasks[0]!.status, 'closed');
+});
+
+test('an Engineer writes to the Reviewer as their turn goes on, copied to the Planner: the Reviewer looks now and writes back into the turn', async t => {
+  lettersAt('http://127.0.0.1:1');
+  t.after(() => lettersAt(null));
+  let release = (): void => {};
+  const looked = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests, events } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', posts: [
+      { to: ['bob'], text: 'hello', refused: /no reader "bob"/ },
+      { to: ['t1'], text: 'hello', refused: /your own task/ },
+      { to: ['reviewer'], cc: ['planner'], text: 'Is the delimiter handling right so far?' },
+    ], waits: looked, to: 'reviewer', letter: 'summary.py prints the totals.' },
+    { role: 'reviewer', to: 'engineer', letter: 'So far right; mind empty lines.' },
+    { role: 'planner', to: 'planner', letter: 'Noted.' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  void flow.say(id, 'Build the summary');
+  while (!flow.store.load(id).tasks[0]?.unread?.length) await new Promise(resolve => setImmediate(resolve));
+  release();
+  const project = await flow.settled(id);
+  assert.equal(project.status, 'idle');
+  assert.match(requests[1]!.letters ?? '', /^http:\/\/127\.0\.0\.1:1\/letters\/[0-9a-f]{32}$/);
+  const look = requests.find(request => request.role === 'reviewer' && request.prompt.includes('asks you to look now'));
+  assert.match(look?.prompt ?? '', /From the Engineer on task t1 \(.*\), as their turn goes on, to the Reviewer; copied to the Planner:\nIs the delimiter handling right so far\?/);
+  const planner = requests.find(request => request.role === 'planner');
+  assert.match(planner?.prompt ?? '', /copied to the Planner:\nIs the delimiter handling right so far\?/);
+  assert.ok(events().some(event => event.type === 'letter' && event.to[0] === 'reviewer' && event.cc[0] === 'planner'));
   assert.equal(project.tasks[0]!.status, 'closed');
 });

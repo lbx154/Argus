@@ -14,10 +14,11 @@ import { join } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, copied, handedTo, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, copied, handedTo, posted, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
+import { letterbox } from './letters.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -296,6 +297,47 @@ export class Flow {
     looks.add(going);
   }
 
+  /** The session's letterbox, where its role writes as its turn goes on: none outside a server. */
+  private box(project: Project, role: Role, task: Task | null, key: string): { letters?: string } {
+    const letters = letterbox(key, (to, cc, text) => this.post(project, role, task, to, cc, text));
+    return letters ? { letters } : {};
+  }
+
+  /** A letter written during a turn, which goes on: each reader named, or copied, has it as they work.
+   * Readers: the Manager, the Planner, an open task (its holder), and on the writer's own task the
+   * Reviewer, whom the Engineer asks to look now, or the Engineer, whom a Reviewer looking writes to. */
+  private async post(project: Project, role: Role, task: Task | null, to: string[], cc: string[], text: string): Promise<string[]> {
+    const names = [...new Set([...to, ...cc])];
+    if (!names.length) throw new Error('name a reader: to=manager, planner, reviewer, engineer or a task id such as t3 (comma-separated); cc= the same');
+    if (!text.trim()) throw new Error('the letter is empty: write it as the request body');
+    if (project.status !== 'working') throw new Error(`the project's work is ${project.status}`);
+    const deliver = names.map(name => this.reader(project, role, task, name));
+    const letter = posted(role, task, to, cc, text);
+    for (const reach of deliver) await reach(letter);
+    this.record(project, { type: 'letter', role, ...task ? { task: task.id } : {}, to, cc, text });
+    return names;
+  }
+
+  /** How a letter written during a turn reaches `name`; throws when no such reader can have it. */
+  private reader(project: Project, role: Role, task: Task | null, name: string): (letter: string) => Promise<void> {
+    if (name === 'manager') return async letter => { void this.writeToManager(project, letter).catch(error => this.fail(project, 'manager', null, String(error))); };
+    if (name === 'planner') return async letter => { project.inbox.push(letter); this.store.save(project); this.works.get(project.id)?.wake(); };
+    if (name === 'reviewer') {
+      if (role !== 'engineer' || !task) throw new Error('only an Engineer writes to the Reviewer of their task; for another task, name the task');
+      return async letter => this.lookAt(project, task, letter);
+    }
+    if (name === 'engineer') {
+      if (role !== 'reviewer' || !task || task.holder !== 'engineer') throw new Error('the Engineer of your task is not working now: your hand-off reaches them; for another task, name the task');
+      return letter => this.taskLetter(project, 'reviewer', task.id, letter);
+    }
+    if (/^t\d+$/.test(name)) {
+      if (name === task?.id) throw new Error(`${name} is your own task: name its reviewer or engineer`);
+      if (!openTasks(project).some(open => open.id === name)) throw new Error(`task ${name} is not open`);
+      return letter => this.taskLetter(project, role, name, letter);
+    }
+    throw new Error(`no reader ${JSON.stringify(name)}: name manager, planner, reviewer, engineer or a task id such as t3`);
+  }
+
   /** A letter to the Manager stays in the record until a Manager turn takes it. */
   private writeToManager(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
     if (typeof letter === 'string') letter = { text: letter, input_id: randomUUID() };
@@ -394,7 +436,7 @@ export class Flow {
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills; a role that writes may write skills too.
         readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home), ...own ? [project.workdir] : []], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
-        ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
+        ...(task ? { giver: task.from } : {}), ...this.box(project, role, task, `${project.id}/${key}`), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
