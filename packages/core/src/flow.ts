@@ -17,7 +17,7 @@ import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
-import { isCheckout, makeWorktree, settleWorktree } from './worktrees.js';
+import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -442,8 +442,8 @@ export class Flow {
     this.record(project, { type: 'task.closed', task: task.id });
     if (typeof task.place === 'object') {
       try {
-        const left = settleWorktree(project.workdir, task.place);
-        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, ...left.length ? { kept: left } : { removed: true } });
+        const deleted = forgetWorktree(project.workdir, task.place.dir);
+        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, ...deleted ? { removed: true } : { kept: true } });
       } catch (error) { this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, error: String(error) }); }
     }
     void this.callAgent.close?.(`${project.id}/${task.id}.`);

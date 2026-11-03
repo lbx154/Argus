@@ -121,7 +121,7 @@ export type FlowEvent =
   | { type: 'handoff'; role: Role; task?: string; to: string; letter: string; open?: string[]; snapshots?: DeliverySnapshot[]; title?: string; answers?: string; input_id?: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
-  | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; kept?: string[]; error?: string }
+  | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; kept?: true; error?: string }
   | ({ type: 'step'; role: Role; task?: string } & Step)
   | { type: 'status'; status: Status; error?: string };
 

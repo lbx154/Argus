@@ -3,7 +3,7 @@ import test, { type TestContext } from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
@@ -1228,9 +1228,11 @@ test('a task that begins while another works in a git workspace works in a workt
   assert.equal(second.cwd, join(home, '.argus-worktrees', 't2'));
   assert.ok(second.writeDirs?.includes(home));
   assert.match(second.prompt, /## Where this task works\nIn .*\.argus-worktrees\/t2, a git worktree of the workspace .* because t1 works in the workspace itself/);
-  // Made from the workspace as it was, its uncommitted files included; removed once nothing it changed is missing from the workspace.
+  assert.match(second.prompt, /delete the worktree's folder; when is the task's to judge/);
+  // Made from the workspace as it was, uncommitted files included; the task did not delete it, so it stays.
   const made = events().find(event => event.type === 'task.worktree' && event.base);
   assert.ok(made);
   assert.deepEqual(project.tasks.map(task => typeof task.place === 'object' ? task.id : task.place), ['workspace', 't2']);
-  assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.removed));
+  assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.kept));
+  assert.ok(existsSync(join(home, '.argus-worktrees', 't2')));
 });
