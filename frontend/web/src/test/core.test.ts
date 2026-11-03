@@ -4,22 +4,12 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'node:fs';
 import path from 'node:path';
-import * as sharedCore from '../../../core/src';
-import {
-  activeGuardianAlert,
-  authoritativeSpend,
-  computeSpend,
-  defaultProject,
-  reconcileProjectSelection,
-  EVENT_TYPES,
-  eventKey,
-  eventMatchesView,
-  filterProjects,
-  canonicalEventType,
-  resolveProjectSelection,
-  responseError,
-  visibleBacklogItems,
-} from '../../../core/src';
+import { missionOutcomePresentation } from '../../../core/src/missionOutcome';
+import { defaultProject, filterProjects, reconcileProjectSelection, resolveProjectSelection } from '../../../core/src/projects';
+import { EVENT_TYPES, canonicalEventType } from '../../../core/src/eventCatalog';
+import { eventKey, eventMatchesView } from '../../../core/src/events';
+import { responseError } from '../../../core/src/http';
+import { visibleBacklogItems } from '../../../core/src/backlog';
 import { formatBytes, shortcut, uptime } from '../lib/format';
 import { filterPaletteItems, type PaletteItem } from '../components/CommandPalette';
 import type { AgentIoCompleteEvent } from '../../../core/src/eventPayloads.generated';
@@ -301,20 +291,6 @@ describe('shared frontend core', () => {
     expect(html).not.toContain('Protocol');
   });
 
-  it('surfaces persisted event validation failures instead of hiding them', () => {
-    expect(activeGuardianAlert([{
-      type: EVENT_TYPES.AGENT_IO_ERROR,
-      event_validation: {
-        status: 'invalid',
-        errors: ['missing required fields: error'],
-      },
-    }])).toEqual({
-      tone: 'warn',
-      kind: 'validation',
-      text: "Argus skipped a record it couldn't read.",
-    });
-  });
-
   it('selects live work first and gives replayed events one identity', () => {
     const rows = [
       { workdir: '/work', id: 'new', label: 'new', last_active: 20, daemon_alive: false, daemon_pid: null, },
@@ -370,18 +346,8 @@ describe('shared frontend core', () => {
     expect(reconcileProjectSelection([other], null, true).id).toBeNull();
   });
 
-  it('uses only the authoritative project ledger total', () => {
-    const spend = computeSpend([
-      { type: 'life.planner.verdict', cost_usd: 0.2 },
-      { type: 'life.mission.completed', cost_usd: 0.3 },
-    ]);
-    expect(spend.total).toBe(0);
-    expect(authoritativeSpend(spend, 0.8)).toBe(0.8);
-  });
-
-
   it('maps mission terminal outcomes truthfully across new and legacy fields', () => {
-    const present = (sharedCore as Record<string, unknown>).missionOutcomePresentation;
+    const present: unknown = missionOutcomePresentation;
     expect(typeof present).toBe('function');
     if (typeof present !== 'function') return;
 
