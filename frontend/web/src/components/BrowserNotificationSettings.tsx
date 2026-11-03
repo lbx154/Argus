@@ -20,7 +20,7 @@ export function BrowserNotificationSettings({ notifications }: {
     <button type="button" role="switch" aria-checked={enabled} aria-labelledby="browser-notifications-label"
       aria-describedby="browser-notifications-detail" disabled={unavailable || requesting}
       onClick={() => void change()}
-      className="shrink-0 rounded-lg border border-line px-3 py-2 text-sm text-ink disabled:opacity-40">
+      className="shrink-0 rounded-full border border-line px-4 py-2 text-sm text-ink disabled:opacity-40">
       {requesting ? (zh ? '正在请求权限…' : 'Requesting permission…') : enabled ? (zh ? '已开启' : 'On') : (zh ? '已关闭' : 'Off')}
     </button>
   </section>;

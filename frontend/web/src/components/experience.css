@@ -27,7 +27,7 @@
 .settings-body { padding: 0 24px 24px; font-size: 14px; }
 .settings-sections { display: flex; flex-direction: column; gap: 24px; }
 .settings-section { border-top: 1px solid rgb(var(--line)); padding-top: 20px; }
-.settings-body :is(select, input:not([type="checkbox"])) { min-height: var(--control-height); border-color: rgb(var(--field-line)); border-radius: var(--radius-control); }
+.settings-body :is(select, input:not([type="checkbox"])) { min-height: var(--control-height); border-color: rgb(var(--field-line)); border-radius: 12px; }
 .settings-body :is(button, summary) { min-height: var(--control-height); }
 .settings-body summary { display: flex; align-items: center; }
 .settings-body :is(input, select) { max-width: 100%; }

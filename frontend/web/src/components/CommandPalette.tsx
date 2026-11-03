@@ -103,7 +103,7 @@ export function CommandPalette({
           aria-autocomplete="list"
           aria-controls="command-palette-results"
           aria-activedescendant={filtered[sel] ? `palette-${filtered[sel].id}` : undefined}
-          className="w-full bg-transparent font-mono text-sm text-ink outline-none placeholder:text-ink-faint"
+          className="w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-ink-faint"
         />
       </div>
       <div id="command-palette-results" role="listbox" className="max-h-[52vh] overflow-y-auto scroll-thin py-1.5">
@@ -112,7 +112,7 @@ export function CommandPalette({
         )}
         {groups.map((g) => (
           <div key={g.name} className="mb-1">
-            <div className="px-4 py-1 text-[10px] font-semibold uppercase tracking-wider text-ink-faint">
+            <div className="px-5 pb-1 pt-2 text-[11px] text-ink-faint">
               {g.name}
             </div>
             {g.items.map((it) => {
@@ -127,8 +127,8 @@ export function CommandPalette({
                   aria-selected={active}
                   onMouseEnter={() => setSel(filtered.indexOf(it))}
                   onClick={() => choose(it)}
-                  className={`flex w-full items-center justify-between px-4 py-1.5 text-left text-sm transition-colors ${
-                    active ? 'bg-blue-deep/20 text-ink' : 'text-ink-dim hover:bg-panel/60'
+                  className={`mx-2 flex w-[calc(100%-1rem)] items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                    active ? 'bg-sunken text-ink' : 'text-ink-dim'
                   }`}
                 >
                   <span className="min-w-0 truncate">{it.label}</span>

@@ -780,6 +780,17 @@ button {
   outline-offset: 2px;
 }
 
+/* A text field shows focus with its own border, not a ring around it; the
+ * composer and search wrappers show it with :focus-within. */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file']), textarea, select):focus-visible {
+  outline: none;
+  border-color: rgb(var(--ink-dim));
+}
+
+/* One shape for controls: a bordered button is a pill, a text field a soft box. */
+button.rounded:is([class*=' border '], [class$=' border'], [class^='border '], [class*=' border-line']):not([class*='border-t']) { border-radius: 999px; }
+:is(input, textarea).rounded, :is(input, textarea).rounded-md { border-radius: 12px; }
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

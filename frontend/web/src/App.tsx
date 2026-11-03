@@ -818,7 +818,7 @@ export default function App() {
     const proj: PaletteItem[] = projects.map((p) => ({
       id: `p-${p.id}`,
       label: shownName(p, locale === 'zh-CN', t('sidebar.unnamedSession')),
-      hint: p.daemon_alive ? `● ${t('common.live')}` : '○',
+      hint: p.daemon_alive ? t('common.live') : undefined,
       keywords: `${p.id} ${p.display_name ?? ''} ${p.daemon_alive ? 'live running' : 'stopped idle'}`,
       group: t('palette.project'),
       run: () => selectProject(p.id),

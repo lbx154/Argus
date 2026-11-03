@@ -36,7 +36,7 @@ export function CredentialsSettings() {
     catch (reason) { setError(requestFailureText(reason, t).text); }
     finally { setBusy(false); }
   };
-  const fieldClass = 'mt-1 w-full min-w-0 rounded border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-blue';
+  const fieldClass = 'mt-2 w-full min-w-0 rounded-xl border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-ink-faint';
   return <section className="settings-section">
     <h3 className="text-sm font-semibold text-ink">{zh ? '传给角色的环境变量' : 'Environment for roles'}</h3>
     <p className="my-2 text-xs leading-5 text-ink-faint">{zh
@@ -51,7 +51,7 @@ export function CredentialsSettings() {
         <textarea name="credential-value" rows={2} autoComplete="off" spellCheck={false} value={value}
           onChange={event => { setValue(event.target.value); setSaved(false); }} className={fieldClass} />
       </label>
-      <button type="submit" disabled={busy} className="rounded border border-blue/35 px-3 py-2 text-xs text-blue disabled:opacity-40">{zh ? '保存变量' : 'Save variable'}</button>
+      <button type="submit" disabled={busy} className="rounded-full bg-ink px-4 py-2 text-xs font-medium text-on-accent disabled:opacity-40">{zh ? '保存变量' : 'Save variable'}</button>
     </form>
     {saved && <p role="status" className="mt-2 text-xs text-ink-dim">{zh ? '已保存' : 'Saved'}</p>}
     {error && <p role="alert" className="mt-2 text-xs text-err">{error}</p>}
