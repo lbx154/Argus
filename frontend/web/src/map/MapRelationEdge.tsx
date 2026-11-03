@@ -37,8 +37,8 @@ export function MapRelationEdge({ id, label, style, data }: EdgeProps<RelationEd
   // the per-kind dash patterns from MapPanel stay the primary encoding.
   const stroke =
     !kind || style?.stroke === CYCLE_STROKE
-      ? style?.stroke || "#7594ad"
-      : `var(--map-edge-${kind}, ${style?.stroke || "#7594ad"})`;
+      ? style?.stroke || "#8a8a8a"
+      : `var(--map-edge-${kind}, ${style?.stroke || "#8a8a8a"})`;
   const strokeWidth = Number(style?.strokeWidth || 2) / zoom;
   const text = typeof label === "string" ? relationLabelText(label) : undefined;
   // A route fades in from the card it leaves and is full strength where it

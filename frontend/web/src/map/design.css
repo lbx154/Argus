@@ -23,11 +23,11 @@
   --z: var(--map-zoom-step, 0.24);
   --px: calc(1px / var(--z));
   --map-card-shadow:
-    0 calc(1 * var(--px)) calc(2 * var(--px)) rgb(30 48 72 / 0.05),
-    0 calc(8 * var(--px)) calc(24 * var(--px)) rgb(30 48 72 / 0.07);
+    0 calc(1 * var(--px)) calc(2 * var(--px)) rgb(0 0 0 / 0.05),
+    0 calc(8 * var(--px)) calc(24 * var(--px)) rgb(0 0 0 / 0.07);
   --map-card-shadow-lift:
-    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(30 48 72 / 0.06),
-    0 calc(16 * var(--px)) calc(40 * var(--px)) rgb(30 48 72 / 0.13);
+    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(0 0 0 / 0.06),
+    0 calc(16 * var(--px)) calc(40 * var(--px)) rgb(0 0 0 / 0.13);
   --map-card-line: rgb(var(--ink) / 0.1);
 }
 [data-theme="dark"] .map-canvas-wrap {
@@ -49,7 +49,7 @@
   background:
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--state, #9babbc) 7%, var(--map-paper)) 0,
+      color-mix(in srgb, var(--state, rgb(var(--ink-faint))) 7%, var(--map-paper)) 0,
       var(--map-paper) 46%
     );
   overflow: visible;
@@ -68,18 +68,18 @@
   bottom: calc(12 * var(--px));
   width: calc(3 * var(--px));
   border-radius: calc(3 * var(--px));
-  background: var(--state, #9babbc);
+  background: var(--state, rgb(var(--ink-faint)));
   pointer-events: none;
 }
 .argus-map .map-macro[data-hovered="true"],
 .argus-map .map-macro:hover {
   box-shadow: var(--map-card-shadow-lift);
-  border-color: color-mix(in srgb, var(--state, #82a6c5) 38%, var(--map-card-line));
+  border-color: color-mix(in srgb, var(--state, rgb(var(--ink-faint))) 38%, var(--map-card-line));
 }
 .argus-map .map-macro[data-focused="true"] {
-  border-color: color-mix(in srgb, #5d8fbd 62%, var(--map-card-line));
+  border-color: color-mix(in srgb, rgb(var(--ink)) 30%, var(--map-card-line));
   box-shadow:
-    0 0 0 calc(3 * var(--px)) rgb(93 143 189 / 0.14),
+    0 0 0 calc(4 * var(--px)) rgb(var(--ink) / 0.05),
     var(--map-card-shadow-lift);
 }
 .argus-map .map-macro[data-active="true"] {
@@ -150,8 +150,8 @@
   line-height: 1.5;
   padding: 1.5px 7px;
   border-radius: 999px;
-  color: color-mix(in srgb, var(--state, #6b859f) 78%, rgb(var(--ink)));
-  background: color-mix(in srgb, var(--state, #6b859f) 12%, transparent);
+  color: color-mix(in srgb, var(--state, rgb(var(--ink-dim))) 78%, rgb(var(--ink)));
+  background: color-mix(in srgb, var(--state, rgb(var(--ink-dim))) 12%, transparent);
   flex-shrink: 0;
 }
 .argus-map .macro-summary .map-status svg {
@@ -284,8 +284,8 @@
   --pig-indigo: rgb(var(--blue));
   --pig-vermilion: rgb(var(--err));
   --pig-gamboge: rgb(var(--warn));
-  --pig-ochre: #977650; /* 赭石 paused */
-  --map-serif: "Geist Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --pig-ochre: rgb(var(--ink-faint)); /* paused / replaced: gray, not a hue */
+  --map-serif: inherit;
   /* Lines are ink. The order of work is the body of the drawing, a dependency
    * is pressed harder, an association is a dry, broken stroke. */
   --map-edge-context: var(--ink-2);
@@ -298,8 +298,8 @@
   /* Night ink: the sheet is dark, the ink is pale, the pigments lift a step. */
   --map-dot: rgb(var(--ink) / .07);
   --map-minimap-mask: rgb(var(--surface-0) / .78);
-  --pig-ochre: #b89873;
-  --pig-lotus: #a99db8;
+  --pig-ochre: rgb(var(--ink-dim));
+  --pig-lotus: rgb(var(--ink-dim));
   /* Restated here: the edge sheet's own dark rule is as specific as the light
    * block above and may load later, so it would turn the ink blue again. */
   --map-edge-context: var(--ink-2);
@@ -362,8 +362,8 @@
     );
   box-shadow:
     0 0 0 calc(0.5 * var(--px)) rgb(255 255 255 / 0.6) inset,
-    0 calc(1 * var(--px)) calc(1.5 * var(--px)) rgb(40 34 24 / 0.05),
-    0 calc(10 * var(--px)) calc(30 * var(--px)) rgb(40 34 24 / 0.08);
+    0 calc(1 * var(--px)) calc(1.5 * var(--px)) rgb(0 0 0 / 0.05),
+    0 calc(10 * var(--px)) calc(30 * var(--px)) rgb(0 0 0 / 0.08);
 }
 [data-theme="dark"] .argus-map .map-macro {
   border-color: rgb(255 255 255 / 0.08);
@@ -377,16 +377,16 @@
   border-color: color-mix(in srgb, var(--state, var(--ink-3)) 34%, rgb(var(--ink) / 0.1));
   box-shadow:
     0 0 0 calc(0.5 * var(--px)) rgb(255 255 255 / 0.6) inset,
-    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(40 34 24 / 0.06),
-    0 calc(18 * var(--px)) calc(46 * var(--px)) rgb(40 34 24 / 0.14);
+    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(0 0 0 / 0.06),
+    0 calc(18 * var(--px)) calc(46 * var(--px)) rgb(0 0 0 / 0.14);
 }
 /* Focus is a ring of ink, not of interface blue. */
 .argus-map .map-macro[data-focused="true"] {
-  border-color: color-mix(in srgb, var(--ink-2) 55%, transparent);
+  border-color: rgb(var(--ink) / 0.28);
   box-shadow:
-    0 0 0 calc(3 * var(--px)) rgb(var(--ink) / 0.07),
-    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(40 34 24 / 0.06),
-    0 calc(22 * var(--px)) calc(56 * var(--px)) rgb(40 34 24 / 0.16);
+    0 0 0 calc(4 * var(--px)) rgb(var(--ink) / 0.05),
+    0 calc(2 * var(--px)) calc(4 * var(--px)) rgb(0 0 0 / 0.06),
+    0 calc(22 * var(--px)) calc(56 * var(--px)) rgb(0 0 0 / 0.16);
 }
 /* The state rail is a brush mark: full in the middle, thinning to its ends. */
 .argus-map .map-macro::after {
@@ -552,7 +552,7 @@
   background: color-mix(in srgb, var(--map-paper) 92%, transparent);
   box-shadow:
     inset 0 0 0 1px rgb(var(--ink) / 0.1),
-    0 1px 2px rgb(40 34 24 / 0.06);
+    0 1px 2px rgb(0 0 0 / 0.06);
   /* Nearly opaque paper, and no backdrop blur: a label travels with the map,
    * and a blur behind every one of them was redone on each frame of a zoom. */
 }
@@ -575,15 +575,26 @@
   color: var(--ink-1);
   box-shadow:
     inset 0 0 0 1px rgb(var(--ink) / 0.22),
-    0 2px 6px rgb(40 34 24 / 0.1);
+    0 2px 6px rgb(0 0 0 / 0.1);
 }
 
 /* ── Task cards, quiet by default (intelligent-ui.md) ─────────────────────
    At rest a card says what it is and where it stands: the title, the state as
    a small dot and a word, and one line of the current conclusion. Its course
    and the way in appear on hover or focus. Metal palette: white card, silver
-   hairline, black title; colour only on the status dot (canvas.css names). */
+   hairline, black title; colour only on the status dot. */
 .argus-map.argus-map {
+  --xy-controls-button-border-color: rgb(var(--line));
+  --map-accent: rgb(var(--ink-dim));
+  --map-accent-ink: rgb(var(--ink));
+  --map-accent-soft: rgb(var(--ink) / 0.06);
+  --map-silver: rgb(var(--field-line));
+  --map-hairline: rgb(var(--line));
+  --map-status-running: rgb(var(--status-running));
+  --map-status-waiting: rgb(var(--status-waiting));
+  --map-status-done: rgb(var(--status-done));
+  --map-status-idle: rgb(var(--status-idle));
+  --map-status-failed: rgb(var(--status-failed));
   --map-edge-context: var(--map-silver);
   --map-edge-continuation: var(--map-silver);
   --map-edge-semantic: var(--map-silver);
@@ -645,7 +656,7 @@
 .argus-map .macro-summary .map-status.map-state-question::before { box-shadow: 0 0 0 .17em var(--map-paper), 0 0 0 .26em var(--state); }
 .argus-map .macro-summary .map-state-dot { display: none; }
 .argus-map .macro-summary .map-card h2 {
-  margin: 0 0 6px; min-height: 0; font-family: var(--map-title-serif);
+  margin: 0 0 6px; min-height: 0;
   font-size: 19px; line-height: 1.35; font-weight: 600; letter-spacing: -.01em; color: rgb(var(--ink));
 }
 .argus-map .macro-summary .map-card-course { gap: 2px; padding-top: 4px; }

@@ -146,6 +146,9 @@ select:not([multiple]) {
 }
 
 :root[data-theme='dark'] select:not([multiple]) {
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 1rem;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m5 6.5 3 3 3-3' stroke='%23a2a2a7' stroke-width='1.35' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
@@ -523,17 +526,12 @@ select optgroup {
   transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
 }
 
-.workbench-module-tab:hover {
-  border-color: rgb(var(--glass-edge) / 55%);
-  background: rgb(var(--glass-raised) / 45%);
-  color: rgb(var(--ink));
-}
+.workbench-module-tab:hover { color: rgb(var(--ink)); }
 
 .workbench-module-tab[data-selected='true'] {
-  border-color: transparent;
   background: rgb(var(--surface-2));
   color: rgb(var(--ink));
-  box-shadow: inset 0 -1px 0 rgb(var(--accent));
+  font-weight: 500;
 }
 
 @keyframes workspace-surface-enter {
