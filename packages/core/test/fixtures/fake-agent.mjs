@@ -85,6 +85,11 @@ if (cli === 'codex') {
       reply(id, { turnId: 'turn-1' });
       return steerable(params.input[0].text);
     }
+    // As codex ends a turn it is asked to stop: completed, interrupted, and no error of its own.
+    if (method === 'turn/interrupt') {
+      reply(id, {});
+      return notify('turn/completed', { turn: { id: params.turnId, status: 'interrupted', error: null } });
+    }
     if (method !== 'turn/start') return;
     const scenario = scenarioOf(params.input[0].text);
     if (scenario.refuse) return emit({ id, error: { code: -32600, message: scenario.refuse } });
@@ -125,11 +130,14 @@ if (cli === 'codex') {
       { timestamp, type: 'token_usage_record', payload: { session_id: thread, usage: {
         input_tokens: 1000, cached_input_tokens: 400, cache_write_input_tokens: 100, output_tokens: 50, reasoning_output_tokens: 20 } } },
     ].map(record => `${JSON.stringify(record)}\n`).join(''));
-    // A model request refused and tried again, as codex 0.164 reports each try (trial8, 2026-11-03).
+    // A model request refused and tried again, as codex 0.164 reports each try (trial8, 2026-11-03);
+    // one unpaid (trial1, 2026-11-03) is answered by Argus asking the turn to stop, which ends it.
     for (let at = 1; at <= (scenario.retries ?? 0); at++) {
       notify('error', { turnId: 'turn-1', willRetry: true, error: { message: `Reconnecting... ${at}/${scenario.retries}`,
-        additionalDetails: `unexpected status 401 Unauthorized: token authentication failed, url: http://127.0.0.1:9011/v1/responses` } });
+        additionalDetails: scenario.unpaid ? `unexpected status 402 Payment Required: ${scenario.unpaid}, url: http://127.0.0.1:9011/v1/responses`
+          : 'unexpected status 401 Unauthorized: token authentication failed, url: http://127.0.0.1:9011/v1/responses' } });
     }
+    if (scenario.unpaid) return;
     if (scenario.fail) return notify('turn/completed', { turn: { id: 'turn-1', status: 'failed', error: { message: scenario.fail } } });
     // What it thinks, summed up; its words a few at a time, then whole.
     notify('item/completed', { item: { id: 'item_r', type: 'reasoning', summary: ['**Reading the parser**'], content: [] } });
