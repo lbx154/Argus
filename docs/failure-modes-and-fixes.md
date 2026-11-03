@@ -4,7 +4,7 @@
 > quoted fixes are no longer in the shipped Skills: the recency rule quoted from
 > `training-infrastructure.md` in §2, and the results-reviewer questions and the
 > `research-grind.md` rule on repeated `partial` rounds in §6. For current wording read the
-> Skills themselves, e.g. [research-grind.md](../argus/verticals/research/skills/engineer/research-grind.md).
+> Skills themselves, e.g. [research-grind.md](https://github.com/lbx154/Argus/blob/4c91c788b/argus/verticals/research/skills/engineer/research-grind.md).
 
 Argus runs unattended for days. That produces a specific class of failure, and
 most of it is not the class people expect. The agent rarely goes rogue, rarely
@@ -51,7 +51,7 @@ operation and debugging requires the global view it does not have.
 
 **What we did.** Supply the missing global check as an explicit rule rather than
 hoping for judgement. The skill
-[`research-grind.md`](../argus/verticals/research/skills/engineer/research-grind.md)
+[`research-grind.md`](https://github.com/lbx154/Argus/blob/4c91c788b/argus/verticals/research/skills/engineer/research-grind.md)
 inverts the default: *a result far from what this model, method, or benchmark is
 known to do is a defect report until proven otherwise.* Concretely it forces the
 comparison the agent will not make on its own — the generation budget must be
@@ -87,7 +87,7 @@ for last year's model, confidently, and give a fluent justification for it.
 runtime a way to actually look things up.
 
 **Forbid recall.** Model recency is a rule, not a judgement call, in
-[`training-infrastructure.md`](../argus/verticals/research/skills/engineer/training-infrastructure.md):
+[`training-infrastructure.md`](https://github.com/lbx154/Argus/blob/4c91c788b/argus/verticals/research/skills/engineer/training-infrastructure.md):
 
 > **Current generation only.** The backbone must be from a **current, actively
 > released open model family** (latest generation at decision time, e.g.
@@ -98,7 +98,7 @@ runtime a way to actually look things up.
 Recency must be *verified at decision time* against the model hub or a recent
 leaderboard, and the choice written down with the exact model id, parameter
 count, and release date. The literature path is stricter still: the
-[Research Idea Playbook](../argus/verticals/research/skills/research-idea-playbook.md)
+[Research Idea Playbook](https://github.com/lbx154/Argus/blob/4c91c788b/argus/verticals/research/skills/research-idea-playbook.md)
 requires current primary sources and independent prior-art review. Bibliographic
 facts come from fetched sources rather than model memory.
 
@@ -108,7 +108,7 @@ independent reviews** before one selector:
 
 | Mechanism | What it looks up |
 | --- | --- |
-| [`idea_portfolio.py`](../argus/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
+| [`idea_portfolio.py`](https://github.com/lbx154/Argus/blob/4c91c788b/argus/verticals/research/idea_portfolio.py) | Forms the fixed source-only route/review portfolio and admits one selector only after all 24 tasks finish |
 
 **The general lesson.** Anything the agent knows from pretraining is, by
 construction, out of date. Where recency matters, the runtime must force a lookup
@@ -217,7 +217,7 @@ maturity of the claim rather than applying uniformly. From
 
 **What is still open, and where this does not go far enough.** The posture
 separation is currently written into the **`kernel_engineering` vertical only**
-(now in the [Vertical Store](vertical-store.md)),
+(now in the Vertical Store),
 and should be generalized. But scaling ceremony to the maturity of a claim is the
 weaker half of the answer. Per §3, the stronger question to ask of any check is
 not *when* it applies but **whether it earns its place at all** — a hash that
@@ -274,7 +274,7 @@ what failed than stating a success the evidence actually supports.
 **Why it happens.** The same load-bearing wall that lets a human leave the room.
 The Reviewer is deliberately cautious — able to return `blocked`, unable to
 certify its own work — and it is instructed to
-[treat honest negative or null results as evidence](../argus/builtin_skills/reviewer/argus-reviewer-role.md),
+[treat honest negative or null results as evidence](https://github.com/lbx154/Argus/blob/4c91c788b/argus/builtin_skills/reviewer/argus-reviewer-role.md),
 not as failure. That is correct, and it is why the system's numbers can be
 trusted. But an asymmetric penalty on overclaiming, with no corresponding
 penalty on *underclaiming*, produces a system that is safest when it says
@@ -288,7 +288,7 @@ review side. The results reviewer is asked, symmetrically:
 
 and it must check that null results are "honestly represented without turning the
 paper into an exhaustive failure log."
-[`research-grind.md`](../argus/verticals/research/skills/engineer/research-grind.md)
+[`research-grind.md`](https://github.com/lbx154/Argus/blob/4c91c788b/argus/verticals/research/skills/engineer/research-grind.md)
 then blocks the failure loop directly:
 
 > Multiple rounds of `partial` on the same claim → crystallize the supported
