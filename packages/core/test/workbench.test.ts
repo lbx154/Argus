@@ -288,7 +288,8 @@ test('website downloads include only the page and files served by that preview, 
   const { project, call, get } = await setup(t, files);
   const P = `/api/projects/${project.id}`;
   await writeFile(join(project.workdir, 'large-unrelated.bin'), '');
-  await truncate(join(project.workdir, 'large-unrelated.bin'), 2 ** 35);
+  // Sparse on POSIX; NTFS allocates it, so Windows uses the 2 GiB the bundle limit test above uses.
+  await truncate(join(project.workdir, 'large-unrelated.bin'), process.platform === 'win32' ? 2 ** 31 + 1 : 2 ** 35);
   const download = async (path = 'site/deep/index.html', delivery = '') => unzip(Buffer.from(await (await call(`${P}/artifact/bundle?${new URLSearchParams({ path, ...(delivery ? { delivery } : {}) })}`)).arrayBuffer()));
   assert.deepEqual(await download(), { 'index.html': files['site/deep/index.html'] });
   const { url } = await get<{ url: string }>(`${P}/artifact/preview?path=site/deep/index.html`);
