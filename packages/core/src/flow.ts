@@ -17,6 +17,7 @@ import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question
 import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
+import { isCheckout, makeWorktree, settleWorktree } from './worktrees.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -180,7 +181,25 @@ export class Flow {
   }
 
   private async carry(project: Project, task: Task): Promise<void> {
+    this.place(project, task);
     while (task.status === 'open' && ready(project, task) && this.going(project)) await this.work(project, task);
+  }
+
+  /** As a task begins it works in the workspace, unless another open task already does; then, in a
+   * git checkout, in a worktree of its own. Elsewhere tasks share the workspace, as before. */
+  private place(project: Project, task: Task): void {
+    if (task.place) return;
+    const shared = project.tasks.some(other => other !== task && other.status === 'open' && other.place === 'workspace');
+    if (shared && isCheckout(project.workdir)) {
+      try {
+        task.place = makeWorktree(project.workdir, task.id);
+        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, base: task.place.base });
+      } catch (error) {
+        task.place = 'workspace';
+        this.record(project, { type: 'task.worktree', task: task.id, error: String(error) });
+      }
+    } else task.place = 'workspace';
+    this.store.save(project);
   }
 
   /** The Manager's turns on a project come one after another, in the order their letters came. */
@@ -336,14 +355,15 @@ export class Flow {
     let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
+    const own = task && typeof task.place === 'object' ? task.place : null;
     this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
     let result: AgentResult;
     try {
       result = await this.callAgent({
-        backend: project.backend, role, ...TURN[role], cwd: project.workdir, instructions: instructions(role, project, this.store),
+        backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: instructions(role, project, this.store),
         prompt: refused ? (role === 'reviewer' ? `${prompt(false)}\n\n` : '') + refusedPrompt(refused) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills; a role that writes may write skills too.
-        readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home)], ...(project.model ? { model: project.model } : {}),
+        readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home)], writeDirs: [skillsHome(this.store.home), ...own ? [project.workdir] : []], ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
@@ -420,6 +440,12 @@ export class Flow {
     delete task.unread;
     Object.assign(task, { status: 'closed', note: { from, text: letter } });
     this.record(project, { type: 'task.closed', task: task.id });
+    if (typeof task.place === 'object') {
+      try {
+        const left = settleWorktree(project.workdir, task.place);
+        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, ...left.length ? { kept: left } : { removed: true } });
+      } catch (error) { this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, error: String(error) }); }
+    }
     void this.callAgent.close?.(`${project.id}/${task.id}.`);
   }
 
