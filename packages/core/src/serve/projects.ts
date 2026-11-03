@@ -41,6 +41,12 @@ export function directory(asked: string): string {
     // for a path under /proc. A root that does not exist (a drive, a share) is its own parent.
     const missing: string[] = [];
     for (let dir = path, below = ''; dir !== below && !existsSync(dir); below = dir, dir = dirname(dir)) missing.unshift(dir);
+    // Under a file, Windows answers mkdir with ENOENT where POSIX says ENOTDIR: name it the same everywhere.
+    const first = missing[0];
+    const above = first ? dirname(first) : '';
+    if (above && above !== first && existsSync(above) && !statSync(above).isDirectory()) {
+      throw new HttpError(400, `${path} cannot be the working directory: ENOTDIR: ${above} is a file, not a directory`, 'workdir_not_directory');
+    }
     for (const dir of missing) mkdirSync(dir);
     if (path && !statSync(path).isDirectory()) throw new HttpError(400, `${path} is a file, not a directory`, 'workdir_not_directory');
     if (path) accessSync(path, constants.R_OK | constants.W_OK | constants.X_OK);

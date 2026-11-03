@@ -19,7 +19,8 @@ function git(cwd: string, args: string[], env: Record<string, string> = {}): str
 
 /** Whether `workdir` is the top of a git checkout, the one place a task worktree can be made from. */
 export function isCheckout(workdir: string): boolean {
-  try { return realpathSync(git(workdir, ['rev-parse', '--show-toplevel'])) === realpathSync(workdir); } catch { return false; }
+  // The native realpath expands Windows short names (RUNNER~1), which git's answer never carries.
+  try { return realpathSync.native(git(workdir, ['rev-parse', '--show-toplevel'])) === realpathSync.native(workdir); } catch { return false; }
 }
 
 /** A worktree for task `id` at `<workdir>/.argus-worktrees/<id>`, checked out at a commit of the
