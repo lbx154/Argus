@@ -64,6 +64,10 @@ export interface HandOff {
   tasks?: { task: string; after: string[] }[];
   /** The files of the result the letter hands over, the first to open first. */
   open?: string[];
+  /** An Engineer's or Reviewer's letters to other open tasks, each read by whoever holds that task as they work. */
+  tell?: { task: string; letter: string }[];
+  /** What an Engineer who goes on working asks the Reviewer to look at now. */
+  look?: string;
 }
 
 /** A token count as a backend reports it: a whole number, 0 when missing. */

@@ -129,6 +129,18 @@ export function handedTo(role: Role, task: Task | null, letter: string): string 
   return `From the ${NAMES[role]}${task ? `, on task ${task.id} (${task.title})` : ''}:\n${letter}`;
 }
 
+/** A hand-over inside a task, which the Planner reads as the work goes, to steer it or the tasks beside it. */
+export function copied(from: Role, to: Role, task: Task, letter: string): string {
+  return `From the ${NAMES[from]} to the ${NAMES[to]}, on task ${task.id} (${task.title}), as the work goes:\n${letter}`;
+}
+
+/** A Reviewer's look at work under way, which the Engineer asked for while going on. */
+export function lookPrompt(project: Project, task: Task, look: string): string {
+  return join(taskPrompt(project, task, false),
+    section('The Engineer asks you to look now, while they go on working', look),
+    'Your letter reaches the Engineer as they work: what you see that they should know now. It is not your review of their delivery, which comes when they hand it over.');
+}
+
 export function refusedPrompt(reason: string): string {
   return `Argus refused your hand-off: ${reason}\nEnd your turn with the form again, corrected.`;
 }

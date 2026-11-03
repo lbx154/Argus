@@ -34,7 +34,7 @@ export interface Task {
   /** The tasks it waits for: it starts once they have all closed. */
   after?: string[];
   /** Letters to whoever holds it, written while they worked, that their turn could not take: they read them at their next. */
-  unread?: { from: Task['from']; text: string }[];
+  unread?: { from: Note['from']; text: string }[];
   /** Where it works, set as it begins: the workspace itself, or a git worktree of its own when
    * another open task already works in the workspace (base: the commit it was made from). */
   place?: 'workspace' | { dir: string; base: string };

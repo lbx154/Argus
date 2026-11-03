@@ -25,6 +25,10 @@ interface Step {
   tasks?: { task: string; after: string[] }[];
   /** The files of a result the Manager hands the operator. */
   open?: string[];
+  /** An Engineer's or Reviewer's letters to other open tasks. */
+  tell?: { task: string; letter: string }[];
+  /** What an Engineer going on asks the Reviewer to look at now. */
+  look?: string;
   /** The turn ends after the turns already under way have. */
   later?: boolean;
   /** The turn ends once this has settled. */
@@ -50,7 +54,8 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     if (step.throws) throw new Error(step.throws);
     const handoff = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`],
-          ...step.tasks ? { tasks: step.tasks } : {}, ...step.open ? { open: step.open } : {} };
+          ...step.tasks ? { tasks: step.tasks } : {}, ...step.open ? { open: step.open } : {},
+          ...step.tell ? { tell: step.tell } : {}, ...step.look ? { look: step.look } : {} };
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
@@ -397,12 +402,16 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
 test("tasks the Planner opens together run side by side; one's question holds up only that one", async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });
+  let watched = (): void => {};
+  const watching = new Promise<void>(resolve => { watched = resolve; });
   const steps: Step[] = [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
     { role: 'engineer', to: 'operator', letter: 'Which delimiter?' },
     { role: 'engineer', waits: held, to: 'reviewer', letter: 'parsed 2' },
-    { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' },
+    { role: 'reviewer', waits: watching, to: 'planner', letter: 'Accepted 2.' },
+    // Beside t1, the Planner reads t2's hand-over to its Reviewer while the review goes on.
+    { role: 'planner', to: 'planner', letter: 't2 is in review.' },
     // The Planner reads t2's letter at once, while t1 waits for its answer.
     { role: 'planner', to: 'planner', letter: 'Nothing to open till t1 ends.' },
   ];
@@ -412,10 +421,13 @@ test("tasks the Planner opens together run side by side; one's question holds up
   // t1 waits for the answer while t2 goes on.
   assert.equal(flow.store.load(id).status, 'working');
   release();
+  while (requests.length < 6) await new Promise(resolve => setImmediate(resolve));
+  watched();
   const asking = await flow.settled(id);
   assert.deepEqual([asking.status, asking.tasks.map(task => task.status), asking.inbox], ['asking', ['open', 'closed'], []]);
   assert.match(requests[3]?.prompt ?? '', /## Running beside it, in the same workspace\n- t1 Parse data\.csv\n\n## Task t2, from the Planner\nParse data2\.csv$/);
-  assert.equal(requests[5]?.prompt, '## Tasks\n- t1 [open, with the Engineer] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
+  assert.match(requests[5]?.prompt ?? '', /## Since your last turn\nFrom the Engineer to the Reviewer, on task t2 \(Parse data2\.csv\), as the work goes:\nparsed 2$/);
+  assert.equal(requests[6]?.prompt, '## Tasks\n- t1 [open, with the Engineer] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
     + '## Since your last turn\nFrom the Reviewer, on task t2 (Parse data2.csv):\nAccepted 2.');
   steps.push(
     { role: 'engineer', to: 'reviewer', letter: 'parsed 1' },
@@ -424,7 +436,7 @@ test("tasks the Planner opens together run side by side; one's question holds up
     report,
   );
   assert.equal((await answer(flow, id, asking.questions[0]!, 'comma')).status, 'idle');
-  assert.equal(requests[8]?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
+  assert.equal(requests[9]?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
     + '## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted 1.');
 });
 
@@ -836,8 +848,9 @@ test('questions wait side by side, and each answer goes to its own asker', async
   assert.deepEqual([asking.status, asking.questions], ['asking', [
     { role: 'engineer', task: 't1', question: 'Which delimiter?' }, { role: 'engineer', task: 't2', question: 'Which encoding?' },
   ]]);
+  // Beside t1, the Planner also reads t2's hand-over to its Reviewer, in the same turn or one of its own.
   steps.push({ role: 'engineer', to: 'reviewer', letter: 'parsed 2' }, { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' },
-    { role: 'planner', to: 'planner', letter: 'Waiting for t1.' });
+    { role: 'planner', to: 'planner', letter: 'Waiting for t1.' }, { role: 'planner', to: 'planner', letter: 'Still waiting for t1.' });
   const one = await answer(flow, id, asking.questions[1]!, 'UTF-8');
   assert.deepEqual([one.status, one.questions.map(question => question.task)], ['asking', ['t1']]);
   assert.equal(requests[4]?.prompt, '## From the operator\nYou asked the operator: Which encoding?\nThey answered: UTF-8');
@@ -1235,4 +1248,50 @@ test('a task that begins while another works in a git workspace works in a workt
   assert.deepEqual(project.tasks.map(task => typeof task.place === 'object' ? task.id : task.place), ['workspace', 't2']);
   assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.kept));
   assert.ok(existsSync(join(home, '.argus-worktrees', 't2')));
+});
+
+test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Prove the chunks', 'Prove the loop'] },
+    { role: 'engineer', waits: held, to: 'engineer', letter: 'Still on the loop.' },
+    { role: 'engineer', to: 'reviewer', letter: 'Chunks proved.', tell: [{ task: 't1', letter: 'The chunk lemma is in lemmas.rs.' }] },
+    { role: 'reviewer', to: 'planner', letter: 'Accepted the chunks.' },
+    { role: 'planner', to: 'planner', letter: 'Watching.' },
+    { role: 'planner', to: 'planner', letter: 'Waiting for t1.' },
+  ]);
+  await flow.say(id, 'Prove the decoder');
+  while (!flow.store.load(id).tasks[0]?.unread?.length) await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(flow.store.load(id).tasks[0]!.unread, [{ from: 'engineer', text: 'The chunk lemma is in lemmas.rs.' }]);
+  flow.stop(id);
+  release();
+  await flow.settled(id);
+  assert.ok(requests.length >= 4);
+});
+
+test("an Engineer going on asks the Reviewer to look now; the look's letter reaches the Engineer as they work", async t => {
+  let release = (): void => {};
+  const looked = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'engineer', letter: 'Half the parser is written.', look: 'Is the delimiter handling right so far?' },
+    { role: 'reviewer', to: 'engineer', letter: 'So far right; mind empty lines.' },
+    { role: 'engineer', waits: looked, to: 'engineer', letter: 'Writing the rest.' },
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py prints the totals.' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  void flow.say(id, 'Build the summary');
+  while (!flow.store.load(id).tasks[0]?.unread?.length) await new Promise(resolve => setImmediate(resolve));
+  release();
+  const project = await flow.settled(id);
+  assert.equal(project.status, 'idle');
+  const look = requests.find(request => request.role === 'reviewer' && request.prompt.includes('asks you to look now'));
+  assert.match(look?.prompt ?? '', /## The Engineer asks you to look now, while they go on working\nIs the delimiter handling right so far\?/);
+  // The look's letter is read by the Engineer, not taken as the review of the delivery.
+  const after = requests.filter(request => request.role === 'engineer').at(-1);
+  assert.match(after?.prompt ?? '', /From the Reviewer, since the task's last turn\nSo far right; mind empty lines\./);
+  assert.equal(project.tasks[0]!.status, 'closed');
 });

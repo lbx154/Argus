@@ -45,6 +45,8 @@ const LETTERS = 'One letter per Engineer task; one letter to any other addressee
 const AFTER = 'Task ids this task waits for. Earlier letters take the next free ids in order. Empty to start now, or when writing to anyone else.';
 const TASK = 'An open task id to send this letter to its holder. Empty to open a new task, or when writing to anyone except the Engineer.';
 const OPEN = 'Result file paths relative to the workspace, first to open first. Empty when handing over no files.';
+const TELL = 'Letters to other open tasks (Running beside it names them), each read by whoever holds that task while they work; your own task goes on as `to` says. Empty for none.';
+const LOOK = 'With to=engineer: what you want the Reviewer to look at now, while you go on working; their letter reaches you as you work, and is not the review of your delivery. Empty for none.';
 
 export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSchema {
   // The Planner hears only of the tasks it gave: it never had the Manager's.
@@ -62,7 +64,14 @@ export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSc
       },
     },
   } : { letter: { ...letter, description: LETTER }, open: strings(OPEN),
-    ...form === 'manager' ? { task: { type: 'string', description: TASK } } : {} };
+    ...form === 'manager' ? { task: { type: 'string', description: TASK } } : {},
+    ...form === 'engineer' || form === 'review' ? { tell: {
+      type: 'array', description: TELL, items: {
+        type: 'object', additionalProperties: false, required: ['task', 'letter'],
+        properties: { task: { type: 'string', minLength: 1 }, letter },
+      },
+    } } : {},
+    ...form === 'engineer' ? { look: { type: 'string', maxLength: 20000, description: LOOK } } : {} };
   return {
     type: 'object', description: 'Your hand-off: the final answer of your turn.', additionalProperties: false,
     properties: { to: { type: 'string', enum: Object.keys(to), description: `Who holds the work next: ${meanings}.` }, ...fields },
@@ -84,9 +93,13 @@ export function judge(form: Form, schema: PayloadSchema, payload: unknown): stri
   const tasks = items.map(item => ({ task: String(item.task ?? '').trim(), after: Array.isArray(item.after) ? item.after.map(String) : [] }));
   const open = Array.isArray(payload.open) ? payload.open.map(String) : [];
   const to = String(payload.to);
+  const tell = Array.isArray(payload.tell) ? payload.tell.filter(isJsonObject)
+    .map(item => ({ task: String(item.task).trim(), letter: String(item.letter).trim() })).filter(item => item.task && item.letter) : [];
+  const look = to === 'engineer' && typeof payload.look === 'string' ? payload.look.trim() : '';
   // Only letters to the Engineer are for tasks: one to anyone else opens none and is for none.
   return {
     form, to, letters: items.map(item => String(item.letter).trim()),
     ...to === 'engineer' && tasks.some(({ task, after }) => task || after.length) ? { tasks } : {}, ...open.length ? { open } : {},
+    ...tell.length ? { tell } : {}, ...look ? { look } : {},
   };
 }

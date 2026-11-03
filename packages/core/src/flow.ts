@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, handedTo, instructions, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, copied, handedTo, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
@@ -43,6 +43,8 @@ export class Flow {
   private readonly projects = new Map<string, Project>();
   /** Each project's work under way, and how to wake it when a Manager turn adds to it. */
   private readonly works = new Map<string, { done: Promise<void>; wake: () => void }>();
+  /** Reviewers' looks at work under way, which the work waits for before it rests. */
+  private readonly looks = new Map<string, Set<Promise<void>>>();
   /** Each project's last Manager turn, which its next one follows. */
   private readonly managing = new Map<string, Promise<unknown>>();
 
@@ -165,8 +167,9 @@ export class Flow {
         for (const task of openTasks(project)) if (!running.has(task) && ready(project, task)) start(task, () => this.carry(project, task));
         if (!running.has('planner') && project.inbox.length && !held(project, null)) start('planner', () => this.plan(project));
       }
-      if (!running.size) break;
-      await Promise.race([...running.values(), new Promise<void>(resolve => { work.wake = resolve; })]);
+      const looks = this.looks.get(project.id) ?? new Set<Promise<void>>();
+      if (!running.size && !looks.size) break;
+      await Promise.race([...running.values(), ...looks, new Promise<void>(resolve => { work.wake = resolve; })]);
     }
     // At rest, what still waits is for the operator: a failed turn to resume, or a question.
     if (this.going(project)) {
@@ -251,9 +254,18 @@ export class Flow {
     else delete task.unread;
     const { to } = handoff;
     const letter = read(handoff);
+    // Letters to the tasks beside it reach their holders as they work.
+    for (const { task: id, letter: text } of handoff.tell ?? []) if (id !== task.id) await this.taskLetter(project, role, id, text);
+    if (handoff.look) this.lookAt(project, task, handoff.look);
     switch (to) {
       case 'engineer': case 'reviewer':
         Object.assign(task, { holder: to, note: { from: role, text: letter } });
+        // Beside other tasks, the Planner reads each hand-over in one it gave as the work goes, and may
+        // steer this task or those beside it.
+        if (to !== role && task.from === 'planner' && openTasks(project).some(other => other !== task)) {
+          project.inbox.push(copied(role, to, task, letter));
+          this.works.get(project.id)?.wake();
+        }
         break;
       case 'planner':
         this.close(project, task, role, letter);
@@ -266,6 +278,22 @@ export class Flow {
       case 'operator':
         this.ask(project, role, task, letter);
     }
+  }
+
+  /** The Reviewer looks at a task's work under way, beside its Engineer's turns; the letter goes to the task's holder. */
+  private lookAt(project: Project, task: Task, look: string): void {
+    const looks = this.looks.get(project.id) ?? new Set<Promise<void>>();
+    this.looks.set(project.id, looks);
+    const going = (async () => {
+      const handoff = (await this.call(project, 'reviewer', task, () => lookPrompt(project, task, look), { look: true }))?.handoff;
+      if (!handoff) return;
+      for (const { task: id, letter } of handoff.tell ?? []) if (id !== task.id) await this.taskLetter(project, 'reviewer', id, letter);
+      if (task.status === 'open') await this.taskLetter(project, 'reviewer', task.id, read(handoff));
+    })().catch(error => this.fail(project, 'reviewer', task, String(error))).finally(() => {
+      looks.delete(going);
+      this.works.get(project.id)?.wake();
+    });
+    looks.add(going);
   }
 
   /** A letter to the Manager stays in the record until a Manager turn takes it. */
@@ -324,7 +352,7 @@ export class Flow {
   }
 
   /** A letter stays on its task till a turn that read it ends; a backend that takes one reads it as it goes. */
-  private async taskLetter(project: Project, from: Task['from'], id: string, letter: string): Promise<void> {
+  private async taskLetter(project: Project, from: Note['from'], id: string, letter: string): Promise<void> {
     const task = openTasks(project).find(task => task.id === id);
     if (!task) return this.returnLetter(project, from, id, letter);
     const note = { from, text: letter };
@@ -334,7 +362,7 @@ export class Flow {
   }
 
   /** An unread letter goes back to its writer; a Manager's waits until its current turn ends. */
-  private returnLetter(project: Project, from: Task['from'], task: string, letter: string): void {
+  private returnLetter(project: Project, from: Note['from'], task: string, letter: string): void {
     const note = unread(task, letter);
     if (from === 'manager') void this.writeToManager(project, note).catch(error => this.fail(project, 'manager', null, String(error)));
     else project.inbox.push(note);
@@ -343,12 +371,13 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number } = {}): Promise<AgentResult | null> {
+                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: true } = {}): Promise<AgentResult | null> {
     const { refused, answers, input_id } = turn;
     const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
     if (signal?.aborted) return null;
-    const key = task ? `${task.id}.${role}` : role;
+    // A Reviewer's look has a session of its own, beside the review of the delivery.
+    const key = task ? `${task.id}.${turn.look ? 'look' : role}` : role;
     // Review rounds have no earlier judgment in their context, including after a restart.
     if (role === 'reviewer') delete project.sessions[key];
     const resume = project.sessions[key];
