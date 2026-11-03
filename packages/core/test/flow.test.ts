@@ -1250,7 +1250,7 @@ test('a task that begins while another works in a git workspace works in a workt
   assert.equal(first.cwd, home);
   assert.equal(second.cwd, join(home, '.argus-worktrees', 't2'));
   assert.ok(second.writeDirs?.includes(home));
-  assert.match(second.prompt, /## Where this task works\nIn .*\.argus-worktrees\/t2, a git worktree of the workspace .* because t1 works in the workspace itself/);
+  assert.match(second.prompt, /## Where this task works\nIn .*\.argus-worktrees[\\/]t2, a git worktree of the workspace .* because t1 works in the workspace itself/);
   assert.match(second.prompt, /delete the worktree's folder; when is the task's to judge/);
   // Made from the workspace as it was, uncommitted files included; the task did not delete it, so it stays.
   const made = events().find(event => event.type === 'task.worktree' && event.base);

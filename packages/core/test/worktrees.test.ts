@@ -11,6 +11,8 @@ function repo(t: { after: (fn: () => void) => void }): string {
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const git = (...args: string[]) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir }).status, 0);
   git('init', '-q');
+  // Windows git turns LF into CRLF on checkout by default; these tests compare the bytes.
+  git('config', 'core.autocrlf', 'false');
   writeFileSync(join(dir, 'a.txt'), 'a\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'a');
