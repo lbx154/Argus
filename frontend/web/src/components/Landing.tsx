@@ -1,5 +1,4 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBars } from '@fortawesome/free-solid-svg-icons';
+import { Menu } from 'lucide-react';
 import { BackendHandshake } from './BackendHandshake';
 import { Button } from './primitives';
 import { useI18n } from '../i18n';
@@ -55,7 +54,7 @@ export function Landing({
     <div className="landing-page" style={creating ? { display: 'none' } : undefined}>
       <div className="landing-navigation lg:hidden">
         {/* The project list opens from the same mark as on a project's page. */}
-        <Button onClick={onChoose} aria-label={t('topbar.openSessions')} title={t('topbar.openSessions')}><FontAwesomeIcon icon={faBars} className="h-4 w-4" /></Button>
+        <Button onClick={onChoose} aria-label={t('topbar.openSessions')} title={t('topbar.openSessions')}><Menu size={18} aria-hidden="true" /></Button>
       </div>
       {loading ? <BackendHandshake /> : (
         <>

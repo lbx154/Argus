@@ -54,8 +54,8 @@ describe('MobileTabBar', () => {
   it('keeps every target at or above the touch-size minimum', () => {
     const html = markup();
 
-    // 3.25rem = 52px, past Apple's 44pt and Material's 48dp.
-    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(5);
+    // 3.5rem = 56px, past Apple's 44pt and Material's 48dp.
+    expect(html.match(/min-h-\[3\.5rem\]/g)).toHaveLength(5);
   });
 
   it('respects the safe area and rides above the keyboard', () => {
@@ -73,7 +73,7 @@ describe('MobileTabBar', () => {
     );
 
     expect(html).not.toContain('>Projects<');
-    expect(html.match(/min-h-\[3\.25rem\]/g)).toHaveLength(4);
+    expect(html.match(/min-h-\[3\.5rem\]/g)).toHaveLength(4);
   });
 });
 

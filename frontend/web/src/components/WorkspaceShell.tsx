@@ -24,7 +24,7 @@ export const WorkspaceSidePanel = forwardRef<HTMLDivElement, SidePanelProps>(fun
       role="complementary"
       data-state={slim ? 'collapsed' : 'expanded'}
       data-resizable-panel="left"
-      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r transition-[width,transform] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${slim ? 'w-14' : 'w-64 lg:w-[var(--sidebar-width,256px)]'} ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'} ${className}`}
+      className={`glass-panel glass-panel--side fixed inset-y-0 left-0 z-50 flex h-full shrink-0 flex-col border-r transition-[width,transform] duration-panel ease-panel lg:visible lg:static lg:z-auto lg:translate-x-0 ${slim ? 'w-14' : 'w-[min(85vw,320px)] lg:w-[var(--sidebar-width,256px)]'} ${mobileOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'} ${className}`}
       {...props}
     />
   );

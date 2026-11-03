@@ -6,8 +6,6 @@ import { api } from '../api';
 import { useArtifact } from '../hooks';
 import { formatBytes } from '../lib/format';
 import { Spinner } from './primitives';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faAnglesRight } from '@fortawesome/free-solid-svg-icons';
 import { HtmlPreview } from './HtmlPreview';
 import { JsonPreview, TablePreview } from './DataPreview';
 import { MarkdownContent } from './MarkdownContent';
@@ -18,7 +16,7 @@ import { modelFormat } from '../lib/modelFiles';
 import { canEditArtifact, isMarkdownArtifact } from '../lib/artifactPresentation';
 import { downloadBlob } from '../lib/downloadBlob';
 import { WorkStatusBar } from './WorkStatusBar';
-import { FileText } from 'lucide-react';
+import { ChevronsRight, FileText } from 'lucide-react';
 import { readLocalStorage, writeLocalStorage } from '../lib/storage';
 import { deliveryFiles } from './deliveryPresentation';
 
@@ -273,7 +271,7 @@ export function ResearchCanvas({
         </div>
         {onCollapse ? (
           <button type="button" onClick={onCollapse} aria-label={t('research.collapse')} title={t('research.collapse')} className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line/50 bg-bg/40 text-ink-faint hover:border-blue/50 hover:text-ink lg:flex">
-            <FontAwesomeIcon icon={faAnglesRight} className="h-3.5 w-3.5" />
+            <ChevronsRight size={16} aria-hidden="true" />
           </button>
         ) : null}
       </header>
