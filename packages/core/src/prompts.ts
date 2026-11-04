@@ -114,6 +114,9 @@ export const reinstructed = (instructions: string, prompt: string): string =>
   join(section('Your standing instructions, as they now are (they replace those you were given before)', instructions), prompt);
 
 /** A letter put into a turn under way. */
+/** A letter to the Manager that came while its turn goes on: its letter, when it ends the turn, answers this one too. */
+export const steeredPrompt = (text: string): string => section('A letter that came during your turn; your letter answers it too', text);
+
 export const letterPrompt = (from: Note['from'], text: string): string => section(`From the ${NAMES[from]}, during your turn`, text);
 
 /** The Engineer's or Reviewer's turn on `task`, whichever holds it. */
