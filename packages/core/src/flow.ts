@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, copied, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
+import { answered, copied, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
@@ -209,7 +209,19 @@ export class Flow {
 
   /** The Manager's turns on a project come one after another, in the order their letters came. */
   private manager(project: Project, message: ManagerLetter): Promise<HandOff | null> {
-    const next = (this.managing.get(project.id) ?? Promise.resolve()).then(() => this.managerTurn(project, message));
+    const next = (this.managing.get(project.id) ?? Promise.resolve()).then(() => {
+      // A letter an earlier turn already read is answered by that turn.
+      const read = typeof message === 'string' ? undefined : this.readBy.get(message);
+      if (read) return read;
+      // The team's letters waiting when the turn begins are read together, and answered once.
+      const also = typeof message === 'string' || !message.input_id ? [] : (project.forManager ?? []).filter((other): other is Exclude<ManagerLetter, string> =>
+        other !== message && typeof other !== 'string' && Boolean(other.input_id) && !this.readBy.has(other));
+      const turn = this.managerTurn(project, message, also);
+      for (const other of also) this.readBy.set(other, turn);
+      this.managerTurns.set(project.id, turn);
+      void turn.finally(() => { if (this.managerTurns.get(project.id) === turn) this.managerTurns.delete(project.id); }).catch(() => {});
+      return turn;
+    });
     const last: Promise<unknown> = next.catch(() => null).finally(() => {
       if (this.managing.get(project.id) === last) this.managing.delete(project.id);
     });
@@ -217,9 +229,15 @@ export class Flow {
     return next;
   }
 
-  private async managerTurn(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
+  /** The Manager's turn under way on each project. */
+  private readonly managerTurns = new Map<string, Promise<HandOff | null>>();
+
+  /** Team letters a Manager turn read beside the one it was started for, and that turn's answer. */
+  private readonly readBy = new WeakMap<object, Promise<HandOff | null>>();
+
+  private async managerTurn(project: Project, letter: ManagerLetter, also: Exclude<ManagerLetter, string>[] = []): Promise<HandOff | null> {
     const first = typeof letter !== 'string' && !letter.input_id && letter.request_id === project.requestId;
-    const input = typeof letter === 'string' ? letter : operatorText(letter);
+    const input = [typeof letter === 'string' ? letter : operatorText(letter), ...also.map(operatorText)].join('\n\n');
     const answers = typeof letter === 'string' ? undefined : letter.request_id;
     const input_id = typeof letter === 'string' ? undefined : letter.input_id;
     const handoff = (await this.call(project, 'manager', null,
@@ -376,6 +394,10 @@ export class Flow {
   private async handOver(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
     const handing = this.handing.get(project) ?? [];
     this.handing.set(project, [...handing, letter]);
+    // A team letter that comes while the Manager's turn goes on is read in that turn, which answers it.
+    const running = this.managerTurns.get(project.id);
+    if (running && typeof letter !== 'string' && letter.input_id && !this.readBy.has(letter)
+      && await this.callAgent.steer?.(`${project.id}/manager`, steeredPrompt(letter.text))) this.readBy.set(letter, running);
     try {
       const handoff = await this.manager(project, letter);
       const at = project.forManager?.indexOf(letter) ?? -1;

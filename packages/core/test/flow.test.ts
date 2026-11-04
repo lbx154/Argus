@@ -748,7 +748,8 @@ for (const timing of ['before delivery', 'after delivery']) {
     await supplement;
     const project = await flow.settled(id);
     assert.deepEqual([project.status, project.tasks.length, project.tasks[0]?.status, project.tasks[0]?.unread, project.inbox], ['idle', 1, 'closed', undefined, []]);
-    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt === `Your letter to task t1, which is not open, was not read:\n${withOperator(letter, 'Also log the loss')}`).length, 1);
+    // The returned letter reaches the Manager once, read with any other team letter waiting beside it.
+    assert.equal(requests.filter(request => request.role === 'manager' && request.prompt.includes(`Your letter to task t1, which is not open, was not read:\n${withOperator(letter, 'Also log the loss')}`)).length, 1);
     assert.ok(!requests.some(request => request.role === 'planner'));
     assert.equal(events().filter(event => event.type === 'task.added').length, 1);
   });
@@ -1387,4 +1388,32 @@ test("an installed pack's tools are set up before the first turn, writable to th
   assert.ok(engineer.writeDirs?.includes(packHome) && !engineer.readDirs?.includes(packHome));
   assert.ok(reviewer.readDirs?.includes(packHome) && !reviewer.writeDirs?.includes(packHome));
   assert.match(engineer.instructions ?? '', /The prover pack's tools are installed in /);
+});
+
+test("the team's letters that wait for the Manager are read in one turn and answered once", async t => {
+  let releaseEngineers = (): void => {}, releaseManager = (): void => {};
+  const engineers = new Promise<void>(resolve => { releaseEngineers = resolve; });
+  const manager = new Promise<void>(resolve => { releaseManager = resolve; });
+  const { flow, id, requests, store } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: 'Arrange the two parsers.' },
+    { role: 'planner', to: 'engineer', letters: ['Parse A.', 'Parse B.'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
+    { role: 'engineer', waits: engineers, to: 'manager', letter: 'A is done.' },
+    { role: 'engineer', waits: engineers, to: 'manager', letter: 'B is done.' },
+    { role: 'manager', waits: manager, to: 'operator', letter: 'Both are under way.' },
+    { role: 'manager', to: 'operator', letter: 'A and B are done.' },
+  ]);
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  void flow.say(id, 'Build both parsers');
+  while (requests.length < 4) await tick();
+  void flow.say(id, 'How is it going?');
+  while (requests.length < 5) await tick();
+  releaseEngineers();
+  while ((store.load(id).forManager ?? []).length < 3) await tick();
+  releaseManager();
+  const project = await flow.settled(id);
+  const managers = requests.filter(request => request.role === 'manager');
+  assert.equal(managers.length, 3);
+  assert.match(managers[2]!.prompt, /A is done\.[\s\S]*B is done\./);
+  assert.equal(project.status, 'idle');
+  assert.deepEqual(project.forManager ?? [], []);
 });
