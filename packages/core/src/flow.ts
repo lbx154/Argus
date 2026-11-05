@@ -19,6 +19,7 @@ import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
 import { letterbox } from './letters.js';
+import { keepLibrary } from './libraryHistory.js';
 import { packEnv, prepare } from './packSetup.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
@@ -498,6 +499,11 @@ export class Flow {
       return null;
     }
     const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid } = result;
+    // What the turn changed of the team's library is kept, under its name, in the library's history.
+    if (TURN[role].access === 'write') {
+      const said = (handoff?.letters[0] ?? '').split('\n')[0]!.slice(0, 200);
+      keepLibrary(this.store.home, `${role}${task ? ` on ${task.id}` : ''} (${project.id})${said ? `: ${said}` : ''}`);
+    }
     // A turn goes on next time in the session its backend reported, whether it ended, was cut off
     // or failed: its work is not done again. With none reported, or a new one whose turn failed before
     // a step, which holds no work and may hold the settings it failed on, the role starts afresh; and
