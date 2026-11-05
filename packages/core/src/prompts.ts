@@ -48,6 +48,13 @@ export const tools = (home: string): (readonly [string, string])[] => readdirSyn
   return [[name, said] as const];
 });
 export const WIKI_INDEX = 'INDEX.md';
+/** The wiki's pages as a reader meets them: each with its length, which no one sees from its name. */
+function pages(home: string): string {
+  const dir = wikiHome(home);
+  const found = readdirSync(dir).filter(name => name.endsWith('.md') && name !== WIKI_INDEX).sort()
+    .map(name => `${name} (${readFileSync(resolve(dir, name), 'utf8').split('\n').length} lines)`);
+  return found.length ? ` Its pages: ${found.join(', ')}.` : '';
+}
 /** The team's wiki/: what earlier work learned that no script runs, a page a topic, under one index. */
 export function wikiHome(home: string): string {
   const dir = resolve(sharedHome(home), 'wiki');
@@ -98,7 +105,7 @@ function where(project: Project, store: Store, role: Role): string {
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
     `The team's tools, commands on your PATH (${toolsHome(store.home)}):`,
     ...tools(store.home).map(([name, said]) => `- ${name}${said ? `: ${said}` : ''}`),
-    `The team's wiki, what earlier work in every project learned that no script runs (facts, pitfalls, routes that failed and why): ${resolve(wikiHome(store.home), WIKI_INDEX)}. Read the index, and the pages on what your work touches; the learning skill says how to add to it.`,
+    `The team's wiki, what earlier work in every project learned that no script runs (facts, pitfalls, routes that failed and why): ${resolve(wikiHome(store.home), WIKI_INDEX)}. Read the index, and the pages on what your work touches; the learning skill says how to add to it.${pages(store.home)}`,
     KEPT.includes(project.backend)
       ? `Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager's and the Planner's, till the project's work comes to rest).${role === 'reviewer' ? ' On a task you are one Reviewer from its first look to its last review: what you saw and said before is yours to build on.' : ''}`
       : 'Your session ends with each turn, and everything you started with it.',
@@ -176,6 +183,7 @@ export function plannerPrompt(project: Project): string {
   };
   const tasks = project.tasks.map(task => `- ${task.id} [${state(task)}] ${task.title}`);
   return join(section('Tasks', [...tasks, `The next task opened is t${project.tasks.length + 1}.`].join('\n')),
+    !!project.beside?.length && section('Hand-overs inside your tasks since your last turn', project.beside.join('\n\n')),
     section('Since your last turn', project.inbox.join('\n\n')));
 }
 

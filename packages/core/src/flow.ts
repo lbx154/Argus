@@ -283,10 +283,10 @@ export class Flow {
       case 'engineer': case 'reviewer':
         Object.assign(task, { holder: to, note: { from: role, text: letter } });
         // Beside other tasks, the Planner reads each hand-over in one it gave as the work goes, and may
-        // steer this task or those beside it.
+        // steer this task or those beside it: with its next letter, since a hand-over inside a task
+        // changes no plan. What does (a task that closes, a letter written to it or copied to it) wakes it.
         if (to !== role && task.from === 'planner' && openTasks(project).some(other => other !== task)) {
-          project.inbox.push(copied(role, to, task, letter));
-          this.works.get(project.id)?.wake();
+          (project.beside ??= []).push(copied(role, to, task, letter));
         }
         break;
       case 'planner':
@@ -416,11 +416,14 @@ export class Flow {
   private async plan(project: Project): Promise<void> {
     // Letters that reach the Planner during its turn wait for its next one.
     const taken = project.inbox.length;
+    const seen = project.beside?.length ?? 0;
     // The ids the Planner was told its tasks take, though the Manager may open tasks meanwhile.
     const base = project.tasks.length;
     const handoff = (await this.call(project, 'planner', null, () => plannerPrompt(project), { planner_inputs: taken }))?.handoff;
     if (!handoff) return;
     project.inbox.splice(0, taken);
+    project.beside?.splice(0, seen);
+    if (!project.beside?.length) delete project.beside;
     const { to, letters, tasks } = handoff;
     // A letter to itself opens nothing: the Planner reads on when the next letter comes; nor does
     // one naming a task, which its holder reads as soon as they can, or once it has closed, the Planner.
