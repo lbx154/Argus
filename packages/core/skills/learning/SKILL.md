@@ -18,11 +18,19 @@ sentence what it does (Argus lists that); `--help` says how. It reads its inputs
 never from this machine's paths, and changes nothing it was not asked to. A skill may call a tool;
 keep a script that only one kind of work needs inside that skill instead.
 
+Before writing a one-off command for a check, look at the tools: one that does it, run. One that
+almost does it, improve (a flag, a clearer report) rather than working around it. And when you
+find yourself doing by hand, a third time, a check you or another task already did (the same
+commands with different files), stop and make it a tool or a skill's script, then use it.
+
 **A wiki page**, for what no script runs: a fact about a tool or library, a pitfall and how it
 showed, a route that failed and why, a decision and its reason. A page is one topic (a tool, a
 library, a kind of proof), in Markdown in the wiki folder, opening with `# Title`; the wiki's
 INDEX.md lists every page in one line. A fact says what was seen and how to check it, and dates
-itself when it may go stale (a tool's version).
+itself when it may go stale (a tool's version). A page past about 200 lines is several topics:
+split it, each part a page of its own in the index, and put what holds for one project only (one
+library's quirks) on that library's page, not the tool's. A fact a tool or skill now checks is
+said in a line that names it, not explained again.
 
 Before adding any, read what is there: improve the skill, tool or page that covers it, correct what
 your work showed wrong, and delete what no longer holds. One good page beats three overlapping ones.
