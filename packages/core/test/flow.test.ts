@@ -204,8 +204,8 @@ test('the Manager answers directly', async t => {
   assert.equal(request?.prompt, '## Message\nWhat is 6 times 7?');
   assert.match(request?.instructions ?? '', /^You are the Argus Manager[\s\S]*## Where things are\n/);
   const skill = join(SKILLS, 'research', 'SKILL.md');
-  assert.ok(request?.instructions?.includes('\n- research: Research that ends in a result worth publishing: where to start, how to use the machine, '
-    + `and the few setup errors that quietly ruin a result (${skill})\n`));
+  assert.ok(request?.instructions?.includes('\n- research: Research that ends in a result worth publishing: choosing the question, building a method and improving '
+    + `it until it works, using the machine, and the few setup errors that quietly ruin a result (${skill})\n`));
   assert.doesNotMatch(request?.instructions ?? '', /## Writing for a person/);
   assert.match(request?.instructions ?? '', /\d+ logical CPUs \(load [\d.]+, about \d+ free\), \d+ GiB of memory/);
   // A project with no work rests, and an answer leaves it resting.
