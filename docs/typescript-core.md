@@ -174,6 +174,15 @@ name. Argus puts the folder first on every call's PATH and lists each tool in ev
 instructions by the first comment after its shebang; a link or a file that cannot run is not listed.
 The Engineer writes them, as it writes skills.
 
+The library is kept by those who use it: no step tidies it later, and no count or size decides
+for them. A role that finds a skill, page or tool wrong, stale or hard to use while using it puts it
+right in that task, and says in its letter which it used and whether they helped; an Engineer writing
+a script another task would write too writes it as a tool from the start; the Reviewer judges what a
+task changed of the library with the rest of its work. After every turn of a role that writes, Argus
+commits what changed of `skills/`, `wiki/` and `tools/` under the turn's name to `.library.git` where
+the library is, named so git never finds it on its own (a workspace inside the state root is not a
+checkout of it); `git --git-dir=.library.git --work-tree=. log --stat` there reads the history.
+
 Every operator's Argus begins from the same starter library, shipped as `packages/core/starter/`
 (`skills/`, `wiki/`, `tools/`): at each start, `starter.ts` copies in each starter item the operator's
 library was never given, and records it in `.starter.json` there. From then on the item is the

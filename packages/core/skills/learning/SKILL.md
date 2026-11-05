@@ -1,36 +1,39 @@
 ---
 name: learning
-description: "When a task taught you what a later task would need: keep it as a skill, a wiki page or a tool"
+description: "When a task taught you what a later task would need: keep it as a skill, a wiki page or a tool, and keep what you use in good order"
 ---
 
-What you keep is read by every later task, in this project and in others of its kind, by agents
-who never saw yours. Write for them: no project ids, task ids or paths of this machine's
-workspaces; the case that taught it in a line, enough to recognize the next one.
+The team's library (skills, wiki, tools) is kept by those who use it. No one tidies it later: what
+you find while using it, you are the one who knows, so you are the one who acts. Argus keeps its
+history in git, so a change can always be read back or undone.
 
-**A skill**, for what an agent can run. A folder in the team's skills folder (Where things are
-names it) holding a SKILL.md: front matter with `name`, the folder's name, and `description`, one
-sentence on what work it is for; then how to use it. Keep a script that does a step or catches a
-failure in any project of its kind. Keep nothing you cannot run.
+**While you use it.** A page that was wrong, stale, or hard to find your way in; a skill whose steps
+no longer work; a tool that almost did what you needed: put it right now, as part of your task,
+in the smallest change that fixes it. A page you had trouble reading is too long or mixes topics for
+you: split it the way you would have wanted to find it. What only one project needs moves to that
+project's page. What a tool now checks is said in a line that names the tool. In your letter, say
+in a line which of them you used and whether they helped, misled or were out of date.
 
-**A tool**, for a command that many tasks run as it stands, whatever the project: an executable file in
-the team's tools folder, on every role's PATH by its name. Its second line is a comment saying in one
-sentence what it does (Argus lists that); `--help` says how. It reads its inputs from its arguments,
-never from this machine's paths, and changes nothing it was not asked to. A skill may call a tool;
-keep a script that only one kind of work needs inside that skill instead.
+**While you write a script.** When you write a script for a check or a step, ask then, while you
+know what it does: would another task, in this project or another, write the same thing? If so,
+write it as a tool from the start (its inputs as arguments) instead of as a one-off in your
+evidence folder, and use it yourself. A script only one kind of work needs belongs in that skill.
 
-Before writing a one-off command for a check, look at the tools: one that does it, run. One that
-almost does it, improve (a flag, a clearer report) rather than working around it. And when you
-find yourself doing by hand, a third time, a check you or another task already did (the same
-commands with different files), stop and make it a tool or a skill's script, then use it.
+What you keep is read by agents who never saw your task. Write for them: no project ids, task ids or
+paths of this machine's workspaces; the case that taught it in a line, enough to recognize the next.
+
+**A skill**, for what an agent can run. A folder in the team's skills folder (Where things are names
+it) holding a SKILL.md: front matter with `name`, the folder's name, and `description`, one sentence
+on what work it is for; then how to use it, and the script that does the step or catches the failure.
+
+**A tool**, for a command many tasks run as it stands: an executable file in the team's tools
+folder, on every role's PATH by its name. Its second line is a comment saying in one sentence what
+it does (Argus lists that); `--help` says how. It changes nothing it was not asked to.
 
 **A wiki page**, for what no script runs: a fact about a tool or library, a pitfall and how it
-showed, a route that failed and why, a decision and its reason. A page is one topic (a tool, a
-library, a kind of proof), in Markdown in the wiki folder, opening with `# Title`; the wiki's
-INDEX.md lists every page in one line. A fact says what was seen and how to check it, and dates
-itself when it may go stale (a tool's version). A page past about 200 lines is several topics:
-split it, each part a page of its own in the index, and put what holds for one project only (one
-library's quirks) on that library's page, not the tool's. A fact a tool or skill now checks is
-said in a line that names it, not explained again.
+showed, a route that failed and why, a decision and its reason. One topic a page, in Markdown in the
+wiki folder, opening with `# Title`, listed in the wiki's INDEX.md in one line. A fact says what was
+seen and how to check it, and dates itself when it may go stale (a tool's version).
 
-Before adding any, read what is there: improve the skill, tool or page that covers it, correct what
-your work showed wrong, and delete what no longer holds. One good page beats three overlapping ones.
+Before adding any, read what is there: improve what covers it rather than adding beside it, and
+delete what your work showed no longer holds.
