@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import os from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { instructions } from '../src/prompts.js';
+import { instructions, skillsHome, wikiHome } from '../src/prompts.js';
 import { Store } from '../src/store.js';
 
 test('standing context keeps locations, date, session lifetime and project GPU visibility', t => {
@@ -51,5 +51,26 @@ test('the machine is described with its load, free CPUs, memory and project GPUs
     try { await import(new URL(`../skills/research/machine.mjs?load=${load}`, import.meta.url).href); }
     finally { logging.mock.restore(); }
     assert.equal(lines[0], `16 logical CPUs (load ${load.toFixed(1)}, about ${free} free)`);
+  }
+});
+
+test('ARGUS_SHARED gives separate state roots one skills folder and one wiki', t => {
+  const [first, second, shared] = ['a', 'b', 'shared'].map(name => mkdtempSync(join(os.tmpdir(), `argus-${name}-`)));
+  t.after(() => { for (const dir of [first, second, shared]) rmSync(dir!, { recursive: true, force: true }); });
+  const old = process.env.ARGUS_SHARED;
+  t.after(() => { if (old === undefined) delete process.env.ARGUS_SHARED; else process.env.ARGUS_SHARED = old; });
+  delete process.env.ARGUS_SHARED;
+  // Unset, each state root keeps its own, and the wiki starts with its index.
+  assert.equal(skillsHome(first!), join(first!, 'skills'));
+  assert.ok(existsSync(join(wikiHome(first!), 'INDEX.md')));
+  process.env.ARGUS_SHARED = shared;
+  for (const home of [first!, second!]) {
+    assert.equal(skillsHome(home), join(shared!, 'skills'));
+    assert.equal(wikiHome(home), join(shared!, 'wiki'));
+    const store = new Store(home);
+    const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+    const prompt = instructions('engineer', project, store);
+    assert.ok(prompt.includes(`team's in ${join(shared!, 'skills')}`));
+    assert.ok(prompt.includes(join(shared!, 'wiki', 'INDEX.md')));
   }
 });
