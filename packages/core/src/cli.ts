@@ -2,6 +2,7 @@
 // `argus`: the web cockpit, where projects are started, talked to and followed. The work of its
 // projects runs in this process.
 import { randomBytes } from 'node:crypto';
+import { seed } from './starter.js';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +55,9 @@ async function main(): Promise<void> {
   if (!BACKENDS.includes(backend)) throw new Error(`--backend must be one of ${BACKENDS.join(', ')}`);
   const store = new Store();
   const release = store.own();
+  // A new operator's library begins as the starter library; an upgrade adds only what is new to it.
+  const given = seed(store.home);
+  if (given.length) process.stdout.write(`Added to your skills, wiki and tools from the starter library: ${given.join(', ')}\n`);
   // Always a token: the roles' sandbox shares this machine's network, so the cockpit's address
   // alone must not let a role, or a page the operator visits, start work.
   const token = process.env.ARGUS_WEB_TOKEN || kept(join(store.home, 'web-token'));

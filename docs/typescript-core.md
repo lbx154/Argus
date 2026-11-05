@@ -174,6 +174,14 @@ name. Argus puts the folder first on every call's PATH and lists each tool in ev
 instructions by the first comment after its shebang; a link or a file that cannot run is not listed.
 The Engineer writes them, as it writes skills.
 
+Every operator's Argus begins from the same starter library, shipped as `packages/core/starter/`
+(`skills/`, `wiki/`, `tools/`): at each start, `starter.ts` copies in each starter item the operator's
+library was never given, and records it in `.starter.json` there. From then on the item is the
+operator's, to improve or delete; one they already hold under the same name stands. An upgrade that adds
+to the starter library adds only what is new, and a wiki page given gains its line in the wiki's index.
+The starter library is curated from what teams wrote and kept general: no project ids, and no paths
+of the machine it was made on (a test checks).
+
 The team's skills, wiki and tools sit in the state root unless `ARGUS_SHARED` names another folder, which
 every state root naming it then shares: separate installs (an experiment each, say) learn together,
 where each would otherwise start from nothing. What one project's roles write there, every other

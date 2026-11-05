@@ -1,0 +1,7 @@
+---
+name: verus-from-interface
+description: Diagnose a custom From implementation's missing vstd extension specification while retaining the actual conversion body and payload.
+---
+Run `python3 diagnose.py /path/to/verus /path/to/output-directory` with the selected project's reviewed Verus/vstd tool. The standalone discriminator expects the missing-interface body to fail the inherited trait postcondition, the exact structural interface to verify, and a wrong-payload interface to fail. All three execute the same checked conversion body; no in-scope conversion is trusted. Read the actual project's enum, From body and callers before installing an interface. `obeys_from_spec` should be true with a source-supported `from_spec`; setting it false evades rather than closes the structural obligation.
+
+Case: Base64 t43's actual `From<DecodeError> for DecodeSliceError` returns `DecodeSliceError::DecodeError(e)`. Supplying `FromSpecImpl<DecodeError>` with that exact wrapper closes vstd's conditional postcondition, preserving every error variant and field. Universal direct/Into consumers and actual decoder uses were rechecked. This does not show codec error branches unreachable; that remains the consuming codec proof. The new spec creates additional `from` substring matches: select `*from*` or an otherwise unique selector, retain the actual verified count, and never treat a selection error as a theorem failure.
