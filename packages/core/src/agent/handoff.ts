@@ -21,7 +21,7 @@ const TO: Record<Form, Record<string, string>> = {
   },
   plan: {
     engineer: 'tasks for Engineers, one letter per task; the first line names each task',
-    planner: 'continue when another letter arrives',
+    planner: 'nothing for anyone now: one empty letter, which no one is shown; you read on when the next letter comes',
     manager: `the operator’s goal is met, or ${STUCK}`,
     operator: OPERATOR,
   },
@@ -60,7 +60,8 @@ export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSc
     letters: {
       type: 'array', minItems: 1, description: LETTERS, items: {
         type: 'object', additionalProperties: false, required: ['letter', 'after', 'task'],
-        properties: { letter, after: strings(AFTER), task: { type: 'string', description: TASK } },
+        // Empty only to the Planner itself: a turn with nothing to steer says nothing.
+        properties: { letter: { type: 'string', maxLength: 20000 }, after: strings(AFTER), task: { type: 'string', description: TASK } },
       },
     },
   } : { letter: { ...letter, description: LETTER }, open: strings(OPEN),
@@ -96,9 +97,11 @@ export function judge(form: Form, schema: PayloadSchema, payload: unknown): stri
   const tell = Array.isArray(payload.tell) ? payload.tell.filter(isJsonObject)
     .map(item => ({ task: String(item.task).trim(), letter: String(item.letter).trim() })).filter(item => item.task && item.letter) : [];
   const look = to === 'engineer' && typeof payload.look === 'string' ? payload.look.trim() : '';
+  const letters = items.map(item => String(item.letter).trim());
+  if (to !== 'planner' && letters.some(letter => !letter)) return `a letter to the ${to} is empty: write what they need, or hand to yourself with one empty letter`;
   // Only letters to the Engineer are for tasks: one to anyone else opens none and is for none.
   return {
-    form, to, letters: items.map(item => String(item.letter).trim()),
+    form, to, letters: to === 'planner' ? letters.filter(Boolean) : letters,
     ...to === 'engineer' && tasks.some(({ task, after }) => task || after.length) ? { tasks } : {}, ...open.length ? { open } : {},
     ...tell.length ? { tell } : {}, ...look ? { look } : {},
   };

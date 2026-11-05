@@ -76,6 +76,10 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(judge('plan', formSchema('plan'), plan), { form: 'plan', to: 'engineer', letters: ['Train the baseline', 'Compare with it', 'Use the newer model.'],
     tasks: [{ task: '', after: [] }, { task: '', after: ['t3'] }, { task: 't2', after: [] }] });
   assert.deepEqual(judge('plan', formSchema('plan'), { to: 'manager', letters: [{ letter: 'Done.', after: [], task: '' }] }), { form: 'plan', to: 'manager', letters: ['Done.'] });
+  // A Planner turn with nothing to steer says nothing: an empty letter to itself, which no one is shown.
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'planner', letters: [{ letter: '', after: [], task: '' }] }), { form: 'plan', to: 'planner', letters: [] });
+  // An empty letter to anyone else is sent back.
+  assert.match(String(judge('plan', formSchema('plan'), { to: 'engineer', letters: [{ letter: ' ', after: [], task: '' }] })), /letter to the engineer is empty/);
   assert.deepEqual(judge('manager', formSchema('manager'), { to: 'engineer', letter: '继续现有任务，使用新模型。', task: 't1', open: [] }),
     { form: 'manager', to: 'engineer', letters: ['继续现有任务，使用新模型。'], tasks: [{ task: 't1', after: [] }] });
   // A letter that opens a task names it in its first line, the title the progress map shows.

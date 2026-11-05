@@ -523,6 +523,7 @@ export class Flow {
       const open = [...new Set(found.flatMap(([, seen]) => seen ?? []))];
       // A result's files are kept as delivered, so that what the next delivery changes can be shown.
       const delivered = open.length ? { open, snapshots: keep(project, dir, open), title: titleOf(project, open[0]!) } : {};
+      // An empty letter to oneself is a turn that had nothing to say: it is not recorded.
       for (const [at, letter] of letters.entries()) this.record(project, { type: 'handoff', role, ...where,
         ...(tasks?.[at]?.task ? { task: tasks[at]!.task } : {}), to, letter, ...delivered, ...answering });
       return result;
