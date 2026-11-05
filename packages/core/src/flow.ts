@@ -10,11 +10,11 @@
 // hand-off Argus refuses goes back to its writer once.
 
 import { createHash, randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { join, delimiter } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, copied, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, wikiHome, taskPrompt } from './prompts.js';
+import { answered, copied, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
@@ -483,9 +483,9 @@ export class Flow {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
         prompt: refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
-        // Every role reads Argus's record of the project (the chief's, of every project) and the skills, and adds to the team's skills and wiki.
-        readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home), ...TURN[role].access === 'write' ? [] : ready], writeDirs: [skillsHome(this.store.home), wikiHome(this.store.home), ...own ? [project.workdir] : [], ...TURN[role].access === 'write' ? ready : []],
-        env: packEnv(packs, project.workdir, process.env), ...(project.model ? { model: project.model } : {}),
+        // Every role reads Argus's record of the project (the chief's, of every project) and the skills, and adds to the team's skills, wiki and tools.
+        readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home), ...TURN[role].access === 'write' ? [] : ready], writeDirs: [skillsHome(this.store.home), wikiHome(this.store.home), toolsHome(this.store.home), ...own ? [project.workdir] : [], ...TURN[role].access === 'write' ? ready : []],
+        env: withTools(packEnv(packs, project.workdir, process.env), toolsHome(this.store.home)), ...(project.model ? { model: project.model } : {}),
         ...(project.effort ? { effort: project.effort } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), ...this.box(project, role, task, `${project.id}/${key}`), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
@@ -620,3 +620,9 @@ const held = ({ questions, failures = [] }: Project, task: Task | null): boolean
 /** Whether the task's next turn can start: nothing holds it up, and the tasks it waits for have closed. */
 const ready = (project: Project, task: Task): boolean => !held(project, task)
   && (task.after ?? []).every(id => project.tasks.find(other => other.id === id)?.status === 'closed');
+
+/** A call's environment with the team's tools first on its PATH. */
+export function withTools(env: Record<string, string>, dir: string): Record<string, string> {
+  const path = env.PATH ?? process.env.PATH ?? '';
+  return { ...env, PATH: path ? `${dir}${delimiter}${path}` : dir };
+}

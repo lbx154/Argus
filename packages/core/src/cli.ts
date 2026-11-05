@@ -23,7 +23,7 @@ Its entire hostname namespace is static-only; the cockpit hostname must be outsi
 Forwarding must preserve Host and Origin.
 The team works through the --backend CLI (codex unless chosen), which must be installed and signed in.
 Work stops when this process exits; the next start resumes projects that were running. Closing the browser leaves work running.
-ARGUS_WEB_TOKEN: the token the cockpit asks for; unset, the one kept in the state root. ARGUS_HOME: the state root (~/.argus). ARGUS_SHARED: where the team's skills/ and wiki/ live, shared by every state root that names it (the state root itself when unset).
+ARGUS_WEB_TOKEN: the token the cockpit asks for; unset, the one kept in the state root. ARGUS_HOME: the state root (~/.argus). ARGUS_SHARED: where the team's skills/, wiki/ and tools/ live, shared by every state root that names it (the state root itself when unset).
 `;
 
 async function main(): Promise<void> {

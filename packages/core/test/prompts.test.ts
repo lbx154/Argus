@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import os from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { instructions, skillsHome, wikiHome } from '../src/prompts.js';
+import { instructions, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
+import { withTools } from '../src/flow.js';
 import { Store } from '../src/store.js';
 
 test('standing context keeps locations, date, session lifetime and project GPU visibility', t => {
@@ -73,4 +74,27 @@ test('ARGUS_SHARED gives separate state roots one skills folder and one wiki', t
     assert.ok(prompt.includes(`team's in ${join(shared!, 'skills')}`));
     assert.ok(prompt.includes(join(shared!, 'wiki', 'INDEX.md')));
   }
+});
+
+test("the team's tools: executable files listed by their first comment, first on every call's PATH", t => {
+  const home = mkdtempSync(join(os.tmpdir(), 'argus-tools-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const old = process.env.ARGUS_SHARED;
+  t.after(() => { if (old === undefined) delete process.env.ARGUS_SHARED; else process.env.ARGUS_SHARED = old; });
+  delete process.env.ARGUS_SHARED;
+  const dir = toolsHome(home);
+  assert.equal(dir, join(home, 'tools'));
+  writeFileSync(join(dir, 'digest'), '#!/usr/bin/env python3\n# One screen on a project from its record\nprint(1)\n');
+  chmodSync(join(dir, 'digest'), 0o755);
+  writeFileSync(join(dir, 'notes.txt'), 'not a command\n');
+  symlinkSync('/bin/sh', join(dir, 'sh'));
+  mkdirSync(join(dir, 'folder'));
+  // A link, a file that cannot run and a folder are not tools.
+  assert.deepEqual(tools(home), [['digest', 'One screen on a project from its record']]);
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+  const prompt = instructions('reviewer', project, store);
+  assert.ok(prompt.includes(`The team's tools, commands on your PATH (${dir}):\n- digest: One screen on a project from its record\n`));
+  assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}:/usr/bin` });
+  assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(':')[0], dir);
 });

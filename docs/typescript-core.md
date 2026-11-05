@@ -169,13 +169,18 @@ instructions name the index, every call is given the folder, the Engineer writes
 read it, and the `learning` skill says what belongs in each. There is no recall, search or curation
 beyond what the roles do.
 
-The team's skills and wiki sit in the state root unless `ARGUS_SHARED` names another folder, which
+The team also keeps tools, `tools/` beside them: executable files, each a command any role runs by
+name. Argus puts the folder first on every call's PATH and lists each tool in every role's standing
+instructions by the first comment after its shebang; a link or a file that cannot run is not listed.
+The Engineer writes them, as it writes skills.
+
+The team's skills, wiki and tools sit in the state root unless `ARGUS_SHARED` names another folder, which
 every state root naming it then shares: separate installs (an experiment each, say) learn together,
 where each would otherwise start from nothing. What one project's roles write there, every other
 project's read on their next turn.
 
 The web cockpit shows the library: its skills, and as its learning feed the files of the team's
-skills and the pages of its wiki, newest first, so what a role writes appears while the work goes on.
+skills, the pages of its wiki and its tools, newest first, so what a role writes appears while the work goes on.
 
 ## The web cockpit
 
