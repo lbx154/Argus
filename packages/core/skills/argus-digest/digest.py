@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""argus-digest: one screen on an Argus project, read from its records.
+
+  digest.py [PLACE] [--letters N] [--full] [--task ID] [--grep TEXT] [--all-letters] [--json]
+
+PLACE is a project folder (…/projects/p-xxxx), an ARGUS_HOME, or any folder above one (an experiment
+folder); with several projects, the one most recently written is read. Default: $ARGUS_HOME, else ~/.argus.
+
+It prints, from events.jsonl and project.json:
+  - where the work is: status, phase, what runs now, how long it has been quiet;
+  - what it cost and how long it took (active time leaves out gaps of over 10 minutes);
+  - each task: who holds it, how long, what it cost, how often it was reviewed and sent back (read from the
+    letters' wording, so a guide, not a count Argus keeps);
+  - how parallel the work was;
+  - the operator's letters in full, and the latest team letters;
+  - letters no one needed (the Planner writing to itself, letters repeating one another).
+"""
+import argparse, collections, datetime as dt, json, os, re, sys
+from pathlib import Path
+
+GAP = 600  # seconds: a longer quiet stretch is waiting, not working
+
+
+def find_project(place: Path) -> Path:
+    if (place / 'events.jsonl').exists():
+        return place
+    found = [p.parent for p in place.glob('**/projects/*/events.jsonl')] or \
+            [p.parent for p in place.glob('projects/*/events.jsonl')]
+    if not found:
+        sys.exit(f'no Argus project under {place}')
+    return max(found, key=lambda p: (p / 'events.jsonl').stat().st_mtime)
+
+
+def ts(e):
+    return dt.datetime.fromisoformat(e['ts'].replace('Z', '+00:00')).timestamp()
+
+
+def hm(seconds):
+    seconds = int(seconds)
+    return f'{seconds // 3600}h{seconds % 3600 // 60:02d}m' if seconds >= 3600 else f'{seconds // 60}m{seconds % 60:02d}s'
+
+
+def clock(t):
+    return dt.datetime.fromtimestamp(t).strftime('%m-%d %H:%M')
+
+
+def short(text, n):
+    text = ' '.join((text or '').split())
+    return text if n <= 0 or len(text) <= n else text[:n] + '…'
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('place', nargs='?', default=os.environ.get('ARGUS_HOME', str(Path.home() / '.argus')))
+    ap.add_argument('--letters', type=int, default=8, help='latest team letters to show (default 8)')
+    ap.add_argument('--full', action='store_true', help='show letters in full')
+    ap.add_argument('--all-letters', action='store_true', help='every team letter, oldest first')
+    ap.add_argument('--task', help='only this task (t3)')
+    ap.add_argument('--grep', help='search commands, thoughts and letters for TEXT (regex, case-insensitive)')
+    ap.add_argument('--json', action='store_true', help='the numbers as JSON')
+    a = ap.parse_args()
+
+    proj = find_project(Path(a.place).expanduser().resolve())
+    events = [json.loads(l) for l in open(proj / 'events.jsonl') if l.strip()]
+    meta = json.load(open(proj / 'project.json')) if (proj / 'project.json').exists() else {}
+    now = dt.datetime.now(dt.timezone.utc).timestamp()
+    width = 0 if a.full else 260
+
+    if a.grep:
+        pat = re.compile(a.grep, re.I)
+        for e in events:
+            text = e.get('text') or e.get('letter') or ''
+            if pat.search(text) and (not a.task or e.get('task') == a.task):
+                who = f"{e.get('role', e.get('from', ''))}{'/' + e['task'] if e.get('task') else ''}"
+                print(f"{clock(ts(e))} {e['type']}:{e.get('kind', '')} {who}  {short(text, width)}")
+        return
+
+    # Cost, calls, running now, parallelism.
+    cost = collections.Counter(); calls = collections.Counter(); open_calls = {}
+    spans = []  # (start, end)
+    for e in events:
+        key = (e.get('role'), e.get('task'))
+        if e['type'] == 'call.start':
+            open_calls[key] = ts(e)
+        elif e['type'] == 'call.end':
+            c = (e.get('usage') or {}).get('cost_usd', 0) or 0
+            cost[e.get('task') or e.get('role')] += c
+            calls[e.get('role')] += 1
+            start = open_calls.pop(key, None)
+            if start is not None:
+                spans.append((start, ts(e)))
+    running = {k: v for k, v in open_calls.items()}
+    for start in running.values():
+        spans.append((start, now))
+    total = sum(cost.values())
+
+    # Busy time and how much of it had two or more calls going.
+    marks = sorted([(s, 1) for s, _ in spans] + [(e, -1) for _, e in spans])
+    level = peak = 0; last = None; busy = multi = 0.0
+    for t, d in marks:
+        if last is not None and level > 0:
+            busy += t - last
+            if level >= 2:
+                multi += t - last
+        level += d; peak = max(peak, level); last = t
+
+    times = [ts(e) for e in events]
+    first, last_t = times[0], times[-1]
+    active = sum(min(b - a_, GAP) for a_, b in zip(times, times[1:]))
+    quiet = now - last_t if not running else 0
+
+    # Tasks.
+    tasks = collections.OrderedDict()
+    for e in events:
+        if e['type'] == 'task.added':
+            t = e['task']; tasks[t['id']] = {'title': t['title'], 'from': t.get('from'), 'opened': ts(e), 'closed': None,
+                                            'backs': 0, 'reviews': 0, 'pending': False}
+        elif e['type'] == 'task.closed' and e.get('task') in tasks:
+            tasks[e['task']]['closed'] = ts(e)
+        elif e['type'] == 'handoff' and e.get('task') in tasks:
+            t = tasks[e['task']]
+            # A review is the Reviewer's answer to a delivery: back to the Engineer is a send-back, onward an acceptance.
+            # Its answers to a look asked for mid-work are not reviews.
+            if e.get('role') == 'engineer' and e.get('to') == 'reviewer':
+                t['pending'] = True
+            elif e.get('role') == 'reviewer' and e.get('to') == 'engineer' and re.search(r'\b(done|accepted|no repair needed)\b|审查通过|无需退修', (e.get('letter') or '')[:100], re.I):
+                t['reviews'] += 1; t['pending'] = False  # accepted, handed back for the Engineer to report
+            elif e.get('role') == 'reviewer' and e.get('to') == 'engineer' and t['pending']:
+                t['reviews'] += 1; t['backs'] += 1; t['pending'] = False
+            elif e.get('role') == 'reviewer' and e.get('to') in ('planner', 'manager', 'operator'):
+                t['reviews'] += 1; t['pending'] = False
+    holders = {t['id']: t for t in meta.get('tasks', [])}
+
+    letters = [e for e in events if e['type'] in ('handoff', 'letter')]
+    to_operator = [e for e in letters if e.get('to') == 'operator' or 'operator' in (e.get('to') or [])]
+    self_notes = [e for e in letters if e['type'] == 'handoff' and e.get('role') == e.get('to')]
+    team = [e for e in letters if e not in to_operator and e not in self_notes and (not a.task or e.get('task') == a.task)]
+    seen = collections.Counter(short(e.get('letter') or e.get('text'), 120) for e in letters)
+    repeats = sum(n - 1 for n in seen.values() if n > 1)
+    phase_file = Path(meta.get('workdir', '')) / '.system-proof' / 'phase'
+    phase = phase_file.read_text().strip() if phase_file.is_file() else None
+
+    numbers = {'project': proj.name, 'status': meta.get('status'), 'phase': phase, 'cost_usd': round(total, 2),
+               'calls': dict(calls), 'elapsed_s': int(last_t - first), 'active_s': int(active),
+               'parallel_share': round(multi / busy, 3) if busy else 0, 'peak_calls': peak,
+               'tasks': len(tasks), 'tasks_open': sum(1 for t in tasks.values() if not t['closed']),
+               'sent_back': sum(t['backs'] for t in tasks.values()), 'letters': len(letters),
+               'planner_self_letters': len(self_notes), 'repeated_letters': repeats,
+               'running': [f'{r}{"/" + t if t else ""}' for r, t in running]}
+    if a.json:
+        print(json.dumps(numbers, ensure_ascii=False, indent=1)); return
+
+    request = next((e.get('text', '') for e in events if e['type'] == 'message'), '')
+    print(f"# {meta.get('name') or short(request, 90)}")
+    print(f"{proj}   {meta.get('workdir', '')}")
+    state = {'idle': '空闲', 'working': '工作中', 'failed': '失败', 'stopped': '已停止'}.get(meta.get('status'), meta.get('status', '?')) + (f'，阶段 {phase}' if phase else '')
+    now_line = '、'.join(f'{r}{"/" + t if t else ""}（{hm(now - s)}）' for (r, t), s in running.items()) or '无'
+    print(f"\n状态   {state}；正在跑：{now_line}" + (f'；已经 {hm(quiet)} 没动静' if quiet > 120 else ''))
+    print(f"时间   {clock(first)} → {clock(last_t)}（本机时间），共 {hm(last_t - first)}，实际在干活约 {hm(active)}")
+    print(f"花费   ${total:.2f}，{sum(calls.values())} 次调用（" + '，'.join(f'{r} {n}' for r, n in calls.most_common()) + '）')
+    if busy:
+        print(f"并行   {multi / busy:.0%} 的忙碌时间里有两个以上调用同时在跑；最多同时 {peak} 个")
+
+    if tasks:
+        print('\n## 任务')
+        for tid, t in tasks.items():
+            if a.task and tid != a.task:
+                continue
+            end = t['closed'] or now
+            st = '已关' if t['closed'] else f"在 {holders.get(tid, {}).get('holder', '?')} 手上"
+            extra = f"，退回 {t['backs']} 次" if t['backs'] else ''
+            print(f"{tid:>4}  {st:<14} {hm(end - t['opened']):>7}  ${cost.get(tid, 0):6.2f}  审 {t['reviews']} 次{extra}  {short(t['title'], 90)}")
+
+    if to_operator:
+        print('\n## 写给你的信（最近 3 封）')
+        for e in to_operator[-3:]:
+            print(f"{clock(ts(e))} {e.get('role')}：\n{e.get('letter') or e.get('text')}\n")
+
+    shown = team if a.all_letters else team[-a.letters:]
+    if shown:
+        print(f"## 团队之间的信（{'全部 ' + str(len(team)) + ' 封' if a.all_letters else f'最近 {len(shown)} 封，共 {len(team)} 封'}）")
+        for e in shown:
+            to = e.get('to'); to = ','.join(to) if isinstance(to, list) else to
+            cc = f" cc {','.join(e['cc'])}" if e.get('cc') else ''
+            kind = '' if e['type'] == 'handoff' else '（回合中途）'
+            print(f"{clock(ts(e))} {e.get('role')}→{to}{cc}{'  ' + e['task'] if e.get('task') else ''}{kind}\n    {short(e.get('letter') or e.get('text'), width)}")
+
+    noise = []
+    if self_notes:
+        noise.append(f'{len(self_notes)} 封是角色写给自己的')
+    if repeats:
+        noise.append(f'{repeats} 封和前面的信重复')
+    if noise:
+        print('\n## 没用的信：' + '；'.join(noise))
+
+
+if __name__ == '__main__':
+    main()
