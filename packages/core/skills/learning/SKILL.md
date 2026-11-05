@@ -1,6 +1,6 @@
 ---
 name: learning
-description: "When a task taught you what a later task would need: keep it as a skill the team can run, or as a wiki page"
+description: "When a task taught you what a later task would need: keep it as a skill, a wiki page or a tool"
 ---
 
 What you keep is read by every later task, in this project and in others of its kind, by agents
@@ -12,11 +12,17 @@ names it) holding a SKILL.md: front matter with `name`, the folder's name, and `
 sentence on what work it is for; then how to use it. Keep a script that does a step or catches a
 failure in any project of its kind. Keep nothing you cannot run.
 
+**A tool**, for a command that many tasks run as it stands, whatever the project: an executable file in
+the team's tools folder, on every role's PATH by its name. Its second line is a comment saying in one
+sentence what it does (Argus lists that); `--help` says how. It reads its inputs from its arguments,
+never from this machine's paths, and changes nothing it was not asked to. A skill may call a tool;
+keep a script that only one kind of work needs inside that skill instead.
+
 **A wiki page**, for what no script runs: a fact about a tool or library, a pitfall and how it
 showed, a route that failed and why, a decision and its reason. A page is one topic (a tool, a
 library, a kind of proof), in Markdown in the wiki folder, opening with `# Title`; the wiki's
 INDEX.md lists every page in one line. A fact says what was seen and how to check it, and dates
 itself when it may go stale (a tool's version).
 
-Before adding either, read what is there: improve the skill or page that covers it, correct what
+Before adding any, read what is there: improve the skill, tool or page that covers it, correct what
 your work showed wrong, and delete what no longer holds. One good page beats three overlapping ones.

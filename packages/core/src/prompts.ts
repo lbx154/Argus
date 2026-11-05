@@ -31,6 +31,22 @@ export function skillsHome(home: string): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
+/** The team's tools/: commands any role runs by name, on the PATH of every call. */
+export function toolsHome(home: string): string {
+  const dir = resolve(sharedHome(home), 'tools');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+/** Each team tool's name and what it is for: an executable regular file (never a link), described by
+ * the first comment after its shebang. */
+export const tools = (home: string): (readonly [string, string])[] => readdirSync(toolsHome(home)).sort().flatMap(name => {
+  const file = resolve(toolsHome(home), name);
+  const stat = lstatSync(file);
+  if (!stat.isFile() || !(stat.mode & 0o111)) return [];
+  const head = readFileSync(file, 'utf8').slice(0, 4096).split('\n').slice(0, 6);
+  const said = head.map(line => /^\s*(?:#|\/\/)\s*(?!!)(.+)$/.exec(line)?.[1]?.trim()).find(Boolean) ?? '';
+  return [[name, said] as const];
+});
 export const WIKI_INDEX = 'INDEX.md';
 /** The team's wiki/: what earlier work learned that no script runs, a page a topic, under one index. */
 export function wikiHome(home: string): string {
@@ -80,6 +96,8 @@ function where(project: Project, store: Store, role: Role): string {
     role === 'planner' && isCheckout(project.workdir) && `A task that begins while another task works in the workspace works in a git worktree of its own, under ${WORKTREES}/, so tasks side by side do not overwrite each other's files.`,
     `Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
+    `The team's tools, commands on your PATH (${toolsHome(store.home)}):`,
+    ...tools(store.home).map(([name, said]) => `- ${name}${said ? `: ${said}` : ''}`),
     `The team's wiki, what earlier work in every project learned that no script runs (facts, pitfalls, routes that failed and why): ${resolve(wikiHome(store.home), WIKI_INDEX)}. Read the index, and the pages on what your work touches; the learning skill says how to add to it.`,
     KEPT.includes(project.backend)
       ? `Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager's and the Planner's, till the project's work comes to rest).${role === 'reviewer' ? ' On a task you are one Reviewer from its first look to its last review: what you saw and said before is yours to build on.' : ''}`

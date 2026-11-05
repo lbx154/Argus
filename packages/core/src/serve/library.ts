@@ -6,7 +6,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { add, catalog, contribute, contribution, installed, offered, Refused, remove } from '../packs.js';
 import { prepare } from '../packSetup.js';
-import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome, wikiHome } from '../prompts.js';
+import { packsHome, purpose, SKILL, SKILLS, skills, skillsHome, tools, toolsHome, wikiHome } from '../prompts.js';
 import type { Store } from '../store.js';
 import { changed, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
@@ -46,12 +46,12 @@ export function library(store: Store): [string, RegExp, Handler][] {
     }],
     ['GET', /^\/api\/skill-library\/document$/, ({ url }) => {
       const name = url.searchParams.get('library');
-      const root = name === 'bundled' ? SKILLS : name === 'shared' ? skillsHome(store.home) : name === 'store' ? packsHome(store.home) : name === 'wiki' ? wikiHome(store.home) : null;
+      const root = name === 'bundled' ? SKILLS : name === 'shared' ? skillsHome(store.home) : name === 'store' ? packsHome(store.home) : name === 'wiki' ? wikiHome(store.home) : name === 'tools' ? toolsHome(store.home) : null;
       const found = root && under(root, url.searchParams.get('path') ?? '');
       if (!found) throw new HttpError(404, 'no such skill file');
       return { content: readFileSync(found.file, 'utf8') };
     }],
-    // What the team learned lately: its skills' files and its wiki's pages, newest first.
+    // What the team learned lately: its skills' files, its wiki's pages and its tools, newest first.
     ['GET', /^\/api\/knowledge\/feed$/, ({ url }) => {
       const home = skillsHome(store.home);
       const skillEvents = changed(home).map(({ path, stat }) => ({
@@ -61,7 +61,10 @@ export function library(store: Store): [string, RegExp, Handler][] {
       const pages = changed(wiki).filter(({ path }) => path.endsWith('.md')).map(({ file, path, stat }) => ({
         ts: stat.mtimeMs / 1000, path: `wiki/${path}`, title: /^#\s+(.+)$/m.exec(readFileSync(file, 'utf8'))?.[1]?.trim() || path,
       }));
-      return { events: [...skillEvents, ...pages].sort((a, b) => b.ts - a.ts).slice(0, Number(url.searchParams.get('limit') ?? 50)) };
+      const made = tools(store.home).map(([name, said]) => ({
+        ts: statSync(join(toolsHome(store.home), name)).mtimeMs / 1000, path: `tools/${name}`, title: said || name,
+      }));
+      return { events: [...skillEvents, ...pages, ...made].sort((a, b) => b.ts - a.ts).slice(0, Number(url.searchParams.get('limit') ?? 50)) };
     }],
   ];
 }
