@@ -4,7 +4,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { ProjectRow } from '../api';
-import { recommendedSidebarScope, Sidebar } from '../components/Sidebar';
+import { recommendedSidebarScope, scopedProjects, Sidebar } from '../components/Sidebar';
 import { projectSpendTotal, spendEstimateLabel } from '../lib/projectOverview';
 
 let queryClient: QueryClient;
@@ -24,6 +24,18 @@ const rows: ProjectRow[] = [
     daemon_pid: null,
   },
 ];
+
+describe('scopedProjects', () => {
+  it('keeps the chief in view when the list is narrowed to one folder', () => {
+    const chief: ProjectRow = { ...rows[1]!, id: 'chief', workdir: '/home/argus/workspaces/chief', chief: true };
+    const all = [chief, ...rows];
+    const local = all.filter(project => project.workdir === '/workspace/local');
+    expect(scopedProjects(all, local).map(project => project.id)).toEqual(['chief', 'local']);
+    // Listed once, when it also works in that folder.
+    const here = { ...chief, workdir: '/workspace/local' };
+    expect(scopedProjects([here, ...rows], [here, rows[0]!]).map(project => project.id)).toEqual(['chief', 'local']);
+  });
+});
 
 describe('recommendedSidebarScope', () => {
   it('keeps local scope when it contains the active session', () => {

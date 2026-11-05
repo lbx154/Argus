@@ -45,6 +45,12 @@ function projectGroupLabel(path: string): string {
   return parts.at(-1) || path;
 }
 
+/** The projects of one folder, and the chief above them: it looks after every project, so it stays
+ * in view whichever folder the list is narrowed to. */
+export function scopedProjects(projects: ProjectRow[], local: ProjectRow[]): ProjectRow[] {
+  return [...projects.filter(project => project.chief && !local.includes(project)), ...local];
+}
+
 export function recommendedSidebarScope(
   projects: ProjectRow[],
   activeId: string | null,
@@ -219,7 +225,7 @@ export function Sidebar({
     initialScopeResolved.current = true;
     setScope(recommendedSidebarScope(projects, activeId, normalizedLocalCwd));
   }, [activeId, loading, normalizedLocalCwd, projects]);
-  const scoped = scope === 'local' ? localProjects : projects;
+  const scoped = scope === 'local' ? scopedProjects(projects, localProjects) : projects;
   const rawVisible = query.trim() ? filterProjects(scoped, query) : scoped;
   const visible = rawVisible.filter(project => projectFilter === 'archived'
     ? preference(project.id).archived
