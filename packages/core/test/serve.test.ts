@@ -875,6 +875,14 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   await write('quant/check.mjs', 'console.log("no lookahead, checked");\n', 60);
   const updated = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=1');
   assert.deepEqual(updated.events, [{ ts: at(60), path: 'quant/check.mjs', title: 'quant/check.mjs' }]);
+  // A wiki page the roles write joins the feed under its title, and can be read; the index is there from the start.
+  const page = join(home, 'wiki', 'verus.md');
+  await writeFile(page, '# Verus pitfalls\n\n- A for loop with `continue` is rejected; a while loop is not.\n');
+  await utimes(page, at(61), at(61));
+  const learned = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=1');
+  assert.deepEqual(learned.events, [{ ts: at(61), path: 'wiki/verus.md', title: 'Verus pitfalls' }]);
+  assert.match((await (await document('wiki', 'verus.md')).json() as { content: string }).content, /continue/);
+  assert.match((await (await document('wiki', 'INDEX.md')).json() as { content: string }).content, /^# Wiki/);
 
   await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
   assert.equal((await call('/api/plugins')).status, 404);

@@ -162,8 +162,20 @@ or approval, and nothing records which skill a project used. Argus's own are `re
 `argus-maintenance` (changing this core) and `learning`, on writing a skill worth keeping: what an
 agent can run or recheck, proven on a real case.
 
-The web cockpit shows the library: its skills, and as its learning feed the files of
-`$ARGUS_HOME/skills/`, newest first, so a skill a role writes appears while the work goes on.
+Beside the skills the team keeps a wiki, `wiki/` next to `skills/`: Markdown pages, one a topic, under
+an `INDEX.md` Argus makes when missing, for what no script runs (a tool's pitfall, a route that failed
+and why, a decision and its reason). Argus treats it as it treats the skills: every role's standing
+instructions name the index, every call is given the folder, the Engineer writes it and the others
+read it, and the `learning` skill says what belongs in each. There is no recall, search or curation
+beyond what the roles do.
+
+The team's skills and wiki sit in the state root unless `ARGUS_SHARED` names another folder, which
+every state root naming it then shares: separate installs (an experiment each, say) learn together,
+where each would otherwise start from nothing. What one project's roles write there, every other
+project's read on their next turn.
+
+The web cockpit shows the library: its skills, and as its learning feed the files of the team's
+skills and the pages of its wiki, newest first, so what a role writes appears while the work goes on.
 
 ## The web cockpit
 
@@ -477,6 +489,6 @@ to the desktop's token, and is stopped before a new one starts. No Python is bun
 ## Left out
 
 Stage machines, verticals as code, completion certificates, observers, Manager supervision,
-reflection, recall, the wiki, the map's canvas and notes, trial metering, idle watchdogs, CPU
+reflection, recall, the map's canvas and notes, trial metering, idle watchdogs, CPU
 liveness checks, retry ladders, provider circuits and error-text classification. Some may come
 back as plain features later; none is needed to run a project.

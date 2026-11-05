@@ -199,7 +199,7 @@ test('the Manager answers directly', async t => {
   assert.deepEqual(store.load(id), project);
   const [request] = requests;
   assert.deepEqual([request?.form, request?.access, request?.readDirs, request?.writeDirs],
-    ['manager', 'read', [store.dir(id), SKILLS, packsHome(store.home)], [join(home, 'skills')]]);
+    ['manager', 'read', [store.dir(id), SKILLS, packsHome(store.home)], [join(home, 'skills'), join(home, 'wiki')]]);
   // The role's standing instructions go apart from the turn's message, with every turn.
   assert.equal(request?.prompt, '## Message\nWhat is 6 times 7?');
   assert.match(request?.instructions ?? '', /^You are the Argus Manager[\s\S]*## Where things are\n/);
@@ -230,7 +230,8 @@ test("every role is shown Argus's skills and the team's beside them, without rul
   assert.deepEqual(requests.map(({ role, access }) => [role, access]), [['manager', 'read'], ['planner', 'read'], ['engineer', 'write'], ['reviewer', 'read']]);
   for (const { instructions: prompt = '', readDirs, writeDirs } of requests) {
     // A role that only reads is given the skills to write as well; its sandbox lets it read them.
-    assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS, packsHome(store.home)], [own]]);
+    assert.deepEqual([readDirs, writeDirs], [[store.dir(id), SKILLS, packsHome(store.home)], [own, join(home, 'wiki')]]);
+    assert.ok(prompt.includes(`The team's wiki, what earlier work in every project learned that no script runs (facts, pitfalls, routes that failed and why): ${join(home, 'wiki', 'INDEX.md')}.`));
     assert.ok(prompt.includes(`\n- quant: Backtest a trading idea without lookahead (${join(own, 'quant', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`\n- research: Research as this operator wants it (${join(own, 'research', 'SKILL.md')})\n`));
     assert.ok(prompt.includes(`

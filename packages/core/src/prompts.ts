@@ -2,7 +2,7 @@
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
-import { lstatSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,10 +22,22 @@ export const NAMES: Record<Note['from'], string> = {
  * beside Argus's, a name shared or not. */
 export const SKILLS = fileURLToPath(new URL('../skills', import.meta.url));
 export const SKILL = 'SKILL.md';
-/** The state root's skills/, made when missing so that a role can write there. */
+/** Where the team's skills and wiki live: $ARGUS_SHARED, so that state roots that never meet (an
+ * experiment each, say) learn together; unset, the state root itself. */
+export const sharedHome = (home: string): string => resolve(process.env.ARGUS_SHARED || home);
+/** The team's skills/, made when missing so that a role can write there. */
 export function skillsHome(home: string): string {
-  const dir = resolve(home, 'skills');
+  const dir = resolve(sharedHome(home), 'skills');
   mkdirSync(dir, { recursive: true });
+  return dir;
+}
+export const WIKI_INDEX = 'INDEX.md';
+/** The team's wiki/: what earlier work learned that no script runs, a page a topic, under one index. */
+export function wikiHome(home: string): string {
+  const dir = resolve(sharedHome(home), 'wiki');
+  mkdirSync(dir, { recursive: true });
+  const index = resolve(dir, WIKI_INDEX);
+  if (!lstatSync(index, { throwIfNoEntry: false })) writeFileSync(index, '# Wiki\n\nWhat earlier work learned that a later task would need and no script can run: one page a topic, each listed here in one line.\n');
   return dir;
 }
 /** The state root's skill-packs/, where the operator installs packs; made when missing. */
@@ -68,6 +80,7 @@ function where(project: Project, store: Store, role: Role): string {
     role === 'planner' && isCheckout(project.workdir) && `A task that begins while another task works in the workspace works in a git worktree of its own, under ${WORKTREES}/, so tasks side by side do not overwrite each other's files.`,
     `Skills (Argus's own, those installed in ${packsHome(store.home)}, then the team's in ${library}):`,
     ...skills(store.home).map(([name, dir]) => `- ${name}: ${purpose(dir)} (${resolve(dir, SKILL)})`),
+    `The team's wiki, what earlier work in every project learned that no script runs (facts, pitfalls, routes that failed and why): ${resolve(wikiHome(store.home), WIKI_INDEX)}. Read the index, and the pages on what your work touches; the learning skill says how to add to it.`,
     KEPT.includes(project.backend)
       ? `Your session stays open between your turns: what you start in the background runs on after your turn ends, till your task closes (the Manager's and the Planner's, till the project's work comes to rest).${role === 'reviewer' ? ' On a task you are one Reviewer from its first look to its last review: what you saw and said before is yours to build on.' : ''}`
       : 'Your session ends with each turn, and everything you started with it.',
