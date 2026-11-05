@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# One screen on an Argus project from its record: state, cost, time, parallel work, tasks, letters
+# One screen on an Argus project from its record: state, cost, time, parallel work, tasks, letters, tool use
 """argus-digest: one screen on an Argus project, read from its records.
 
   digest.py [PLACE] [--letters N] [--full] [--task ID] [--grep TEXT] [--all-letters] [--json]
@@ -14,7 +14,8 @@ It prints, from events.jsonl and project.json:
     letters' wording, so a guide, not a count Argus keeps);
   - how parallel the work was;
   - the operator's letters in full, and the latest team letters;
-  - letters no one needed (the Planner writing to itself, letters repeating one another).
+  - letters no one needed (the Planner writing to itself, letters repeating one another);
+  - which of the team's tools and skills the roles' commands used, and how often.
 """
 import argparse, collections, datetime as dt, json, os, re, sys
 from pathlib import Path
@@ -59,6 +60,7 @@ def main():
     ap.add_argument('--task', help='only this task (t3)')
     ap.add_argument('--grep', help='search commands, thoughts and letters for TEXT (regex, case-insensitive)')
     ap.add_argument('--json', action='store_true', help='the numbers as JSON')
+    ap.add_argument('--shared', help="the folder holding the team's skills/ and tools/, when not the state root ($ARGUS_SHARED)")
     a = ap.parse_args()
 
     proj = find_project(Path(a.place).expanduser().resolve())
@@ -185,6 +187,32 @@ def main():
             cc = f" cc {','.join(e['cc'])}" if e.get('cc') else ''
             kind = '' if e['type'] == 'handoff' else '（回合中途）'
             print(f"{clock(ts(e))} {e.get('role')}→{to}{cc}{'  ' + e['task'] if e.get('task') else ''}{kind}\n    {short(e.get('letter') or e.get('text'), width)}")
+
+    # Which of the team's tools and skills the commands ran: a tool by its name as a command, a skill by its folder.
+    home = proj.parent.parent
+    shared = Path(a.shared or os.environ.get('ARGUS_SHARED') or home)
+    tool_names = sorted({p.name for d in {shared / 'tools', home / 'tools'} if d.is_dir() for p in d.iterdir()
+                         if p.is_file() and os.access(p, os.X_OK)})
+    skill_names = sorted({p.name for d in {shared / 'skills', home / 'skills'} if d.is_dir() for p in d.iterdir() if p.is_dir()})
+    used = collections.Counter()
+    for e in events:
+        if e['type'] != 'step' or e.get('kind') != 'command':
+            continue
+        text = e.get('text') or ''
+        for name in tool_names:
+            if re.search(rf'(^|[\s/;|&(\'"`]){re.escape(name)}(\s|$|[;|&)\'"`])', text):
+                used[('tool', name, e.get('role'))] += 1
+        for name in skill_names:
+            if f'skills/{name}/' in text or text.rstrip('"\'').endswith(f'skills/{name}'):
+                used[('skill', name, e.get('role'))] += 1
+    if not a.json:
+        print('\n## 团队的工具和技能用了几次')
+        for kind, names in (('tool', tool_names), ('skill', skill_names)):
+            label = '工具' if kind == 'tool' else '技能'
+            for name in names:
+                by = {r: n for (k, nm, r), n in used.items() if k == kind and nm == name}
+                total = sum(by.values())
+                print(f"  {label} {name:<34} {total:>4}" + (f"  ({'，'.join(f'{r} {n}' for r, n in sorted(by.items(), key=lambda x: -x[1]))})" if by else ''))
 
     noise = []
     if self_notes:
