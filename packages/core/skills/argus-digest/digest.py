@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """argus-digest: one screen on an Argus project, read from its records.
 
-  argus-digest [PLACE] [--letters N] [--full] [--task ID] [--grep TEXT] [--all-letters] [--json]
+  digest.py [PLACE] [--letters N] [--full] [--task ID] [--grep TEXT] [--all-letters] [--json]
 
 PLACE is a project folder (…/projects/p-xxxx), an ARGUS_HOME, or any folder above one (an experiment
 folder); with several projects, the one most recently written is read. Default: $ARGUS_HOME, else ~/.argus.
