@@ -232,12 +232,14 @@ Linux `.AppImage`/`.deb`）。
 
 ```bash
 npm --prefix desktop-tauri run ui:typecheck
-npm --prefix desktop-tauri run test:ui
+npm --prefix desktop-tauri run test:ui -- tests/shell.spec.ts tests/session-context.spec.ts tests/readonly-workspace.spec.ts
 npm --prefix desktop-tauri run test:release
 # cargo check + 宿主单元测试；其中一个测试用本机 Node 启动随包的 Argus，
 # 确认它报告地址、认得 token、使用 ARGUS_HOME、在 SIGTERM 后干净退出
 npm --prefix desktop-tauri run test:rust
 ```
+
+当前 ts-core 的浏览器检查显式选择上述三组，不把旧 `plugin-picker.spec.ts`（依赖不随此路线提供的 Python `argus/webapi/plugin_desktop.js`）或 `workbench-layout.spec.ts`（启动 Python fixture）记为通过。session/readonly fixture 按当前精确接口提供 conversation、附件 limits、model choices 和项目初始 SSE；未知读/写仍拒绝。界面改为项目目录、代码/运行控制模块、技能库而非旧 wiki 分类；地图不再有第二个 composer，草稿按项目保存在浏览器，改写期间该项目输入禁用。这些是既有界面合同，测试适配不恢复旧功能。
 
 CI：`.github/workflows/desktop.yml` 在 Windows、macOS（arm64、x86_64）和 Linux 上构建
 未签名安装包、跑以上测试，并检查安装包里带着 `argus-core/dist/argus.mjs` 与 `argus-core/web/`。
