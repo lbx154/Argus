@@ -1,0 +1,15 @@
+[
+  {"name":"npm current CRLF", "source":"@ECHO off\r\nSET dp0=%~dp0\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & \"%_prog%\"  \"%dp0%\\node_modules\\cli.js\" %*\r\n", "target":"node_modules\\cli.js", "prefix":[]},
+  {"name":"observed AI CLI fixed prefix", "source":"@echo off\r\n\"C:\\Program Files\\Node\\node.exe\" \"%~dp0launch-ai.mjs\" copilot %*\r\n", "target":"launch-ai.mjs", "prefix":["copilot"]},
+  {"name":"npm legacy inline PATHEXT", "source":"@ECHO off\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & set PATHEXT=%PATHEXT:;.JS;=;% & \"%_prog%\"  \"%dp0%\\fake-agent.mjs\" %*\r\n", "target":"fake-agent.mjs", "prefix":[]},
+  {"name":"native exe", "source":"@echo off\n\"%~dp0\\native.exe\" %*\n", "target":"native.exe", "prefix":[]},
+  {"name":"plain node", "source":"@node \"%~dp0cli.mjs\" --native %*\n", "target":"cli.mjs", "prefix":["--native"]},
+  {"name":"case insensitive dp0", "source":"\"node.exe\" \"%~DP0/cli.cjs\" %*\n", "target":"cli.cjs", "prefix":[]},
+  {"name":"assignment is not invocation", "source":"@echo off\nSET \"entry=%dp0%\\cli.js\"\n", "target":null},
+  {"name":"echo is not invocation", "source":"@echo \"%dp0%\\cli.js\" %*\n", "target":null},
+  {"name":"quoted node in echo is not invocation", "source":"echo \"node.exe\" \"%dp0%\\cli.js\" %*\n", "target":null},
+  {"name":"expansion is not literal prefix", "source":"\"node.exe\" \"%~dp0cli.js\" %UNCONTROLLED% %*\n", "target":null},
+  {"name":"shell operator after forwarding", "source":"\"node.exe\" \"%~dp0cli.js\" %* & echo extra\n", "target":null},
+  {"name":"no forwarding", "source":"\"node.exe\" \"%~dp0cli.js\"\n", "target":null},
+  {"name":"arbitrary batch call", "source":"call \"%dp0%\\cli.js\" %*\n", "target":null}
+]

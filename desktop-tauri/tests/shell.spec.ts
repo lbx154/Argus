@@ -136,6 +136,17 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
+test('an update notice cannot intercept modal settings controls', async ({ page }) => {
+  await launch(page, true);
+  await page.locator('#helpMenuTrigger').click();
+  await page.locator('[data-menu-action="check-update"]').click();
+  await expect(page.locator('#updateNotice')).toBeVisible();
+  await openSettings(page);
+  // The actual native failure was the update notice intercepting this click.
+  await page.locator('#wizardNext').click({ timeout: 5000 });
+  await expect(page.locator('#portInput')).toBeVisible();
+});
+
 test('first launch requires an explicit CLI selection and saves the selected port', async ({ page }) => {
   await launch(page);
   await expect(page.locator('#wizard')).toBeVisible();

@@ -4,10 +4,11 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { directoryLink, fileLink } from './helpers/fsLinks.js';
 import { add, catalog, remove, type Contribution, type Pack } from '../src/packs.js';
 import { instructions, packsHome, purpose, skills, SKILLS } from '../src/prompts.js';
 import { confine } from '../src/agent/sandbox.js';
@@ -165,6 +166,10 @@ test('the pack root is read-only even for a writing role', { skip: process.platf
 test("a team skill offered to the store is checked by the store's rule, kept for the host, and shows what the host answered", async t => {
   const home = await mkdtemp(join(tmpdir(), 'argus-offer-'));
   t.after(() => rm(home, { recursive: true, force: true }));
+  // This fixture writes its team library under home, independent of the invoking agent's library.
+  const shared = process.env.ARGUS_SHARED;
+  delete process.env.ARGUS_SHARED;
+  t.after(() => { if (shared !== undefined) process.env.ARGUS_SHARED = shared; });
   const served = await serve({ store: new Store(home), callAgent: async () => { throw new Error('No model calls expected'); }, backend: 'codex', model: null, port: 0, token: 'offer-token', web: home });
   t.after(() => served.close());
   const call = (path: string, value?: object) => fetch(served.url + path, { method: value ? 'POST' : 'GET',
@@ -211,13 +216,11 @@ test("a team skill offered to the store is checked by the store's rule, kept for
 
   // Refused with the reason, and nothing kept: what the store would not take, and what is not the team's.
   await skill('learning');
-  await skill('linked');
-  await symlink(join(home, 'skills', 'materials', 'checks', 'check.mjs'), join(home, 'skills', 'linked', 'check.mjs'));
   await skill('linked-folder');
-  await symlink(join(home, 'skills', 'materials', 'checks'), join(home, 'skills', 'linked-folder', 'checks'));
+  await directoryLink(join(home, 'skills', 'materials', 'checks'), join(home, 'skills', 'linked-folder', 'checks'));
   // A link to a folder above is refused where it is met, not walked: walking it would never end.
   await skill('looped');
-  await symlink(join(home, 'skills'), join(home, 'skills', 'looped', 'up'));
+  await directoryLink(join(home, 'skills'), join(home, 'skills', 'looped', 'up'));
   await skill('large');
   await writeFile(join(home, 'skills', 'large', 'data.bin'), '');
   await truncate(join(home, 'skills', 'large', 'data.bin'), 8 * 2 ** 20);
@@ -227,7 +230,7 @@ test("a team skill offered to the store is checked by the store's rule, kept for
   await skill('undescribed', body().replace('description:', 'other:'));
   // Only the store's rule answers with its code, whose reason the page shows; not the team's skill, or no name, is another error.
   const other = new Set<unknown>(['installed', 'research', 1]);
-  for (const [name, reason] of [['learning', /name of a skill Argus comes with/], ['linked', /check\.mjs is a link/], ['linked-folder', /checks is a link/], ['looped', /up is a link/],
+  for (const [name, reason] of [['learning', /name of a skill Argus comes with/], ['linked-folder', /checks is a link/], ['looped', /up is a link/],
     ['large', /at most 8 MiB; this one holds 8\.0 MiB/], ['hidden', /cannot hold "\.env"/], ['Named', /store name/], ['undescribed', /description/],
     ['installed', /No such team skill/], ['research', /No such team skill/], ['../skills/materials', /store name/], [1, /Name required/]] as const) {
     const refused = await offer(name);
@@ -236,5 +239,14 @@ test("a team skill offered to the store is checked by the store's rule, kept for
     assert.match(detail, reason);
     assert.equal(code, other.has(name) ? 'request_failed' : 'not_for_store', String(name));
   }
+  await t.test('a contribution refuses a file symlink', async t => {
+    await skill('linked');
+    if (!await fileLink(t, join(home, 'skills', 'materials', 'checks', 'check.mjs'), join(home, 'skills', 'linked', 'check.mjs'))) return;
+    const refused = await offer('linked');
+    assert.equal(refused.status, 400);
+    const { detail, code } = await refused.json();
+    assert.match(detail, /check\.mjs is a link/);
+    assert.equal(code, 'not_for_store');
+  });
   assert.deepEqual((await readdir(join(home, 'contributions'))).sort(), ['materials.json', 'unversioned.json']);
 });

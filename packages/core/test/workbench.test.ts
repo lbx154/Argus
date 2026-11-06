@@ -3,9 +3,11 @@ import { execFileSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import test, { type TestContext } from 'node:test';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, symlink, truncate, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, truncate, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { directoryLink, fileLink } from './helpers/fsLinks.js';
 import { crc32, inflateRawSync } from 'node:zlib';
 import type { BacklogItem } from '@argus/contracts';
 import { Store, type Task } from '../src/store.js';
@@ -55,10 +57,9 @@ test('workspace trees use directory entries and never follow links; text opens o
   const { project, call, get } = await setup(t, { 'src/main.txt': 'inside\n' });
   const outside = join(project.workdir, '..', 'outside.txt');
   await writeFile(outside, 'outside\n');
-  await symlink('src/main.txt', join(project.workdir, 'inside-link'));
-  await symlink('src', join(project.workdir, 'dir-link'));
-  await symlink(outside, join(project.workdir, 'outside-link'));
-  await symlink('missing', join(project.workdir, 'broken-link'));
+  await directoryLink(join(project.workdir, 'src'), join(project.workdir, 'dir-link'));
+  await directoryLink(dirname(outside), join(project.workdir, 'outside-dir'));
+  await directoryLink(join(project.workdir, 'missing'), join(project.workdir, 'broken-dir'));
   const base = `/api/v2/workspace/`;
   const query = `?sid=${project.id}&workspace_id=project:${project.id}`;
   const stats = t.mock.method(fs, 'lstatSync');
@@ -67,14 +68,23 @@ test('workspace trees use directory entries and never follow links; text opens o
   const tree = await get<{ entries: { path: string; type: string }[] }>(base + 'tree' + query);
   assert.equal(stats.mock.callCount(), 0);
   assert.deepEqual(tree.entries, [
-    { path: 'broken-link', type: 'symlink' }, { path: 'dir-link', type: 'symlink' },
-    { path: 'inside-link', type: 'symlink' }, { path: 'outside-link', type: 'symlink' },
+    { path: 'broken-dir', type: 'symlink' }, { path: 'dir-link', type: 'symlink' },
+    { path: 'outside-dir', type: 'symlink' },
     { path: 'src', type: 'directory' }, { path: 'src/main.txt', type: 'file' },
   ]);
-  assert.deepEqual(await get(base + 'file' + query + '&path=inside-link'), { content: 'inside\n' });
-  for (const path of ['outside-link', 'broken-link', 'dir-link']) {
+  assert.deepEqual(await get(base + 'file' + query + '&path=dir-link/main.txt'), { content: 'inside\n' });
+  for (const path of ['outside-dir/outside.txt', 'broken-dir/main.txt', 'dir-link']) {
     assert.equal((await call(base + 'file' + query + '&path=' + path)).status, 404);
   }
+  await t.test('file links resolve only visible workspace files', async t => {
+    if (!await fileLink(t, 'src/main.txt', join(project.workdir, 'inside-link'))) return;
+    await fileLink(t, outside, join(project.workdir, 'outside-link'));
+    await fileLink(t, 'missing', join(project.workdir, 'broken-link'));
+    assert.deepEqual(await get(base + 'file' + query + '&path=inside-link'), { content: 'inside\n' });
+    for (const path of ['outside-link', 'broken-link']) assert.equal((await call(base + 'file' + query + '&path=' + path)).status, 404);
+    const linked = await get<{ entries: { path: string; type: string }[] }>(base + 'tree' + query);
+    assert.equal(linked.entries.filter(entry => ['inside-link', 'outside-link', 'broken-link'].includes(entry.path) && entry.type === 'symlink').length, 3);
+  });
 });
 
 test('the code workspace is the workdir: its tree, a file as text or bytes, and what git says', async t => {
@@ -141,11 +151,16 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   assert.equal((await call(`/api/v2/workspace/git/commit?sid=${sid}&workspace_id=project:p-0&commit=${first}`)).status, 404);
   // A program the repository's config or attributes name, which a role may write, never runs.
   const ran = join(project.workdir, '..', 'ran');
-  await writeFile(join(project.workdir, '..', 'program.sh'), `#!/bin/sh\ntouch ${ran}\ncat\n`);
-  await chmod(join(project.workdir, '..', 'program.sh'), 0o755);
-  git('config', 'core.fsmonitor', join(project.workdir, '..', 'program.sh'));
-  git('config', 'filter.x.clean', join(project.workdir, '..', 'program.sh'));
-  git('config', 'filter.x.process', join(project.workdir, '..', 'program.sh'));
+  const program = join(project.workdir, '..', 'program.mjs');
+  await writeFile(program, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(ran)}, 'ran'); process.stdin.pipe(process.stdout);`);
+  const command = `"${process.execPath.replaceAll('\\', '/')}" "${program.replaceAll('\\', '/')}"`;
+  // Prove the fixture can run on this OS before using its absence as evidence.
+  execFileSync(process.execPath, [program], { input: '' });
+  assert.ok(existsSync(ran));
+  await rm(ran);
+  git('config', 'core.fsmonitor', command);
+  git('config', 'filter.x.clean', command);
+  git('config', 'filter.x.process', command);
   await writeFile(join(project.workdir, '.gitattributes'), '* filter=x\n');
   await mkdir(join(project.workdir, '.git', 'info'), { recursive: true });
   await writeFile(join(project.workdir, '.git', 'info', 'attributes'), '* filter=x\n');
@@ -156,6 +171,8 @@ test('the code workspace is the workdir: its tree, a file as text or bytes, and 
   assert.equal(existsSync(ran), false);
   // A diff past the limit is shown up to it, and says so.
   await writeFile(join(project.workdir, 'big.txt'), 'x'.repeat(1.5 * (1 << 20)));
+  git('config', '--unset', 'core.fsmonitor');
+  git('config', '--remove-section', 'filter.x');
   git('add', 'big.txt');
   assert.equal((await get<{ truncated: boolean }>(W('git'))).truncated, true);
 });
@@ -173,11 +190,14 @@ test('a partial clone fetching what it lacks runs no program its config names', 
   await writeFile(join(origin, 'a.txt'), 'two\n');
   git(origin, 'commit', '-q', '-am', 'two');
   git(origin, 'config', 'uploadpack.allowFilter', 'true');
-  execFileSync('git', ['clone', '-q', '--no-checkout', '--filter=blob:none', `file://${origin}`, project.workdir]);
+  execFileSync('git', ['clone', '-q', '--no-checkout', '--filter=blob:none', pathToFileURL(origin).href, project.workdir]);
   const ran = join(home, 'ran');
-  await writeFile(join(home, 'program.sh'), `#!/bin/sh\ntouch ${ran}\nexec git-upload-pack "$@"\n`);
-  await chmod(join(home, 'program.sh'), 0o755);
-  git(project.workdir, 'config', 'remote.origin.uploadpack', join(home, 'program.sh'));
+  const program = join(home, 'program.mjs');
+  await writeFile(program, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(ran)}, 'ran');`);
+  execFileSync(process.execPath, [program]);
+  assert.ok(existsSync(ran));
+  await rm(ran);
+  git(project.workdir, 'config', 'remote.origin.uploadpack', `"${process.execPath.replaceAll('\\', '/')}" "${program.replaceAll('\\', '/')}"`);
   const W = (path: string, more: Record<string, string> = {}) =>
     `/api/v2/workspace/${path}?${new URLSearchParams({ sid: project.id, workspace_id: `project:${project.id}`, ...more })}`;
   await get(W('git/commit', { commit: git(origin, 'rev-parse', 'HEAD') }));
@@ -244,8 +264,12 @@ test('an HTML result and its modules, CSP and styles are served unchanged on a s
   assert.equal((await call(`${P}/artifact/preview?path=site/index.html`)).headers.get('set-cookie'), null);
   assert.equal((await call(`${P}/artifact/preview/page?path=site/index.html`)).status, 404);
   await writeFile(join(project.workdir, '..', 'outside.txt'), 'outside');
-  await symlink('../outside.txt', join(project.workdir, 'site/leak.txt'));
-  for (const path of ['leak.txt', '../../../outside.txt', '%2e%2e%2f%2e%2e%2foutside.txt', '.env']) {
+  await directoryLink(dirname(project.workdir), join(project.workdir, 'site/leak'));
+  await t.test('preview refuses an outside file symlink', async t => {
+    if (!await fileLink(t, '../../outside.txt', join(project.workdir, 'site/leak.txt'))) return;
+    assert.equal((await previewFetch(new URL('leak.txt', shown.url))).status, 404);
+  });
+  for (const path of ['leak/outside.txt', '../../../outside.txt', '%2e%2e%2f%2e%2e%2foutside.txt', '.env']) {
     assert.equal((await previewFetch(new URL(path, shown.url))).status, 404, path);
   }
   for (const path of ['/api/meta', P + '/snapshot', '/wrong/site/index.html']) {
@@ -341,7 +365,7 @@ test('static directories redirect to their slash URL only when the index passes 
   const outside = join(project.workdir, '..', 'outside');
   await mkdir(outside);
   await writeFile(join(outside, 'index.html'), 'outside');
-  await symlink(outside, join(project.workdir, 'site/linked'));
+  await directoryLink(outside, join(project.workdir, 'site/linked'));
   for (const name of ['linked', 'linked/', '.hidden', '.hidden/', 'missing', 'missing/']) {
     assert.equal((await previewFetch(new URL(name, url), { redirect: 'manual' })).status, 404, name);
   }

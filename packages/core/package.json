@@ -1,6 +1,6 @@
 {
   "name": "@lbx154/argus",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "A research and engineering team of AI agents, run from a web cockpit on your machine.",
   "license": "MIT",
   "type": "module",
@@ -12,5 +12,5 @@
     "web": "node --experimental-strip-types scripts/web.ts",
     "prepack": "npm --prefix ../.. run build && npm run web"
   },
-  "devDependencies": { "@argus/contracts": "0.1.8", "@argus/runtime": "0.1.8" }
+  "devDependencies": { "@argus/contracts": "0.1.9", "@argus/runtime": "0.1.9" }
 }

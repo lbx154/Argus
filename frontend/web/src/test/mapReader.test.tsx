@@ -210,10 +210,13 @@ it('requests the selected historical letter only when its reader is opened, keep
   expect(request).not.toHaveBeenCalled();
   await act(async () => {
     renderer!.root.findByProps({ 'data-step-id': 'e42' }).props.onClick();
-    await new Promise(done => setTimeout(done, 10));
   });
   expect(request).toHaveBeenCalledWith(recorded.id, source.id, expect.any(AbortSignal), 'e42');
-  expect(renderer!.root.findByProps({ 'data-testid': 'map-reader' }).findAllByType(MarkdownContent).some(node => node.props.children === letter)).toBe(true);
+  // React Query schedules observer notifications; a fixed 10 ms sleep can
+  // finish before that render on Windows. Await the actual complete body.
+  await vi.waitFor(() => {
+    expect(renderer!.root.findByProps({ 'data-testid': 'map-reader' }).findAllByType(MarkdownContent).some(node => node.props.children === letter)).toBe(true);
+  });
   client.clear();
 });
 

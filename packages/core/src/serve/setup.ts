@@ -10,11 +10,12 @@ const run = promisify(execFile);
 
 export async function setupStatus() {
   const backends = await Promise.all(BACKENDS.map(async backend => {
-    const missing = notInstalled(backend);
+    const env = agentEnv(backend);
+    const missing = notInstalled(backend, env);
     if (missing) return { backend, installed: false, version: null, detail: missing };
-    const [file, ...args] = launcher(backend);
     try {
-      const { stdout } = await run(file!, [...args, '--version'], { env: agentEnv(backend), maxBuffer: 64 * 1024 });
+      const [file, ...args] = launcher(backend, env);
+      const { stdout } = await run(file!, [...args, '--version'], { env, maxBuffer: 64 * 1024, windowsHide: true });
       return { backend, installed: true, version: stdout.trim() || null, detail: stdout.trim() ? '' : 'The version command returned no output.' };
     } catch (error) {
       return { backend, installed: true, version: null, detail: (error as Error).message };

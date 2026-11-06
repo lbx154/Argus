@@ -27,8 +27,11 @@ it) holding a SKILL.md: front matter with `name`, the folder's name, and `descri
 on what work it is for; then how to use it, and the script that does the step or catches the failure.
 
 **A tool**, for a command many tasks run as it stands: an executable file in the team's tools
-folder, on every role's PATH by its name. Its second line is a comment saying in one sentence what
-it does (Argus lists that); `--help` says how. It changes nothing it was not asked to.
+folder, on every role's PATH by its name. On POSIX keep its execute bit and shebang; on Windows
+supply a native command (for a script, a `.cmd` companion invoking its interpreter). A shebang alone
+is not a Windows command. Its first comment (`#`, `//`, `rem` or `::`) says in one sentence what
+it does (Argus lists that); `--help` says how. Check it by name in a role's command environment,
+not only by calling its interpreter directly. It changes nothing it was not asked to.
 
 **A wiki page**, for what no script runs: a fact about a tool or library, a pitfall and how it
 showed, a route that failed and why, a decision and its reason. One topic a page, in Markdown in the

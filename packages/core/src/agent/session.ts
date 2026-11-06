@@ -24,7 +24,7 @@ export class Cli {
   /** Why it is gone, once the CLI itself has exited. */
   gone: string | null = null;
   private readonly exited: Promise<void>;
-  /** Everything it started has ended too. */
+  /** Native teardown ended; Windows cannot contain descendants after their parent exits itself. */
   readonly ended: Promise<void>;
   /** Where each line it writes goes: the raw output of the turn under way. */
   raw: ((line: string) => void) | null = null;
@@ -44,7 +44,11 @@ export class Cli {
         executable: argv[0]!, args: argv.slice(1), cwd, env, input, signal: this.stop.signal,
         onExit: (code, signal) => { this.gone ??= `exited with ${code ?? signal}`; exit(); },
       })) {
-        if (item.type === 'exit') { this.gone ??= item.error ?? `exited with ${item.code ?? item.signal}`; continue; }
+        if (item.type === 'exit') {
+          // On Windows a tree-teardown failure can arrive after the root's exit event.
+          this.gone = (process.platform === 'win32' ? item.error : null) ?? this.gone ?? item.error ?? `exited with ${item.code ?? item.signal}`;
+          continue;
+        }
         this.raw?.(item.stream === 'stdout' ? item.line : JSON.stringify({ stderr: item.line }));
         if (item.stream === 'stderr') { if (this.stderr.push(item.line) > 20) this.stderr.shift(); continue; }
         let message: unknown;
@@ -110,11 +114,12 @@ export class Cli {
     return this.stderr.join('\n').trim() || `The backend CLI ${this.gone ?? 'stopped'}.`;
   }
 
-  /** Ends the CLI and everything it started; resolves once all of it has ended. */
+  /** Ends the CLI and its native-reachable tree; resolves once teardown returns. */
   close(): Promise<void> {
     this.closed = true;
-    this.wake();
-    this.stop.abort();
+    // Windows must start tree teardown before EOF lets a stdin-owned CLI exit.
+    if (process.platform === 'win32') { this.stop.abort(); this.wake(); }
+    else { this.wake(); this.stop.abort(); }
     return this.ended;
   }
 }

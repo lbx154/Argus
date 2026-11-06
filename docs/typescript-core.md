@@ -172,10 +172,34 @@ instructions name the index, every call is given the folder, the Engineer writes
 read it, and the `learning` skill says what belongs in each. There is no recall, search or curation
 beyond what the roles do.
 
-The team also keeps tools, `tools/` beside them: executable files, each a command any role runs by
-name. Argus puts the folder first on every call's PATH and lists each tool in every role's standing
-instructions by the first comment after its shebang; a link or a file that cannot run is not listed.
+The team also keeps tools, `tools/` beside them: runnable regular files, each a command any role runs by
+name. Argus puts the folder first on every call's native PATH and lists each tool in every role's standing
+instructions by its first comment (`#`, `//`, `rem` or `::`); a link is never listed. POSIX requires an
+execute bit; Windows lists `.exe`, `.com`, `.cmd` and `.bat`, not an execute bit or an extensionless
+shebang script. A script intended for Windows commands needs a native companion shim invoking its
+interpreter, which must be installed. The starter `argus-digest.cmd` invokes Python 3 as `python` on
+PATH with UTF-8 mode, including when it calls an existing user-modified digest script; it does
+not install Python or claim the Python tool needs only Node.
 The Engineer writes them, as it writes skills.
+
+Only operator-installed packs may name `setup` in `SKILL.md`; team skills never execute a setup.
+The setup stays inside that pack's lexical folder; Windows also refuses linked setup files or
+parent directories before native dispatch (POSIX's existing path rules remain unchanged). Windows `.cjs`,
+`.mjs` and `.js` setups use Argus's running Node (use `.cjs` for CommonJS or `.mjs` for ESM). For a
+portable Node setup include `#!/usr/bin/env node`: POSIX keeps its existing execute-bit/shebang
+contract, and installed files without executable bits use the declared interpreter (or `/bin/sh`
+when no shebang is present). Other shebangs require their named interpreter: on Windows `/bin/sh`
+means `sh` on PATH, not Windows's unrelated WSL `bash` launcher and not an implicitly bundled shell.
+Windows `.cmd`/`.bat` setups run explicitly through `cmd.exe`, with the setup path passed literally;
+agent CLI arguments still never go through a shell. Missing interpreters or failed launches are
+recorded in `setup.log` and `.failed`, not reported as installed tools. A version runs once when ready;
+a failure is not retried during the same process, and the next server start may try it again.
+Setups write `KEY=VALUE` lines to `ARGUS_PACK_HOME/env` (LF or CRLF). `${ARGUS_PACK_HOME}` and
+`${WORKSPACE}` expand literally; `${PATH}` is the preceding native path and `${PATH_SEPARATOR}` is
+`;` on Windows, `:` on POSIX. This is only an additional native separator value; it does not
+reinterpret existing `${PATH}` values or rewrite old pack paths. Use
+`PATH=${ARGUS_PACK_HOME}/bin${PATH_SEPARATOR}${PATH}` rather than hard-coding `:`. Windows
+environment names are case-insensitive; POSIX names remain case-sensitive.
 
 The library is kept by those who use it: no step tidies it later, and no count or size decides
 for them. A role that finds a skill, page or tool wrong, stale or hard to use while using it puts it
@@ -445,10 +469,11 @@ Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system 
 read-only, the workdir and the task's write directories writable for the Engineer (the Manager, Planner and
 Reviewer read it only), a private home per workdir
 with the CLI's login file passed through, and the CLI's login environment plus the operator's
-registered environment values. Each review has a fresh disk-backed temporary directory under
-`$ARGUS_HOME/sandbox`, bound to `/tmp` under bubblewrap or selected by `TMPDIR` without it,
-and removed when the review ends. Other roles' sandboxes cannot see that directory.
-Other roles retain their existing temporary filesystem. Its
+registered environment values. Each review has a fresh disk-backed temporary directory, removed
+when the review ends. Under bubblewrap it lives under `$ARGUS_HOME/sandbox`, bound to `/tmp`;
+other roles' sandboxes cannot see it. Without bubblewrap it is created under the native OS temp
+root and selected by `TMPDIR`, and on Windows also `TMP` and `TEMP`; this is not an OS isolation
+boundary between processes running as the same user. Other roles retain their existing temporary filesystem. Its
 `~/.cache` is one every project's roles share (`$ARGUS_HOME/cache`, npm's cache in it), so a
 model, package or browser one project downloads the next finds; the machine's own cache, which
 may hold tokens, stays out. Codex runs there without plugins: the private home has none of the
@@ -465,9 +490,13 @@ authenticated `/api/settings/credentials` route reads only names, writes one nam
 with PUT, and deletes a name with DELETE on `/api/settings/credentials/<name>`. Settings clears
 the inputs after saving and whenever it closes; saved values are never sent back to the page.
 
-Starting the CLI: no shell is involved. On Windows npm installs a CLI as a `.cmd` shim, which
-only `cmd.exe` runs; the agent layer runs the file the shim names instead, a script with
-Node.
+Starting the CLI: no shell is involved. `commands.ts` shares native lookup and environment
+merging with pack setup and team tools. Windows lookup uses the child's effective `Path`/`PATH`,
+`PATHEXT` and cwd; case-equivalent environment registrations replace rather than duplicate one
+another. npm `.cmd`/`.bat` shims and Node wrappers naming a `%dp0%`/`%~dp0` target run that
+script with Node (or its native `.exe`/`.com` target), retaining a fixed bare-word argument
+prefix where present. Arbitrary batch commands or shell expansion are not interpreted; Settings
+reports an unsupported shim as a launch error instead of invoking a shell.
 
 A session ends, and everything its CLI started with it, when its task closes, its project
 stops or comes to rest with no question or failure waiting in it, Argus exits, a turn on it is
@@ -480,7 +509,13 @@ started however it detached (`nohup … &`, `setsid`): the CLI's environment car
 `ARGUS_TURN`, a value of its own that whatever it starts inherits, and the runtime ends what
 carries it or stays in the CLI's process group (`executeProcess`); under bubblewrap the sandbox
 ends with the CLI. On Windows a process cannot read another's environment and Node has no job
-object, so ending reaches the CLI's process tree (`taskkill /T`) only while the CLI runs.
+object, so ending reaches the CLI's process tree only while the CLI runs. Teardown invokes the
+system's `System32/taskkill.exe /T /F`, not a command chosen by PATH or the workdir, and keeps
+stdin open until that command has enumerated the tree: persistent CLIs otherwise exit on EOF
+before their detached descendants can be reached. A CLI that exits by itself before cancellation
+can still leave an ignored-pipe descendant running; Windows has no job-object containment here.
+Native reviewer temp is not an OS isolation boundary either. Tests exercise live-tree cleanup,
+the stdin-exit race and the remaining post-exit limitation separately.
 
 ## The package
 
@@ -500,16 +535,29 @@ sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place o
 ## The desktop app
 
 The desktop app (`desktop-tauri/`, Tauri) carries the package as a resource directory `argus-core/`
-in the package's layout (`dist/argus.mjs` beside `prompts/`, `ways/` and `web/`) and runs it with
+in the package's layout (`dist/argus.mjs` beside `prompts/`, `skills/`, `starter/` and `web/`) and runs it with
 the Node.js on the machine: `node argus.mjs --port P --backend B`, the backend being the CLI the
 operator chose. Every backend Argus drives is an npm package, so its users have Node; the app
-looks for one of at least 22 beside the chosen CLI, on PATH and in the usual install directories,
+looks for one of at least 22.12.0 beside the chosen CLI, on PATH and in the usual install directories,
 and without one says so and where to get it, rather than installing it. It gives Argus its Web
 token as `ARGUS_WEB_TOKEN` and its state root as `ARGUS_HOME`; the line `Argus is at <url>` is
 the only sign Argus is ready and where, and its exit the only sign it failed. The desktop does not
 poll it or restart it; it stops it (SIGTERM, or `taskkill /T` on Windows) when asked or when it
 quits. An Argus the desktop lost (it crashed) is known by answering `/api/meta` as authenticated
-to the desktop's token, and is stopped before a new one starts. No Python is bundled.
+to the desktop's token. On Windows its reported state root and owner PID must also match before
+it is stopped. Windows uses the system taskkill, retains its process identity while waiting for exit,
+and refuses a restart, quit or update installation if stopping its owned backend fails.
+The Windows desktop passes its confirmed absolute CLI path as `ARGUS_CODEX_BIN`,
+`ARGUS_CLAUDE_BIN`, `ARGUS_COPILOT_BIN` or `ARGUS_PI_BIN` for each explicitly saved backend path
+(and the current detected selection). Existing projects keep their own backend when the desktop
+changes, so saved paths for other backends must not be discarded. Unconfigured inherited overrides
+are cleared. Core's existing
+Settings version probes, model probes and agent turns all resolve that path through the same native
+launcher; an invalid explicit selection is an error, never a fallback to another PATH CLI. A new
+selection restarts the core process. The confirmed path is read from the host's startup environment,
+not a credentials registration, pack or per-turn child environment with the same name; ordinary
+child PATH and environment overrides keep their existing behaviour. These desktop environment overrides are ignored on POSIX,
+whose normal launcher, setup deadline and signal behaviour remain unchanged. No Python is bundled.
 
 ## Left out
 

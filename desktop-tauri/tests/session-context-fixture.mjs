@@ -28,6 +28,7 @@ export async function startSessionFixture(options = {}) {
   const capabilities = [...protocol.split('REQUIRED_API_CAPABILITIES = [')[1].split('] as const')[0].matchAll(/"([^"]+)"/g)].map(match => match[1]);
   const schema = Number(protocol.match(/SNAPSHOT_SCHEMA_VERSION = (\d+)/)[1]);
   const minor = Number(protocol.match(/minServerMinor: (\d+)/)[1]);
+  const limits = { max_count: 8, max_bytes_per_file: 1048576, max_total_bytes: 8388608, chunk_bytes: 1048576 };
   const rows = [];
   const snapshots = new Map();
   const files = new Map();
@@ -99,11 +100,18 @@ export async function startSessionFixture(options = {}) {
         if (extra) return json(response, extra.body, extra.status ?? 200);
       }
       if (method === 'GET' && url.pathname === '/api/projects') return json(response, { projects: rows.filter(row => !state.deleted.has(row.id)), local_cwd: root });
+      if (method === 'GET' && url.pathname === '/api/projects/stream') {
+        // Like serve/index.ts, the initial project stream updates even a fresh
+        // browser restored from the short-lived query cache after reload.
+        response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' });
+        response.write(`data: ${JSON.stringify({ type: 'projects', projects: rows.filter(row => !state.deleted.has(row.id)), local_cwd: root })}\n\n`);
+        return;
+      }
       if (method === 'GET' && url.pathname === '/api/browser-state/organization') return json(response, { value: {}, revision: 0 });
       if (method === 'GET' && url.pathname === '/api/projects/costs') return json(response, { projects: [], generated_at: 1 });
       if (method === 'GET' && url.pathname === '/api/system/resources') return json(response, { schema_version: 1, state: 'ready', cpu: {}, memory: {}, disk: {} });
       if (method === 'GET' && url.pathname === '/api/map-datasets') return json(response, { datasets: [] });
-      if (method === 'GET' && url.pathname === '/api/skill-library') return json(response, { scopes: [], items: [], verticals: [], active_vertical: '', errors: [] });
+      if (method === 'GET' && url.pathname === '/api/skill-library') return json(response, knowledgeFixture(url).body);
       if (method === 'GET' && url.pathname === '/api/plugins') return json(response, { plugins: [] });
       if (method === 'GET' && /^\/api\/map-copy\/dataset\/s-[AB]$/.test(url.pathname)) return json(response, { cards: {}, relations: [], available: false });
       if (method === 'GET') {
@@ -123,6 +131,9 @@ export async function startSessionFixture(options = {}) {
           return;
         }
         if (endpoint === '/snapshot') return json(response, snapshots.get(sid));
+        if (endpoint === '/conversation' && url.searchParams.get('limit') === '30') return json(response, { rows: [], before: null, cursor: -1 });
+        if (endpoint === '/attachments/limits') return json(response, limits);
+        if (endpoint === '/model-choices') return json(response, { backend: 'pi', options: [] });
         if (endpoint === '/artifacts') return json(response, { artifacts: state.missing.has(sid) || state.unlisted.has(sid) ? [] : [files.get(sid)] });
         if (endpoint === '/artifact') {
           if (url.searchParams.get('path') !== REPORT_PATH || state.missing.has(sid)) return json(response, { error: 'Synthetic artifact unavailable' }, 404);
@@ -149,7 +160,7 @@ export async function startSessionFixture(options = {}) {
           const form = await new Request(`${origin}${url.pathname}`, { method: 'POST', headers: request.headers, body }).formData();
           const incoming = form.getAll('files');
           trace.files = await Promise.all(incoming.map(async file => ({ name: file.name, text: await file.text() })));
-          return json(response, { attachments: incoming.map((file, index) => ({ attachment_id: `${sid}-file-${index}`, original_name: file.name, stored_name: file.name, relative_path: file.name, mime: file.type, size_bytes: file.size })), limits: { max_count: 8, max_bytes_per_file: 1048576, max_total_bytes: 8388608 } });
+          return json(response, { attachments: incoming.map((file, index) => ({ attachment_id: `${sid}-file-${index}`, original_name: file.name, stored_name: file.name, relative_path: file.name, mime: file.type, size_bytes: file.size })), limits });
         }
         trace.body = JSON.parse(body.toString() || '{}');
         if (endpoint === '/prompt/rewrite') return json(response, state.rewriteResults.get(sid) || { original: trace.body.text, rewritten: `${sid} synthetic rewrite`, changes: [], questions: [], error: '' });

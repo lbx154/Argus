@@ -13,7 +13,8 @@ export interface Offered { model: string; default: boolean }
 
 const ASK: Record<Backend, (cwd: string) => Promise<Offered[]>> = {
   async codex(cwd) {
-    const cli = new Cli([...launcher('codex'), 'app-server'], cwd, agentEnv('codex'));
+    const env = agentEnv('codex');
+    const cli = new Cli([...launcher('codex', env, cwd), 'app-server'], cwd, env);
     try {
       await cli.request('initialize', { clientInfo: { name: 'argus', title: 'Argus', version: '1' }, capabilities: null });
       const { data } = await cli.request('model/list', {});
@@ -21,7 +22,8 @@ const ASK: Record<Backend, (cwd: string) => Promise<Offered[]>> = {
     } finally { await cli.close(); }
   },
   async copilot(cwd) {
-    const cli = new Cli([...launcher('copilot'), '--acp'], cwd, agentEnv('copilot'), { jsonrpc: '2.0' });
+    const env = agentEnv('copilot');
+    const cli = new Cli([...launcher('copilot', env, cwd), '--acp'], cwd, env, { jsonrpc: '2.0' });
     try {
       await cli.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
       const { models } = await cli.request('session/new', { cwd, mcpServers: [] });

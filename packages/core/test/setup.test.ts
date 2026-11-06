@@ -7,18 +7,19 @@ import { Store } from '../src/store.js';
 import { serve } from '../src/serve/index.js';
 import { mobileOrigins } from '../src/serve/setup.js';
 
-test('Settings probes installed CLI versions and actual sandbox launch only when requested, behind authentication', { skip: process.platform === 'win32' }, async t => {
-  const home = await mkdtemp(join(tmpdir(), 'argus-setup-'));
+test('Settings probes installed CLI versions and actual sandbox launch only when requested, behind authentication', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus setup 中文 '));
   t.after(() => rm(home, { recursive: true, force: true }));
   const bin = join(home, 'bin');
   await mkdir(bin);
   const path = process.env.PATH;
   t.after(() => { process.env.PATH = path; });
   const probes = join(home, 'probes');
-  for (const [name, output] of [['codex', 'echo "codex 1.2.3"'], ['claude', 'echo "version failed" >&2; exit 1'], ['pi', 'exit 0'], ['bwrap', 'exit 1']]) {
-    const file = join(bin, name!);
-    await writeFile(file, `#!/bin/sh\necho '${name}' >> '${probes}'\n${output}\n`);
+  for (const [name, output] of [['codex', 'console.log("codex 1.2.3")'], ['claude', 'console.error("version failed"); process.exit(1)'], ['pi', 'process.exit(0)'], ['bwrap', 'process.exit(1)']]) {
+    const file = join(bin, process.platform === 'win32' ? `${name}.cjs` : name!);
+    await writeFile(file, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(probes)}, ${JSON.stringify(name + '\n')});\n${output}\n`);
     await chmod(file, 0o755);
+    if (process.platform === 'win32') await writeFile(join(bin, `${name}.cmd`), `@echo off\r\n"%~dp0\\${name}.cjs" %*\r\n`);
   }
   process.env.PATH = bin;
   const store = new Store(home);

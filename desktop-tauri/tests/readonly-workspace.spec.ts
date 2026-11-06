@@ -36,32 +36,34 @@ async function open(page: Page, width: number, locale: 'en' | 'zh-CN', theme: 'l
   await expect(page.locator('.conversation-composer textarea')).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 }
-async function ide(page: Page) {
-  const more = page.locator('.workspace-more').filter({ visible: true });
-  await more.locator('summary').click();
-  await more.getByRole('button', { name: /^(Workbench|工作台)$/ }).click();
-  await expect(page.locator('.overview-hero__copy h1')).toBeVisible();
+async function ide(page: Page, git = true) {
+  await page.getByRole('button', { name: /^(Workbench|工作台)$/ }).filter({ visible: true }).first().click();
+  // The current workbench exposes code and runtime; overview/timeline/experiments
+  // were removed from WORKBENCH_MODULES, not hidden by this fixture.
+  await expect(page.locator('.workbench-module-tab')).toHaveCount(2);
   expect(await page.locator('.workbench-module-tab').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-module'))))
-    .toEqual(['overview', 'timeline', 'experiments', 'ide']);
+    .toEqual(['ide', 'runtime']);
   await page.locator('[data-module="ide"]').click();
-  await expect(page.getByRole('heading', { name: /^(Code workspace|代码工作区)$/ })).toBeVisible();
+  await expect(page.locator('[data-module="ide"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.ide-v3 .badge').filter({ hasText: /This view is read-only|此视图只读/ })).toBeVisible();
-  await page.locator('.vscode-sc-tabs').getByRole('button', { name: 'Changes', exact: true }).click();
+  if (git) await page.locator('.vscode-sc-tabs').getByRole('button', { name: /^(Changes|改动)$/ }).click();
+  else await expect(page.locator('.ide-context-strip')).toContainText('Synced');
 }
 
 for (const width of [960, 1280, 1920]) for (const locale of ['en', 'zh-CN'] as const) for (const theme of ['light', 'dark'] as const) {
   test(`A3/A4: ${width}px ${locale} ${theme} retains controls, full path, themed diff and raw text`, async ({ page }, info) => {
     await open(page, width, locale, theme);
-    const path = page.locator('.topbar-heading [data-session-workdir]');
+    const path = page.locator('.project-header [data-session-workdir]');
     const summary = path.locator('summary');
-    await expect(summary).toHaveAttribute('title', `${locale === 'en' ? 'Session directory' : '会话目录'}: ${LONG_WORKDIR}`);
+    await expect(summary).toHaveAttribute('aria-label', locale === 'en' ? 'Project folder' : '项目目录');
     await summary.focus(); await page.keyboard.press('Enter');
     await expect(path.locator('.session-workdir__detail')).toBeVisible();
     expect(await path.locator('.session-workdir__detail > code').textContent()).toBe(LONG_WORKDIR);
-    await expect(path).toContainText(locale === 'en' ? 'not each task’s actual cwd' : '不是每个任务的实际 cwd');
+    // SessionWorkdir now labels only the project folder; the full raw path is
+    // still checked above. Idle projects have no resume/stop action.
     await summary.press('Enter');
-    await expect(page.getByRole('button', { name: /^(Run Argus|运行 Argus)$/ })).toBeInViewport();
-    await expect(page.getByRole('button', { name: /^(Manage session|管理会话)$/ })).toBeInViewport();
+    await expect(page.locator('[data-stop-work]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^(Manage project|管理项目)$/ })).toBeInViewport();
     expect(await summary.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
     await ide(page);
     const diff = page.locator('[data-readonly-diff]');
@@ -91,9 +93,11 @@ for (const width of [960, 1280, 1920]) for (const locale of ['en', 'zh-CN'] as c
 
 for (const kind of ['empty', 'nongit', 'rename', 'binary', 'html', 'large', 'unknown']) {
   test(`A4: ${kind} content is safe and lossless in a narrow workspace`, async ({ page }, info) => {
-    await open(page, 960, 'en', 'dark', kind); await ide(page);
+    await open(page, 960, 'en', 'dark', kind); await ide(page, kind !== 'nongit');
     if (kind === 'nongit') {
-      await expect(page.getByText('Not a Git repository', { exact: true })).toBeVisible();
+      // Non-Git workspaces retain the explorer but have no source-control panel.
+      await expect(page.locator('.vscode-shell')).toHaveClass(/without-git/);
+      await expect(page.locator('.vscode-source-control')).toHaveCount(0);
       await expect(page.locator('[data-readonly-diff]')).toHaveCount(0);
       return;
     }

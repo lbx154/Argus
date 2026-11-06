@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { PROCESS_GUARD, isJsonObject, type RunnerStopKind } from '@argus/contracts';
 
@@ -175,13 +175,18 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
     if (process.platform === 'win32') {
       if (exited || windowsKill) return;
       windowsKill = new Promise<void>(resolve => {
-        execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 5_000 }, taskError => {
-          if (taskError && !exited) {
-            error ??= `Unable to terminate process tree: ${taskError.message}`;
-            stopKind ??= 'transport_error';
-            child.kill();
-          }
+        const failed = (message: string): void => {
+          error = `${error ? `${error} ` : ''}Unable to terminate process tree: ${message}`;
+          stopKind ??= 'transport_error';
+          if (!exited) child.kill();
           resolve();
+        };
+        // PATH and cwd belong to the agent's tools; neither may choose the tree terminator.
+        const systemRoot = process.env.SystemRoot || process.env.WINDIR;
+        if (!systemRoot) { failed('SystemRoot is not set.'); return; }
+        execFile(join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, taskError => {
+          if (taskError && !exited) failed(taskError.message);
+          else resolve();
         });
       });
       return;
@@ -338,7 +343,13 @@ export async function* executeProcess(options: ProcessOptions): AsyncGenerator<L
   else if (typeof input === 'string') child.stdin.end(input, 'utf8');
   else {
     void (async () => {
-      try { for await (const chunk of input) if (!child.stdin.destroyed) child.stdin.write(chunk, 'utf8'); } finally { child.stdin.end(); }
+      try { for await (const chunk of input) if (!child.stdin.destroyed) child.stdin.write(chunk, 'utf8'); }
+      finally {
+        // A persistent CLI exits on EOF. Keep its parent PID alive until taskkill has enumerated
+        // the tree, or detached children escape between closing stdin and starting taskkill.
+        if (process.platform === 'win32') await windowsKill;
+        child.stdin.end();
+      }
     })();
   }
   try {

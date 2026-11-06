@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import os from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
+import { directoryLink, fileLink } from './helpers/fsLinks.js';
 import { instructions, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
 import { withTools } from '../src/flow.js';
 import { Store } from '../src/store.js';
@@ -11,6 +13,9 @@ import { Store } from '../src/store.js';
 test('standing context keeps locations, date, session lifetime and project GPU visibility', t => {
   const home = mkdtempSync(join(os.tmpdir(), 'argus-prompts-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
+  const shared = process.env.ARGUS_SHARED;
+  delete process.env.ARGUS_SHARED;
+  t.after(() => { if (shared !== undefined) process.env.ARGUS_SHARED = shared; else delete process.env.ARGUS_SHARED; });
   const store = new Store(home);
   const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
   const old = process.env.CUDA_VISIBLE_DEVICES;
@@ -76,7 +81,7 @@ test('ARGUS_SHARED gives separate state roots one skills folder and one wiki', t
   }
 });
 
-test("the team's tools: executable files listed by their first comment, first on every call's PATH", t => {
+test("the team's tools: runnable files listed by their first comment, first on every call's PATH", async t => {
   const home = mkdtempSync(join(os.tmpdir(), 'argus-tools-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const old = process.env.ARGUS_SHARED;
@@ -84,19 +89,36 @@ test("the team's tools: executable files listed by their first comment, first on
   delete process.env.ARGUS_SHARED;
   const dir = toolsHome(home);
   assert.equal(dir, join(home, 'tools'));
-  writeFileSync(join(dir, 'digest'), '#!/usr/bin/env python3\n# One screen on a project from its record\nprint(1)\n');
-  chmodSync(join(dir, 'digest'), 0o755);
+  const name = process.platform === 'win32' ? 'digest.cmd' : 'digest';
+  const comment = 'One screen on a project from its record';
+  writeFileSync(join(dir, name), process.platform === 'win32'
+    ? `@echo off\r\nrem ${comment}\r\n"${process.execPath}" "%~dp0payload.cjs" %*\r\n`
+    : `#!/bin/sh\n# ${comment}\n"${process.execPath}" "$(dirname "$0")/payload.cjs" "$@"\n`);
+  chmodSync(join(dir, name), 0o755);
+  writeFileSync(join(dir, 'payload.cjs'), 'console.log(JSON.stringify(process.argv.slice(2)))\n');
   writeFileSync(join(dir, 'notes.txt'), 'not a command\n');
-  symlinkSync('/bin/sh', join(dir, 'sh'));
   mkdirSync(join(dir, 'folder'));
+  await directoryLink(join(dir, 'folder'), join(dir, 'linked.cmd'));
   // A link, a file that cannot run and a folder are not tools.
-  assert.deepEqual(tools(home), [['digest', 'One screen on a project from its record']]);
+  assert.deepEqual(tools(home), [[name, comment]]);
+  await t.test('file links are not tools', async sub => {
+    if (!await fileLink(sub, join(dir, name), join(dir, 'file-link.cmd'))) return;
+    assert.deepEqual(tools(home), [[name, comment]]);
+  });
+  const commandEnv = { ...process.env, ...withTools({}, dir) };
+  const output = spawnSync(process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : '/bin/sh',
+    process.platform === 'win32' ? ['/d', '/s', '/c', 'digest "中文 space"'] : ['-c', 'digest "中文 space"'], { env: commandEnv, encoding: 'utf8', windowsVerbatimArguments: process.platform === 'win32' });
+  assert.ifError(output.error);
+  assert.equal(output.status, 0, output.stderr);
+  assert.deepEqual(JSON.parse(output.stdout.trim()), ['中文 space']);
   const store = new Store(home);
   const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
   const prompt = instructions('reviewer', project, store);
-  assert.ok(prompt.includes(`The team's tools, commands on your PATH (${dir}):\n- digest: One screen on a project from its record\n`));
-  assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}:/usr/bin` });
-  assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(':')[0], dir);
+  assert.ok(prompt.includes(`The team's tools, commands on your PATH (${dir}):\n- ${name}: One screen on a project from its record\n`));
+  assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}${delimiter}/usr/bin` });
+  assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(delimiter)[0], dir);
+  if (process.platform === 'win32') assert.deepEqual(withTools({ Path: 'native', A: '1' }, dir), { A: '1', PATH: `${dir};native` });
+  else assert.deepEqual(withTools({ Path: 'literal', PATH: 'posix' }, dir), { Path: 'literal', PATH: `${dir}:posix` });
 });
 
 test("the wiki's pages are listed with their length, which no one sees from a page's name", t => {

@@ -1,5 +1,5 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { inspectApiMeta } from '../../frontend/core/src/protocol';
 import { startSessionFixture, deferred, FIXTURE_AUTH, REPORT_PATH } from './session-context-fixture.mjs';
 
@@ -56,7 +56,14 @@ test.beforeEach(async ({ page, context, baseURL }) => {
     socket.close(); // Deterministic fixture: never connects to a real event producer.
   });
 });
-test.afterEach(async ({}, info) => {
+test.afterEach(async ({ page }, info) => {
+  if (info.status !== info.expectedStatus) {
+    const diagnostics = JSON.stringify(await Promise.all(page.frames().map(async item => ({
+      url: item.url(), text: await item.locator('body').innerText({ timeout: 1000 }).catch(() => '[no body]'),
+    }))));
+    writeFileSync(info.outputPath('frame-diagnostics.json'), diagnostics);
+    await info.attach('frame-diagnostics', { contentType: 'application/json', body: diagnostics });
+  }
   await fixture.close();
   await info.attach('request-trace', { body: JSON.stringify(fixture.state.trace, null, 2), contentType: 'application/json' });
   await info.attach('synthetic-root', { body: fixture.root, contentType: 'text/plain' });
@@ -93,7 +100,10 @@ test('snapshot fixtures use schema 8 without retired snapshot or daemon fields',
   }
 });
 
-test('A1: A/B drafts and File attachments are isolated, while map and activity share the same draft', async ({ page }) => {
+test('A1: A/B drafts and File attachments stay isolated across view switches and refresh', async ({ page }) => {
+  // Current drafts upload on selection, not on Send; that one A upload is
+  // allowed, but switching views or IME input must never submit a message.
+  fixture.state.allowWrites.add('s-A:/attachments');
   await open(page, 's-A');
   await input().fill('A draft');
   await frame.locator('.conversation-composer input[type=file]').setInputFiles({ name: 'report.md', mimeType: 'text/markdown', buffer: Buffer.from('A attachment') });
@@ -105,17 +115,21 @@ test('A1: A/B drafts and File attachments are isolated, while map and activity s
   await expect(input()).toHaveValue('A draft');
   await expect(frame.locator('.conversation-composer .map-attachment-tray')).toContainText('report.md');
   await frame.locator('.workspace-tabs').getByRole('button', { name: /^(Map|地图)$/ }).click();
-  const mapInput = frame.locator('.map-composer-dock textarea');
-  await expect(mapInput).toHaveValue('A draft');
-  await mapInput.fill('map edit');
-  await mapInput.press('Shift+Enter');
-  await expect(mapInput).toHaveValue('map edit\n');
-  await mapInput.dispatchEvent('keydown', { key: 'Enter', isComposing: true, keyCode: 229 });
-  expect(writes()).toEqual([]);
+  // MapPanel no longer has a second composer; returning to Conversation must
+  // preserve the same project-owned draft rather than remount a blank one.
+  await expect(frame.locator('textarea').filter({ visible: true })).toHaveCount(0);
   await frame.locator('.workspace-tabs').getByRole('button', { name: /^(Conversation|对话|Activity|动态)$/ }).click();
-  await expect(input()).toHaveValue('map edit\n');
+  await expect(input()).toHaveValue('A draft');
+  await input().fill('after map edit');
+  await input().press('Shift+Enter');
+  await expect(input()).toHaveValue('after map edit\n');
+  await input().dispatchEvent('keydown', { key: 'Enter', isComposing: true, keyCode: 229 });
+  await expect.poll(() => writes().length).toBe(1);
+  expect(writes().map((row: { sid: string; endpoint: string }) => [row.sid, row.endpoint])).toEqual([['s-A', '/attachments']]);
   await page.reload();
-  await expect(input()).toHaveValue(''); // Refresh draft persistence is deliberately absent.
+  await expect(input()).toBeVisible({ timeout: 20_000 });
+  await expect(input()).toHaveValue('after map edit\n'); // Current drafts persist locally by sid.
+  await select('B'); await expect(input()).toHaveValue('B draft');
 });
 
 test('A1: an A upload cannot submit to B, recover into B or cancel a backend on ordinary selection', async ({ page }) => {
@@ -157,20 +171,23 @@ test('A1: retyping the same text during upload keeps the new revision', async ({
   expect(sent.sid).toBe('s-A'); expect(sent.body.request_id).toMatch(/^[A-Za-z0-9_-]{1,128}$/);
 });
 
-test('A1: late rewrites stay with their original sid and do not replace a newer same-text revision', async ({ page }) => {
+test('A1: pending rewrites disable owner input and never replace another project draft', async ({ page }) => {
   const gate = deferred();
   fixture.state.delays.set('s-A:/prompt/rewrite', gate.promise);
   fixture.state.allowWrites.add('s-A:/prompt/rewrite');
   await open(page, 's-A');
   await input().fill('same text');
-  await frame.locator('.conversation-composer').getByRole('button', { name: /rewrite prompt|改写提示/i }).click();
+  await frame.locator('.conversation-composer').getByRole('button', { name: /rewrite text|改写文字/i }).click();
   await expect.poll(() => writes().length).toBe(1);
-  await input().fill(''); await input().fill('same text');
+  // ChatBox deliberately disables its own input during rewriting. A user
+  // cannot create the old same-text revision race through this UI anymore.
+  await expect(input()).toBeDisabled();
   await select('B'); await input().fill('B draft');
-  await expect(frame.locator('.conversation-composer').getByRole('button', { name: /rewrite prompt|改写提示/i })).toBeEnabled();
+  await expect(frame.locator('.conversation-composer').getByRole('button', { name: /rewrite text|改写文字/i })).toBeEnabled();
   gate.resolve();
   await expect(input()).toHaveValue('B draft');
-  await select('A'); await expect(input()).toHaveValue('same text');
+  await select('A'); await expect(input()).toHaveValue('s-A synthetic rewrite');
+  expect(writes().map((row: { sid: string; endpoint: string }) => [row.sid, row.endpoint])).toEqual([['s-A', '/prompt/rewrite']]);
 });
 
 test('A1: stopping an old upload preserves a newly attached same-named File', async ({ page }) => {
@@ -325,25 +342,26 @@ test('A2: shell source/origin checks remain intact and legitimate forwarding pre
   await expect.poll(forwarded).toEqual([payload]);
 });
 
-test('Upstream: the knowledge entry opens the real browser, feed, tiers, pages and principles without losing a draft', async ({ page }) => {
+test('the current skill library opens feed, shared documents and store without losing a draft or writing', async ({ page }) => {
   await open(page, 's-A');
   await input().fill('Keep while reading knowledge');
-  await frame.locator('[data-wiki-entry]').getByRole('button', { name: /^(Knowledge base|知识库)$/ }).click();
-  const library = frame.locator('[data-wiki-library]');
+  await frame.getByRole('button', { name: 'Skill library', exact: true }).click();
+  const library = frame.locator('[data-learning-library]');
   await expect(library).toBeVisible();
-  await library.getByRole('button', { name: 'Reviewed research lesson', exact: true }).click();
-  await expect(library.getByRole('article')).toContainText('Synthetic vertical body for shared readers.');
-  await library.getByRole('button', { name: /^(Principles|原则)/ }).click();
-  await expect(library.getByRole('article')).toContainText('Read evidence before acting.');
-  await library.getByRole('button', { name: /^(Global|全局)/ }).click();
+  // LearningLibrary replaced wiki's vertical/project/principles tabs. Exercise
+  // every current read-only category, not a restored retired wiki UI.
+  await library.getByRole('button', { name: /Reviewed research lesson/ }).last().click();
+  await expect(library.getByRole('article')).toContainText('Synthetic shared body for Reviewed research lesson.');
+  await library.getByRole('button', { name: 'Across projects', exact: true }).click();
+  await library.getByRole('searchbox').fill('Shared host');
   await library.getByRole('button', { name: /Shared host reference/ }).click();
-  await expect(library.getByRole('article')).toContainText('Synthetic global body for shared readers.');
-  await library.getByRole('button', { name: /^(Project|项目)/ }).click();
-  await library.getByRole('searchbox').fill('Knowledge s-A');
-  await library.getByRole('button', { name: /Knowledge s-A/ }).click();
-  await expect(library.getByRole('article')).toContainText('Synthetic project body for s-A.');
-  const requested = fixture.state.trace.filter((row: { path: string }) => row.path.startsWith('/api/wiki/page?'));
-  expect(requested.some((row: { path: string }) => new URL(row.path, fixture.origin).searchParams.get('sid') === 's-A')).toBe(true);
+  await expect(library.getByRole('article')).toContainText('Synthetic shared body for Shared host reference.');
+  const requested = fixture.state.trace.filter((row: { path: string }) => row.path.startsWith('/api/skill-library/document?'));
+  expect(requested).toHaveLength(2);
+  expect(requested.every((row: { path: string }) => new URL(row.path, fixture.origin).searchParams.get('sid') === 's-A')).toBe(true);
+  await library.getByRole('button', { name: 'Skill store', exact: true }).click();
+  await expect(library.getByRole('heading', { name: 'Synthetic store pack' })).toBeVisible();
+  await expect(library.getByRole('button', { name: 'Install', exact: true })).toBeEnabled();
   await frame.getByRole('dialog').getByRole('button', { name: /close|关闭/i }).first().click();
   await expect(input()).toHaveValue('Keep while reading knowledge');
   expect(writes()).toEqual([]);

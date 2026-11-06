@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import { request as httpRequest } from 'node:http';
 import { previewFetch } from './helpers/preview-fetch.js';
-import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { directoryLink, fileLink } from './helpers/fsLinks.js';
+import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -827,6 +828,9 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
 });
 
 test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed", async t => {
+  const shared = process.env.ARGUS_SHARED;
+  delete process.env.ARGUS_SHARED;
+  t.after(() => { if (shared !== undefined) process.env.ARGUS_SHARED = shared; else delete process.env.ARGUS_SHARED; });
   const { home, store, get, call, post } = await setup(t, []);
   const own = join(home, 'skills');
   // A file of the roles' skills, changed `minutes` after an hour from now: later than the folders that hold it.
@@ -884,11 +888,14 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   assert.match((await (await document('wiki', 'verus.md')).json() as { content: string }).content, /continue/);
   assert.match((await (await document('wiki', 'INDEX.md')).json() as { content: string }).content, /^# Wiki/);
   // A tool the roles write joins the feed under what its first comment says.
-  const tool = join(home, 'tools', 'digest');
-  await writeFile(tool, '#!/bin/sh\n# One screen on a project\necho ok\n', { mode: 0o755 });
+  const toolName = process.platform === 'win32' ? 'digest.cmd' : 'digest';
+  const tool = join(home, 'tools', toolName);
+  await writeFile(tool, process.platform === 'win32'
+    ? '@echo off\nrem One screen on a project\necho ok\n'
+    : '#!/bin/sh\n# One screen on a project\necho ok\n', { mode: 0o755 });
   await utimes(tool, at(62), at(62));
   const made = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=1');
-  assert.deepEqual(made.events, [{ ts: at(62), path: 'tools/digest', title: 'One screen on a project' }]);
+  assert.deepEqual(made.events, [{ ts: at(62), path: `tools/${toolName}`, title: 'One screen on a project' }]);
 
   await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
   assert.equal((await call('/api/plugins')).status, 404);
@@ -1113,12 +1120,15 @@ test('attached files land in the workdir, and the message that carries them says
   await writeFile(join(workdir, '.argus', 'secret.txt'), 'private');
   assert.equal((await call(`${P}/artifact/raw?path=.argus/secret.txt`)).status, 404);
   assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/../../secret.txt`)).status, 404);
-  if (process.platform !== 'win32') {
+  await directoryLink(join(workdir, '.argus'), join(workdir, csv!.relative_path, '..', 'linked-dir'));
+  assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/linked-dir/secret.txt`)).status, 404);
+  await rm(join(workdir, csv!.relative_path, '..', 'linked-dir'));
+  await t.test('an attachment cannot alias another hidden file through a file symlink', async t => {
     const link = join(workdir, csv!.relative_path, '..', 'linked.csv');
-    await symlink(join(workdir, '.argus', 'secret.txt'), link);
-    assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/linked.csv`)).status, 404);
-    await rm(link);
-  }
+    if (!await fileLink(t, join(workdir, '.argus', 'secret.txt'), link)) return;
+    try { assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/linked.csv`)).status, 404); }
+    finally { await rm(link); }
+  });
 
   // A large file in parts, each appended where the last ended.
   const begun = await (await post(`${P}/attachments/uploads`, { name: 'weights.bin', mime: 'application/octet-stream', size_bytes: 6 })).json() as UploadState;

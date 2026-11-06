@@ -84,6 +84,7 @@ jobs:
         run: |
           npm --prefix desktop-tauri run ui:typecheck
           npm --prefix desktop-tauri run test:copy
+          node --test desktop-tauri/tests/windows-install-preservation.node.mjs
           cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --release --lib --test core_tests
       - name: Test compatible-product storage without importing Argus state
         env:
@@ -93,7 +94,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           npm --prefix desktop-tauri run test:release
-          npm --prefix desktop-tauri run test:ui -- tests/shell.spec.ts
+          npm --prefix desktop-tauri run test:ui -- tests/shell.spec.ts tests/session-context.spec.ts tests/readonly-workspace.spec.ts
       - name: The installer carries Argus
         run: |
           bundle=desktop-tauri/src-tauri/target/release/bundle

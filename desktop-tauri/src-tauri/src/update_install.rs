@@ -9,13 +9,13 @@ pub(crate) async fn install_verified_update<D, S, I, E>(
 ) -> Result<(), E>
 where
     D: Future<Output = Result<Vec<u8>, E>>,
-    S: Future<Output = ()>,
+    S: Future<Output = Result<(), E>>,
     I: FnOnce(Vec<u8>) -> Result<(), E>,
 {
     // Tauri's download API verifies both package bytes and the trusted comment.
     // A failed/cancelled download must never interrupt a user's running task.
     let bytes = verified_download.await?;
-    stop_owned_backend.await;
+    stop_owned_backend.await?;
     install(bytes)
 }
 
@@ -29,7 +29,7 @@ mod tests {
         let events = RefCell::new(Vec::new());
         let result = install_verified_update(
             async { events.borrow_mut().push("verified"); Ok::<_, &str>(vec![1, 2, 3]) },
-            async { events.borrow_mut().push("stopped"); },
+            async { events.borrow_mut().push("stopped"); Ok(()) },
             |bytes| {
                 assert_eq!(bytes, [1, 2, 3]);
                 events.borrow_mut().push("installed");
@@ -61,11 +61,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_owned_stop_never_hands_bytes_to_the_installer() {
+        let result = install_verified_update(
+            async { Ok::<_, &str>(vec![1]) },
+            async { Err("owned backend stop failed") },
+            |_| -> Result<(), &str> { panic!("a running installation was handed to NSIS"); },
+        ).await;
+        assert_eq!(result, Err("owned backend stop failed"));
+    }
+
+    #[tokio::test]
     async fn failed_install_does_not_replay_or_automatically_resume_work() {
         let stops = RefCell::new(0);
         let result = install_verified_update(
             async { Ok::<_, &str>(vec![1]) },
-            async { *stops.borrow_mut() += 1; },
+            async { *stops.borrow_mut() += 1; Ok(()) },
             |_| Err("installer failed"),
         ).await;
         assert_eq!(result, Err("installer failed"));

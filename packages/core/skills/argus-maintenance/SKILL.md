@@ -3,7 +3,7 @@ name: argus-maintenance
 description: "Changing Argus itself: its TypeScript core, prompts and skills, kept small and fixed at the root"
 ---
 
-The workspace is Argus's repository, and what it maintains is the TypeScript core, `packages/core`:
+In a source checkout, this skill maintains the TypeScript core, `packages/core`:
 `src/` (the CLI, the flow, the store, the agent calls, the web server), `prompts/` (each role's
 rules), `skills/` (Argus's own skills) and `test/`. `docs/typescript-core.md` says what the core
 does and what it leaves out on purpose. The Python runtime under `argus/` serves old projects until
@@ -21,7 +21,11 @@ rules follow, and each is a reason to turn a change away.
   make the code simpler is not worth making.
 - **Argus is not a parent.** What the backend already does, Argus does not build in: waiting,
   running work in the background, polling, timeouts, deciding a turn is stuck, retrying. Add no
-  wait, poll, watchdog or retry, and delete one you find. A failure is recorded as it happened.
+  agent-orchestration wait, poll, watchdog or retry. A failure is recorded as it happened.
+  Cleanup stays within the current task's scope and existing persistence contracts: a
+  compatibility fix does not authorize changing persistence or scheduling semantics. Remove
+  existing mechanisms only when that change is authorized by the task, not just because this
+  rule mentions waits or retries.
 - **One fact, one place.** A fact lives in one place, with no copy or digest of it beside it: a
   project's state is in `project.json`, and `events.jsonl` records changes without ever being
   folded back into state. A rule is written once, in a role's prompt, the hand-off form's schema
@@ -45,13 +49,28 @@ that reading.
 
 ## Running it
 
-Run the work in progress from its build, `node packages/core/dist/argus.mjs`, with `ARGUS_HOME` set
-to a scratch folder: one process owns a state root, and the operator's belongs to the Argus they
+A desktop's `argus-core/` resource directory may contain only an installed bundle, not this
+repository. Identify the running process and its entry file before editing, and locate a checkout
+for the fix and regression test. A disk edit does not reload an already running Node ESM bundle:
+activate through the desktop's supported **Restart backend** command at a task boundary, or ask the
+operator to do so. Never start a second owner of its state root. An explicitly authorized local
+bundle patch needs a backup and rollback, and is not an upstream release or a live recovery until
+the actual blocked role starts. Keep project-specific recovery evidence in that project's workspace.
+
+Run the work in progress from its build, `node packages/core/dist/argus.mjs`, with `ARGUS_HOME` and
+`ARGUS_SHARED` set to the same scratch folder: one process owns a state root, and the operator's belongs to the Argus they
 run. Never `npm i -g` or `npm link` the repository, which replaces that Argus. To run the flow
-without a model, put `packages/core/test/fixtures/fake-codex.mjs` on the `PATH` as `codex`. A
+without a model, put `packages/core/test/fixtures/fake-codex.mjs` on the `PATH` as `codex`.
+On Windows use an npm-style `.cmd` shim naming that Node file; a POSIX link or extensionless
+shebang alone is not a Windows CLI installation. In a shared checkout, coordinate builds so
+one task does not replace the `dist/` another is testing. A
 reviewer, whose workspace is read-only, type-checks with
 `npx tsc --noEmit -p packages/core/tsconfig.json` and runs the tests on the Engineer's build,
 `node --import tsx --test packages/core/test/*.test.ts`.
+
+For Windows filesystem fixtures and a built/installed CLI smoke, see
+`docs/windows-filesystem-tests.md` in the source checkout. It names the shared link helper and
+keeps capability-gated file-link assertions separate from ordinary I/O tests.
 
 ## Handing it over
 

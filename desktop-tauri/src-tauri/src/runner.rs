@@ -4,11 +4,12 @@ use serde_json::Value;
 use std::{
     collections::BTreeMap,
     env, fs,
+    ffi::OsString,
     path::{Path, PathBuf},
 };
 
-/// The oldest Node.js major the desktop runs Argus with.
-pub const NODE_MAJOR: u32 = 22;
+/// The oldest Node.js the core package supports (including its minor).
+pub const NODE_MINIMUM: &str = "22.12.0";
 const NODE_DOWNLOAD: &str = "https://nodejs.org/";
 
 fn home_dir() -> PathBuf {
@@ -138,9 +139,11 @@ fn install_dirs() -> Vec<PathBuf> {
         }
     }
     candidates.extend([
+        local_app_data.join("Programs").join("nodejs"),
         local_app_data.join("Volta").join("bin"),
         local_app_data.join("nvs").join("default"),
         home.join("scoop").join("apps").join("nodejs").join("current"),
+        home.join("scoop").join("apps").join("nodejs-lts").join("current"),
         PathBuf::from("/opt/homebrew/bin"),
         PathBuf::from("/usr/local/bin"),
         home.join(".volta").join("bin"),
@@ -162,8 +165,9 @@ fn path_dirs() -> Vec<PathBuf> {
 }
 
 /// `vMAJOR.MINOR.PATCH`, as `node --version` prints it.
-fn node_major(version: &str) -> Option<u32> {
-    version.trim().strip_prefix('v')?.split('.').next()?.parse().ok()
+fn supported_node(version: &str) -> bool {
+    version.trim().strip_prefix('v').and_then(|version| semver::Version::parse(version).ok())
+        .is_some_and(|version| version >= semver::Version::parse(NODE_MINIMUM).expect("valid Node minimum"))
 }
 
 fn node_version(node: &Path) -> Option<String> {
@@ -177,13 +181,13 @@ fn node_version(node: &Path) -> Option<String> {
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-/// The first Node.js at least NODE_MAJOR in `directories`, or why there is none.
+/// The first supported Node.js in `directories`, or why there is none.
 fn first_node(directories: impl IntoIterator<Item = PathBuf>) -> Result<PathBuf, String> {
     let name = if cfg!(windows) { "node.exe" } else { "node" };
     let mut older = None;
     for node in directories.into_iter().map(|directory| directory.join(name)).filter(|node| node.is_file()) {
         let Some(version) = node_version(&node) else { continue };
-        if node_major(&version).is_some_and(|major| major >= NODE_MAJOR) {
+        if supported_node(&version) {
             return Ok(node);
         }
         older.get_or_insert(format!("{}（{version}）", node.display()));
@@ -193,7 +197,7 @@ fn first_node(directories: impl IntoIterator<Item = PathBuf>) -> Result<PathBuf,
         None => "未在本机找到 Node.js。".to_owned(),
     };
     Err(format!(
-        "{found}本地后端需要 Node.js {NODE_MAJOR} 或更高版本。请从 {NODE_DOWNLOAD} 下载安装 LTS 版本\
+        "{found}本地后端需要 Node.js {NODE_MINIMUM} 或更高版本。请从 {NODE_DOWNLOAD} 下载安装 LTS 版本\
          （Codex、Claude Code、Copilot CLI 和 Pi 也都通过 npm 安装，同样需要它），安装后点击“重试”。"
     ))
 }
@@ -227,6 +231,44 @@ pub fn resolve_runner_binary(kind: &RunnerKind) -> Option<String> {
         .iter()
         .find_map(|directory| first_file(directory, &names))
         .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// npm's Windows shim is a shell script, not an executable. Run its quoted
+/// dp0 target directly, just as the core does, so cmd.exe never reparses paths
+/// or CLI arguments. Unknown batch wrappers are reported, not run through a shell.
+pub fn runner_argv(_node: &Path, runner: &Path) -> Result<Vec<OsString>, String> {
+    #[cfg(not(windows))]
+    return Ok(vec![runner.as_os_str().to_owned()]);
+    #[cfg(windows)]
+    {
+        let mut target = runner.to_path_buf();
+        let mut prefix = Vec::new();
+        if runner.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat")) {
+            let contents = fs::read_to_string(runner).map_err(|error| format!("无法读取 Agent CLI shim：{error}"))?;
+            let (file, args) = shim_target(&contents).ok_or_else(|| format!("不支持的 Agent CLI 批处理包装：{}；请选择 npm shim 或原生可执行文件。", runner.display()))?;
+            target = runner.parent().unwrap_or_else(|| Path::new(".")).join(file);
+            prefix = args;
+        }
+        if !target.is_file() { return Err(format!("Agent CLI shim 的目标不存在：{}", target.display())); }
+        let native = target.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe") || ext.eq_ignore_ascii_case("com"));
+        let script = !native && (target.extension().is_some_and(|ext| ["js", "mjs", "cjs"].iter().any(|known| ext.eq_ignore_ascii_case(known)))
+            || fs::read(&target).ok().is_some_and(|bytes| {
+                regex::Regex::new(r"^#![^\r\n]*\bnode(?:\s|$)").unwrap().is_match(&String::from_utf8_lossy(&bytes[..bytes.len().min(256)]))
+            }));
+        let mut argv = if script { vec![_node.as_os_str().to_owned(), target.into_os_string()] } else { vec![target.into_os_string()] };
+        argv.extend(prefix);
+        Ok(argv)
+    }
+}
+
+#[cfg(windows)]
+fn shim_target(source: &str) -> Option<(String, Vec<OsString>)> {
+    // Same forwarding grammar as core commands.ts; the shared JSON fixture
+    // below keeps both languages honest, including fixed literal arguments.
+    static SHIM: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let expression = SHIM.get_or_init(|| regex::Regex::new(r#"(?im)^[ \t]*@?(?:endLocal[ \t]+&[ \t]+goto[ \t]+#_undefined_#[ \t]+2>NUL[ \t]+\|\|[ \t]+title[ \t]+%COMSPEC%[ \t]+&[ \t]+(?:set[ \t]+PATHEXT=%PATHEXT:;\.JS;=;%[ \t]+&[ \t]+)?)?(?:(?:"(?:%_prog%|(?:[^"\r\n]*[\\/])?node(?:\.exe)?)"|node(?:\.exe)?)[ \t]+)?"%(?:~dp0|dp0%)[\\/]*([^"\r\n]+)"((?:[ \t]+[A-Za-z0-9_-]+)*)[ \t]+%\*[ \t]*\r?$"#).unwrap());
+    let matched = expression.captures(source)?;
+    Some((matched[1].to_owned(), matched[2].split_ascii_whitespace().map(OsString::from).collect()))
 }
 
 pub fn detect_runners() -> BTreeMap<String, String> {
@@ -299,7 +341,7 @@ pub fn detect_pi_configuration() -> PiConfiguration {
 #[cfg(test)]
 mod tests {
     use super::{
-        desktop_setup_complete, node_major, nvm_node_dirs, resolve_runner_configuration,
+        desktop_setup_complete, supported_node, nvm_node_dirs, resolve_runner_configuration,
         RunnerConfiguration,
     };
     use crate::models::{DesktopSettings, RunnerKind};
@@ -352,11 +394,87 @@ mod tests {
     }
 
     #[test]
-    fn node_versions_are_read_by_their_major() {
-        assert_eq!(node_major("v22.12.0\n"), Some(22));
-        assert_eq!(node_major("v8.17.0"), Some(8));
-        assert_eq!(node_major("22.1.0"), None);
-        assert_eq!(node_major(""), None);
+    fn node_versions_enforce_the_core_minimum_including_minor() {
+        for version in ["v22.12.0\n", "v22.12.1", "v24.0.0"] {
+            assert!(supported_node(version), "{version}");
+        }
+        for version in ["v22.0.0", "v22.11.9", "v20.19.0", "22.12.0", "v22", "", "v22.12.0-rc.1"] {
+            assert!(!supported_node(version), "{version}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn npm_shims_resolve_the_real_quoted_target_without_a_shell() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("中文 & spaces %PATH%");
+        fs::create_dir(&directory).unwrap();
+        let shim = directory.join("pi.cmd");
+        let target = directory.join("node_modules/cli.js");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&target, b"console.log('fixture')").unwrap();
+        // Captured from npm's installed Pi shim, with its package path trimmed.
+        fs::write(&shim, include_str!("../test-fixtures/npm-cli.cmd")).unwrap();
+        let node = super::find_node(None).unwrap();
+        assert_eq!(super::runner_argv(&node, &shim).unwrap(), vec![node.into_os_string(), directory.join(r"node_modules\cli.js").into_os_string()]);
+        fs::remove_file(&target).unwrap();
+        assert!(super::runner_argv(std::path::Path::new("node.exe"), &shim).unwrap_err().contains("目标不存在"));
+        fs::write(&shim, b"@echo off\necho unsupported\n").unwrap();
+        assert!(super::runner_argv(std::path::Path::new("node.exe"), &shim).unwrap_err().contains("不支持"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn shim_grammar_matches_the_core_fixture() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!("../../../packages/core/test/fixtures/windows-shims.json")).unwrap();
+        for fixture in fixtures.as_array().unwrap() {
+            let result = super::shim_target(fixture["source"].as_str().unwrap());
+            if fixture["target"].is_null() {
+                assert!(result.is_none(), "{}", fixture["name"]);
+            } else {
+                let (target, prefix) = result.unwrap_or_else(|| panic!("{}", fixture["name"]));
+                assert_eq!(target, fixture["target"].as_str().unwrap());
+                let args: Vec<super::OsString> = fixture["prefix"].as_array().unwrap().iter().map(|arg| super::OsString::from(arg.as_str().unwrap())).collect();
+                assert_eq!(prefix, args, "{}", fixture["name"]);
+            }
+        }
+    }
+
+    #[test]
+    fn desktop_node_minimum_matches_the_shipped_core_package() {
+        let package: serde_json::Value = serde_json::from_str(include_str!("../../../packages/core/package.json")).unwrap();
+        assert_eq!(package["engines"]["node"], format!(">={}", super::NODE_MINIMUM));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn native_node_discovery_works_without_a_terminal_path() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("中文 Program Files/nodejs");
+        fs::create_dir_all(&directory).unwrap();
+        fs::copy(super::find_node(None).unwrap(), directory.join("node.exe")).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        for mode in ["beside", "Path", "install"] {
+            let mut command = std::process::Command::new(&exe);
+            command.args(["--exact", "runner::tests::node_discovery_child", "--ignored"])
+                .env_clear().env("SystemRoot", std::env::var_os("SystemRoot").unwrap())
+                .env("ARGUS_NODE_TEST_DIR", &directory).env("ARGUS_NODE_TEST_MODE", mode);
+            if mode == "Path" { command.env("Path", &directory); }
+            if mode == "install" { command.env("ProgramFiles", directory.parent().unwrap()); }
+            let output = command.output().unwrap();
+            assert!(output.status.success(), "{mode}: {} {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "isolated environment for native_node_discovery_works_without_a_terminal_path"]
+    fn node_discovery_child() {
+        let directory = std::path::PathBuf::from(std::env::var_os("ARGUS_NODE_TEST_DIR").unwrap());
+        let runner = directory.join("pi.cmd");
+        let beside = std::env::var("ARGUS_NODE_TEST_MODE").unwrap() == "beside";
+        let found = super::find_node(beside.then_some(runner.as_path())).unwrap();
+        assert_eq!(found, directory.join("node.exe"));
     }
 
     #[cfg(unix)]

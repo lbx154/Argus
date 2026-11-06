@@ -1,0 +1,23 @@
+{
+  "source": "events.jsonl:68, actual reviewer failure before CLI startup (2026-11-06)",
+  "request": {
+    "backend": "pi",
+    "role": "reviewer",
+    "form": "review",
+    "access": "read",
+    "cwd": "G:\\code\\1"
+  },
+  "event": {
+    "ts": "2026-11-06T03:30:52.005Z",
+    "type": "call.end",
+    "role": "reviewer",
+    "task": "t2",
+    "callId": "",
+    "threadId": null,
+    "completed": false,
+    "error": "ENOENT: no such file or directory, mkdir 'C:\\Users\\chenxxxxxx\\.argus\\sandbox\\G=3A=5Ccode=5C1\\C:\\tmp'",
+    "model": null,
+    "usage": null,
+    "ms": 0
+  }
+}

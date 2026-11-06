@@ -1286,7 +1286,8 @@ button {
 }
 
 .wizard {
-  z-index: 30;
+  /* Modal setup must remain above non-modal update notices (z-index 40). */
+  z-index: 50;
 }
 
 .update-notice {

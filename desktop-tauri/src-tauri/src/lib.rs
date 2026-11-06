@@ -31,7 +31,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
 };
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -209,7 +208,14 @@ fn request_stop_and_quit(app: &AppHandle) {
     app_state.quitting.store(true, Ordering::SeqCst);
     let supervisor = Arc::clone(&app_state.supervisor);
     tauri::async_runtime::spawn(async move {
-        supervisor.stop().await;
+        let stopped = supervisor.stop().await;
+        #[cfg(windows)]
+        if stopped.is_err() {
+            state(&app_handle).quitting.store(false, Ordering::SeqCst);
+            reveal_window(&app_handle);
+            return;
+        }
+        #[cfg(not(windows))] let _ = stopped;
         app_handle.exit(0);
     });
 }
@@ -507,20 +513,33 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput) -> SetupResult 
     }
     let supervisor = Arc::clone(&app_state.supervisor);
     supervisor.restart().await;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-    loop {
-        let status = supervisor.current_status();
-        if status.state == BackendState::Ready {
-            return SetupResult::ok();
+    #[cfg(windows)]
+    let status = supervisor.started().await;
+    #[cfg(not(windows))]
+    let status = {
+        // Keep the established POSIX setup timeout/status behaviour.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let status = supervisor.current_status();
+            if matches!(status.state, BackendState::Ready | BackendState::Error) || tokio::time::Instant::now() >= deadline { break status; }
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         }
-        if status.state == BackendState::Error || tokio::time::Instant::now() >= deadline {
-            if let Err(error) = app_state.settings.replace(previous) {
-                return SetupResult::error(format!("启动失败且原设置恢复失败：{error}"));
-            }
-            return SetupResult::error(status.detail.unwrap_or(status.message));
-        }
-        tokio::time::sleep(Duration::from_millis(150)).await;
+    };
+    if status.state == BackendState::Ready {
+        return SetupResult::ok();
     }
+    if let Err(error) = app_state.settings.replace(previous) {
+        return SetupResult::error(format!("启动失败且原设置恢复失败：{error}"));
+    }
+    #[cfg(windows)]
+    return SetupResult::error(setup_failure(&status));
+    #[cfg(not(windows))]
+    SetupResult::error(status.detail.unwrap_or(status.message))
+}
+
+#[cfg(windows)]
+fn setup_failure(status: &crate::models::BackendStatus) -> String {
+    match &status.detail { Some(detail) => format!("{}\n{detail}", status.message), None => status.message.clone() }
 }
 
 #[tauri::command]
@@ -804,7 +823,7 @@ pub fn run_with_context(context: tauri::Context<tauri::Wry>) {
         // Argus runs as this process's child and ends with it.
         RunEvent::Exit => {
             if let Some(app_state) = app.try_state::<AppState>() {
-                tauri::async_runtime::block_on(app_state.supervisor.stop());
+                let _ = tauri::async_runtime::block_on(app_state.supervisor.stop());
             }
         }
         _ => {}
