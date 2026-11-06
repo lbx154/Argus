@@ -340,6 +340,10 @@ fn argus_command(
     home: &Path,
 ) -> anyhow::Result<Command> {
     fs::create_dir_all(home)?;
+    // Tauri resource paths can have a verbatim Windows prefix. Node's entry
+    // module resolver rejects that form, even though the file exists.
+    #[cfg(windows)]
+    let script = dunce::simplified(script);
     let mut command = Command::new(node);
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
@@ -421,7 +425,10 @@ mod tests {
         let node = find_node(None).expect("Node.js 22 or newer for the desktop's tests");
         let home = tempfile::tempdir().unwrap();
         let settings = DesktopSettings { port: 0, token: "desktop-test-token".into(), ..Default::default() };
-        let mut child = argus_command(&node, &shipped_argus(), None, &settings, home.path()).unwrap().spawn().unwrap();
+        // Canonical Windows paths carry the same verbatim prefix Tauri uses
+        // for installed resources, including installs on another drive.
+        let script = fs::canonicalize(shipped_argus()).unwrap();
+        let mut child = argus_command(&node, &script, None, &settings, home.path()).unwrap().spawn().unwrap();
         let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
         let origin = timeout(Duration::from_secs(30), async {
             loop {
