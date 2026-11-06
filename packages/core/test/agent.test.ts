@@ -424,6 +424,20 @@ test('native child environment keeps the last Windows spelling; explicit credent
   }
 });
 
+test('Windows never starts a cwd-only backend when PATH discovery says it is missing', { skip: process.platform !== 'win32' }, async t => {
+  const local = join(root, 'cwd backend 中文');
+  mkdirSync(local);
+  const marker = join(local, 'started-marker');
+  copyFileSync(process.execPath, join(local, 'codex.exe'));
+  writeFileSync(join(local, 'app-server'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started');\n`);
+  t.after(() => rmSync(local, { recursive: true, force: true }));
+  const result = await call('codex', { output: handoff }, { cwd: local, env: { PATH: join(root, 'nowhere') } });
+  assert.equal(existsSync(marker), false, 'native spawn must not search cwd after PATH lookup failed');
+  assert.deepEqual([result.completed, result.handoff, result.usage], [false, null, null]);
+  assert.ok(result.callId);
+  assert.match(result.error ?? '', /^codex is not installed .*Install it with: npm install -g/);
+});
+
 test('a CLI not on PATH says how to install it', async () => {
   // Nothing on PATH, so no CLI installed on this machine can answer either.
   const path = process.env.PATH;

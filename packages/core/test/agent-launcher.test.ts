@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import test from 'node:test';
 import { launcher } from '../src/agent/sandbox.js';
-import { mergeEnv } from '../src/commands.js';
+import { findExecutable, mergeEnv } from '../src/commands.js';
 import { Cli } from '../src/agent/session.js';
 
 test('environment merge preserves literal special names and removes explicitly unset values', () => {
@@ -106,6 +106,23 @@ test('Windows CLI close retains a native tree-teardown failure after the root ex
   delete process.env.WINDIR;
   await cli.close();
   assert.match(cli.gone ?? '', /Run cancelled\..*Unable to terminate process tree: SystemRoot is not set/);
+});
+
+test('a missing Windows PATH command has no bare-name fallback; POSIX fallback is unchanged', t => {
+  const name = 'argus-test-missing-native-command';
+  if (!windows) { assert.deepEqual(launcher(name), [name]); return; }
+  const root = mkdtempSync(join(tmpdir(), 'argus cwd lookup '));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const env = { Path: join(root, 'absent'), PATHEXT: '.EXE;.COM;.CMD;.BAT' };
+  for (const ext of ['exe', 'com']) {
+    copyFileSync(process.execPath, join(root, `${name}.${ext}`));
+    const bare = `${name}.${ext}`;
+    assert.equal(findExecutable(bare, env, root), null);
+    assert.throws(() => launcher(bare, env, root), /not found on PATH/);
+    assert.deepEqual(launcher(`./${bare}`, env, root), [join(root, bare)], 'explicit cwd paths remain allowed');
+  }
+  assert.equal(findExecutable(name, env, root), null);
+  assert.throws(() => launcher(name, env, root), /not found on PATH/);
 });
 
 test('Windows does not guess the meaning of arbitrary batch scripts', { skip: !windows }, t => {

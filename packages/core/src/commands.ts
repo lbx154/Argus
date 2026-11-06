@@ -39,7 +39,9 @@ export function findExecutable(name: string, env: NodeJS.ProcessEnv = process.en
  * language or infer its other effects; unrecognised shims fail with a readable explanation. */
 export function launcher(name: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string[] {
   const found = findExecutable(name, process.platform === 'win32' ? env : process.env, cwd);
-  if (!found || process.platform !== 'win32') return [found ?? name];
+  if (process.platform !== 'win32') return [found ?? name];
+  // Do not hand a missing bare name back to Windows spawn: it would search cwd as well.
+  if (!found) throw Object.assign(new Error(`Cannot launch ${name}: not found on PATH or at the given path.`), { code: 'ENOENT' });
   let file = found;
   let prefix: string[] = [];
   if (/\.(cmd|bat)$/i.test(file)) {

@@ -102,7 +102,15 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
   const raw = createWriteStream(`${stem}.jsonl`).on('error', () => {});
   const key = request.session ?? `call/${callId}`;
   try {
-    const kept = await session(key, request, stem);
+    let kept: Live;
+    try { kept = await session(key, request, stem); }
+    catch (error) {
+      const missing = process.platform === 'win32' && error instanceof Error && 'code' in error && error.code === 'ENOENT'
+        ? notInstalled(request.backend, mergeEnv(agentEnv(request.backend), request.env ?? {}), request.cwd) : null;
+      if (!missing) throw error;
+      return { callId, completed: false, threadId: request.resume ?? null, model: request.model ?? null,
+        usage: null, handoff: null, error: missing, ms: Date.now() - started };
+    }
     const { cli, conversation } = kept;
     const { instructions } = request;
     const prompt = conversation.instructed || request.resume || !instructions ? request.prompt : `${instructions}\n\n${request.prompt}`;
