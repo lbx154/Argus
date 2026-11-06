@@ -473,7 +473,7 @@ test('the recorded Windows reviewer starts with native private temp and cleans i
     const session = `p-native/${backend}.reviewer`;
     const output = { to: 'manager', letter: 'native temp probe', open: [] };
     // Remap only the recorded workdir to the fixture's scratch workdir; use its actual role/access/form.
-    const result = await call(backend, { nativeTemp: true, output }, { ...request, backend, session, env: process.platform === 'win32' ? { TMPDIR: 'must-not-replace-private-review-temp', TMP: 'must-not-replace-private-review-temp', TEMP: 'must-not-replace-private-review-temp' } : undefined });
+    const result = await call(backend, { nativeTemp: true, output }, { ...request, backend, session, ...process.platform === 'win32' ? { env: { TMPDIR: 'must-not-replace-private-review-temp', TMP: 'must-not-replace-private-review-temp', TEMP: 'must-not-replace-private-review-temp' } } : {} });
     assert.equal(result.completed, true, result.error ?? 'review failed before CLI startup');
     const probe = JSON.parse(result.handoff!.letters[0]!) as { path: string; TMPDIR: string; TMP: string; TEMP: string };
     assert.equal(dirname(probe.path), tmpdir());
