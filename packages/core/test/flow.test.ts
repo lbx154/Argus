@@ -411,17 +411,14 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
 test("tasks the Planner opens together run side by side; one's question holds up only that one", async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });
-  let watched = (): void => {};
-  const watching = new Promise<void>(resolve => { watched = resolve; });
   const steps: Step[] = [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
     { role: 'engineer', to: 'operator', letter: 'Which delimiter?' },
     { role: 'engineer', waits: held, to: 'reviewer', letter: 'parsed 2' },
-    { role: 'reviewer', waits: watching, to: 'planner', letter: 'Accepted 2.' },
-    // Beside t1, the Planner reads t2's hand-over to its Reviewer while the review goes on.
-    { role: 'planner', to: 'planner', letter: 't2 is in review.' },
-    // The Planner reads t2's letter at once, while t1 waits for its answer.
+    { role: 'reviewer', to: 'planner', letter: 'Accepted 2.' },
+    // The Planner reads t2's letter at once, while t1 waits for its answer; t2's hand-over to its
+    // Reviewer, which changed no plan and woke no Planner turn, it reads beside it.
     { role: 'planner', to: 'planner', letter: 'Nothing to open till t1 ends.' },
   ];
   const { flow, id, requests } = await setup(t, steps);
@@ -430,13 +427,12 @@ test("tasks the Planner opens together run side by side; one's question holds up
   // t1 waits for the answer while t2 goes on.
   assert.equal(flow.store.load(id).status, 'working');
   release();
-  while (requests.length < 6) await new Promise(resolve => setImmediate(resolve));
-  watched();
   const asking = await flow.settled(id);
-  assert.deepEqual([asking.status, asking.tasks.map(task => task.status), asking.inbox], ['asking', ['open', 'closed'], []]);
+  assert.deepEqual([asking.status, asking.tasks.map(task => task.status), asking.inbox, asking.beside], ['asking', ['open', 'closed'], [], undefined]);
   assert.match(requests[3]?.prompt ?? '', /## Running beside it, in the same workspace\n- t1 Parse data\.csv\n\n## Task t2, from the Planner\nParse data2\.csv$/);
-  assert.match(requests[5]?.prompt ?? '', /## Since your last turn\nFrom the Engineer to the Reviewer, on task t2 \(Parse data2\.csv\), as the work goes:\nparsed 2$/);
-  assert.equal(requests[6]?.prompt, '## Tasks\n- t1 [open, with the Engineer] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'engineer', 'reviewer', 'planner']);
+  assert.equal(requests[5]?.prompt, '## Tasks\n- t1 [open, with the Engineer] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
+    + '## Hand-overs inside your tasks since your last turn\nFrom the Engineer to the Reviewer, on task t2 (Parse data2.csv), as the work goes:\nparsed 2\n\n'
     + '## Since your last turn\nFrom the Reviewer, on task t2 (Parse data2.csv):\nAccepted 2.');
   steps.push(
     { role: 'engineer', to: 'reviewer', letter: 'parsed 1' },
@@ -445,7 +441,7 @@ test("tasks the Planner opens together run side by side; one's question holds up
     report,
   );
   assert.equal((await answer(flow, id, asking.questions[0]!, 'comma')).status, 'idle');
-  assert.equal(requests[9]?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
+  assert.equal(requests[8]?.prompt, '## Tasks\n- t1 [closed] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
     + '## Since your last turn\nFrom the Reviewer, on task t1 (Parse data.csv):\nAccepted 1.');
 });
 

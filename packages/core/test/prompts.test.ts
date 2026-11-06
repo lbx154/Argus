@@ -98,3 +98,16 @@ test("the team's tools: executable files listed by their first comment, first on
   assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}:/usr/bin` });
   assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(':')[0], dir);
 });
+
+test("the wiki's pages are listed with their length, which no one sees from a page's name", t => {
+  const home = mkdtempSync(join(os.tmpdir(), 'argus-wiki-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const old = process.env.ARGUS_SHARED;
+  t.after(() => { if (old === undefined) delete process.env.ARGUS_SHARED; else process.env.ARGUS_SHARED = old; });
+  delete process.env.ARGUS_SHARED;
+  writeFileSync(join(wikiHome(home), 'verus.md'), '# Verus\n\n- one\n- two\n');
+  writeFileSync(join(wikiHome(home), 'gif.md'), '# GIF\n');
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
+  assert.ok(instructions('engineer', project, store).includes(' Its pages: gif.md (2 lines), verus.md (5 lines).'));
+});
