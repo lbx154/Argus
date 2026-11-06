@@ -10,7 +10,9 @@ import { runFixture, overlay, manifest, main } from '../scripts/windows-install-
 // A real private HTTP server tests the harness, not Argus product behavior.
 const fakeCore = version => `import http from 'node:http';\nimport assert from 'node:assert/strict';\nassert.ok(!process.env.ARGUS_LETTERS); assert.ok(!process.env.OPENAI_API_KEY); assert.ok(!process.env.NODE_OPTIONS);\nconst server=http.createServer((req,res)=>{res.setHeader('content-type','application/json'); res.end(JSON.stringify({authentication:{authenticated:req.headers.authorization==='Bearer '+process.env.ARGUS_WEB_TOKEN},runtime:{pid:process.pid,state_root:process.env.ARGUS_HOME,package_version:${JSON.stringify(version)}}}));});\nserver.listen(0,'127.0.0.1',()=>console.log('Argus is at http://127.0.0.1:'+server.address().port+'/?token='+process.env.ARGUS_WEB_TOKEN));\nprocess.on('SIGTERM',()=>server.close());\n`;
 function fixture(t) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'argus-preservation-'));
+  // macOS exposes its system temp via /var -> /private/var. Canonicalize only
+  // the test-owned root; runFixture must still reject all supplied link ancestors.
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'argus-preservation-')));
   t.after(() => fs.rmSync(root, { force: true, recursive: true }));
   for (const [dir, version] of [['old', 'old-fixture'], ['new', 'new-fixture']]) {
     fs.mkdirSync(path.join(root, dir, 'argus-core/dist'), { recursive: true });
