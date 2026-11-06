@@ -1,45 +1,28 @@
-#[cfg(windows)]
-use std::os::windows::process::CommandExt as _;
-use std::{
-    process::Stdio,
-    time::{Duration, Instant},
-};
-use tokio::{process::Command, time::sleep};
+use std::process::Stdio;
+#[cfg(not(windows))]
+use std::time::{Duration, Instant};
+use tokio::process::Command;
+#[cfg(not(windows))]
+use tokio::time::sleep;
 
-// The Tauri host is a GUI process. Keep its maintenance commands invisible.
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[cfg(windows)]
 pub fn is_process_alive(pid: u32) -> bool {
     use windows_sys::Win32::{
-        Foundation::CloseHandle,
+        Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER},
         System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
     };
-    const STILL_ACTIVE: u32 = 259;
-    if pid == 0 {
-        return false;
-    }
-    // Query-only access suffices, so a PID is never considered dead merely
-    // because this process lacks rights to signal it.
+    if pid == 0 { return false; }
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
-        // A protected process can reject query access; tasklist is only a
-        // liveness fallback.
-        let mut command = std::process::Command::new("tasklist");
-        command.creation_flags(CREATE_NO_WINDOW);
-        return command
-            .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-            .output()
-            .ok()
-            .is_some_and(|output| {
-                String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
-            });
+        // Access denied is not evidence that a protected process is dead.
+        // No PATH/cwd-dependent tasklist fallback is needed.
+        return unsafe { GetLastError() } != ERROR_INVALID_PARAMETER;
     }
-    // An ended process stays open while anyone holds a handle to it (its
-    // parent, an antivirus scanner); only its exit code says it ended.
     let mut code = 0;
-    let running = unsafe { GetExitCodeProcess(handle, &mut code) } == 0 || code == STILL_ACTIVE;
+    let running = unsafe { GetExitCodeProcess(handle, &mut code) } == 0 || code == 259;
     unsafe { CloseHandle(handle) };
     running
 }
@@ -54,42 +37,120 @@ pub fn is_process_alive(pid: u32) -> bool {
             .unwrap_or(false)
 }
 
-/// End Argus and what it started, and wait until it is gone: on Windows its
-/// whole process tree (`taskkill /T`); on POSIX it gets SIGTERM, on which it
-/// ends its own calls.
-pub async fn terminate_process_tree(pid: u32) -> bool {
-    if pid == 0 || !is_process_alive(pid) {
-        return pid != 0;
-    }
+/// End the retained backend's tree while its root is still running. Windows
+/// taskkill cannot discover descendants after a root has already self-exited.
+pub async fn terminate_process_tree(pid: u32) -> Result<(), String> {
+    if pid == 0 { return Err("Refusing to stop PID 0".into()); }
+    if !is_process_alive(pid) { return Ok(()); }
     #[cfg(windows)]
     {
-        let mut command = Command::new("taskkill");
+        use std::{os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle}, path::PathBuf};
+        use windows_sys::Win32::{
+            Foundation::WAIT_OBJECT_0,
+            System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
+        };
+        let system = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR"))
+            .filter(|root| !root.is_empty()).ok_or("Unable to terminate process tree: SystemRoot is not set")?;
+        let executable = PathBuf::from(system).join("System32").join("taskkill.exe");
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        if handle.is_null() { return Err(format!("Cannot retain backend PID {pid}: {}", std::io::Error::last_os_error())); }
+        let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
+        let mut command = Command::new(&executable);
         command.creation_flags(CREATE_NO_WINDOW);
-        let _ = command
-            .args(["/pid", &pid.to_string(), "/t", "/f"])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        let output = command.args(["/pid", &pid.to_string(), "/t", "/f"])
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .output().await.map_err(|error| format!("Cannot run {} for PID {pid}: {error}", executable.display()))?;
+        if !output.status.success() {
+            return Err(format!("{} failed for PID {pid} (exit {}): {} {}", executable.display(),
+                output.status.code().map_or_else(|| "none".into(), |code| code.to_string()),
+                String::from_utf8_lossy(&output.stdout).trim(), String::from_utf8_lossy(&output.stderr).trim()));
+        }
+        // Retaining the process handle pins its identity. Wait for the exit
+        // event instead of repeatedly polling a PID, and always reap taskkill.
+        tokio::task::spawn_blocking(move || {
+            if (unsafe { WaitForSingleObject(handle.as_raw_handle(), 5_000) }) == WAIT_OBJECT_0 { Ok(()) }
+            else { Err(format!("Backend PID {pid} did not signal exit after taskkill")) }
+        }).await.map_err(|error| error.to_string())?
     }
     #[cfg(not(windows))]
     {
+        // Preserve the established POSIX signal-and-wait behaviour.
         let _ = Command::new("kill")
             .args(["-TERM", &pid.to_string()])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while is_process_alive(pid) && Instant::now() < deadline {
+            sleep(Duration::from_millis(50)).await;
+        }
+        if is_process_alive(pid) { Err(format!("Backend PID {pid} did not exit after SIGTERM")) } else { Ok(()) }
     }
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while is_process_alive(pid) && Instant::now() < deadline {
-        sleep(Duration::from_millis(50)).await;
-    }
-    !is_process_alive(pid)
 }
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn stop_reaps_the_owned_tree_but_not_an_unrelated_process() {
+        exercise_tree(crate::runner::find_node(None).unwrap()).await;
+    }
+
+    #[cfg(windows)]
+    async fn exercise_tree(node: std::path::PathBuf) {
+        use tokio::{io::{AsyncBufReadExt, BufReader}, process::Command};
+        use std::process::Stdio;
+        let mut unrelated = Command::new(&node).args(["-e", "setInterval(()=>{},1000)"])
+            .kill_on_drop(true).spawn().unwrap();
+        let mut parent = Command::new(&node).args(["-e", "const c=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'}); console.log(c.pid); setInterval(()=>{},1000)"])
+            .stdout(Stdio::piped()).kill_on_drop(true).spawn().unwrap();
+        let line = BufReader::new(parent.stdout.take().unwrap()).lines().next_line().await.unwrap().unwrap();
+        let grandchild: u32 = line.trim().parse().unwrap();
+        assert!(super::is_process_alive(grandchild));
+        let stopped = super::terminate_process_tree(parent.id().unwrap()).await;
+        // Cleanup is by retained fixture PID, even if an assertion fails.
+        if stopped.is_err() {
+            let cleanup = std::path::PathBuf::from(std::env::var_os("SystemRoot").unwrap()).join("System32/taskkill.exe");
+            let _ = Command::new(cleanup).args(["/PID", &parent.id().unwrap().to_string(), "/T", "/F"]).status().await;
+            let _ = parent.kill().await;
+        }
+        parent.wait().await.unwrap();
+        assert!(stopped.is_ok(), "{stopped:?}");
+        assert!(!super::is_process_alive(grandchild), "owned descendant survived");
+        assert!(super::is_process_alive(unrelated.id().unwrap()), "unrelated process was touched");
+        unrelated.kill().await.unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn stop_uses_the_system_command_not_cwd_or_a_minimal_path() {
+        let root = tempfile::tempdir().unwrap();
+        let node = crate::runner::find_node(None).unwrap();
+        // If a bare command were used these Node executables would consume
+        // taskkill's arguments, fail, and leave the fixture tree alive.
+        std::fs::copy(&node, root.path().join("taskkill.exe")).unwrap();
+        std::fs::copy(&node, root.path().join("tasklist.exe")).unwrap();
+        for mode in ["system-path", "missing-system-root"] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "process::tests::native_stop_child", "--ignored"])
+                .env("ARGUS_TEST_NODE", &node).env("ARGUS_STOP_MODE", mode)
+                .env("Path", root.path()).current_dir(root.path()).output().unwrap();
+            assert!(output.status.success(), "{mode}: {} {}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "isolated environment for stop_uses_the_system_command_not_cwd_or_a_minimal_path"]
+    async fn native_stop_child() {
+        let node = std::path::PathBuf::from(std::env::var_os("ARGUS_TEST_NODE").unwrap());
+        if std::env::var("ARGUS_STOP_MODE").unwrap() == "system-path" { return exercise_tree(node).await; }
+        let mut child = tokio::process::Command::new(node).args(["-e", "setInterval(()=>{},1000)"])
+            .kill_on_drop(true).spawn().unwrap();
+        std::env::remove_var("SystemRoot"); std::env::remove_var("WINDIR");
+        let result = super::terminate_process_tree(child.id().unwrap()).await;
+        child.kill().await.unwrap();
+        assert!(result.unwrap_err().contains("SystemRoot is not set"));
+    }
+
     #[test]
     fn zero_is_never_a_live_or_killable_pid() {
         assert!(!super::is_process_alive(0));

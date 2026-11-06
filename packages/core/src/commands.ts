@@ -48,7 +48,9 @@ export function launcher(name: string, env: NodeJS.ProcessEnv = process.env, cwd
     const source = readFileSync(file, 'utf8');
     // dp0 already ends with a separator. Some Node wrappers add only a literal CLI name before
     // %*: accept those bare words, never batch expansion, quoting or shell operators.
-    const target = /"%(?:~dp0|dp0%)[\\/]*([^"\r\n]+)"((?:[ \t]+[A-Za-z0-9_-]+)*)[ \t]+%\*/i.exec(source);
+    // Only a forwarding invocation, optionally npm's standard endLocal preamble.
+    // Merely echoing/assigning a quoted dp0 string is not an executable shim.
+    const target = /^[ \t]*@?(?:endLocal[ \t]+&[ \t]+goto[ \t]+#_undefined_#[ \t]+2>NUL[ \t]+\|\|[ \t]+title[ \t]+%COMSPEC%[ \t]+&[ \t]+(?:set[ \t]+PATHEXT=%PATHEXT:;\.JS;=;%[ \t]+&[ \t]+)?)?(?:(?:"(?:%_prog%|(?:[^"\r\n]*[\\/])?node(?:\.exe)?)"|node(?:\.exe)?)[ \t]+)?"%(?:~dp0|dp0%)[\\/]*([^"\r\n]+)"((?:[ \t]+[A-Za-z0-9_-]+)*)[ \t]+%\*[ \t]*\r?$/im.exec(source);
     if (!target) throw new Error(`Cannot launch ${found} without a shell: expected an npm/Node CLI shim. Use a native executable or Node script.`);
     file = resolve(dirname(file), target[1]!);
     prefix = target[2]!.trim().split(/\s+/).filter(Boolean);

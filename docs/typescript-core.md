@@ -511,16 +511,26 @@ sentence to the Manager's report, with `test/fixtures/fake-codex.mjs` in place o
 ## The desktop app
 
 The desktop app (`desktop-tauri/`, Tauri) carries the package as a resource directory `argus-core/`
-in the package's layout (`dist/argus.mjs` beside `prompts/`, `ways/` and `web/`) and runs it with
+in the package's layout (`dist/argus.mjs` beside `prompts/`, `skills/`, `starter/` and `web/`) and runs it with
 the Node.js on the machine: `node argus.mjs --port P --backend B`, the backend being the CLI the
 operator chose. Every backend Argus drives is an npm package, so its users have Node; the app
-looks for one of at least 22 beside the chosen CLI, on PATH and in the usual install directories,
+looks for one of at least 22.12.0 beside the chosen CLI, on PATH and in the usual install directories,
 and without one says so and where to get it, rather than installing it. It gives Argus its Web
 token as `ARGUS_WEB_TOKEN` and its state root as `ARGUS_HOME`; the line `Argus is at <url>` is
 the only sign Argus is ready and where, and its exit the only sign it failed. The desktop does not
 poll it or restart it; it stops it (SIGTERM, or `taskkill /T` on Windows) when asked or when it
 quits. An Argus the desktop lost (it crashed) is known by answering `/api/meta` as authenticated
-to the desktop's token, and is stopped before a new one starts. No Python is bundled.
+to the desktop's token. On Windows its reported state root and owner PID must also match before
+it is stopped. Windows uses the system taskkill, retains its process identity while waiting for exit,
+and refuses a restart, quit or update installation if stopping its owned backend fails.
+The Windows desktop passes its confirmed absolute CLI path as `ARGUS_CODEX_BIN`,
+`ARGUS_CLAUDE_BIN`, `ARGUS_COPILOT_BIN` or `ARGUS_PI_BIN` for that backend only. Core's existing
+Settings version probes, model probes and agent turns all resolve that path through the same native
+launcher; an invalid explicit selection is an error, never a fallback to another PATH CLI. A new
+selection restarts the core process. The confirmed path is read from the host's startup environment,
+not a credentials registration, pack or per-turn child environment with the same name; ordinary
+child PATH and environment overrides keep their existing behaviour. These desktop environment overrides are ignored on POSIX,
+whose normal launcher, setup deadline and signal behaviour remain unchanged. No Python is bundled.
 
 ## Left out
 

@@ -534,8 +534,9 @@ impl UpdateManager {
                     // Stop the Argus this desktop started. Never ask NSIS to
                     // kill arbitrary processes with the same filename.
                     let supervisor = Arc::clone(&crate::state(&self.inner.app).supervisor);
-                    supervisor.stop().await;
+                    supervisor.stop().await.map_err(|detail| tauri_plugin_updater::Error::Io(std::io::Error::new(std::io::ErrorKind::Other, detail)))?;
                 }
+                Ok(())
             },
             |bytes| update.install(bytes),
         ).await;

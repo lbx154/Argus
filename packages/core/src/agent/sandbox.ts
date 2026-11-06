@@ -8,9 +8,23 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { argusHome } from '../store.js';
 import { credentials } from '../credentials.js';
-import { findExecutable as which, mergeEnv } from '../commands.js';
-export { launcher } from '../commands.js';
-import type { AgentRequest, Backend } from '../types.js';
+import { envValue, findExecutable as which, launcher as nativeLauncher, mergeEnv } from '../commands.js';
+import { BACKENDS, type AgentRequest, type Backend } from '../types.js';
+
+// The Windows desktop's selected executable is not necessarily named after
+// its backend, nor first on PATH. All version/model/turn launchers use it.
+function selectedExecutable(name: string): string | undefined {
+  // This is the desktop host's confirmed startup configuration, not a
+  // provider/pack/credential environment override for an individual child.
+  return process.platform === 'win32' && BACKENDS.includes(name as Backend)
+    ? envValue(process.env, `ARGUS_${name.toUpperCase()}_BIN`) : undefined;
+}
+
+export function launcher(name: string, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string[] {
+  const selected = selectedExecutable(name);
+  if (selected !== undefined && !isAbsolute(selected)) throw Object.assign(new Error(`Configured ${name} executable must be an absolute path: ${selected || '<empty>'}`), { code: 'ENOENT' });
+  return nativeLauncher(selected ?? name, env, cwd);
+}
 
 
 let bwrap: boolean | undefined;
@@ -50,6 +64,11 @@ export const SIGN_IN: Record<Backend, string> = {
 
 /** Why a call could not start its CLI, when it is not on PATH: with how to install it. */
 export function notInstalled(backend: Backend, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string | null {
+  const selected = selectedExecutable(backend);
+  if (selected !== undefined) {
+    if (!isAbsolute(selected)) return `Configured ${backend} executable must be an absolute path: ${selected || '<empty>'}`;
+    return which(selected, env, cwd) ? null : `Configured ${backend} executable was not found at ${selected}. Update the desktop CLI selection.`;
+  }
   return which(backend, process.platform === 'win32' ? env : process.env, cwd) ? null : `${backend} is not installed (not found on PATH). Install it with: ${INSTALL[backend]}`;
 }
 

@@ -18,9 +18,9 @@ Web cockpit 显示在本地受限容器中。
 Windows 下载对应页面提供的 `Argus-<version>-setup.exe` 并运行 NSIS 安装包；macOS 和 Linux
 的构建见下文。
 
-**需要 Node.js 22 或更高版本。** Argus 驱动的 Codex、Claude Code、Copilot CLI 和 Pi 都是
+**需要 Node.js 22.12.0 或更高版本。** Argus 驱动的 Codex、Claude Code、Copilot CLI 和 Pi 都是
 npm 包，装它们时本机已经有了 Node。桌面端找不到 Node 或版本过低时，启动页显示
-“需要 Node.js 22 或更高版本”、找到的版本和 <https://nodejs.org/> 下载链接；安装 LTS 版本后
+“需要 Node.js 22.12.0 或更高版本”、找到的版本和 <https://nodejs.org/> 下载链接；安装 LTS 版本后
 点“重试”。桌面端不会自动下载或安装 Node。
 
 首次启动必须在设置向导中明确选择并确认已安装、已登录的 Agent CLI（Codex、Claude Code、
@@ -46,20 +46,26 @@ Argus.exe / Argus.app (Tauri/Rust)
 2. 找 Node：先看所选 CLI 的目录（nvm、Volta、Homebrew 把 npm 装的 CLI 放在 Node 旁边），
    再看 PATH，再看常见安装目录（`Program Files\nodejs`、nvm-windows、Volta、scoop、
    `/opt/homebrew/bin`、`/usr/local/bin`、`~/.volta/bin`、`~/.nvm/versions/node/*/bin`），
-   取第一个 `node --version` 不低于 22 的。桌面应用不继承登录 shell 的 PATH（macOS 从
+   取第一个 `node --version` 不低于 22.12.0 的（不能只比较 major）。桌面应用不继承登录 shell 的 PATH（macOS 从
    Finder 启动时只有系统目录），所以要看这些目录。
 3. 端口上若还有一个认得本桌面 Web token 的 Argus（上次桌面崩溃或被强杀后留下的），先停掉它：
-   只有本桌面持有这个 token，`/api/meta` 认证通过即证明它是自己启动的。
+   `/api/meta` 必须认证通过；Windows 还要求报告同一状态根，且 PID 与该根的 `owner.json` 一致，复制过的 token 不赋予停止其他状态根的权限。
 4. 启动 `node argus.mjs --port <设置的端口> --backend <所选 CLI>`，环境变量：
    `ARGUS_WEB_TOKEN`（设置里的 Web token，cockpit 的每个项目请求都要带它）、
    `ARGUS_HOME`（状态根，默认 `~/.argus`；兼容产品用 `$<PROFILE>_HOME` 或 `~/.<profile>`，
    预览构建用自己数据目录下的 `argus-home/`）、`PATH`（Node 和所选 CLI 的目录在前，Argus
-   按名字找 CLI）。工作目录是状态根；Windows 上不弹控制台窗口。
+   按名字找未明确选路径的 CLI）。Windows 另传 `ARGUS_CODEX_BIN`、`ARGUS_CLAUDE_BIN`、
+   `ARGUS_COPILOT_BIN` 或 `ARGUS_PI_BIN` 中所选 backend 的绝对路径；清除其他继承的桌面路径覆盖。
+   核心的 Settings 版本查询、适用的模型查询和实际代理都复用同一原生 launcher，不会因 PATH
+   中另一份同名 CLI 而跑错程序；明确路径无效时报告错误，不回落。确认路径只从宿主启动环境
+   读取，credentials、技能包或单次调用的同名子进程变量不能替换它；普通 PATH/环境覆盖合同不变。
+   此覆盖接口仅作用于 Windows。
+   工作目录是状态根；Windows 上不弹控制台窗口。
 5. Argus 开始监听后在 stdout 打印 `Argus is at <url>`。这一行是唯一的就绪信号，cockpit 的
    地址取自它；子进程退出是唯一的失败信号，启动页显示退出码和最后几行输出。宿主不轮询健康、
    不自动重启，用户点“重试”。
 6. 停止：Windows 用 `taskkill /T` 结束进程树；macOS、Linux 发 SIGTERM，Argus 收到后停下
-   正在进行的调用并归还状态根。
+   正在进行的调用并归还状态根。Windows 强制停止后可能留下 stale `owner.json`，下次启动由核心核实旧 PID 已退出后替换；宿主不删除 owner 文件。Windows 使用系统目录里的 taskkill，等待保留的进程句柄而不轮询；停止失败保留具体原因，阻止启动第二个后端、正常退出和更新安装，等待用户处理。
 
 工作台 iframe 和 Tauri shell 是两个安全域。Tauri IPC 只存在于本地 shell；iframe
 只可通过 `postMessage` 发送长度受限的交付通知数据。父窗口同时验证消息来源必须是
@@ -73,11 +79,11 @@ cockpit 不会获得文件系统、Shell、更新器或任意 Tauri command 的�
 Web 懒加载失败最多在同一 tab 的一分钟内自动刷新一次；代码执行错误直接显示恢复页，
 不会把所有错误误认为旧资源而反复刷新。
 
-Windows 包会把 Microsoft 的 `WebView2Loader.dll` 显式放在 `Argus.exe` 同目录；这和
-WebView2 Runtime 是两件事。安装器仍会按 Tauri 的 `downloadBootstrapper` 策略处理
-缺失或过旧的 Runtime，但启动不再依赖构建机 PATH 中碰巧存在的 Loader DLL。原生
-Windows 标题栏会随 launcher 设置和 cockpit 当前的浅色/深色主题同步，不使用覆盖
-Windows caption controls 的黑色自绘条。
+Windows npm 的 `.cmd`/`.bat` shim 在预检时也不经 shell：宿主读取其中引号包裹的
+`%dp0%`/`%~dp0` 最终转发目标及固定字面参数（例如 `copilot`），用选中的 Node
+（或原生 `.exe`/`.com`）直接运行它；仅赋值、echo、动态参数展开或附加 shell 命令不是转发。无法识别的
+自定义批处理和缺失目标会显示具体错误，不回退到 `cmd.exe`。这保持中文、空格及 `%`/`&`
+路径的字面含义，与核心启动 npm CLI 的边界一致。
 
 Windows 包会把 Microsoft 的 `WebView2Loader.dll` 显式放在 `Argus.exe` 同目录；这和
 WebView2 Runtime 是两件事。安装器仍会按 Tauri 的 `downloadBootstrapper` 策略处理
@@ -206,8 +212,8 @@ Linux `.AppImage`/`.deb`）。
 
 ## 启动排查
 
-- **需要 Node.js 22 或更高版本**：见上文；装好后点“重试”。用 nvm 等版本管理器时，确认
-  默认版本不低于 22。
+- **需要 Node.js 22.12.0 或更高版本**：见上文；装好后点“重试”。用 nvm 等版本管理器时，确认
+  默认版本不低于 22.12.0。
 - **本地后端启动失败**：启动页显示退出码和最后几行输出，完整输出在 desktop log。
   `listen EADDRINUSE` 表示端口被别的程序占用，在 **文件 → 设置** 换一个端口；
   `... is in use by process N` 表示另一个 Argus（例如终端里用同一 `ARGUS_HOME` 运行的
