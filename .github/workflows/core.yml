@@ -27,8 +27,7 @@ jobs:
           node-version: '22.12.0'
           cache: npm
       - run: npm ci
-      - run: npm run build
-      - run: node --import tsx --test "packages/core/test/*.test.ts"
+      - run: npm run check
       - name: Build the web cockpit the package carries
         run: |
           npm --prefix frontend/web ci
@@ -39,7 +38,8 @@ jobs:
           mkdir -p e2e/fake && cp packages/core/test/fixtures/fake-codex.mjs e2e/fake/
           echo '{ "name": "fake-codex", "version": "0.0.0", "bin": { "codex": "fake-codex.mjs" } }' > e2e/fake/package.json
           npm pack -w packages/core --ignore-scripts --loglevel warn --pack-destination e2e
-          npm i -g ./e2e/*.tgz ./e2e/fake
+          npm i -g --prefix "$PWD/e2e/prefix" ./e2e/*.tgz ./e2e/fake
+          export PATH="$PWD/e2e/prefix:$PWD/e2e/prefix/bin:$PATH"
           mkdir e2e/work && node packages/core/test/fixtures/e2e.mjs "Write hello.txt that says hello" "$PWD/e2e/work" | tee e2e/run.log
           grep -q "^The work is done.$" e2e/run.log
           grep -q "^status: idle$" e2e/run.log

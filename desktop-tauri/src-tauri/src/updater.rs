@@ -91,6 +91,20 @@ fn cached_available_status(current: &str, cache: &UpdateCache) -> Option<UpdateS
     ))
 }
 
+fn updates_enabled(development: bool, disabled: bool) -> bool {
+    !development && !crate::release::preview_mode()
+        && !cfg!(feature = "local-windows") && !disabled
+}
+
+#[cfg(test)]
+#[test]
+fn local_candidate_cannot_enter_the_public_update_channel() {
+    assert!(!updates_enabled(true, false));
+    assert!(!updates_enabled(false, true));
+    assert_eq!(updates_enabled(false, false),
+        !crate::release::preview_mode() && !cfg!(feature = "local-windows"));
+}
+
 impl UpdateManager {
     pub fn new(
         app: AppHandle,
@@ -100,7 +114,7 @@ impl UpdateManager {
     ) -> Arc<Self> {
         let update_checks_disabled =
             std::env::var("ARGUS_DESKTOP_DISABLE_UPDATE_CHECK").as_deref() == Ok("1");
-        let enabled = !release.development && !crate::release::preview_mode() && !update_checks_disabled;
+        let enabled = updates_enabled(release.development, update_checks_disabled);
         let status = enabled.then(|| cached_available_status(&release.app_version, &read_cache(&data_dir)))
             .flatten().unwrap_or_else(|| UpdateStatus {
                 current_version: release.app_version.clone(),

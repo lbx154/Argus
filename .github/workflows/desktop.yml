@@ -84,6 +84,7 @@ jobs:
         run: |
           npm --prefix desktop-tauri run ui:typecheck
           npm --prefix desktop-tauri run test:copy
+          node --test desktop-tauri/tests/windows-install-preservation.node.mjs
           cargo test --manifest-path desktop-tauri/src-tauri/Cargo.toml --release --lib --test core_tests
       - name: Test compatible-product storage without importing Argus state
         env:

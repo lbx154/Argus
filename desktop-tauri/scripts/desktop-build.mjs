@@ -21,13 +21,17 @@ if (operation === 'argus') {
   const args = ['scripts/stage-windows-release.mjs'];
   if (process.env.ARGUS_WINDOWS_RELEASE_DIR) args.push('--output-dir', process.env.ARGUS_WINDOWS_RELEASE_DIR);
   run(process.execPath, args);
-} else if (operation === 'build' || operation === 'unsigned') {
+} else if (operation === 'build' || operation === 'unsigned' || operation === 'local-windows') {
+  if (operation === 'local-windows' && (process.platform !== 'win32' || process.arch !== 'x64')) {
+    throw new Error('local-windows is a Windows x64 compatibility candidate, not a public release.');
+  }
   buildArgus();
   const bundles = process.platform === 'darwin' ? 'app,dmg' : process.platform === 'linux' ? 'appimage,deb' : 'nsis';
   const args = ['build', '--bundles', bundles];
-  if (operation === 'unsigned') {
+  if (operation === 'unsigned' || operation === 'local-windows') {
     args.push('--config', JSON.stringify({ bundle: { createUpdaterArtifacts: false } }));
   }
+  if (operation === 'local-windows') args.push('--features', 'local-windows');
   // A Windows candidate must use the reviewed Cargo.lock, not resolve new crates.
   if (process.platform === 'win32') args.push('--', '--locked');
   run(process.execPath, [join(root, 'node_modules/@tauri-apps/cli/tauri.js'), ...args]);

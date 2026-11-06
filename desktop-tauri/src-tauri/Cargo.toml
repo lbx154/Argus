@@ -1,6 +1,6 @@
 [package]
 name = "argus-desktop"
-version = "0.1.8"
+version = "0.1.9"
 description = "Argus desktop host"
 authors = ["lbx154"]
 edition = "2021"
@@ -10,6 +10,8 @@ rust-version = "1.77"
 default = ["default-host"]
 default-host = []
 preview = []
+# Local compatibility candidates must not cross the public 1.x migration channel.
+local-windows = []
 
 [lib]
 name = "argus_desktop_lib"
