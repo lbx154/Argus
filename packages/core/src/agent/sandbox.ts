@@ -201,7 +201,8 @@ export function confine(argv: string[], request: AgentRequest, temp?: string): s
   const ordered = [...new Map(mounts.map(mount => [mount.join('\0'), mount])).values()]
     .sort((a, b) => depth(a[1]) - depth(b[1]) || Number(a[0] !== a[1]) - Number(b[0] !== b[1]));
   return [
-    'bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-uts', '--unshare-ipc',
+    // Host confinement is discovered on the host PATH, not the agent's overridden tool PATH.
+    which('bwrap') ?? 'bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-uts', '--unshare-ipc',
     '--proc', '/proc', '--dev-bind', '/dev', '/dev', '--tmpfs', '/dev/shm',
     ...temp ? ['--bind', temp, '/tmp'] : ['--tmpfs', '/tmp'],
     ...ordered.flatMap(([source, target, writable]) => [writable ? '--bind-try' : '--ro-bind-try', source, target]),

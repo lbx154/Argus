@@ -411,7 +411,8 @@ test('native child environment keeps the last Windows spelling; explicit credent
   mkdirSync(dirname(registered), { recursive: true });
   writeFileSync(registered, JSON.stringify({ ARGUS_TEST_REGISTERED_SECRET: 'literal % ! 中文 & value' }));
   t.after(() => rmSync(registered, { force: true }));
-  // POSIX #!/usr/bin/env node needs its interpreter on the child's PATH; Windows shims use this Node directly.
+  // Deliberately exclude host tools such as bwrap: confinement must use its host-discovered executable,
+  // while POSIX #!/usr/bin/env node needs its interpreter and Windows shims use this Node directly.
   const childPath = process.platform === 'win32' ? bin : `${bin}${delimiter}${dirname(process.execPath)}`;
   const env = process.platform === 'win32' ? { Path: childPath, argus_test_variable: 'explicit' } : { PATH: childPath, ARGUS_TEST_VARIABLE: 'explicit' };
   const combined = mergeEnv({ PATH: 'old', ARGUS_TEST_VARIABLE: 'old' }, env);
