@@ -1377,7 +1377,7 @@ test("an installed pack's tools are set up before the first turn, writable to th
   const dir = join(home, 'skill-packs', 'prover');
   mkdirSync(join(dir, 'setup'), { recursive: true });
   writeFileSync(join(dir, 'SKILL.md'), '---\nname: prover\ndescription: test pack\nversion: 1\nsetup: setup/install\n---\n');
-  writeFileSync(join(dir, 'setup', 'install'), '#!/bin/sh\necho \'PROVER_HOME=${ARGUS_PACK_HOME}\' > "$ARGUS_PACK_HOME/env"\n', { mode: 0o755 });
+  writeFileSync(join(dir, 'setup', 'install'), '#!/usr/bin/env node\nrequire("node:fs").writeFileSync(process.env.ARGUS_PACK_HOME + "/env", "PROVER_HOME=${ARGUS_PACK_HOME}\\n");\n');
   await say(flow, id, 'Build it');
   const packHome = join(home, 'pack-homes', 'prover', '1');
   assert.ok(requests.every(request => request.env?.PROVER_HOME === packHome));

@@ -828,6 +828,9 @@ test('a message whose reply a stop cut off waits for Resume, which the page offe
 });
 
 test("the skill library: Argus's skills and the roles' own, what they changed as the learning feed", async t => {
+  const shared = process.env.ARGUS_SHARED;
+  delete process.env.ARGUS_SHARED;
+  t.after(() => { if (shared !== undefined) process.env.ARGUS_SHARED = shared; else delete process.env.ARGUS_SHARED; });
   const { home, store, get, call, post } = await setup(t, []);
   const own = join(home, 'skills');
   // A file of the roles' skills, changed `minutes` after an hour from now: later than the folders that hold it.
@@ -885,11 +888,14 @@ test("the skill library: Argus's skills and the roles' own, what they changed as
   assert.match((await (await document('wiki', 'verus.md')).json() as { content: string }).content, /continue/);
   assert.match((await (await document('wiki', 'INDEX.md')).json() as { content: string }).content, /^# Wiki/);
   // A tool the roles write joins the feed under what its first comment says.
-  const tool = join(home, 'tools', 'digest');
-  await writeFile(tool, '#!/bin/sh\n# One screen on a project\necho ok\n', { mode: 0o755 });
+  const toolName = process.platform === 'win32' ? 'digest.cmd' : 'digest';
+  const tool = join(home, 'tools', toolName);
+  await writeFile(tool, process.platform === 'win32'
+    ? '@echo off\nrem One screen on a project\necho ok\n'
+    : '#!/bin/sh\n# One screen on a project\necho ok\n', { mode: 0o755 });
   await utimes(tool, at(62), at(62));
   const made = await get<{ events: Record<string, unknown>[] }>('/api/knowledge/feed?limit=1');
-  assert.deepEqual(made.events, [{ ts: at(62), path: 'tools/digest', title: 'One screen on a project' }]);
+  assert.deepEqual(made.events, [{ ts: at(62), path: `tools/${toolName}`, title: 'One screen on a project' }]);
 
   await write('bench/SKILL.md', skill('A workbench for crystal structures'), 4);
   assert.equal((await call('/api/plugins')).status, 404);

@@ -4,7 +4,7 @@
 
 import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
-import { resolve } from 'node:path';
+import { extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
@@ -37,14 +37,16 @@ export function toolsHome(home: string): string {
   mkdirSync(dir, { recursive: true });
   return dir;
 }
-/** Each team tool's name and what it is for: an executable regular file (never a link), described by
- * the first comment after its shebang. */
+/** Each team tool's name and what it is for: a native command or POSIX executable regular file
+ * (never a link), described by its first comment, including batch rem/:: comments. */
 export const tools = (home: string): (readonly [string, string])[] => readdirSync(toolsHome(home)).sort().flatMap(name => {
   const file = resolve(toolsHome(home), name);
   const stat = lstatSync(file);
-  if (!stat.isFile() || !(stat.mode & 0o111)) return [];
-  const head = readFileSync(file, 'utf8').slice(0, 4096).split('\n').slice(0, 6);
-  const said = head.map(line => /^\s*(?:#|\/\/)\s*(?!!)(.+)$/.exec(line)?.[1]?.trim()).find(Boolean) ?? '';
+  if (!stat.isFile() || !(process.platform === 'win32'
+    ? ['.exe', '.com', '.cmd', '.bat'].includes(extname(name).toLowerCase())
+    : stat.mode & 0o111)) return [];
+  const head = readFileSync(file, 'utf8').slice(0, 4096).split(/\r?\n/).slice(0, 6);
+  const said = head.map(line => /^\s*(?:#|\/\/|@?rem\b|::)\s*(?!!)(.+)$/i.exec(line)?.[1]?.trim()).find(Boolean) ?? '';
   return [[name, said] as const];
 });
 export const WIKI_INDEX = 'INDEX.md';
@@ -76,7 +78,7 @@ export const skills = (home: string): (readonly [string, string])[] => [SKILLS, 
   .filter(([, dir]) => lstatSync(dir).isDirectory() && lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile()));
 /** What a skill is for: the description in its SKILL.md's front matter, plain or quoted. */
 export function purpose(dir: string, key = 'description'): string {
-  const matter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
+  const matter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
   const said = new RegExp(`^${key}:[ \t]*(.*)$`, 'm').exec(matter)?.[1]?.trim() ?? '';
   try { if (said.startsWith('"')) return String(JSON.parse(said)); } catch { /* as written */ }
   return said.replace(/^'(.*)'$/, '$1');

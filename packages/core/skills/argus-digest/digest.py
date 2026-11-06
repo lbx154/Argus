@@ -63,8 +63,8 @@ def main():
     a = ap.parse_args()
 
     proj = find_project(Path(a.place).expanduser().resolve())
-    events = [json.loads(l) for l in open(proj / 'events.jsonl') if l.strip()]
-    meta = json.load(open(proj / 'project.json')) if (proj / 'project.json').exists() else {}
+    events = [json.loads(l) for l in (proj / 'events.jsonl').read_text(encoding='utf-8').splitlines() if l.strip()]
+    meta = json.loads((proj / 'project.json').read_text(encoding='utf-8')) if (proj / 'project.json').exists() else {}
     now = dt.datetime.now(dt.timezone.utc).timestamp()
     width = 0 if a.full else 260
 
@@ -140,7 +140,7 @@ def main():
     seen = collections.Counter(short(e.get('letter') or e.get('text'), 120) for e in letters)
     repeats = sum(n - 1 for n in seen.values() if n > 1)
     phase_file = Path(meta.get('workdir', '')) / '.system-proof' / 'phase'
-    phase = phase_file.read_text().strip() if phase_file.is_file() else None
+    phase = phase_file.read_text(encoding='utf-8').strip() if phase_file.is_file() else None
 
     numbers = {'project': proj.name, 'status': meta.get('status'), 'phase': phase, 'cost_usd': round(total, 2),
                'calls': dict(calls), 'elapsed_s': int(last_t - first), 'active_s': int(active),

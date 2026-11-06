@@ -21,6 +21,7 @@ import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
 import { letterbox } from './letters.js';
 import { keepLibrary } from './libraryHistory.js';
 import { packEnv, prepare } from './packSetup.js';
+import { envValue, mergeEnv } from './commands.js';
 
 const TURN: Record<Role, { form: Form; access: Access }> = {
   manager: { form: 'manager', access: 'read' },
@@ -666,6 +667,6 @@ const ready = (project: Project, task: Task): boolean => !held(project, task)
 
 /** A call's environment with the team's tools first on its PATH. */
 export function withTools(env: Record<string, string>, dir: string): Record<string, string> {
-  const path = env.PATH ?? process.env.PATH ?? '';
-  return { ...env, PATH: path ? `${dir}${delimiter}${path}` : dir };
+  const path = envValue(env, 'PATH') ?? envValue(process.env, 'PATH') ?? '';
+  return mergeEnv(env, { PATH: path ? `${dir}${delimiter}${path}` : dir });
 }

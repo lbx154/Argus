@@ -172,10 +172,34 @@ instructions name the index, every call is given the folder, the Engineer writes
 read it, and the `learning` skill says what belongs in each. There is no recall, search or curation
 beyond what the roles do.
 
-The team also keeps tools, `tools/` beside them: executable files, each a command any role runs by
-name. Argus puts the folder first on every call's PATH and lists each tool in every role's standing
-instructions by the first comment after its shebang; a link or a file that cannot run is not listed.
+The team also keeps tools, `tools/` beside them: runnable regular files, each a command any role runs by
+name. Argus puts the folder first on every call's native PATH and lists each tool in every role's standing
+instructions by its first comment (`#`, `//`, `rem` or `::`); a link is never listed. POSIX requires an
+execute bit; Windows lists `.exe`, `.com`, `.cmd` and `.bat`, not an execute bit or an extensionless
+shebang script. A script intended for Windows commands needs a native companion shim invoking its
+interpreter, which must be installed. The starter `argus-digest.cmd` invokes Python 3 as `python` on
+PATH with UTF-8 mode, including when it calls an existing user-modified digest script; it does
+not install Python or claim the Python tool needs only Node.
 The Engineer writes them, as it writes skills.
+
+Only operator-installed packs may name `setup` in `SKILL.md`; team skills never execute a setup.
+The setup stays inside that pack's lexical folder; Windows also refuses linked setup files or
+parent directories before native dispatch (POSIX's existing path rules remain unchanged). Windows `.cjs`,
+`.mjs` and `.js` setups use Argus's running Node (use `.cjs` for CommonJS or `.mjs` for ESM). For a
+portable Node setup include `#!/usr/bin/env node`: POSIX keeps its existing execute-bit/shebang
+contract, and installed files without executable bits use the declared interpreter (or `/bin/sh`
+when no shebang is present). Other shebangs require their named interpreter: on Windows `/bin/sh`
+means `sh` on PATH, not Windows's unrelated WSL `bash` launcher and not an implicitly bundled shell.
+Windows `.cmd`/`.bat` setups run explicitly through `cmd.exe`, with the setup path passed literally;
+agent CLI arguments still never go through a shell. Missing interpreters or failed launches are
+recorded in `setup.log` and `.failed`, not reported as installed tools. A version runs once when ready;
+a failure is not retried during the same process, and the next server start may try it again.
+Setups write `KEY=VALUE` lines to `ARGUS_PACK_HOME/env` (LF or CRLF). `${ARGUS_PACK_HOME}` and
+`${WORKSPACE}` expand literally; `${PATH}` is the preceding native path and `${PATH_SEPARATOR}` is
+`;` on Windows, `:` on POSIX. This is only an additional native separator value; it does not
+reinterpret existing `${PATH}` values or rewrite old pack paths. Use
+`PATH=${ARGUS_PACK_HOME}/bin${PATH_SEPARATOR}${PATH}` rather than hard-coding `:`. Windows
+environment names are case-insensitive; POSIX names remain case-sensitive.
 
 The library is kept by those who use it: no step tidies it later, and no count or size decides
 for them. A role that finds a skill, page or tool wrong, stale or hard to use while using it puts it

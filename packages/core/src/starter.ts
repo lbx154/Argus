@@ -27,6 +27,8 @@ export function seed(home: string, starter = STARTER): string[] {
     for (const name of readdirSync(from).sort()) {
       const key = `${kind}/${name}`;
       if (given.includes(key) || (kind === 'wiki' && name === WIKI_INDEX)) continue;
+      // A Windows command shim is not a second POSIX tool. Record it only where it is used.
+      if (kind === 'tools' && name.endsWith('.cmd') && process.platform !== 'win32') continue;
       given.push(key);
       // One of the same name is the operator's: theirs stands.
       if (lstatSync(join(to, name), { throwIfNoEntry: false })) continue;
