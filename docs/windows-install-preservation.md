@@ -12,7 +12,7 @@ node desktop-tauri/scripts/windows-install-preservation.mjs `
   --old-dir 'X:\reviewed-old-payload' `
   --new-dir 'X:\reviewed-new-payload' `
   --scratch 'X:\scratch-parent\NEW-unique-directory'
-# 单独的能力边界负例；Windows 预期 exit 1，result.json 记 preflight exit 3。
+# 单独的超长路径能力检查；宿主不支持时 exit 1，result.json 记 preflight exit 3。
 node desktop-tauri/scripts/windows-install-preservation.mjs `
   --old-dir 'X:\reviewed-old-payload' --new-dir 'X:\reviewed-new-payload' `
   --scratch 'X:\scratch-parent\ANOTHER-new-directory' --long-path yes
@@ -79,9 +79,12 @@ if ($p.ExitCode -ne 0) { throw "NSIS failed: $($p.ExitCode); keep evidence and d
 静默 exit 0 仍需核对安装文件 SHA、登记版本和实际冷启动，不等于最终验收。
 
 Windows PowerShell 5 的现有 preflight 在本机 `LongPathsEnabled=0`、>260 字符安装目标上
-返回 **3 并安全拒绝**；fixture 对此要求零载荷写入、所有 seed 不变。短中文空格目录通过。
-这不是已证明支持超长 NSIS 安装路径；不修改机器策略来让测试通过。运行中 EXE 的真实 Windows
-文件锁与目标 guard 都有原生回归，guard 不杀目标或其他安装。
+返回 **3 并安全拒绝**；GitHub Windows runner 则实际允许该 fixture 的超长路径。
+回归先用同形的独立空私有目录调用同一 preflight 探测宿主能力，再严格验证对应分支：
+拒绝时必须零载荷写入、所有 seed 不变；允许时必须完成旧/新/回退三次启动、六个阶段、
+原 seed 对象和内容保留、旧载荷恢复。探测结果不会由 fixture 的成功或失败反推，也不跳过测试。
+短中文空格目录另有完整回归。这不是已证明支持超长 **NSIS** 安装路径；不修改机器策略来让测试通过。
+运行中 EXE 的真实 Windows 文件锁与目标 guard 都有原生回归，guard 不杀目标或其他安装。
 
 ## 回退的真实边界
 

@@ -39,9 +39,26 @@ test('overlay, three starts, rollback retain bytes AND original seed objects', a
   await assert.rejects(runFixture(f), /Scratch must be NEW/);
 });
 
-test('long target: Windows installer guard fails closed; POSIX fixture can start', async t => {
+test('long target: honor the host preflight capability without losing retention or fail-closed checks', async t => {
   const f = { ...fixture(t), longPath: true };
+  let blocked = false;
   if (process.platform === 'win32') {
+    // PowerShell/.NET long-path support differs between Windows hosts. Probe
+    // independently, before the fixture, using an empty private target with
+    // the same path length and shape; do not infer capability from its outcome.
+    const probe = path.join(f.root, 'probe__ 中文', '安装 空格 & 100%', ...Array(7).fill('长路径 segment 0123456789abcdef'), 'Argus');
+    fs.mkdirSync(probe, { recursive: true });
+    assert.ok(probe.length > 260);
+    const guard = fileURLToPath(new URL('../scripts/installer-preflight.ps1', import.meta.url));
+    const ps = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
+    const capability = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-File', guard, '-InstallDirectory', probe, '-WaitSeconds', '0'], { windowsHide: true, encoding: 'utf8' });
+    assert.ifError(capability.error);
+    assert.ok(capability.status === 0 || capability.status === 3, capability.stdout + capability.stderr);
+    assert.deepEqual(fs.readdirSync(probe), [], 'The capability probe is read-only');
+    blocked = capability.status === 3;
+    t.diagnostic('Independent Windows long-path preflight exit: ' + capability.status);
+  }
+  if (blocked) {
     await assert.rejects(runFixture(f), /Windows installer preflight blocked replacement \(exit 3\)/);
     const result = JSON.parse(fs.readFileSync(path.join(f.scratch, 'evidence/result.json'), 'utf8'));
     assert.ok(result.install_path_characters > 260);
@@ -55,6 +72,12 @@ test('long target: Windows installer guard fails closed; POSIX fixture can start
     const result = await runFixture(f);
     assert.ok(result.install_path_characters > 260);
     assert.equal(result.status, 'pass');
+    assert.equal(result.seed_integrity_pass, true);
+    assert.deepEqual(result.seed_after, result.seed_before);
+    assert.equal(result.stages.length, 6);
+    assert.deepEqual(result.stages.map(row => row.core?.package_version).filter(Boolean), ['old-fixture', 'new-fixture', 'old-fixture']);
+    assert.equal(fs.existsSync(path.join(result.install, 'argus-core/new-only.txt')), false);
+    assert.equal(fs.existsSync(path.join(result.install, 'argus-core/old-only.txt')), true);
   }
 });
 
