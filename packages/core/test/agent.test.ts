@@ -411,14 +411,16 @@ test('native child environment keeps the last Windows spelling; explicit credent
   mkdirSync(dirname(registered), { recursive: true });
   writeFileSync(registered, JSON.stringify({ ARGUS_TEST_REGISTERED_SECRET: 'literal % ! 中文 & value' }));
   t.after(() => rmSync(registered, { force: true }));
-  const env = process.platform === 'win32' ? { Path: bin, argus_test_variable: 'explicit' } : { PATH: bin, ARGUS_TEST_VARIABLE: 'explicit' };
+  // POSIX #!/usr/bin/env node needs its interpreter on the child's PATH; Windows shims use this Node directly.
+  const childPath = process.platform === 'win32' ? bin : `${bin}${delimiter}${dirname(process.execPath)}`;
+  const env = process.platform === 'win32' ? { Path: childPath, argus_test_variable: 'explicit' } : { PATH: childPath, ARGUS_TEST_VARIABLE: 'explicit' };
   const combined = mergeEnv({ PATH: 'old', ARGUS_TEST_VARIABLE: 'old' }, env);
-  assert.equal(envValue(combined, 'PATH'), bin);
+  assert.equal(envValue(combined, 'PATH'), childPath);
   if (process.platform === 'win32') assert.equal(Object.keys(combined).filter(name => name.toUpperCase() === 'PATH').length, 1);
   for (const backend of BACKENDS) {
     const result = await call(backend, { envProbe: ['PATH', 'ARGUS_TEST_VARIABLE', 'ARGUS_TEST_REGISTERED_SECRET', 'GH_TOKEN', 'MY_SECRET'], output: handoff }, { env: combined });
     assert.equal(result.completed, true, result.error ?? 'startup failed');
-    assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), { PATH: bin, ARGUS_TEST_VARIABLE: 'explicit', ARGUS_TEST_REGISTERED_SECRET: 'literal % ! 中文 & value', GH_TOKEN: null, MY_SECRET: null });
+    assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), { PATH: childPath, ARGUS_TEST_VARIABLE: 'explicit', ARGUS_TEST_REGISTERED_SECRET: 'literal % ! 中文 & value', GH_TOKEN: null, MY_SECRET: null });
   }
 });
 
