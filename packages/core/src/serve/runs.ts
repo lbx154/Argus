@@ -129,6 +129,7 @@ export class Runs {
     const controller = new AbortController();
     const calls: Live['calls'] = [];
     const flow = new Flow(this.store, this.callAgent, {
+      retryFailedAfterMs: 60_000,
       signal: controller.signal,
       onEvent: event => {
         if (event.type === 'call.start') calls.push({ role: event.role, task: event.task, started_ts: Date.now() / 1000, ...event.answers ? { answers: event.answers } : {} });

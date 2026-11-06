@@ -192,6 +192,10 @@ export function handedTo(role: Role, task: Task | null, letter: string): string 
   return `From the ${NAMES[role]}${task ? `, on task ${task.id} (${task.title})` : ''}:\n${letter}`;
 }
 
+/** A turn that failed beside work that goes on, for the Manager to tell the operator. */
+export const heldLetter = (role: Role, task: Task | null, error: string): string =>
+  `From Argus: the ${NAMES[role]}'s turn${task ? ` on task ${task.id} (${task.title})` : ''} failed and did not go on by itself. It waits, with whatever waits for it; the rest of the work goes on. The error: ${error}\nTell the operator in plain words what is held up; the Resume button, or any word from them, sends it on.`;
+
 /** A hand-over inside a task, which the Planner reads as the work goes, to steer it or the tasks beside it. */
 export function copied(from: Role, to: Role, task: Task, letter: string): string {
   return `From the ${NAMES[from]} to the ${NAMES[to]}, on task ${task.id} (${task.title}), as the work goes:\n${letter}`;
