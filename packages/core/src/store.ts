@@ -197,7 +197,7 @@ export class Store {
   save(project: Project): void {
     const path = join(this.dir(project.id), 'project.json');
     writeFileSync(`${path}.${process.pid}.tmp`, JSON.stringify(project, null, 2) + '\n');
-    renameSync(`${path}.${process.pid}.tmp`, path);
+    replace(`${path}.${process.pid}.tmp`, path);
   }
 
   append(id: string, event: FlowEvent): void {
@@ -222,6 +222,20 @@ function endsLine(path: string): boolean {
     const last = Buffer.alloc(1);
     return size === 0 || readSync(file, last, 0, 1, size - 1) === 1 && last[0] === 0x0a;
   } finally { closeSync(file); }
+}
+
+const pause = new Int32Array(new SharedArrayBuffer(4));
+
+/** Rename `from` over `to`. Windows refuses while another program (a virus scanner, an indexer)
+ * has `to` open, which lasts a moment: it is tried again for up to two seconds. */
+function replace(from: string, to: string): void {
+  for (let waited = 0; ; waited += 20) {
+    try { renameSync(from, to); return; } catch (error) {
+      const busy = ['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '');
+      if (process.platform !== 'win32' || !busy || waited >= 2_000) throw error;
+      Atomics.wait(pause, 0, 0, 20);
+    }
+  }
 }
 
 function ownerPid(path: string): number | null {

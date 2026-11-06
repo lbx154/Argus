@@ -92,11 +92,12 @@ try {
   assert.equal(siteZip.status, 200);
   assert.deepEqual(unzip(Buffer.from(await siteZip.arrayBuffer())), { 'index.html': page, '样式.css': 'p{color:red}' });
   const zip = await post(`${P}/artifacts/bundle`, { paths: ['结果.txt'], name: 'CON' });
-  assert.equal(zip.status, 200); assert.match(zip.headers.get('content-disposition'), /_CON\.zip$/);
+  assert.equal(zip.status, 200);
+  assert.equal(zip.headers.get('content-disposition'), `attachment; filename*=UTF-8''${process.platform === 'win32' ? '_CON' : 'CON'}.zip`);
   assert.deepEqual(unzip(Buffer.from(await zip.arrayBuffer())), { '结果.txt': '中文 result' });
   const form = new FormData(); form.append('files', new Blob(['small']), 'NUL.txt');
   const { attachments } = await json(await call(`${P}/attachments`, { method: 'POST', body: form }));
-  assert.equal(attachments[0].stored_name, '_NUL.txt');
+  assert.equal(attachments[0].stored_name, process.platform === 'win32' ? '_NUL.txt' : 'NUL.txt');
   const begun = await json(await post(`${P}/attachments/uploads`, { name: '中文 附件.txt', size_bytes: 3 }));
   const U = `${P}/attachments/uploads/${begun.attachment_id}`;
   await json(await call(`${U}?offset=0`, { method: 'PUT', body: 'abc' }));

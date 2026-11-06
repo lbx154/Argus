@@ -32,14 +32,18 @@ local drive when the workspace and native temp roots differ, and an occupied sta
 
 Node's Windows extended paths can create names such as `NUL.txt`; their successful creation
 is **not** evidence that normal Win32 applications can use them. `portableFilename` adds
-`_` to reserved device names, shared by attachments and zip downloads on every platform.
-The original attachment name is retained separately. The official list includes the
-superscript digits in `COM¹`/`LPT²`, not just ASCII 1–9.
+`_` to reserved device names on Windows, shared by attachments and zip downloads.
+POSIX keeps its existing legal names (for example `NUL.txt` and `CON.zip`); both platforms
+have actual upload/download I/O regressions. The original attachment name is retained
+separately. The official list includes superscript digits in `COM¹`/`LPT²`, not just ASCII 1–9.
 
-An occupied `project.json` is held with Windows `FileShare.Read`, not a mock. A single atomic
-rename fails visibly, leaves the previous JSON readable, and the HTTP API reports the error.
-There is no retry or unlink-before-rename fallback; the next explicit save after releasing
-the handle succeeds. Native `realpath`/`relative` checks remain in place.
+An occupied `project.json` is held with Windows `FileShare.Read`, not a mock. The existing
+atomic-replace policy (Windows busy errors retried every 20 ms, up to 2 s) is unchanged.
+A persistent lock then fails visibly, leaves the previous JSON readable, and the HTTP API
+reports the error. The next explicit save after releasing the handle succeeds; there is no
+unlink-before-rename fallback. Native `realpath`/`relative` checks remain in place.
+Compatibility work does not authorize changing existing persistence or scheduling policy,
+even when a maintenance skill suggests general cleanup.
 
 ## Built/installed entry point
 

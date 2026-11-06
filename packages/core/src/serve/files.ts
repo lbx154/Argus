@@ -33,9 +33,10 @@ export const TEXT_LIMIT = 512 * 1024;
 /** The copies kept of each delivered file, the newest. */
 const COPIES = 10;
 
-/** A name portable to Win32 applications, even when Node's extended paths can create devices' names. */
+/** On Windows, avoid device names that Node can create but normal Win32 applications cannot use.
+ * POSIX keeps the existing filename contract. */
 export const portableFilename = (name: string): string =>
-  /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) ? `_${name}` : name;
+  process.platform === 'win32' && /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) ? `_${name}` : name;
 
 export function typeOf(file: string, path = file): [ArtifactKind, string] {
   const ext = extname(path).toLowerCase();

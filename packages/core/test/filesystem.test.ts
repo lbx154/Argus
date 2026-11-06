@@ -26,14 +26,14 @@ async function setup(t: TestContext) {
   return { home, store, call, post, json };
 }
 
-test('uploads and zip downloads use portable names, including Windows reserved device names', async t => {
+test('uploads and zip downloads adapt device names only on Windows, preserving POSIX names', async t => {
   const { store, post, call, json } = await setup(t);
   const { sid } = await json(await post('/api/daemons', {}));
   const project = store.load(sid);
   const P = `/api/projects/${sid}`;
   await writeFile(join(project.workdir, 'result.txt'), 'result');
   for (const name of ['CON', 'con.txt', 'NUL.csv', 'AUX', 'PRN.log', 'COM1.bin', 'lpt9', 'COM¹.txt', 'LPT².txt', 'COM10.txt', '中文 空格.txt', 'bad<>:"|?*.txt', '.notes.md. ']) {
-    const stored = /^(?:con|nul|aux|prn|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) ? `_${name}`
+    const stored = process.platform === 'win32' && /^(?:con|nul|aux|prn|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) ? `_${name}`
       : name === 'bad<>:"|?*.txt' ? 'bad_______.txt' : name === '.notes.md. ' ? 'notes.md' : name;
     await t.test(name, async () => {
       const begun = await json(await post(`${P}/attachments/uploads`, { name, mime: 'text/plain', size_bytes: 3 }));
@@ -51,10 +51,10 @@ test('uploads and zip downloads use portable names, including Windows reserved d
   const form = new FormData();
   form.append('files', new Blob(['small']), 'NUL.txt');
   const { attachments } = await json(await call(`${P}/attachments`, { method: 'POST', body: form }));
-  assert.equal(attachments[0].stored_name, '_NUL.txt');
+  assert.equal(attachments[0].stored_name, process.platform === 'win32' ? '_NUL.txt' : 'NUL.txt');
   const bundle = await call(`${P}/artifacts/bundle`, { method: 'POST', body: JSON.stringify({ paths: ['result.txt'], name: 'CON' }) });
   assert.equal(bundle.status, 200);
-  assert.equal(bundle.headers.get('content-disposition'), "attachment; filename*=UTF-8''_CON.zip");
+  assert.equal(bundle.headers.get('content-disposition'), `attachment; filename*=UTF-8''${process.platform === 'win32' ? '_CON' : 'CON'}.zip`);
   assert.equal(Buffer.from(await bundle.arrayBuffer()).readUInt32LE(0), 0x04034b50);
 });
 
@@ -148,7 +148,7 @@ test('Windows occupied project.json surfaces a failed atomic rename without repl
   try {
     const start = Date.now();
     assert.throws(() => store.save({ ...work, request: 'replacement' }), (error: NodeJS.ErrnoException) => ['EPERM', 'EACCES', 'EBUSY'].includes(error.code ?? ''));
-    assert.ok(Date.now() - start < 1_000, 'a failed rename is surfaced, not retried');
+    assert.ok(Date.now() - start >= 1_900, 'the existing Windows atomic-replace retry budget is preserved');
     assert.equal(store.load(work.id).request, 'original');
     const response = await call(`/api/projects/${work.id}`, { method: 'PATCH', body: JSON.stringify({ name: 'changed' }) });
     assert.equal(response.status, 500);

@@ -166,6 +166,10 @@ test('the pack root is read-only even for a writing role', { skip: process.platf
 test("a team skill offered to the store is checked by the store's rule, kept for the host, and shows what the host answered", async t => {
   const home = await mkdtemp(join(tmpdir(), 'argus-offer-'));
   t.after(() => rm(home, { recursive: true, force: true }));
+  // This fixture writes its team library under home, independent of the invoking agent's library.
+  const shared = process.env.ARGUS_SHARED;
+  delete process.env.ARGUS_SHARED;
+  t.after(() => { if (shared !== undefined) process.env.ARGUS_SHARED = shared; });
   const served = await serve({ store: new Store(home), callAgent: async () => { throw new Error('No model calls expected'); }, backend: 'codex', model: null, port: 0, token: 'offer-token', web: home });
   t.after(() => served.close());
   const call = (path: string, value?: object) => fetch(served.url + path, { method: value ? 'POST' : 'GET',
