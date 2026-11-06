@@ -63,8 +63,9 @@ letters are the project's timeline. A hand-off Argus refuses goes back to its wr
 the reason (a fresh session for a review); refused again, or a turn that fails, is a failed
 call, recorded as such. Like a question, it holds up only its role, the task or the Planner, till
 the operator resumes the work, while the rest goes on. Under the server, a turn that failed, other
-than the Manager's or one that wants paying, is first tried once more a minute later; if it still
-fails, the Manager gets a letter saying what is held up and tells the operator.
+than the Manager's or one that wants paying, goes on by itself a minute later, in its session, and
+if that fails, a minute after in a new one told where the work is. If that fails too, the Manager gets a
+letter saying what is held up and tells the operator, and any word from them sends it on.
 
 | Role | Writes to |
 |---|---|

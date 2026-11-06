@@ -1448,7 +1448,7 @@ test('a turn that fails again beside work that goes on is told to the operator, 
   other.open();
   const held = await flow.settled(id);
   const told = String(requests.find(({ role, prompt }) => role === 'manager' && String(prompt).includes('failed'))?.prompt);
-  assert.match(told, /task t1 \(Parse data\.csv\) failed.*flagged for possible cybersecurity risk.*Resume/s);
+  assert.match(told, /task t1 \(Parse data\.csv\) failed.*flagged for possible cybersecurity risk.*any word from them/s);
   assert.deepEqual(held.failures, [{ role: 'engineer', task: 't1', error: 'flagged for possible cybersecurity risk' }]);
   assert.deepEqual(held.tasks.map(task => task.status), ['open', 'closed']);
   // The operator's word sends it on.
@@ -1456,6 +1456,50 @@ test('a turn that fails again beside work that goes on is told to the operator, 
   flow.resume(id);
   const project = await flow.settled(id);
   assert.deepEqual([project.status, project.error, project.failures], ['idle', null, []]);
+});
+
+/** A team of one task whose Engineer works in a session, and fails as long as `fails` says. */
+function sessioned(store: Store, fails: (request: AgentRequest) => boolean) {
+  const requests: AgentRequest[] = [];
+  const result = (request: AgentRequest, threadId: string, to: string, letters: string[]) =>
+    ({ callId: 'c', threadId, completed: true, error: null, handoff: { form: request.form, to, letters }, model: 'fake', usage: null, ms: 1 });
+  const flow = new Flow(store, (async request => {
+    requests.push(request);
+    const managers = requests.filter(({ role }) => role === 'manager').length;
+    if (request.role === 'manager') return managers === 1 ? result(request, 'm', 'engineer', [brief]) : result(request, 'm', 'operator', ['Told.']);
+    if (request.role === 'reviewer') return result(request, 'r', 'manager', ['Accepted.']);
+    request.onStep?.({ kind: 'message', text: 'working' });
+    const threadId = request.resume ?? `e${requests.length}`;
+    return fails(request)
+      ? { callId: 'c', threadId, completed: false, error: 'flagged', handoff: null, model: null, usage: null, ms: 1 }
+      : result(request, threadId, 'reviewer', ['Done.']);
+  }) as CallAgent, retrying);
+  return { flow, requests };
+}
+
+test('a session that cannot go on is taken over by a new one, told what it has lost and where the work is', async t => {
+  const { store, id } = await setup(t, []);
+  const { flow, requests } = sessioned(store, request => !String(request.prompt).includes('You are taking over'));
+  const project = await say(flow, id, 'Build it');
+  const engineer = requests.filter(({ role }) => role === 'engineer');
+  assert.equal(engineer.length, 3);
+  assert.deepEqual([engineer[0]!.resume, engineer[1]!.resume, engineer[2]!.resume], [undefined, 'e2', undefined]);
+  assert.match(String(engineer[2]!.prompt), new RegExp(`${brief.split('\n')[0]}[^]*Its failure: flagged[^]*events\\.jsonl`));
+  assert.deepEqual([project.status, project.failures ?? []], ['idle', []]);
+  assert.equal(project.tasks[0]?.status, 'closed');
+});
+
+test('when a new session fails too the operator is told, and a word from them sends it on', async t => {
+  const { store, id } = await setup(t, []);
+  let healthy = false;
+  const { flow, requests } = sessioned(store, () => !healthy);
+  const held = await say(flow, id, 'Build it');
+  assert.equal(requests.filter(({ role }) => role === 'engineer').length, 3);
+  assert.deepEqual(held.failures?.map(({ task }) => task), ['t1']);
+  assert.ok(requests.some(({ role, prompt }) => role === 'manager' && /task t1 .*failed and did not go on by itself[^]*flagged[^]*any word from them/.test(String(prompt))));
+  healthy = true;
+  const project = await say(flow, id, 'Go on');
+  assert.deepEqual([project.failures ?? [], project.tasks[0]?.status], [[], 'closed']);
 });
 
 test('no second try where it cannot help: a turn that wants paying, or the Manager with the operator before it', async t => {
