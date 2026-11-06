@@ -192,6 +192,14 @@ export function handedTo(role: Role, task: Task | null, letter: string): string 
   return `From the ${NAMES[role]}${task ? `, on task ${task.id} (${task.title})` : ''}:\n${letter}`;
 }
 
+/** A turn that failed beside work that goes on, for the Manager to tell the operator. */
+export const heldLetter = (role: Role, task: Task | null, error: string): string =>
+  `From Argus: the ${NAMES[role]}'s turn${task ? ` on task ${task.id} (${task.title})` : ''} failed and did not go on by itself. It waits, with whatever waits for it; the rest of the work goes on. The error: ${error}\nTell the operator in plain words what is held up; any word from them sends it on.`;
+
+/** The turn that takes over from a session that could not go on. */
+export const startedAfresh = (error: string, events: string, prompt: string): string =>
+  `${prompt}\n\n${section('You are taking over', `The session that had this work failed twice and could not go on, so this is a new one, without its memory. Its failure: ${error}\nWhat it did is in the working folder; each step it took is in ${events}. Look at what is there before doing anything again. If the failure objects to something in how the work was going, go about that part another way.`)}`;
+
 /** A hand-over inside a task, which the Planner reads as the work goes, to steer it or the tasks beside it. */
 export function copied(from: Role, to: Role, task: Task, letter: string): string {
   return `From the ${NAMES[from]} to the ${NAMES[to]}, on task ${task.id} (${task.title}), as the work goes:\n${letter}`;

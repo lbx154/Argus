@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Project, type Question } from '../src/store.js';
-import { Flow, title } from '../src/flow.js';
+import { Flow, title, type FlowOptions } from '../src/flow.js';
 import { conversationRows, daemon, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
 import { words } from './helpers/words.js';
 import { packsHome, SKILLS } from '../src/prompts.js';
@@ -72,12 +72,12 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
   return { callAgent, requests };
 }
 
-async function setup(t: TestContext, steps: Step[], controller?: AbortController) {
+async function setup(t: TestContext, steps: Step[], controller?: AbortController, options: FlowOptions = {}) {
   const home = await mkdtemp(join(tmpdir(), 'argus-flow-'));
   t.after(() => rm(home, { recursive: true, force: true }));
   const store = new Store(home);
   const { callAgent, requests } = agent(steps, controller);
-  const flow = new Flow(store, callAgent, controller ? { signal: controller.signal } : {});
+  const flow = new Flow(store, callAgent, { ...options, ...controller ? { signal: controller.signal } : {} });
   const { id } = store.create({ workdir: home, request: 'the request', backend: 'codex', model: null });
   const events = (): FlowEvent[] => readFileSync(join(store.dir(id), 'events.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line) as FlowEvent);
   return { home, store, flow, id, requests, events, callAgent };
@@ -1413,4 +1413,108 @@ test("the team's letters that wait for the Manager are read in one turn and answ
   assert.match(managers[2]!.prompt, /A is done\.[\s\S]*B is done\./);
   assert.equal(project.status, 'idle');
   assert.deepEqual(project.forManager ?? [], []);
+});
+
+const retrying = { retryFailedAfterMs: 0 };
+
+test('a failed turn goes on once by itself, and no one need hear of a failure that passed', async t => {
+  const { flow, id, requests } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', throws: 'flagged for possible cybersecurity risk' },
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ], undefined, retrying);
+  const project = await say(flow, id, 'Build it');
+  assert.deepEqual([project.status, project.error, project.failures ?? []], ['idle', null, []]);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'engineer', 'engineer', 'reviewer', 'manager']);
+});
+
+test('a turn that fails again beside work that goes on is told to the operator, and waits for them', async t => {
+  const other = gate();
+  t.after(other.open);
+  const steps: Step[] = [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'] },
+    { role: 'engineer', throws: 'flagged for possible cybersecurity risk' },
+    { role: 'engineer', waits: other.shut, later: true, to: 'planner', letter: 'data2.csv parsed' },
+    { role: 'engineer', throws: 'flagged for possible cybersecurity risk' },
+    { role: 'manager', to: 'operator', letter: 'Parsing data.csv is held up; press Resume to send it on.' },
+    { role: 'planner', to: 'planner', letter: 'Waiting for data.csv.' },
+  ];
+  const { flow, id, requests } = await setup(t, steps, undefined, retrying);
+  await flow.say(id, 'Summarise both');
+  while (!requests.some(({ role, prompt }) => role === 'manager' && String(prompt).includes('failed'))) await tick();
+  other.open();
+  const held = await flow.settled(id);
+  const told = String(requests.find(({ role, prompt }) => role === 'manager' && String(prompt).includes('failed'))?.prompt);
+  assert.match(told, /task t1 \(Parse data\.csv\) failed.*flagged for possible cybersecurity risk.*any word from them/s);
+  assert.deepEqual(held.failures, [{ role: 'engineer', task: 't1', error: 'flagged for possible cybersecurity risk' }]);
+  assert.deepEqual(held.tasks.map(task => task.status), ['open', 'closed']);
+  // The operator's word sends it on.
+  steps.push({ role: 'engineer', to: 'planner', letter: 'data.csv parsed' }, { role: 'planner', to: 'manager', letter: 'Both parsed.' }, report);
+  flow.resume(id);
+  const project = await flow.settled(id);
+  assert.deepEqual([project.status, project.error, project.failures], ['idle', null, []]);
+});
+
+/** A team of one task whose Engineer works in a session, and fails as long as `fails` says. */
+function sessioned(store: Store, fails: (request: AgentRequest) => boolean) {
+  const requests: AgentRequest[] = [];
+  const result = (request: AgentRequest, threadId: string, to: string, letters: string[]) =>
+    ({ callId: 'c', threadId, completed: true, error: null, handoff: { form: request.form, to, letters }, model: 'fake', usage: null, ms: 1 });
+  const flow = new Flow(store, (async request => {
+    requests.push(request);
+    const managers = requests.filter(({ role }) => role === 'manager').length;
+    if (request.role === 'manager') return managers === 1 ? result(request, 'm', 'engineer', [brief]) : result(request, 'm', 'operator', ['Told.']);
+    if (request.role === 'reviewer') return result(request, 'r', 'manager', ['Accepted.']);
+    request.onStep?.({ kind: 'message', text: 'working' });
+    const threadId = request.resume ?? `e${requests.length}`;
+    return fails(request)
+      ? { callId: 'c', threadId, completed: false, error: 'flagged', handoff: null, model: null, usage: null, ms: 1 }
+      : result(request, threadId, 'reviewer', ['Done.']);
+  }) as CallAgent, retrying);
+  return { flow, requests };
+}
+
+test('a session that cannot go on is taken over by a new one, told what it has lost and where the work is', async t => {
+  const { store, id } = await setup(t, []);
+  const { flow, requests } = sessioned(store, request => !String(request.prompt).includes('You are taking over'));
+  const project = await say(flow, id, 'Build it');
+  const engineer = requests.filter(({ role }) => role === 'engineer');
+  assert.equal(engineer.length, 3);
+  assert.deepEqual([engineer[0]!.resume, engineer[1]!.resume, engineer[2]!.resume], [undefined, 'e2', undefined]);
+  assert.match(String(engineer[2]!.prompt), new RegExp(`${brief.split('\n')[0]}[^]*Its failure: flagged[^]*events\\.jsonl`));
+  assert.deepEqual([project.status, project.failures ?? []], ['idle', []]);
+  assert.equal(project.tasks[0]?.status, 'closed');
+});
+
+test('when a new session fails too the operator is told, and a word from them sends it on', async t => {
+  const { store, id } = await setup(t, []);
+  let healthy = false;
+  const { flow, requests } = sessioned(store, () => !healthy);
+  const held = await say(flow, id, 'Build it');
+  assert.equal(requests.filter(({ role }) => role === 'engineer').length, 3);
+  assert.deepEqual(held.failures?.map(({ task }) => task), ['t1']);
+  assert.ok(requests.some(({ role, prompt }) => role === 'manager' && /task t1 .*failed and did not go on by itself[^]*flagged[^]*any word from them/.test(String(prompt))));
+  healthy = true;
+  const project = await say(flow, id, 'Go on');
+  assert.deepEqual([project.failures ?? [], project.tasks[0]?.status], [[], 'closed']);
+});
+
+test('no second try where it cannot help: a turn that wants paying, or the Manager with the operator before it', async t => {
+  const { store, id } = await setup(t, []);
+  const unpaid: Role[] = [];
+  const flow = new Flow(store, (async request => {
+    unpaid.push(request.role);
+    return request.role === 'manager' && unpaid.length === 1
+      ? { callId: 'c1', threadId: 'm', completed: true, error: null, handoff: { form: request.form, to: 'engineer', letters: [brief] }, model: 'fake', usage: null, ms: 1 }
+      : { callId: 'c2', threadId: 'e', completed: false, error: '试用额度已用完。', unpaid: true, handoff: null, model: null, usage: null, ms: 1 };
+  }) as CallAgent, retrying);
+  const project = await say(flow, id, 'Build it');
+  assert.equal(project.status, 'failed');
+  assert.equal(unpaid.filter(role => role === 'engineer').length, 1);
+  const { flow: alone, id: other, requests } = await setup(t, [{ role: 'manager', throws: 'unexpected status 401 Unauthorized' }], undefined, retrying);
+  assert.equal((await say(alone, other, 'hello')).status, 'failed');
+  assert.equal(requests.length, 1);
 });

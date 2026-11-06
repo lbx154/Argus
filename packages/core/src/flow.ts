@@ -14,7 +14,7 @@ import { join, delimiter } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question, Status, Store, Task } from './store.js';
-import { answered, copied, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
+import { answered, copied, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
@@ -39,7 +39,16 @@ export interface FlowOptions {
   onWords?: (role: Role, task: string | undefined, words: string, kind?: 'process' | 'answer') => void;
   /** Interrupts every call under way, and ends the work. */
   signal?: AbortSignal;
+  /** With no one watching, a failed turn must not wait unseen: it goes on by itself after this long,
+   * in its session and then in a new one, and if it still fails the Manager hears of it, to tell the operator. Unset, it just holds. */
+  retryFailedAfterMs?: number;
 }
+
+/** Waits, or stops waiting when the work is interrupted. */
+const pause = (ms: number, signal?: AbortSignal): Promise<void> => new Promise(resolve => {
+  const timer = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+});
 
 export class Flow {
   /** Each project this flow has opened: one object, which every turn on it shares. */
@@ -460,7 +469,7 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: true } = {}): Promise<AgentResult | null> {
+                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: true; retried?: true; afresh?: string } = {}): Promise<AgentResult | null> {
     const { refused, answers, input_id } = turn;
     const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
@@ -486,7 +495,7 @@ export class Flow {
     try {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
-        prompt: refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
+        prompt: turn.afresh !== undefined ? startedAfresh(turn.afresh, join(dir, 'events.jsonl'), prompt(false)) : refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills, and adds to the team's skills, wiki and tools.
         readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home), ...TURN[role].access === 'write' ? [] : ready], writeDirs: [skillsHome(this.store.home), wikiHome(this.store.home), toolsHome(this.store.home), ...own ? [project.workdir] : [], ...TURN[role].access === 'write' ? ready : []],
         env: withTools(packEnv(packs, project.workdir, process.env), toolsHome(this.store.home)), ...(project.model ? { model: project.model } : {}),
@@ -498,6 +507,8 @@ export class Flow {
       // The call never ran to an end of its own: it is recorded as ended, failed.
       const error = thrown instanceof Error ? thrown.message : String(thrown);
       this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
+      const again = await this.tryAgain(project, role, key, turn, error);
+      if (again) return this.call(project, role, task, prompt, again);
       if (!signal?.aborted && !turn.look) this.fail(project, role, task, error);
       return null;
     }
@@ -538,16 +549,39 @@ export class Flow {
       return result;
     }
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
+    const again = !completed && !unpaid ? await this.tryAgain(project, role, key, turn, error ?? 'The turn failed.') : null;
+    if (again) return this.call(project, role, task, prompt, again);
     if (!signal?.aborted && !turn.look) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
     return null;
   }
 
   /** A failed turn holds up its role, on its task if it was on one, and the rest of the work goes
    * on; the project shows it failed once nothing else does, unless the operator stopped it. */
+  /** How a call that failed goes on by itself, if it does: first in its session, as most failures pass;
+   * then in a new one, for a session that itself cannot go on. A new one has lost the session's memory, not
+   * its work. The Manager's failure shows at once to the operator who is talking to it. */
+  private async tryAgain<Turn extends { look?: true; retried?: true; afresh?: string; refused?: string }>(project: Project, role: Role, key: string, turn: Turn, error: string): Promise<Turn | null> {
+    const { retryFailedAfterMs: wait, signal } = this.options;
+    if (wait === undefined || role === 'manager' || turn.look || signal?.aborted) return null;
+    if (turn.afresh !== undefined || (turn.retried && !project.sessions[key])) return null;
+    await pause(wait, signal);
+    if (signal?.aborted || project.status === 'stopped') return null;
+    if (!turn.retried) return { ...turn, retried: true };
+    delete project.sessions[key];
+    this.store.save(project);
+    const { refused: _, ...rest } = turn;
+    return { ...rest, afresh: error } as Turn;
+  }
+
   private fail(project: Project, role: Role, task: Task | null, error: string, unpaid?: true): void {
     Object.assign(project, { failures: [...project.failures ?? [], { role, task: task?.id ?? null, error, ...unpaid && { unpaid } }], error });
-    if (this.works.has(project.id) || project.status === 'stopped') this.store.save(project);
+    const goesOn = this.works.has(project.id);
+    if (goesOn || project.status === 'stopped') this.store.save(project);
     else this.status(project, 'failed', error);
+    // Beside work that goes on, nothing else shows that this part of it waits: the operator is told.
+    if (this.options.retryFailedAfterMs !== undefined && goesOn && role !== 'manager' && project.status !== 'stopped') {
+      void this.writeToManager(project, heldLetter(role, task, error)).catch((thrown: unknown) => this.fail(project, 'manager', null, String(thrown)));
+    }
   }
 
   /** A letter to the Engineer opens a task; its first sentence names it. It waits only for tasks opened
