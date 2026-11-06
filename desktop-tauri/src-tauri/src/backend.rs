@@ -466,12 +466,26 @@ fn argus_command(
         .kill_on_drop(true);
     #[cfg(windows)]
     {
-        // Clear inherited desktop overrides on a backend switch. Only the
-        // confirmed selection is exported, as an absolute native path.
-        for kind in crate::models::RUNNER_KINDS { command.env_remove(format!("ARGUS_{}_BIN", kind.as_str().to_ascii_uppercase())); }
-        if let Some(runner) = runner {
-            let runner = fs::canonicalize(runner)?;
-            command.env(format!("ARGUS_{}_BIN", settings.runner_kind.as_str().to_ascii_uppercase()), dunce::simplified(&runner));
+        // Clear inherited overrides. Export confirmed saved paths by backend,
+        // plus the currently detected selection, as absolute native paths.
+        for kind in crate::models::RUNNER_KINDS {
+            let key = format!("ARGUS_{}_BIN", kind.as_str().to_ascii_uppercase());
+            command.env_remove(&key);
+            let configured = if kind == settings.runner_kind { runner.map(Path::to_path_buf) }
+                else { crate::settings::runner_bin(settings, &kind).map(|requested| {
+                    let mut choice = settings.clone(); choice.runner_kind = kind.clone();
+                    resolve_runner_configuration(&choice).and_then(|resolved| resolved.executable)
+                        .map(PathBuf::from).unwrap_or_else(|| PathBuf::from(requested))
+                }) };
+            if let Some(path) = configured {
+                // Preserve other explicitly saved backend paths too: existing
+                // projects retain their own backend when the desktop changes.
+                // A missing inactive path stays explicit so core can explain it,
+                // instead of silently choosing another installation from PATH.
+                let absolute = if path.is_absolute() { path } else { env::current_dir()?.join(path) };
+                let path = fs::canonicalize(&absolute).unwrap_or(absolute);
+                command.env(key, dunce::simplified(&path));
+            }
         }
     }
     Ok(command)
@@ -636,14 +650,23 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let runner = home.path().join("自定义 chosen script.mjs");
         fs::write(&runner, b"console.log('fixture')").unwrap();
-        let settings = DesktopSettings { runner_kind: crate::models::RunnerKind::Pi, ..Default::default() };
+        let other = home.path().join("configured codex.cmd");
+        fs::write(&other, b"fixture").unwrap();
+        let settings = DesktopSettings { runner_kind: crate::models::RunnerKind::Pi,
+            runner_bins: std::collections::BTreeMap::from([("codex".into(), other.to_string_lossy().into_owned())]),
+            runner_configured: true, ..Default::default() };
         let command = argus_command(Path::new("node.exe"), Path::new("argus.mjs"), Some(&runner), &settings, home.path()).unwrap();
         let variables: Vec<_> = command.as_std().get_envs().collect();
         let expected = fs::canonicalize(&runner).unwrap();
         assert_eq!(variables.iter().find(|(name, _)| *name == "ARGUS_PI_BIN").unwrap().1, Some(dunce::simplified(&expected).as_os_str()));
-        for name in ["ARGUS_CODEX_BIN", "ARGUS_CLAUDE_BIN", "ARGUS_COPILOT_BIN"] {
+        let other = fs::canonicalize(other).unwrap();
+        assert_eq!(variables.iter().find(|(name, _)| *name == "ARGUS_CODEX_BIN").unwrap().1, Some(dunce::simplified(&other).as_os_str()));
+        for name in ["ARGUS_CLAUDE_BIN", "ARGUS_COPILOT_BIN"] {
             assert_eq!(variables.iter().find(|(key, _)| *key == name).unwrap().1, None);
         }
+        fs::remove_file(other).unwrap();
+        let command = argus_command(Path::new("node.exe"), Path::new("argus.mjs"), Some(&runner), &settings, home.path()).unwrap();
+        assert!(command.as_std().get_envs().any(|(key, value)| key == "ARGUS_CODEX_BIN" && value.is_some()), "a missing inactive choice stays explicit instead of falling back");
     }
 
     #[test]

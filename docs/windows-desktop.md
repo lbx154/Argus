@@ -55,7 +55,9 @@ Argus.exe / Argus.app (Tauri/Rust)
    `ARGUS_HOME`（状态根，默认 `~/.argus`；兼容产品用 `$<PROFILE>_HOME` 或 `~/.<profile>`，
    预览构建用自己数据目录下的 `argus-home/`）、`PATH`（Node 和所选 CLI 的目录在前，Argus
    按名字找未明确选路径的 CLI）。Windows 另传 `ARGUS_CODEX_BIN`、`ARGUS_CLAUDE_BIN`、
-   `ARGUS_COPILOT_BIN` 或 `ARGUS_PI_BIN` 中所选 backend 的绝对路径；清除其他继承的桌面路径覆盖。
+   `ARGUS_COPILOT_BIN` 或 `ARGUS_PI_BIN` 中各已保存 backend 的绝对路径（当前检测的选择也会传递）；
+   清除未配置的继承覆盖。桌面切换 backend 不会改写已有项目的 backend，其他已保存 CLI 路径
+   仍须传递；非当前路径失效时由核心对该 backend 清楚报错，而不阻止无关 backend 启动。
    核心的 Settings 版本查询、适用的模型查询和实际代理都复用同一原生 launcher，不会因 PATH
    中另一份同名 CLI 而跑错程序；明确路径无效时报告错误，不回落。确认路径只从宿主启动环境
    读取，credentials、技能包或单次调用的同名子进程变量不能替换它；普通 PATH/环境覆盖合同不变。

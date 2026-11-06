@@ -524,7 +524,10 @@ to the desktop's token. On Windows its reported state root and owner PID must al
 it is stopped. Windows uses the system taskkill, retains its process identity while waiting for exit,
 and refuses a restart, quit or update installation if stopping its owned backend fails.
 The Windows desktop passes its confirmed absolute CLI path as `ARGUS_CODEX_BIN`,
-`ARGUS_CLAUDE_BIN`, `ARGUS_COPILOT_BIN` or `ARGUS_PI_BIN` for that backend only. Core's existing
+`ARGUS_CLAUDE_BIN`, `ARGUS_COPILOT_BIN` or `ARGUS_PI_BIN` for each explicitly saved backend path
+(and the current detected selection). Existing projects keep their own backend when the desktop
+changes, so saved paths for other backends must not be discarded. Unconfigured inherited overrides
+are cleared. Core's existing
 Settings version probes, model probes and agent turns all resolve that path through the same native
 launcher; an invalid explicit selection is an error, never a fallback to another PATH CLI. A new
 selection restarts the core process. The confirmed path is read from the host's startup environment,
