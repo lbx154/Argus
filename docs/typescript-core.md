@@ -445,10 +445,11 @@ Sandbox: on Linux with a working `bwrap`, the CLI runs under bubblewrap: system 
 read-only, the workdir and the task's write directories writable for the Engineer (the Manager, Planner and
 Reviewer read it only), a private home per workdir
 with the CLI's login file passed through, and the CLI's login environment plus the operator's
-registered environment values. Each review has a fresh disk-backed temporary directory under
-`$ARGUS_HOME/sandbox`, bound to `/tmp` under bubblewrap or selected by `TMPDIR` without it,
-and removed when the review ends. Other roles' sandboxes cannot see that directory.
-Other roles retain their existing temporary filesystem. Its
+registered environment values. Each review has a fresh disk-backed temporary directory, removed
+when the review ends. Under bubblewrap it lives under `$ARGUS_HOME/sandbox`, bound to `/tmp`;
+other roles' sandboxes cannot see it. Without bubblewrap it is created under the native OS temp
+root and selected by `TMPDIR`, and on Windows also `TMP` and `TEMP`; this is not an OS isolation
+boundary between processes running as the same user. Other roles retain their existing temporary filesystem. Its
 `~/.cache` is one every project's roles share (`$ARGUS_HOME/cache`, npm's cache in it), so a
 model, package or browser one project downloads the next finds; the machine's own cache, which
 may hold tokens, stays out. Codex runs there without plugins: the private home has none of the

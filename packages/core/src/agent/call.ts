@@ -5,6 +5,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { PayloadSchema } from '@argus/contracts';
 import { KEPT, type AgentRequest, type AgentResult, type Backend, type CallAgent, type Step, type Usage } from '../types.js';
@@ -58,7 +59,8 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
   if (kept && !kept.cli.gone && kept.settings === settings(request) && kept.thread === (request.resume ?? null)) return kept;
   await end(key);
   const confined = sandboxed();
-  const temps = request.role === 'reviewer' ? privatePath('/tmp', request.cwd) : undefined;
+  // Only bubblewrap needs a sandbox mirror of /tmp; native paths may contain a Windows drive root.
+  const temps = request.role === 'reviewer' ? confined ? privatePath('/tmp', request.cwd) : tmpdir() : undefined;
   if (temps) mkdirSync(temps, { recursive: true, mode: 0o700 });
   const tempRoot = temps ? mkdtempSync(join(temps, 'review-')) : undefined;
   try {
@@ -66,7 +68,7 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
     const conversation = START[request.backend](request, { confined, schema: formSchema(request.form, request.giver), stem });
     const argv = confined ? confine([request.backend, ...conversation.args], request, temp) : [...launcher(request.backend), ...conversation.args];
     const started: Live = {
-      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp } : {}, ...request.letters ? { ARGUS_LETTERS: request.letters } : {}, ...request.env }),
+      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp, ...process.platform === 'win32' ? { TMP: temp, TEMP: temp } : {} } : {}, ...request.letters ? { ARGUS_LETTERS: request.letters } : {}, ...request.env }),
       conversation, settings: settings(request), thread: request.resume ?? null, tempRoot,
     };
     live.set(key, started);

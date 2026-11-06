@@ -11,7 +11,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { register } from 'node:module';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
@@ -22,7 +22,7 @@ const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
 const option = name => args[args.indexOf(name) + 1];
 const run = randomUUID();
 const note = seen => writeFileSync(join(process.cwd(), `seen-${cli}.json`), JSON.stringify({
-  ...seen, run, env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY|COPILOT_GITHUB_TOKEN)$/.test(name)),
+  ...seen, run, temp: tmpdir(), env: Object.keys(process.env).filter(name => /^(GH_TOKEN|MY_SECRET|ANTHROPIC_API_KEY|COPILOT_GITHUB_TOKEN)$/.test(name)),
 }));
 
 /** The hand-off tool the call's extension registers, or null where copilot loads no extension. */
@@ -60,7 +60,15 @@ function leave(scenario) {
   if (scenario.hang) spawn(process.execPath, ['-e', `require('node:net').connect(${scenario.hang}, '127.0.0.1')`], { stdio: 'ignore' });
 }
 
-const scenarioOf = text => JSON.parse(text.trimEnd().split('\n').at(-1));
+const scenarioOf = text => {
+  const scenario = JSON.parse(text.trimEnd().split('\n').at(-1));
+  if (scenario.nativeTemp) {
+    const path = tmpdir();
+    writeFileSync(join(path, 'review-sentinel'), 'private');
+    scenario.output.letter = JSON.stringify({ path, TMPDIR: process.env.TMPDIR, TMP: process.env.TMP, TEMP: process.env.TEMP });
+  }
+  return scenario;
+};
 const answerOf = output => typeof output === 'string' ? output : JSON.stringify(output);
 
 if (cli === 'codex') {

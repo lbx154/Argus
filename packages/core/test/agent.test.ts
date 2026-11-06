@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join, win32 } from 'node:path';
 import test, { after } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
@@ -45,7 +45,7 @@ const call = (backend: Backend, scenario: object, more: Partial<AgentRequest> = 
 });
 const seen = (backend: Backend) => JSON.parse(readFileSync(join(work, `seen-${backend}.json`), 'utf8')) as {
   schema: { required: string[]; properties: Record<string, { type?: unknown; enum?: unknown[] }> }; env: string[]; ends?: boolean; instructions?: string; run: string; model?: string;
-  steered?: string;
+  steered?: string; temp: string;
 };
 const handoff = { to: 'reviewer', letter: 'The parser reads both formats; its tests pass.\nRun npm test.', open: [], tell: [], look: '' };
 
@@ -404,6 +404,49 @@ test('an Engineer whose workdir holds Argus home writes the workdir, not the rec
   const result = await call('codex', { attackPaths: [kept, own], output: handoff }, { cwd: root, readDirs: [record] });
   assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), [{ content: 'record', changed: false }, { content: 'work', changed: true }]);
   assert.equal(readFileSync(kept, 'utf8'), 'record');
+});
+
+test('the recorded Windows reviewer starts with native private temp and cleans it when its CLI ends', { skip: sandboxed() && 'native temp without bubblewrap' }, async t => {
+  const replay = JSON.parse(readFileSync(fixture('windows-reviewer-temp.json'), 'utf8')) as {
+    request: Pick<AgentRequest, 'backend' | 'role' | 'form' | 'access' | 'cwd'>; event: { completed: boolean; callId: string; error: string };
+  };
+  assert.deepEqual([replay.event.completed, replay.event.callId], [false, '']);
+  // The actual record: a second drive root was joined into a sandbox child, not an absolute temp path.
+  const old = win32.join('C:\\Users\\chenxxxxxx\\.argus', 'sandbox', encodeURIComponent(replay.request.cwd).replace(/%/g, '='), 'C:\\tmp');
+  assert.ok(replay.event.error.includes(old));
+  const { cwd: originalCwd, ...request } = replay.request;
+  assert.match(originalCwd, /^[A-Z]:\\/);
+  // Native Windows temp roots can contain both spaces and non-ASCII characters.
+  const nativeRoot = join(root, 'native temp 空间');
+  mkdirSync(nativeRoot);
+  const env = { TMPDIR: process.env.TMPDIR, TMP: process.env.TMP, TEMP: process.env.TEMP };
+  Object.assign(process.env, { TMPDIR: nativeRoot, TMP: nativeRoot, TEMP: nativeRoot });
+  t.after(() => { for (const [name, value] of Object.entries(env)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; } });
+  const paths = new Set<string>();
+  t.after(() => callAgent.close!('p-native/'));
+  for (const backend of [request.backend, ...BACKENDS.filter(backend => backend !== request.backend)]) {
+    const session = `p-native/${backend}.reviewer`;
+    const output = { to: 'manager', letter: 'native temp probe', open: [] };
+    // Remap only the recorded workdir to the fixture's scratch workdir; use its actual role/access/form.
+    const result = await call(backend, { nativeTemp: true, output }, { ...request, backend, session });
+    assert.equal(result.completed, true, result.error ?? 'review failed before CLI startup');
+    const probe = JSON.parse(result.handoff!.letters[0]!) as { path: string; TMPDIR: string; TMP: string; TEMP: string };
+    assert.equal(dirname(probe.path), tmpdir());
+    assert.equal(probe.TMPDIR, probe.path);
+    if (process.platform === 'win32') assert.deepEqual([probe.TMP, probe.TEMP], [probe.path, probe.path]);
+    assert.ok(!paths.has(probe.path), 'each review has a fresh directory');
+    paths.add(probe.path);
+    await callAgent.close!(session);
+    assert.equal(existsSync(probe.path), false, 'the session removes its private directory');
+    const failed = await call(backend, { nativeTemp: true, output, fail: 'review backend failed' }, { ...request, backend, session });
+    assert.equal(failed.completed, false);
+    const failedTemp = seen(backend).temp;
+    assert.equal(dirname(failedTemp), tmpdir());
+    assert.ok(!paths.has(failedTemp));
+    paths.add(failedTemp);
+    await callAgent.close!(session);
+    assert.equal(existsSync(failedTemp), false, 'failed reviews also remove their private directory');
+  }
 });
 
 test('a review uses disk /tmp under Argus home and cleans it when the CLI ends, with its task', { skip: !sandboxed() && 'requires bubblewrap' }, async () => {

@@ -3,7 +3,7 @@ name: argus-maintenance
 description: "Changing Argus itself: its TypeScript core, prompts and skills, kept small and fixed at the root"
 ---
 
-The workspace is Argus's repository, and what it maintains is the TypeScript core, `packages/core`:
+In a source checkout, this skill maintains the TypeScript core, `packages/core`:
 `src/` (the CLI, the flow, the store, the agent calls, the web server), `prompts/` (each role's
 rules), `skills/` (Argus's own skills) and `test/`. `docs/typescript-core.md` says what the core
 does and what it leaves out on purpose. The Python runtime under `argus/` serves old projects until
@@ -44,6 +44,14 @@ before the fix and passes after it. A test written only from someone's reading o
 that reading.
 
 ## Running it
+
+A desktop's `argus-core/` resource directory may contain only an installed bundle, not this
+repository. Identify the running process and its entry file before editing, and locate a checkout
+for the fix and regression test. A disk edit does not reload an already running Node ESM bundle:
+activate through the desktop's supported **Restart backend** command at a task boundary, or ask the
+operator to do so. Never start a second owner of its state root. An explicitly authorized local
+bundle patch needs a backup and rollback, and is not an upstream release or a live recovery until
+the actual blocked role starts. Keep project-specific recovery evidence in that project's workspace.
 
 Run the work in progress from its build, `node packages/core/dist/argus.mjs`, with `ARGUS_HOME` set
 to a scratch folder: one process owns a state root, and the operator's belongs to the Argus they
