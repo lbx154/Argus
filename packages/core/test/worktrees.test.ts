@@ -5,9 +5,10 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { forgetWorktree, isCheckout, makeWorktree } from '../src/worktrees.js';
+import { directoryLink } from './helpers/fsLinks.js';
 
-function repo(t: { after: (fn: () => void) => void }): string {
-  const dir = mkdtempSync(join(tmpdir(), 'argus-wt-'));
+function repo(t: { after: (fn: () => void) => void }, prefix = 'argus-wt-'): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const git = (...args: string[]) => assert.equal(spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir }).status, 0);
   git('init', '-q');
@@ -35,6 +36,20 @@ test('a task worktree carries the workspace as it is, and Argus forgets it only 
   rmSync(wt.dir, { recursive: true, force: true });
   assert.equal(forgetWorktree(dir, wt.dir), true);
   assert.doesNotMatch(spawnSync('git', ['worktree', 'list'], { cwd: dir, encoding: 'utf8' }).stdout, /t2/);
+});
+
+test('native git worktrees accept Chinese, spaces, junction aliases and Windows drive casing', async t => {
+  const dir = repo(t, 'argus 中文 repo ');
+  const aliasHome = mkdtempSync(join(tmpdir(), 'argus-wt-alias-'));
+  t.after(() => rmSync(aliasHome, { recursive: true, force: true }));
+  const alias = join(aliasHome, '中文 alias');
+  await directoryLink(dir, alias);
+  assert.ok(isCheckout(alias));
+  if (process.platform === 'win32') assert.ok(isCheckout(dir.replace(/^([A-Z]):/, (_, drive: string) => drive.toLowerCase() + ':')));
+  const wt = makeWorktree(alias, 't2');
+  assert.equal(readFileSync(join(wt.dir, 'a.txt'), 'utf8'), 'a\n');
+  rmSync(wt.dir, { recursive: true, force: true });
+  assert.ok(forgetWorktree(alias, wt.dir));
 });
 
 test('a folder that is not the top of a git checkout gets no worktree', t => {

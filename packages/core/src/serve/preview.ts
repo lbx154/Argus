@@ -10,7 +10,7 @@ import { pipeline, Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { crc32, deflateRaw } from 'node:zlib';
 import type { Project, Store } from '../store.js';
-import { sendFile, typeOf, under } from './files.js';
+import { portableFilename, sendFile, typeOf, under } from './files.js';
 import { HttpError, hostPort, requestOrigin, type Context, type Handler } from './index.js';
 import { jsonLines } from './views.js';
 
@@ -180,8 +180,8 @@ export function preview(store: Store, project: (id: string) => Project, result: 
 
 /** A zip's name from the one asked for: no character a file system refuses, at most 80 of them. */
 const zipName = (name: string): string =>
-  ([...name.replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').replace(/^[ .]+|[ .]+$/g, '').trim().replace(/\s+/g, ' ')].slice(0, 80).join('')
-    || 'argus-results') + '.zip';
+  portableFilename(([...name.replace(/[\\/:*?"<>|\x00-\x1f]+/g, ' ').replace(/^[ .]+|[ .]+$/g, '').trim().replace(/\s+/g, ' ')].slice(0, 80).join('')
+    || 'argus-results') + '.zip');
 
 /** The entries, each a file to read or its bytes, as a zip made while it is sent. A reader who
  * leaves, or a file gone meanwhile, ends it where it is. */

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test, { type TestContext } from 'node:test';
 import { request as httpRequest } from 'node:http';
 import { previewFetch } from './helpers/preview-fetch.js';
-import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
+import { directoryLink, fileLink } from './helpers/fsLinks.js';
+import { appendFile, chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -1113,12 +1114,15 @@ test('attached files land in the workdir, and the message that carries them says
   await writeFile(join(workdir, '.argus', 'secret.txt'), 'private');
   assert.equal((await call(`${P}/artifact/raw?path=.argus/secret.txt`)).status, 404);
   assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/../../secret.txt`)).status, 404);
-  if (process.platform !== 'win32') {
+  await directoryLink(join(workdir, '.argus'), join(workdir, csv!.relative_path, '..', 'linked-dir'));
+  assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/linked-dir/secret.txt`)).status, 404);
+  await rm(join(workdir, csv!.relative_path, '..', 'linked-dir'));
+  await t.test('an attachment cannot alias another hidden file through a file symlink', async t => {
     const link = join(workdir, csv!.relative_path, '..', 'linked.csv');
-    await symlink(join(workdir, '.argus', 'secret.txt'), link);
-    assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/linked.csv`)).status, 404);
-    await rm(link);
-  }
+    if (!await fileLink(t, join(workdir, '.argus', 'secret.txt'), link)) return;
+    try { assert.equal((await call(`${P}/artifact/raw?path=.argus/attachments/${csv!.attachment_id}/linked.csv`)).status, 404); }
+    finally { await rm(link); }
+  });
 
   // A large file in parts, each appended where the last ended.
   const begun = await (await post(`${P}/attachments/uploads`, { name: 'weights.bin', mime: 'application/octet-stream', size_bytes: 6 })).json() as UploadState;

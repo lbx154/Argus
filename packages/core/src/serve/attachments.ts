@@ -9,7 +9,7 @@ import type { IncomingMessage } from 'node:http';
 import { join, relative } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Project } from '../store.js';
-import { under } from './files.js';
+import { portableFilename, under } from './files.js';
 import { HttpError, type Handler } from './index.js';
 
 const LIMITS = { max_count: 5, max_bytes_per_file: 100 << 20, max_total_bytes: 500 << 20, chunk_bytes: 4 << 20 };
@@ -64,7 +64,7 @@ export function attachments(project: (id: string) => Project): [string, RegExp, 
     const id = `att-${randomBytes(6).toString('hex')}`;
     // The name as given, as one every file system keeps as it is (Windows drops a trailing dot)
     // and never hidden.
-    const stored = name.split(/[\\/]/).at(-1)!.slice(-200).replace(/[\x00-\x1f<>:"|?*]/g, '_').replace(/^[.\s]+|[.\s]+$/g, '') || 'attachment';
+    const stored = portableFilename(name.split(/[\\/]/).at(-1)!.slice(-200).replace(/[\x00-\x1f<>:"|?*]/g, '_').replace(/^[.\s]+|[.\s]+$/g, '') || 'attachment');
     return {
       sid: work.id, dir: folder(work.workdir, id),
       attachment: { attachment_id: id, relative_path: `.argus/attachments/${id}/${stored}`, original_name: name, stored_name: stored, mime, size_bytes: size },

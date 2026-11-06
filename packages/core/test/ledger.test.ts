@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { directoryLink, fileLink } from './helpers/fsLinks.js';
 const script = fileURLToPath(new URL('../skills/rl/ledger.mjs', import.meta.url));
 const base = { parent: '', model: 'small', benchmark: 'math pass@1', metric: 'accuracy', value: 10, baseline: 10,
   change: 'framework v1 CPU', gpu_h: 0, verdict: 'baseline', path: 'result.txt' };
@@ -31,7 +32,7 @@ test('ledger add owns columns, numbering, UTC dates, normalization and local/cro
   assert.equal(run('add', { ...base, verdict: 'same', parent: 'p-one:r2' }, other).status, 0);
   assert.match(readFileSync(other, 'utf8'), /p-one:r2/);
 });
-test('ledger refuses every missing/unknown key, invalid numbers, verdicts, parents, paths and long hex value', t => {
+test('ledger refuses every missing/unknown key, invalid numbers, verdicts, parents, paths and long hex value', async t => {
   const { run, file, cwd } = setup(t);
   assert.equal(run('add', base).status, 0);
   const original = readFileSync(file, 'utf8');
@@ -42,7 +43,12 @@ test('ledger refuses every missing/unknown key, invalid numbers, verdicts, paren
   for (const verdict of ['running', '', 'BETTER']) reject({ ...base, verdict });
   for (const parent of ['', 'r0', 'r2', 'p-missing:r1', '../p-one:r1', 'p-one:r9']) reject({ ...base, parent, verdict: 'better' });
   for (const path of ['', 'missing', join(cwd, 'result.txt'), '../missing', 'dir\\result.txt']) reject({ ...base, path });
-  symlinkSync(script, join(cwd, 'outside')); reject({ ...base, path: 'outside' });
+  await directoryLink(dirname(script), join(cwd, 'outside-dir'));
+  reject({ ...base, path: 'outside-dir/ledger.mjs' });
+  await t.test('ledger refuses an outside file symlink', async t => {
+    if (!await fileLink(t, script, join(cwd, 'outside'))) return;
+    reject({ ...base, path: 'outside' });
+  });
   for (const key of Object.keys(base)) reject({ ...base, [key]: 'a'.repeat(32) });
   reject(null); reject([]); reject('invalid JSON');
   assert.equal(run('add', { ...base, change: 'abcdef123456' }).status, 0);

@@ -53,13 +53,17 @@ operator to do so. Never start a second owner of its state root. An explicitly a
 bundle patch needs a backup and rollback, and is not an upstream release or a live recovery until
 the actual blocked role starts. Keep project-specific recovery evidence in that project's workspace.
 
-Run the work in progress from its build, `node packages/core/dist/argus.mjs`, with `ARGUS_HOME` set
-to a scratch folder: one process owns a state root, and the operator's belongs to the Argus they
+Run the work in progress from its build, `node packages/core/dist/argus.mjs`, with `ARGUS_HOME` and
+`ARGUS_SHARED` set to the same scratch folder: one process owns a state root, and the operator's belongs to the Argus they
 run. Never `npm i -g` or `npm link` the repository, which replaces that Argus. To run the flow
 without a model, put `packages/core/test/fixtures/fake-codex.mjs` on the `PATH` as `codex`. A
 reviewer, whose workspace is read-only, type-checks with
 `npx tsc --noEmit -p packages/core/tsconfig.json` and runs the tests on the Engineer's build,
 `node --import tsx --test packages/core/test/*.test.ts`.
+
+For Windows filesystem fixtures and a built/installed CLI smoke, see
+`docs/windows-filesystem-tests.md` in the source checkout. It names the shared link helper and
+keeps capability-gated file-link assertions separate from ordinary I/O tests.
 
 ## Handing it over
 
