@@ -24,7 +24,7 @@ export class Cli {
   /** Why it is gone, once the CLI itself has exited. */
   gone: string | null = null;
   private readonly exited: Promise<void>;
-  /** Everything it started has ended too. */
+  /** Native teardown ended; Windows cannot contain descendants after their parent exits itself. */
   readonly ended: Promise<void>;
   /** Where each line it writes goes: the raw output of the turn under way. */
   raw: ((line: string) => void) | null = null;
@@ -114,7 +114,7 @@ export class Cli {
     return this.stderr.join('\n').trim() || `The backend CLI ${this.gone ?? 'stopped'}.`;
   }
 
-  /** Ends the CLI and everything it started; resolves once all of it has ended. */
+  /** Ends the CLI and its native-reachable tree; resolves once teardown returns. */
   close(): Promise<void> {
     this.closed = true;
     // Windows must start tree teardown before EOF lets a stdin-owned CLI exit.
