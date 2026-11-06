@@ -8,12 +8,13 @@
 use crate::{
     logger::DesktopLogger,
     models::{BackendState, BackendStatus, DesktopSettings},
-    process::terminate_process_tree,
     redaction::redact_sensitive_text,
     release::ReleaseContext,
     runner::{argus_home_dir, desktop_setup_complete, find_node, resolve_runner_configuration, runner_argv, NODE_MINIMUM},
     settings::SettingsStore,
 };
+#[cfg(any(not(windows), test))]
+use crate::process::terminate_process_tree;
 use reqwest::Client;
 use serde::Deserialize;
 use std::{
@@ -32,6 +33,10 @@ use tokio::{
     process::Command,
     time::timeout,
 };
+
+#[cfg(windows)]
+#[path = "stderr_windows.rs"]
+mod stderr_capture;
 
 const READY_PREFIX: &str = "Argus is at ";
 const PRIOR_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -56,6 +61,8 @@ struct Runtime {
     status: BackendStatus,
     /// The Argus process this desktop started, while it runs.
     pid: Option<u32>,
+    #[cfg(windows)]
+    tree: Option<Arc<crate::process::ProcessTree>>,
     /// Where it listens, from its first line.
     origin: Option<String>,
     /// Each start and stop begins a new generation, so a process's late
@@ -99,7 +106,11 @@ impl Runtime {
             return self.status(generation, BackendState::Stopped, "已停止", None);
         }
         match result {
-            Ok(()) => { self.pid = None; self.status(generation, BackendState::Stopped, "已停止", None) }
+            Ok(()) => {
+                self.pid = None;
+                #[cfg(windows)] { self.tree = None; }
+                self.status(generation, BackendState::Stopped, "已停止", None)
+            }
             Err(error) => self.status(generation, BackendState::Error, "无法停止本地后端", Some(format!("{error}\n未启动第二个后端。"))),
         }
     }
@@ -114,6 +125,7 @@ impl Runtime {
         if self.generation != generation { return false; }
         self.exit = Some(Exit { code, port, was_ready: self.status.state == BackendState::Ready });
         self.pid = None;
+        #[cfg(windows)] { self.tree = None; }
         self.origin = None;
         self.exit_status(generation)
     }
@@ -284,16 +296,41 @@ impl BackendSupervisor {
     }
 
     pub async fn stop(&self) -> Result<(), String> {
-        let (generation, pid) = self.runtime().begin_stop();
-        let result = if let Some(pid) = pid { terminate_process_tree(pid).await } else { Ok(()) };
-        self.update(|runtime| runtime.stopped(generation, result.clone()));
-        result
+        let (generation, pid, _tree) = {
+            let mut runtime = self.runtime();
+            let (generation, pid) = runtime.begin_stop();
+            #[cfg(windows)] let tree = runtime.tree.clone();
+            #[cfg(not(windows))] let tree = ();
+            (generation, pid, tree)
+        };
+        #[cfg(windows)]
+        let result = if pid.is_some() {
+            match _tree { Some(tree) => tree.stop().await, None => Err("Backend identity was not retained; refusing a bare-PID stop".into()) }
+        } else { Ok(None) };
+        #[cfg(not(windows))]
+        let result = if let Some(pid) = pid { terminate_process_tree(pid).await.map(|_| None::<String>) } else { Ok(None) };
+        if let Ok(Some(warning)) = &result { self.logger.warn(warning); }
+        self.update(|runtime| {
+            let changed = runtime.stopped(generation, result.clone().map(|_| ()));
+            if changed { if let Ok(Some(warning)) = &result { runtime.status.detail = Some(warning.clone()); } }
+            changed
+        });
+        result.map(|_| ())
     }
 
     /// An Argus this desktop started and lost (the desktop crashed or was
     /// killed) still holds the port. It answers `/api/meta` as authenticated
     /// only to this desktop's token, which proves it is ours to stop.
     async fn stop_prior(&self, generation: u64, settings: &DesktopSettings) -> Result<(), String> {
+        // Pin the owner before the authenticated request. Opening only after
+        // receiving a reply would leave a PID-reuse gap if that service exited.
+        #[cfg(windows)]
+        let pinned = {
+            let pid = fs::read(argus_home_dir().join("owner.json")).ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|owner| owner["pid"].as_u64()).and_then(|pid| u32::try_from(pid).ok()).filter(|pid| *pid != 0);
+            match pid { Some(pid) => crate::process::ProcessTree::open(pid)?, None => None }
+        };
         let request = self.client.get(format!("http://127.0.0.1:{}/api/meta", settings.port))
             .bearer_auth(&settings.token)
             .timeout(PRIOR_PROBE_TIMEOUT);
@@ -304,17 +341,31 @@ impl BackendSupervisor {
             if cfg!(windows) && !prior_owns_home(&meta, &argus_home_dir()) {
                 return Err("端口上的 Argus 不拥有本桌面的状态根；未停止它。请检查端口和 ARGUS_HOME。".into());
             }
+            #[cfg(windows)]
+            let tree = {
+                let mut runtime = self.runtime();
+                if runtime.generation != generation { return Ok(()); }
+                let Some(tree) = pinned.filter(|tree| tree.root_pid() == meta.runtime.pid) else {
+                    return Err("旧后端身份在探测期间发生变化；未停止任何进程，请重试。".into());
+                };
+                runtime.tree = Some(Arc::clone(&tree));
+                runtime.pid = Some(meta.runtime.pid);
+                tree
+            };
+            #[cfg(not(windows))]
             {
                 let mut runtime = self.runtime();
                 if runtime.generation != generation { return Ok(()); }
-                // A concurrent stop must know this PID too; never lose its
-                // identity while an authenticated takeover is underway.
                 runtime.pid = Some(meta.runtime.pid);
             }
             self.logger.info(format!("stopping the Argus this desktop left running (pid {})", meta.runtime.pid));
-            terminate_process_tree(meta.runtime.pid).await?;
+            #[cfg(windows)] if let Some(warning) = tree.stop().await? { self.logger.warn(warning); }
+            #[cfg(not(windows))] terminate_process_tree(meta.runtime.pid).await?;
             let mut runtime = self.runtime();
-            if runtime.generation == generation { runtime.pid = None; }
+            if runtime.generation == generation {
+                runtime.pid = None;
+                #[cfg(windows)] { runtime.tree = None; }
+            }
         }
         Ok(())
     }
@@ -329,12 +380,19 @@ impl BackendSupervisor {
     ) -> anyhow::Result<()> {
         self.logger.info(format!("starting {} {} with {}", node.display(), script.display(), settings.runner_kind.label()));
         let mut command = argus_command(node, script, runner, settings, &argus_home_dir())?;
+        #[cfg(windows)] let mut stderr = stderr_capture::StderrCapture::new()?;
+        #[cfg(windows)] command.stderr(stderr.child_stdio()?);
         let child = {
             let mut runtime = self.runtime();
             if runtime.generation != generation || crate::state(&self.app).quitting.load(std::sync::atomic::Ordering::SeqCst) { return Ok(()); }
             // Stop cannot interleave between process creation and recording
             // its PID, or it could miss the newly created process tree.
             let child = command.spawn()?;
+            #[cfg(windows)] {
+                runtime.tree = crate::process::ProcessTree::open(child.id().ok_or_else(|| anyhow::anyhow!("Backend has no PID"))?)
+                    .map_err(anyhow::Error::msg)?;
+                anyhow::ensure!(runtime.tree.is_some(), "Backend exited before its identity could be retained");
+            }
             runtime.pid = child.id();
             runtime.origin = None;
             runtime.log_tail.clear();
@@ -348,6 +406,16 @@ impl BackendSupervisor {
         }, move |line| errors.append_log(generation, &line));
         tokio::spawn(async move {
             let code = child.wait().await.ok().and_then(|status| status.code());
+            #[cfg(windows)] {
+                // Snapshot a finite regular-file tail before publishing Error.
+                // complete_setup may consume that first Error and immediately
+                // restore/restart, so a later pipe update would be too late.
+                for line in stderr.snapshot().unwrap_or_else(|error| vec![format!("无法读取后端 stderr：{error}")]) {
+                    let safe = redact_sensitive_text(&line);
+                    supervisor.logger.verbose(format!("backend stderr [generation {generation}]: {safe}"));
+                    supervisor.update(|runtime| runtime.record_line(generation, safe));
+                }
+            }
             // Root exit is authoritative even when a descendant keeps a pipe
             // open. Any late bytes refine this error via record_line.
             supervisor.update(|runtime| runtime.exited(generation, code, port));
@@ -611,6 +679,23 @@ mod tests {
         let (stopped, _) = runtime.begin_stop(); runtime.stopped(stopped, Ok(()));
         assert!(!runtime.record_line(generation, "old process data".into()));
         assert_eq!(runtime.status.state, BackendState::Stopped);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn late_output_preserves_the_first_ready_exit_classification() {
+        let mut runtime = Runtime::default();
+        let generation = runtime.begin_start().unwrap();
+        runtime.ready(generation, "http://127.0.0.1:1234".into());
+        runtime.exited(generation, Some(9), 1234);
+        runtime.record_line(generation, "late root stderr".into());
+        assert_eq!(runtime.status.message, "本地后端意外退出");
+        assert!(runtime.status.detail.as_deref().unwrap().contains("exit code: 9"));
+        let (stopped, _) = runtime.begin_stop(); runtime.stopped(stopped, Ok(()));
+        let next = runtime.begin_start().unwrap();
+        runtime.record_line(generation, "old stderr after a new start".into());
+        assert_eq!(runtime.generation, next);
+        assert_eq!(runtime.status.state, BackendState::Starting);
     }
 
     #[cfg(windows)]

@@ -65,9 +65,14 @@ Argus.exe / Argus.app (Tauri/Rust)
    工作目录是状态根；Windows 上不弹控制台窗口。
 5. Argus 开始监听后在 stdout 打印 `Argus is at <url>`。这一行是唯一的就绪信号，cockpit 的
    地址取自它；子进程退出是唯一的失败信号，启动页显示退出码和最后几行输出。宿主不轮询健康、
-   不自动重启，用户点“重试”。
+   不对同一失败候选自动重试，用户可点“重试”；设置变更失败则按既有流程恢复旧设置并重新启动旧服务。
+   Windows 将 stderr 暂存于私有、writer delete-on-close 的临时文件；
+   根退出时读取固定长度尾部快照、脱敏后再发布首个失败，因此向导立即恢复设置也不丢具体原因，
+   不等待后代关闭管道。每次快照最多读取最后 64 KiB，不是完整实时 stderr 日志；临时文件随
+   写入增长，未设文件容量上限，存活到继承 writer 关闭，delete-on-close 不依赖宿主正常析构。
+   临时原文不进入诊断包。
 6. 停止：Windows 用 `taskkill /T` 结束进程树；macOS、Linux 发 SIGTERM，Argus 收到后停下
-   正在进行的调用并归还状态根。Windows 强制停止后可能留下 stale `owner.json`，下次启动由核心核实旧 PID 已退出后替换；宿主不删除 owner 文件。Windows 使用系统目录里的 taskkill，等待保留的进程句柄而不轮询；停止失败保留具体原因，阻止启动第二个后端、正常退出和更新安装，等待用户处理。
+   正在进行的调用并归还状态根。Windows 强制停止后可能留下 stale `owner.json`，下次启动由核心核实旧 PID 已退出后替换；宿主不删除 owner 文件。Windows 使用系统目录里的 taskkill，并保留根及已观察子孙的句柄/创建身份；一次命令前后用静态快照核对子树与句柄父子身份，按原生退出事件核实，不轮询、不重试。仅全部观察进程确已退出时，命令对已结束对象的非零结果保留为警告而不误报重启失败；仍存活、无法核实时保持错误及身份，阻止启动第二后端、退出或安装。快照不是 Job Object，也不能保证追回在观察前父进程已退出的所有后代。
 
 工作台 iframe 和 Tauri shell 是两个安全域。Tauri IPC 只存在于本地 shell；iframe
 只可通过 `postMessage` 发送长度受限的交付通知数据。父窗口同时验证消息来源必须是
@@ -216,7 +221,8 @@ Linux `.AppImage`/`.deb`）。
 
 - **需要 Node.js 22.12.0 或更高版本**：见上文；装好后点“重试”。用 nvm 等版本管理器时，确认
   默认版本不低于 22.12.0。
-- **本地后端启动失败**：启动页显示退出码和最后几行输出，完整输出在 desktop log。
+- **本地后端启动失败**：启动页显示退出码、中文说明及诊断尾部。desktop log 保留脱敏 stdout；
+  Windows stderr 在根退出时追加最后最多 64 KiB 的快照，不是完整输出；macOS/Linux 仍逐行记录。
   `listen EADDRINUSE` 表示端口被别的程序占用，在 **文件 → 设置** 换一个端口；
   `... is in use by process N` 表示另一个 Argus（例如终端里用同一 `ARGUS_HOME` 运行的
   `argus`）占着状态根，先停掉它。

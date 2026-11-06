@@ -1,14 +1,19 @@
+#[cfg(not(windows))]
 use std::process::Stdio;
 #[cfg(not(windows))]
 use std::time::{Duration, Instant};
+#[cfg(not(windows))]
 use tokio::process::Command;
 #[cfg(not(windows))]
 use tokio::time::sleep;
 
 #[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
+#[path = "process_windows.rs"]
+mod windows;
 #[cfg(windows)]
+pub use windows::ProcessTree;
+
+#[cfg(all(windows, test))]
 pub fn is_process_alive(pid: u32) -> bool {
     use windows_sys::Win32::{
         Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER},
@@ -39,38 +44,14 @@ pub fn is_process_alive(pid: u32) -> bool {
 
 /// End the retained backend's tree while its root is still running. Windows
 /// taskkill cannot discover descendants after a root has already self-exited.
+#[cfg(any(not(windows), test))]
 pub async fn terminate_process_tree(pid: u32) -> Result<(), String> {
     if pid == 0 { return Err("Refusing to stop PID 0".into()); }
     if !is_process_alive(pid) { return Ok(()); }
     #[cfg(windows)]
     {
-        use std::{os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle}, path::PathBuf};
-        use windows_sys::Win32::{
-            Foundation::WAIT_OBJECT_0,
-            System::Threading::{OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE},
-        };
-        let system = std::env::var_os("SystemRoot").or_else(|| std::env::var_os("WINDIR"))
-            .filter(|root| !root.is_empty()).ok_or("Unable to terminate process tree: SystemRoot is not set")?;
-        let executable = PathBuf::from(system).join("System32").join("taskkill.exe");
-        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
-        if handle.is_null() { return Err(format!("Cannot retain backend PID {pid}: {}", std::io::Error::last_os_error())); }
-        let handle = unsafe { OwnedHandle::from_raw_handle(handle) };
-        let mut command = Command::new(&executable);
-        command.creation_flags(CREATE_NO_WINDOW);
-        let output = command.args(["/pid", &pid.to_string(), "/t", "/f"])
-            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-            .output().await.map_err(|error| format!("Cannot run {} for PID {pid}: {error}", executable.display()))?;
-        if !output.status.success() {
-            return Err(format!("{} failed for PID {pid} (exit {}): {} {}", executable.display(),
-                output.status.code().map_or_else(|| "none".into(), |code| code.to_string()),
-                String::from_utf8_lossy(&output.stdout).trim(), String::from_utf8_lossy(&output.stderr).trim()));
-        }
-        // Retaining the process handle pins its identity. Wait for the exit
-        // event instead of repeatedly polling a PID, and always reap taskkill.
-        tokio::task::spawn_blocking(move || {
-            if (unsafe { WaitForSingleObject(handle.as_raw_handle(), 5_000) }) == WAIT_OBJECT_0 { Ok(()) }
-            else { Err(format!("Backend PID {pid} did not signal exit after taskkill")) }
-        }).await.map_err(|error| error.to_string())?
+        if let Some(tree) = ProcessTree::open(pid)? { tree.stop().await?; }
+        Ok(())
     }
     #[cfg(not(windows))]
     {

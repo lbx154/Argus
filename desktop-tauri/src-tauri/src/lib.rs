@@ -531,7 +531,15 @@ async fn apply_setup(app: &AppHandle, input: CompleteSetupInput) -> SetupResult 
     if let Err(error) = app_state.settings.replace(previous) {
         return SetupResult::error(format!("启动失败且原设置恢复失败：{error}"));
     }
+    #[cfg(windows)]
+    return SetupResult::error(setup_failure(&status));
+    #[cfg(not(windows))]
     SetupResult::error(status.detail.unwrap_or(status.message))
+}
+
+#[cfg(windows)]
+fn setup_failure(status: &crate::models::BackendStatus) -> String {
+    match &status.detail { Some(detail) => format!("{}\n{detail}", status.message), None => status.message.clone() }
 }
 
 #[tauri::command]
