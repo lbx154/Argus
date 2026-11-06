@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { appendFileSync, createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { mergeEnv } from '../commands.js';
 import type { PayloadSchema } from '@argus/contracts';
 import { KEPT, type AgentRequest, type AgentResult, type Backend, type CallAgent, type Step, type Usage } from '../types.js';
 import { claude } from './claude.js';
@@ -66,9 +67,14 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
   try {
     const temp = tempRoot;
     const conversation = START[request.backend](request, { confined, schema: formSchema(request.form, request.giver), stem });
-    const argv = confined ? confine([request.backend, ...conversation.args], request, temp) : [...launcher(request.backend), ...conversation.args];
+    const tempEnv = temp && !confined ? { TMPDIR: temp, ...process.platform === 'win32' ? { TMP: temp, TEMP: temp } : {} } : {};
+    const env = mergeEnv(agentEnv(request.backend), conversation.env ?? {}, tempEnv,
+      request.letters ? { ARGUS_LETTERS: request.letters } : {}, request.env ?? {},
+      // On Windows a caller's temp setting cannot replace the native Reviewer's directory.
+      process.platform === 'win32' ? tempEnv : {});
+    const argv = confined ? confine([request.backend, ...conversation.args], request, temp) : [...launcher(request.backend, env, request.cwd), ...conversation.args];
     const started: Live = {
-      cli: new Cli(argv, request.cwd, { ...agentEnv(request.backend), ...conversation.env, ...temp && !confined ? { TMPDIR: temp, ...process.platform === 'win32' ? { TMP: temp, TEMP: temp } : {} } : {}, ...request.letters ? { ARGUS_LETTERS: request.letters } : {}, ...request.env }),
+      cli: new Cli(argv, request.cwd, env),
       conversation, settings: settings(request), thread: request.resume ?? null, tempRoot,
     };
     live.set(key, started);
@@ -132,7 +138,7 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
       // A refused form says why; a failed turn its cause, in order: a CLI not installed, a stop,
       // the backend's own words, the CLI's.
       ...refusal(request.backend, typeof verdict === 'string' ? verdict : ended.completed ? null
-        : notInstalled(request.backend) ?? (request.signal?.aborted ? 'Run cancelled.' : null) ?? ended.error ?? cli.why()),
+        : notInstalled(request.backend, mergeEnv(agentEnv(request.backend), request.env ?? {}), request.cwd) ?? (request.signal?.aborted ? (process.platform === 'win32' ? cli.gone : null) ?? 'Run cancelled.' : null) ?? ended.error ?? cli.why()),
     };
     // What a call used, as its backend reported it; one it reported nothing for (a stopped turn) adds nothing.
     if (result.usage) {

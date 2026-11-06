@@ -44,7 +44,11 @@ export class Cli {
         executable: argv[0]!, args: argv.slice(1), cwd, env, input, signal: this.stop.signal,
         onExit: (code, signal) => { this.gone ??= `exited with ${code ?? signal}`; exit(); },
       })) {
-        if (item.type === 'exit') { this.gone ??= item.error ?? `exited with ${item.code ?? item.signal}`; continue; }
+        if (item.type === 'exit') {
+          // On Windows a tree-teardown failure can arrive after the root's exit event.
+          this.gone = (process.platform === 'win32' ? item.error : null) ?? this.gone ?? item.error ?? `exited with ${item.code ?? item.signal}`;
+          continue;
+        }
         this.raw?.(item.stream === 'stdout' ? item.line : JSON.stringify({ stderr: item.line }));
         if (item.stream === 'stderr') { if (this.stderr.push(item.line) > 20) this.stderr.shift(); continue; }
         let message: unknown;
@@ -113,8 +117,9 @@ export class Cli {
   /** Ends the CLI and everything it started; resolves once all of it has ended. */
   close(): Promise<void> {
     this.closed = true;
-    this.wake();
-    this.stop.abort();
+    // Windows must start tree teardown before EOF lets a stdin-owned CLI exit.
+    if (process.platform === 'win32') { this.stop.abort(); this.wake(); }
+    else { this.wake(); this.stop.abort(); }
     return this.ended;
   }
 }

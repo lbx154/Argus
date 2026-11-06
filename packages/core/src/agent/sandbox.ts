@@ -3,11 +3,13 @@
 // only the CLI's login and settings are brought. The operator may register more environment values.
 
 import { spawnSync } from 'node:child_process';
-import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { argusHome } from '../store.js';
 import { credentials } from '../credentials.js';
+import { findExecutable as which, mergeEnv } from '../commands.js';
+export { launcher } from '../commands.js';
 import type { AgentRequest, Backend } from '../types.js';
 
 
@@ -31,17 +33,6 @@ const outermost = (paths: string[]): string[] => [...new Set(paths)].sort((a, b)
 /** A path as the CLI may name it: as given and resolved. */
 const namedAs = (path: string): string[] => [...new Set([resolve(path), real(path)])];
 
-function which(name: string): string | null {
-  // Windows finds a command by the extensions PATHEXT lists.
-  const extensions = process.platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';') : [''];
-  const candidates = name.includes(sep) ? [name]
-    : (process.env.PATH ?? '').split(delimiter).filter(Boolean).flatMap(dir => extensions.map(extension => join(dir, name + extension)));
-  for (const candidate of candidates) {
-    try { accessSync(candidate, constants.X_OK); if (isFile(candidate)) return candidate; } catch { /* not this one */ }
-  }
-  return null;
-}
-
 const INSTALL: Record<Backend, string> = {
   codex: 'npm install -g @openai/codex@latest',
   claude: 'npm install -g @anthropic-ai/claude-code',
@@ -58,19 +49,8 @@ export const SIGN_IN: Record<Backend, string> = {
 };
 
 /** Why a call could not start its CLI, when it is not on PATH: with how to install it. */
-export function notInstalled(backend: Backend): string | null {
-  return which(backend) ? null : `${backend} is not installed (not found on PATH). Install it with: ${INSTALL[backend]}`;
-}
-
-/** How to start the CLI `name` with no shell. On Windows npm installs it as a .cmd shim, which only
- * cmd.exe runs, reparsing every argument: the shim's target is run instead, a script by this node. */
-export function launcher(name: string): string[] {
-  const found = which(name);
-  if (!found || !/\.(cmd|bat)$/i.test(found)) return [found ?? name];
-  const target = [...read(found).matchAll(/"%~?dp0%?\\([^"]+)"/g)].at(-1)?.[1];
-  if (!target) return [found];
-  const file = join(dirname(found), target);
-  return /\.(exe|com)$/i.test(file) ? [file] : [process.execPath, file];
+export function notInstalled(backend: Backend, env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()): string | null {
+  return which(backend, process.platform === 'win32' ? env : process.env, cwd) ? null : `${backend} is not installed (not found on PATH). Install it with: ${INSTALL[backend]}`;
 }
 
 /** The login files the CLI refreshes, the settings it only reads, and the variables it signs in with. */
@@ -108,7 +88,7 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
   // Files the config names for codex to read before its first turn; one missing fails the call.
   const named = values('model_catalog_json|model_instructions_file|experimental_compact_prompt_file|experimental_instructions_file')
     .map(value => value.startsWith('~/') ? join(homedir(), value.slice(2)) : resolve(dir, value));
-  const keys = new Set(['OPENAI_API_KEY', 'CODEX_API_KEY', ...values('env_key')]);
+  const keys = new Set(['OPENAI_API_KEY', 'CODEX_API_KEY', ...values('env_key')].map(name => process.platform === 'win32' ? name.toUpperCase() : name));
   return {
     login: [join(dir, 'auth.json')], settings: [join(dir, 'config.toml'), join(dir, 'AGENTS.md'), ...named],
     signsInWith: name => keys.has(name),
@@ -118,11 +98,9 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
 /** The CLI's login environment and the operator's registrations; other credentials stay out. */
 export function agentEnv(backend: Backend): Record<string, string> {
   const { signsInWith } = cliSetup(backend);
-  const kept: Record<string, string> = {};
-  for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined && (signsInWith(name) || !/^(GH_|GITHUB_)|^(SSH_AUTH_SOCK|GIT_ASKPASS)$|TOKEN|SECRET|KEY/i.test(name))) kept[name] = value;
-  }
-  return { ...kept, ...credentials() };
+  const kept = Object.fromEntries(Object.entries(process.env).filter(([name, value]) => value !== undefined
+    && (signsInWith(process.platform === 'win32' ? name.toUpperCase() : name) || !/^(GH_|GITHUB_)|^(SSH_AUTH_SOCK|GIT_ASKPASS)$|TOKEN|SECRET|KEY/i.test(name))));
+  return mergeEnv(kept, credentials());
 }
 
 /** Where agents working in `cwd` keep `path`, a file of their home or of Argus's. */

@@ -17,6 +17,7 @@ import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 const args = process.argv.slice(2);
+if (args.includes('--version')) { console.log('fake-cli 1.0'); process.exit(0); }
 const cli = args[0] === 'app-server' ? 'codex' : args.includes('--plugin-dir') || args.includes('--acp') ? 'copilot' : args.includes('--extension') || args.includes('rpc') ? 'pi' : 'claude';
 const emit = event => process.stdout.write(`${JSON.stringify(event)}\n`);
 const option = name => args[args.indexOf(name) + 1];
@@ -62,6 +63,7 @@ function leave(scenario) {
 
 const scenarioOf = text => {
   const scenario = JSON.parse(text.trimEnd().split('\n').at(-1));
+  if (scenario.envProbe) scenario.output.letter = JSON.stringify(Object.fromEntries(scenario.envProbe.map(name => [name, process.env[name] ?? null])));
   if (scenario.nativeTemp) {
     const path = tmpdir();
     writeFileSync(join(path, 'review-sentinel'), 'private');
@@ -82,6 +84,7 @@ if (cli === 'codex') {
   createInterface({ input: process.stdin }).on('line', line => {
     const { id, method, params } = JSON.parse(line);
     if (method === 'initialize') return reply(id, { userAgent: 'fake' });
+    if (method === 'model/list') return reply(id, { data: [{ model: 'fake-default', isDefault: true }, { model: 'fake-other', isDefault: false }] });
     if (method === 'thread/resume' && params.threadId === 'gone') return emit({ id, error: { code: -32600, message: 'no rollout found for thread id gone' } });
     if (method === 'thread/start' || method === 'thread/resume') {
       thread = method === 'thread/resume' ? params.threadId : uuid7();
@@ -193,6 +196,14 @@ if (cli === 'codex') {
     const output = scenario.output;
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answerOf(output), ...typeof output === 'object' ? { structured_output: output } : {} });
+  });
+} else if (cli === 'copilot' && args.includes('--acp')) {
+  createInterface({ input: process.stdin }).on('line', line => {
+    const { id, method } = JSON.parse(line);
+    const result = method === 'session/new' ? { models: { currentModelId: 'fake-default', availableModels: [
+      { modelId: 'fake-default' }, { modelId: 'fake-other' }, { modelId: 'fake-other' },
+    ] } } : {};
+    emit({ jsonrpc: '2.0', id, result });
   });
 } else {
   const input = readFileSync(0, 'utf8');

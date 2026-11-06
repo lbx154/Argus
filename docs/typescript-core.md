@@ -466,9 +466,13 @@ authenticated `/api/settings/credentials` route reads only names, writes one nam
 with PUT, and deletes a name with DELETE on `/api/settings/credentials/<name>`. Settings clears
 the inputs after saving and whenever it closes; saved values are never sent back to the page.
 
-Starting the CLI: no shell is involved. On Windows npm installs a CLI as a `.cmd` shim, which
-only `cmd.exe` runs; the agent layer runs the file the shim names instead, a script with
-Node.
+Starting the CLI: no shell is involved. `commands.ts` shares native lookup and environment
+merging with pack setup and team tools. Windows lookup uses the child's effective `Path`/`PATH`,
+`PATHEXT` and cwd; case-equivalent environment registrations replace rather than duplicate one
+another. npm `.cmd`/`.bat` shims and Node wrappers naming a `%dp0%`/`%~dp0` target run that
+script with Node (or its native `.exe`/`.com` target), retaining a fixed bare-word argument
+prefix where present. Arbitrary batch commands or shell expansion are not interpreted; Settings
+reports an unsupported shim as a launch error instead of invoking a shell.
 
 A session ends, and everything its CLI started with it, when its task closes, its project
 stops or comes to rest with no question or failure waiting in it, Argus exits, a turn on it is
@@ -481,7 +485,13 @@ started however it detached (`nohup … &`, `setsid`): the CLI's environment car
 `ARGUS_TURN`, a value of its own that whatever it starts inherits, and the runtime ends what
 carries it or stays in the CLI's process group (`executeProcess`); under bubblewrap the sandbox
 ends with the CLI. On Windows a process cannot read another's environment and Node has no job
-object, so ending reaches the CLI's process tree (`taskkill /T`) only while the CLI runs.
+object, so ending reaches the CLI's process tree only while the CLI runs. Teardown invokes the
+system's `System32/taskkill.exe /T /F`, not a command chosen by PATH or the workdir, and keeps
+stdin open until that command has enumerated the tree: persistent CLIs otherwise exit on EOF
+before their detached descendants can be reached. A CLI that exits by itself before cancellation
+can still leave an ignored-pipe descendant running; Windows has no job-object containment here.
+Native reviewer temp is not an OS isolation boundary either. Tests exercise live-tree cleanup,
+the stdin-exit race and the remaining post-exit limitation separately.
 
 ## The package
 

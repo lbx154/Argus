@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join, win32 } from 'node:path';
@@ -9,8 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema, judge } from '../src/agent/handoff.js';
-import { confine, privatePath, sandboxed } from '../src/agent/sandbox.js';
+import { agentEnv, confine, privatePath, sandboxed } from '../src/agent/sandbox.js';
 import { writing } from '../src/agent/steps.js';
+import { envValue, mergeEnv } from '../src/commands.js';
 import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend, type Step } from '../src/index.js';
 
 // The fake CLIs stand in for every backend on PATH, installed as npm installs a node CLI: a
@@ -219,7 +220,8 @@ for (const backend of BACKENDS) {
     const server = createServer().listen(0, '127.0.0.1').unref();
     await once(server, 'listening');
     const controller = new AbortController();
-    const pending = call(backend, { hang: (server.address() as AddressInfo).port }, { signal: controller.signal });
+    const session = `p-cancel/${backend}.engineer`;
+    const pending = call(backend, { hang: (server.address() as AddressInfo).port }, { signal: controller.signal, session });
     const [job] = await once(server, 'connection') as [Socket];
     job.unref().on('error', () => {}).resume();
     controller.abort();
@@ -230,6 +232,11 @@ for (const backend of BACKENDS) {
       assert.ok(waited < 10_000, 'the job outlived the call');
       await new Promise(resolve => setTimeout(resolve, 50));
     }
+    const reopened = await call(backend, { output: handoff }, { session, ...result.threadId ? { resume: result.threadId } : {} });
+    assert.equal(reopened.completed, true, reopened.error ?? 'session did not reopen after stop');
+    assert.equal(reopened.handoff?.to, 'reviewer');
+    await callAgent.close!(session);
+    server.close();
   });
 }
 
@@ -240,10 +247,8 @@ const jobs = (): string[] => ['nohup', 'setsid'].map(how => {
   rmSync(file);
   return noted;
 });
-const unseen = process.platform === 'win32' && 'Windows shows a turn nothing its CLI started once the CLI has exited';
-
 for (const backend of ['codex', 'claude'] as const) {
-  test(`${backend}: a session's turns go to one CLI, what a turn leaves running runs on into the next, and the session's end ends it`, { skip: unseen, timeout: 30_000 }, async t => {
+  test(`${backend}: a session's turns go to one CLI, what a turn leaves running runs on into the next, and the session's end ends it`, { timeout: 30_000 }, async t => {
     const server = createServer().listen(0, '127.0.0.1').unref();
     await once(server, 'listening');
     const held: Socket[] = [];
@@ -358,7 +363,7 @@ for (const backend of ['codex'] as const) {
   });
 }
 
-test('stopping a turn ends what it started, however it was detached', { skip: unseen, timeout: 30_000 }, async () => {
+test('stopping a turn while its CLI lives ends the tree, including detached descendants', { timeout: 30_000 }, async () => {
   const server = createServer().listen(0, '127.0.0.1').unref();
   await once(server, 'listening');
   const held: Socket[] = [];
@@ -377,6 +382,44 @@ test('stopping a turn ends what it started, however it was detached', { skip: un
     await new Promise(resolve => setTimeout(resolve, 50));
   }
   assert.deepEqual(jobs(), ['started\n', 'started\n']);
+});
+
+test('backend model queries run over the same native launcher, once per backend', async () => {
+  for (const backend of ['codex', 'copilot'] as const) {
+    assert.deepEqual(await callAgent.models!(backend, work), [{ model: 'fake-default', default: true }, { model: 'fake-other', default: false }]);
+    assert.deepEqual(await callAgent.models!(backend, work), [{ model: 'fake-default', default: true }, { model: 'fake-other', default: false }]);
+  }
+  assert.deepEqual(await callAgent.models!('pi', work), []);
+  assert.deepEqual((await callAgent.models!('claude', work)).map(row => row.model), ['opus', 'sonnet', 'haiku']);
+});
+
+test('Windows login filtering recognises mixed-case provider variable names without admitting other secrets', { skip: process.platform !== 'win32' }, t => {
+  const saved = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  process.env.Anthropic_Api_Key = 'synthetic-login';
+  t.after(() => { delete process.env.Anthropic_Api_Key; if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved; });
+  for (const backend of ['pi', 'claude'] as const) {
+    const env = agentEnv(backend);
+    assert.equal(envValue(env, 'ANTHROPIC_API_KEY'), 'synthetic-login');
+    assert.equal(envValue(env, 'MY_SECRET'), undefined);
+    assert.equal(envValue(env, 'GH_TOKEN'), undefined);
+  }
+});
+
+test('native child environment keeps the last Windows spelling; explicit credentials and literal values reach all four backends', async t => {
+  const registered = join(root, 'argus', 'credentials.json');
+  mkdirSync(dirname(registered), { recursive: true });
+  writeFileSync(registered, JSON.stringify({ ARGUS_TEST_REGISTERED_SECRET: 'literal % ! 中文 & value' }));
+  t.after(() => rmSync(registered, { force: true }));
+  const env = process.platform === 'win32' ? { Path: bin, argus_test_variable: 'explicit' } : { PATH: bin, ARGUS_TEST_VARIABLE: 'explicit' };
+  const combined = mergeEnv({ PATH: 'old', ARGUS_TEST_VARIABLE: 'old' }, env);
+  assert.equal(envValue(combined, 'PATH'), bin);
+  if (process.platform === 'win32') assert.equal(Object.keys(combined).filter(name => name.toUpperCase() === 'PATH').length, 1);
+  for (const backend of BACKENDS) {
+    const result = await call(backend, { envProbe: ['PATH', 'ARGUS_TEST_VARIABLE', 'ARGUS_TEST_REGISTERED_SECRET', 'GH_TOKEN', 'MY_SECRET'], output: handoff }, { env: combined });
+    assert.equal(result.completed, true, result.error ?? 'startup failed');
+    assert.deepEqual(JSON.parse(result.handoff!.letters[0]!), { PATH: bin, ARGUS_TEST_VARIABLE: 'explicit', ARGUS_TEST_REGISTERED_SECRET: 'literal % ! 中文 & value', GH_TOKEN: null, MY_SECRET: null });
+  }
 });
 
 test('a CLI not on PATH says how to install it', async () => {
@@ -428,7 +471,7 @@ test('the recorded Windows reviewer starts with native private temp and cleans i
     const session = `p-native/${backend}.reviewer`;
     const output = { to: 'manager', letter: 'native temp probe', open: [] };
     // Remap only the recorded workdir to the fixture's scratch workdir; use its actual role/access/form.
-    const result = await call(backend, { nativeTemp: true, output }, { ...request, backend, session });
+    const result = await call(backend, { nativeTemp: true, output }, { ...request, backend, session, env: process.platform === 'win32' ? { TMPDIR: 'must-not-replace-private-review-temp', TMP: 'must-not-replace-private-review-temp', TEMP: 'must-not-replace-private-review-temp' } : undefined });
     assert.equal(result.completed, true, result.error ?? 'review failed before CLI startup');
     const probe = JSON.parse(result.handoff!.letters[0]!) as { path: string; TMPDIR: string; TMP: string; TEMP: string };
     assert.equal(dirname(probe.path), tmpdir());
@@ -446,6 +489,15 @@ test('the recorded Windows reviewer starts with native private temp and cleans i
     paths.add(failedTemp);
     await callAgent.close!(session);
     assert.equal(existsSync(failedTemp), false, 'failed reviews also remove their private directory');
+  }
+  if (process.platform === 'win32') {
+    const badBin = join(root, 'bad launcher');
+    mkdirSync(badBin);
+    writeFileSync(join(badBin, 'pi.cmd'), '@echo off\r\ncall "unsupported.exe" %*\r\n');
+    assert.deepEqual(readdirSync(nativeRoot), []);
+    await assert.rejects(call('pi', { output: { to: 'manager', letter: 'must not run', open: [] } },
+      { ...request, backend: 'pi', env: { PATH: badBin } }), /without a shell/);
+    assert.deepEqual(readdirSync(nativeRoot), [], 'an exception before CLI creation also removes reviewer temp');
   }
 });
 

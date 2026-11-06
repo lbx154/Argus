@@ -56,7 +56,10 @@ the actual blocked role starts. Keep project-specific recovery evidence in that 
 Run the work in progress from its build, `node packages/core/dist/argus.mjs`, with `ARGUS_HOME` and
 `ARGUS_SHARED` set to the same scratch folder: one process owns a state root, and the operator's belongs to the Argus they
 run. Never `npm i -g` or `npm link` the repository, which replaces that Argus. To run the flow
-without a model, put `packages/core/test/fixtures/fake-codex.mjs` on the `PATH` as `codex`. A
+without a model, put `packages/core/test/fixtures/fake-codex.mjs` on the `PATH` as `codex`.
+On Windows use an npm-style `.cmd` shim naming that Node file; a POSIX link or extensionless
+shebang alone is not a Windows CLI installation. In a shared checkout, coordinate builds so
+one task does not replace the `dist/` another is testing. A
 reviewer, whose workspace is read-only, type-checks with
 `npx tsc --noEmit -p packages/core/tsconfig.json` and runs the tests on the Engineer's build,
 `node --import tsx --test packages/core/test/*.test.ts`.
