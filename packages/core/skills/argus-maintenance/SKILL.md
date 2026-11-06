@@ -21,7 +21,11 @@ rules follow, and each is a reason to turn a change away.
   make the code simpler is not worth making.
 - **Argus is not a parent.** What the backend already does, Argus does not build in: waiting,
   running work in the background, polling, timeouts, deciding a turn is stuck, retrying. Add no
-  wait, poll, watchdog or retry, and delete one you find. A failure is recorded as it happened.
+  agent-orchestration wait, poll, watchdog or retry. A failure is recorded as it happened.
+  Cleanup stays within the current task's scope and existing persistence contracts: a
+  compatibility fix does not authorize changing persistence or scheduling semantics. Remove
+  existing mechanisms only when that change is authorized by the task, not just because this
+  rule mentions waits or retries.
 - **One fact, one place.** A fact lives in one place, with no copy or digest of it beside it: a
   project's state is in `project.json`, and `events.jsonl` records changes without ever being
   folded back into state. A rule is written once, in a role's prompt, the hand-off form's schema

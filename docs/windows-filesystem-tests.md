@@ -42,8 +42,6 @@ atomic-replace policy (Windows busy errors retried every 20 ms, up to 2 s) is un
 A persistent lock then fails visibly, leaves the previous JSON readable, and the HTTP API
 reports the error. The next explicit save after releasing the handle succeeds; there is no
 unlink-before-rename fallback. Native `realpath`/`relative` checks remain in place.
-Compatibility work does not authorize changing existing persistence or scheduling policy,
-even when a maintenance skill suggests general cleanup.
 
 ## Built/installed entry point
 
