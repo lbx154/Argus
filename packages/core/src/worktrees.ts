@@ -5,7 +5,7 @@
 // and keeps one holding work the workspace lacks.
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /** Where a workspace keeps its tasks' worktrees, hidden from the operator's file view. */
@@ -48,17 +48,22 @@ export function makeWorktree(workdir: string, id: string): { dir: string; base: 
 }
 
 /** At a task's close: removes its worktree when the workspace holds every change made in it since
- * `base`, so finished tasks leave no copies behind. True when the worktree is gone. */
+ * `base`, so finished tasks leave no copies behind. A folder git no longer lists is what remains of
+ * one the task removed itself, kept by its sandbox's mount; that goes too. True when it is gone. */
 export function releaseWorktree(workdir: string, dir: string, base: string): boolean {
   if (existsSync(dir)) {
-    const paths = (from: string, to: string) => git(workdir, ['diff', '--no-renames', '--name-only', '-z', from, to]).split('\0').filter(Boolean);
-    const own = snapshot(dir);
-    const changed = paths(base, own);
-    if (changed.length) {
-      const differs = new Set(paths(own, snapshot(workdir)));
-      if (changed.some(path => differs.has(path))) return false;
+    const listed = git(workdir, ['worktree', 'list', '--porcelain']).split('\n').includes(`worktree ${realpathSync.native(dir)}`);
+    if (!listed) rmSync(dir, { recursive: true, force: true });
+    else {
+      const paths = (from: string, to: string) => git(workdir, ['diff', '--no-renames', '--name-only', '-z', from, to]).split('\0').filter(Boolean);
+      const own = snapshot(dir);
+      const changed = paths(base, own);
+      if (changed.length) {
+        const differs = new Set(paths(own, snapshot(workdir)));
+        if (changed.some(path => differs.has(path))) return false;
+      }
+      git(workdir, ['worktree', 'remove', '--force', dir]);
     }
-    git(workdir, ['worktree', 'remove', '--force', dir]);
   }
   git(workdir, ['worktree', 'prune']);
   return true;

@@ -54,6 +54,13 @@ test('at close a worktree goes once the workspace holds its every change, and st
   const gone = makeWorktree(dir, 't3');
   rmSync(gone.dir, { recursive: true, force: true });
   assert.equal(releaseWorktree(dir, gone.dir, gone.base), true);
+  // One the task removed with git, whose folder its sandbox's mount kept, leaves nothing behind,
+  // even work the workspace lacks: removing it was the task's call.
+  const remnant = makeWorktree(dir, 't4');
+  writeFileSync(join(remnant.dir, 'scratch.txt'), 'discarded\n');
+  rmSync(join(dir, '.git', 'worktrees', 't4'), { recursive: true, force: true });
+  assert.equal(releaseWorktree(dir, remnant.dir, remnant.base), true);
+  assert.ok(!existsSync(remnant.dir));
 });
 
 test('a folder that is not the top of a git checkout gets no worktree', t => {
