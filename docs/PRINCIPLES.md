@@ -193,6 +193,11 @@ These are currently sensible policies, not eternal principles:
 - one independent review of a frozen final candidate follows principle 5;
 - the runtime snapshots the workspace and gives the Reviewer the change since
   the last accepted state follows principles 1 and 5;
+- a task working beside another gets a git worktree of its own; whether to
+  bring its changes back to the workspace, and whether to keep or delete the
+  worktree, are the task's decisions. The runtime makes the worktree, lets the
+  task delete it from inside its sandbox, and forgets one deleted; it never
+  judges or deletes for the task. This follows principle 1;
 - acceptance criteria written before execution, verdicts given per criterion,
   and out-of-scope concerns kept as follow-ups follow principles 5 and 7;
 - one append-only record per actor, with runtime interventions recorded as the

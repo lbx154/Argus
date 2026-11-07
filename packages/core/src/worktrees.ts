@@ -1,10 +1,10 @@
 // A task that begins while another works in the workspace gets a git worktree of its own, so that
 // tasks side by side do not overwrite each other's files. Argus makes it from the workspace as it is
-// then, uncommitted and new files included. Bringing the changes back to the workspace is the task's
-// own work; when the task closes, Argus removes the worktree, whatever is still in it.
+// then, uncommitted and new files included. Whether to bring its changes back to the workspace, and
+// whether to keep or delete the worktree, are the task's to decide; Argus only forgets one deleted.
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /** Where a workspace keeps its tasks' worktrees, hidden from the operator's file view. */
@@ -46,8 +46,9 @@ export function makeWorktree(workdir: string, id: string): { dir: string; base: 
   return { dir, base };
 }
 
-/** At a task's close: its worktree goes, whatever is still in it, and git's record of it with it. */
-export function releaseWorktree(workdir: string, dir: string): void {
-  rmSync(dir, { recursive: true, force: true });
+/** Whether the task deleted its worktree; if so, git's record of it is dropped too. */
+export function forgetWorktree(workdir: string, dir: string): boolean {
+  if (existsSync(dir)) return false;
   git(workdir, ['worktree', 'prune']);
+  return true;
 }

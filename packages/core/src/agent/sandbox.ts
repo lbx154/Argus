@@ -198,9 +198,12 @@ export function confine(argv: string[], request: AgentRequest, temp?: string): s
   };
   for (const file of login) bind(file, true);
   for (const file of settings) bind(file, false);
-  for (const dir of given) bind(dir, writes.includes(dir));
-  // A linked worktree's pointer stays put.
-  if (isFile(join(cwd, '.git'))) bind(join(cwd, '.git'), false);
+  // A directory inside one mounted alike is reached through it, not mounted again: a mount point
+  // cannot be deleted from inside, and a task's worktree is the task's to delete.
+  for (const dir of given) {
+    const writable = writes.includes(dir);
+    if (!given.some(outer => outer !== dir && within(dir, outer) && writes.includes(outer) === writable)) bind(dir, writable);
+  }
   const ordered = [...new Map(mounts.map(mount => [mount.join('\0'), mount])).values()]
     .sort((a, b) => depth(a[1]) - depth(b[1]) || Number(a[0] !== a[1]) - Number(b[0] !== b[1]));
   return [

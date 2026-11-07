@@ -17,7 +17,7 @@ import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question
 import { answered, copied, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
-import { isCheckout, makeWorktree, releaseWorktree } from './worktrees.js';
+import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
 import { letterbox } from './letters.js';
 import { keepLibrary } from './libraryHistory.js';
 import { packEnv, prepare } from './packSetup.js';
@@ -606,8 +606,8 @@ export class Flow {
     this.record(project, { type: 'task.closed', task: task.id });
     if (typeof task.place === 'object') {
       try {
-        releaseWorktree(project.workdir, task.place.dir);
-        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, removed: true });
+        const deleted = forgetWorktree(project.workdir, task.place.dir);
+        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, ...deleted ? { removed: true } : { kept: true } });
       } catch (error) { this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, error: String(error) }); }
     }
     void this.callAgent.close?.(`${project.id}/${task.id}.`);

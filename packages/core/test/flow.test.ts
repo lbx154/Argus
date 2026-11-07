@@ -1249,13 +1249,13 @@ test('a task that begins while another works in a git workspace works in a workt
   assert.equal(second.cwd, join(home, '.argus-worktrees', 't2'));
   assert.ok(second.writeDirs?.includes(home));
   assert.match(second.prompt, /## Where this task works\nIn .*\.argus-worktrees[\\/]t2, a git worktree of the workspace .* because t1 works in the workspace itself/);
-  assert.match(second.prompt, /When the task closes, Argus deletes the worktree, whatever is still in it/);
-  // Made from the workspace as it was, uncommitted files included; at its close it goes.
+  assert.match(second.prompt, /whether to keep the worktree or delete it \(`git worktree remove`\), are the task's to decide/);
+  // Made from the workspace as it was, uncommitted files included; the task did not delete it, so it stays.
   const made = events().find(event => event.type === 'task.worktree' && event.base);
   assert.ok(made);
   assert.deepEqual(project.tasks.map(task => typeof task.place === 'object' ? task.id : task.place), ['workspace', 't2']);
-  assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.removed));
-  assert.ok(!existsSync(join(home, '.argus-worktrees', 't2')));
+  assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.kept));
+  assert.ok(existsSync(join(home, '.argus-worktrees', 't2')));
 });
 
 test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {

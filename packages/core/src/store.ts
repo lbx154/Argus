@@ -129,7 +129,7 @@ export type FlowEvent =
   | { type: 'letter'; role: Role; task?: string; to: string[]; cc: string[]; text: string }
   | { type: 'task.added'; task: Task }
   | { type: 'task.closed'; task: string }
-  | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; error?: string }
+  | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; kept?: true; error?: string }
   | ({ type: 'step'; role: Role; task?: string } & Step)
   | { type: 'status'; status: Status; error?: string };
 

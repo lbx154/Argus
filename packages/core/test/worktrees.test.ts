@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isCheckout, makeWorktree, releaseWorktree } from '../src/worktrees.js';
+import { confine, sandboxed } from '../src/agent/sandbox.js';
+import { forgetWorktree, isCheckout, makeWorktree } from '../src/worktrees.js';
 
 function repo(t: { after: (fn: () => void) => void }): string {
   const dir = mkdtempSync(join(tmpdir(), 'argus-wt-'));
@@ -31,19 +32,27 @@ test('a task worktree carries the workspace as it is, untouched', t => {
   assert.match(spawnSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).stdout, /^ M a\.txt\n\?\? new\.txt\n$/);
 });
 
-test('at close a worktree goes, whatever is still in it, and git forgets it', t => {
+test('a worktree stays as long as its task keeps it; Argus forgets it once the task deleted it', t => {
   const dir = repo(t);
   const wt = makeWorktree(dir, 't2');
-  writeFileSync(join(wt.dir, 'not-brought-back.txt'), 'the task\'s to bring back before closing\n');
-  releaseWorktree(dir, wt.dir);
-  assert.ok(!existsSync(wt.dir));
+  // Still there, even unchanged: whether it is still needed is the task's to judge.
+  assert.equal(forgetWorktree(dir, wt.dir), false);
+  assert.ok(existsSync(wt.dir));
+  rmSync(wt.dir, { recursive: true, force: true });
+  assert.equal(forgetWorktree(dir, wt.dir), true);
   assert.doesNotMatch(spawnSync('git', ['worktree', 'list'], { cwd: dir, encoding: 'utf8' }).stdout, /t2/);
-  assert.ok(!existsSync(join(dir, 'not-brought-back.txt')));
-  // One the task removed itself, or left as a folder git no longer knows, goes the same way.
-  const gone = makeWorktree(dir, 't3');
-  rmSync(join(dir, '.git', 'worktrees', 't3'), { recursive: true, force: true });
-  releaseWorktree(dir, gone.dir);
-  assert.ok(!existsSync(gone.dir));
+});
+
+test('under bubblewrap a task deletes its own worktree, as it works in it', { skip: !sandboxed() && 'requires bubblewrap' }, t => {
+  const dir = repo(t);
+  const wt = makeWorktree(dir, 't2');
+  const argv = confine(['git', 'worktree', 'remove', '--force', wt.dir], {
+    backend: 'codex', role: 'engineer', form: 'engineer', prompt: '', cwd: wt.dir, writeDirs: [dir], access: 'write', callsDir: '', usageFile: '',
+  });
+  const done = spawnSync(argv[0]!, argv.slice(1), { encoding: 'utf8' });
+  assert.equal(done.status, 0, done.stderr);
+  assert.ok(!existsSync(wt.dir));
+  assert.equal(forgetWorktree(dir, wt.dir), true);
 });
 
 test('a folder that is not the top of a git checkout gets no worktree', t => {
