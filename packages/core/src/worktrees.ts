@@ -1,11 +1,11 @@
 // A task that begins while another works in the workspace gets a git worktree of its own, so that
 // tasks side by side do not overwrite each other's files. Argus makes it from the workspace as it is
-// then, uncommitted and new files included. Bringing the changes back to the workspace, and deleting
-// the worktree once nothing in it is needed, is the task's own work: Argus only forgets one deleted.
+// then, uncommitted and new files included. Bringing the changes back to the workspace is the task's
+// own work; when the task closes, Argus removes a worktree whose every change the workspace holds,
+// and keeps one holding work the workspace lacks.
 
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 /** Where a workspace keeps its tasks' worktrees, hidden from the operator's file view. */
@@ -23,6 +23,15 @@ export function isCheckout(workdir: string): boolean {
   try { return realpathSync.native(git(workdir, ['rev-parse', '--show-toplevel'])) === realpathSync.native(workdir); } catch { return false; }
 }
 
+/** The tree of a checkout's files as they are, uncommitted and new ones included, written without
+ * touching its index. The index it uses is kept in the checkout's git directory, so each snapshot
+ * rehashes only the files that changed since the last. */
+function snapshot(dir: string): string {
+  const index = { GIT_INDEX_FILE: resolve(dir, git(dir, ['rev-parse', '--git-path', 'argus-snapshot-index'])) };
+  git(dir, ['add', '-A', '.'], index);
+  return git(dir, ['write-tree'], index);
+}
+
 /** A worktree for task `id` at `<workdir>/.argus-worktrees/<id>`, checked out at a commit of the
  * workspace as it is now (the branch and index of the workspace untouched); its commit is `base`. */
 export function makeWorktree(workdir: string, id: string): { dir: string; base: string } {
@@ -30,23 +39,27 @@ export function makeWorktree(workdir: string, id: string): { dir: string; base: 
   const exclude = join(common, 'info', 'exclude');
   mkdirSync(join(common, 'info'), { recursive: true });
   if (!(existsSync(exclude) && readFileSync(exclude, 'utf8').split('\n').includes(`/${WORKTREES}/`))) appendFileSync(exclude, `\n/${WORKTREES}/\n`);
-  const scratch = mkdtempSync(join(tmpdir(), 'argus-snapshot-'));
-  try {
-    const index = { GIT_INDEX_FILE: join(scratch, 'index') };
-    git(workdir, ['add', '-A', '.'], index);
-    const tree = git(workdir, ['write-tree'], index);
-    let parent: string[] = [];
-    try { parent = ['-p', git(workdir, ['rev-parse', '--verify', 'HEAD'])]; } catch { /* a repository with no commit yet */ }
-    const base = git(workdir, ['-c', 'user.name=Argus', '-c', 'user.email=argus@localhost', 'commit-tree', tree, ...parent, '-m', `Argus: the workspace as task ${id} began`]);
-    const dir = join(workdir, WORKTREES, id);
-    git(workdir, ['worktree', 'add', '--detach', dir, base]);
-    return { dir, base };
-  } finally { rmSync(scratch, { recursive: true, force: true }); }
+  let parent: string[] = [];
+  try { parent = ['-p', git(workdir, ['rev-parse', '--verify', 'HEAD'])]; } catch { /* a repository with no commit yet */ }
+  const base = git(workdir, ['-c', 'user.name=Argus', '-c', 'user.email=argus@localhost', 'commit-tree', snapshot(workdir), ...parent, '-m', `Argus: the workspace as task ${id} began`]);
+  const dir = join(workdir, WORKTREES, id);
+  git(workdir, ['worktree', 'add', '--detach', dir, base]);
+  return { dir, base };
 }
 
-/** Whether the task deleted its worktree; if so, git's record of it is dropped too. */
-export function forgetWorktree(workdir: string, dir: string): boolean {
-  if (existsSync(dir)) return false;
+/** At a task's close: removes its worktree when the workspace holds every change made in it since
+ * `base`, so finished tasks leave no copies behind. True when the worktree is gone. */
+export function releaseWorktree(workdir: string, dir: string, base: string): boolean {
+  if (existsSync(dir)) {
+    const paths = (from: string, to: string) => git(workdir, ['diff', '--no-renames', '--name-only', '-z', from, to]).split('\0').filter(Boolean);
+    const own = snapshot(dir);
+    const changed = paths(base, own);
+    if (changed.length) {
+      const differs = new Set(paths(own, snapshot(workdir)));
+      if (changed.some(path => differs.has(path))) return false;
+    }
+    git(workdir, ['worktree', 'remove', '--force', dir]);
+  }
   git(workdir, ['worktree', 'prune']);
   return true;
 }
