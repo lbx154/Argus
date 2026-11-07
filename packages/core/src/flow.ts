@@ -606,8 +606,8 @@ export class Flow {
     this.record(project, { type: 'task.closed', task: task.id });
     if (typeof task.place === 'object') {
       try {
-        const deleted = releaseWorktree(project.workdir, task.place.dir, task.place.base);
-        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, ...deleted ? { removed: true } : { kept: true } });
+        releaseWorktree(project.workdir, task.place.dir);
+        this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, removed: true });
       } catch (error) { this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, error: String(error) }); }
     }
     void this.callAgent.close?.(`${project.id}/${task.id}.`);

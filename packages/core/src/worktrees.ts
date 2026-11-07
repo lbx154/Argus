@@ -1,8 +1,7 @@
 // A task that begins while another works in the workspace gets a git worktree of its own, so that
 // tasks side by side do not overwrite each other's files. Argus makes it from the workspace as it is
 // then, uncommitted and new files included. Bringing the changes back to the workspace is the task's
-// own work; when the task closes, Argus removes a worktree whose every change the workspace holds,
-// and keeps one holding work the workspace lacks.
+// own work; when the task closes, Argus removes the worktree, whatever is still in it.
 
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
@@ -47,24 +46,8 @@ export function makeWorktree(workdir: string, id: string): { dir: string; base: 
   return { dir, base };
 }
 
-/** At a task's close: removes its worktree when the workspace holds every change made in it since
- * `base`, so finished tasks leave no copies behind. A folder git no longer lists is what remains of
- * one the task removed itself, kept by its sandbox's mount; that goes too. True when it is gone. */
-export function releaseWorktree(workdir: string, dir: string, base: string): boolean {
-  if (existsSync(dir)) {
-    const listed = git(workdir, ['worktree', 'list', '--porcelain']).split('\n').includes(`worktree ${realpathSync.native(dir)}`);
-    if (!listed) rmSync(dir, { recursive: true, force: true });
-    else {
-      const paths = (from: string, to: string) => git(workdir, ['diff', '--no-renames', '--name-only', '-z', from, to]).split('\0').filter(Boolean);
-      const own = snapshot(dir);
-      const changed = paths(base, own);
-      if (changed.length) {
-        const differs = new Set(paths(own, snapshot(workdir)));
-        if (changed.some(path => differs.has(path))) return false;
-      }
-      git(workdir, ['worktree', 'remove', '--force', dir]);
-    }
-  }
+/** At a task's close: its worktree goes, whatever is still in it, and git's record of it with it. */
+export function releaseWorktree(workdir: string, dir: string): void {
+  rmSync(dir, { recursive: true, force: true });
   git(workdir, ['worktree', 'prune']);
-  return true;
 }

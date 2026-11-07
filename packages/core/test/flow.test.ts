@@ -1249,8 +1249,8 @@ test('a task that begins while another works in a git workspace works in a workt
   assert.equal(second.cwd, join(home, '.argus-worktrees', 't2'));
   assert.ok(second.writeDirs?.includes(home));
   assert.match(second.prompt, /## Where this task works\nIn .*\.argus-worktrees[\\/]t2, a git worktree of the workspace .* because t1 works in the workspace itself/);
-  assert.match(second.prompt, /When the task closes, Argus removes the worktree if the workspace holds every change made in it/);
-  // Made from the workspace as it was, uncommitted files included; it changed nothing, so at its close it goes.
+  assert.match(second.prompt, /When the task closes, Argus deletes the worktree, whatever is still in it/);
+  // Made from the workspace as it was, uncommitted files included; at its close it goes.
   const made = events().find(event => event.type === 'task.worktree' && event.base);
   assert.ok(made);
   assert.deepEqual(project.tasks.map(task => typeof task.place === 'object' ? task.id : task.place), ['workspace', 't2']);
