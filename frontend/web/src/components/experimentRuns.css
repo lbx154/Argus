@@ -3,7 +3,7 @@
 .experiment-run header { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .experiment-run header code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .experiment-run header span, .experiment-run summary > span:last-child { flex-shrink: 0; opacity: 0.65; }
-.experiment-gpus { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 4px 0 0; padding: 0; list-style: none; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.experiment-gpus { margin: 0; opacity: 0.8; font-variant-numeric: tabular-nums; }
 .experiment-progress { position: relative; height: 16px; margin-top: 6px; border-radius: 4px; background: rgb(var(--line) / 0.6); overflow: hidden; }
 .experiment-progress > span { position: absolute; inset: 0 auto 0 0; background: rgb(var(--accent-ink) / 0.35); transition: width 0.4s; }
 .experiment-progress > small { position: relative; padding-left: 6px; line-height: 16px; font-variant-numeric: tabular-nums; }
@@ -13,3 +13,4 @@
 .experiment-quiet { color: rgb(var(--warn)); opacity: 1 !important; }
 .experiment-log-path { margin: 4px 0 2px; opacity: 0.6; word-break: break-all; }
 .experiment-run pre { margin: 0; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px; }
+.experiment-note { margin: 0; opacity: 0.6; }

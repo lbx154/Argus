@@ -32,7 +32,9 @@ function shortCommand(command: string): string {
   return command.split(' ').map((part, index) => index === 0 ? part.split('/').pop() ?? part : part).join(' ');
 }
 
-/** What is running in the project, its GPUs and its log's end, read from the machine every few seconds. */
+/** What is running in the project and its log's end, and how busy this machine's GPUs are, read from the
+ * machine every few seconds. Where the system shows no commands (Windows, macOS), the logs the project wrote
+ * lately, and that said. Which GPU a command computes on is not shown: nothing reliable tells it. */
 export function ExperimentRuns({ sid }: { sid: string }) {
   const { locale } = useI18n();
   const zh = locale === 'zh-CN';
@@ -43,33 +45,31 @@ export function ExperimentRuns({ sid }: { sid: string }) {
     enabled: offered, refetchInterval: EVERY_MS, retry: false,
   });
   const experiments = runs.data?.experiments ?? [];
-  const usesGpu = experiments.some(run => run.gpus.length);
   const resources = useQuery({
     queryKey: ['experiment-gpus', sid], queryFn: ({ signal }) => api.resources(sid, signal),
-    enabled: offered && hasResources && usesGpu, refetchInterval: EVERY_MS, retry: false,
+    enabled: offered && hasResources && experiments.length > 0, refetchInterval: EVERY_MS, retry: false,
   });
   if (!experiments.length) return null;
-  const devices = new Map((resources.data?.accelerators ?? []).flatMap(accelerator => accelerator.devices ?? []).map(device => [device.index, device]));
+  const devices = (resources.data?.accelerators ?? []).flatMap(accelerator => accelerator.devices ?? []);
   return <section className="experiment-runs" data-testid="experiment-runs" aria-label={zh ? '正在运行的实验' : 'Running experiments'}>
-    {experiments.map(run => <ExperimentRow key={run.pid} run={run} devices={devices} zh={zh} />)}
+    {experiments.map(run => <ExperimentRow key={run.pid ?? run.log} run={run} zh={zh} />)}
+    {devices.length ? <p className="experiment-gpus">{zh ? '本机显卡：' : 'GPUs on this machine: '}{devices.map(device =>
+      `GPU ${device.index} · ${device.utilization_percent}% · ${(device.used_memory_mib / 1024).toFixed(1)}/${(device.total_memory_mib / 1024).toFixed(0)} GB`).join(zh ? '，' : ', ')}</p> : null}
+    {runs.data?.processes === false ? <p className="experiment-note">{zh
+      ? '这台电脑上看不到正在跑的命令，这里列出项目里最近在写的日志。'
+      : 'This computer does not show running commands; these are the logs the project wrote lately.'}</p> : null}
   </section>;
 }
 
-function ExperimentRow({ run, devices, zh }: { run: Experiment; devices: Map<string, { utilization_percent: number; used_memory_mib: number; total_memory_mib: number }>; zh: boolean }) {
+function ExperimentRow({ run, zh }: { run: Experiment; zh: boolean }) {
   const progress = progressOf(run.tail);
   const last = run.tail.at(-1);
   const quiet = run.log_age_seconds !== null && run.log_age_seconds >= QUIET_SECONDS;
   return <article className="experiment-run">
     <header>
-      <code title={run.command}>{shortCommand(run.command)}</code>
-      <span>{zh ? `已运行 ${duration(run.seconds, zh)}` : `running ${duration(run.seconds, zh)}`}</span>
+      <code title={run.command ?? run.log ?? ''}>{run.command ? shortCommand(run.command) : run.log}</code>
+      {run.seconds === null ? null : <span>{zh ? `已运行 ${duration(run.seconds, zh)}` : `running ${duration(run.seconds, zh)}`}</span>}
     </header>
-    {run.gpus.length ? <ul className="experiment-gpus">
-      {run.gpus.map(index => {
-        const device = devices.get(index);
-        return <li key={index}>GPU {index}{device ? ` · ${device.utilization_percent}% · ${(device.used_memory_mib / 1024).toFixed(1)}/${(device.total_memory_mib / 1024).toFixed(0)} GB` : ''}</li>;
-      })}
-    </ul> : null}
     {progress ? <div className="experiment-progress" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
       <span style={{ width: `${100 * progress.done / progress.total}%` }} />
       <small>{progress.done}/{progress.total} · {Math.floor(100 * progress.done / progress.total)}%</small>
