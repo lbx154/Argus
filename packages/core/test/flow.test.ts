@@ -927,6 +927,20 @@ test('a task that cannot go on as briefed goes back to the Planner, and on to th
   assert.equal(requests[4]?.prompt, 'From the Planner:\nNothing to total: the operator must name a column.');
 });
 
+test('an Engineer delivers work that needs no second judgment straight to the Planner, and the task closes without review', async t => {
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Fix the typo in README' },
+    { role: 'engineer', to: 'planner', letter: 'Fixed: "recieve" is "receive" in README.md.' },
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ]);
+  const project = await say(flow, id, 'Fix the README typo');
+  assert.deepEqual(project.tasks.map(task => [task.status, task.note]), [['closed', { from: 'engineer', text: 'Fixed: "recieve" is "receive" in README.md.' }]]);
+  assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'planner', 'manager']);
+  assert.match(String(formSchema('engineer').properties!.to!.description), /planner, the delivery, done, when it needs no second judgment \(you judge which\)/);
+});
+
 test('a restarted process continues from project.json', async t => {
   const controller = new AbortController();
   const { home, flow, id, requests } = await setup(t, [

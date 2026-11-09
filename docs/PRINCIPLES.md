@@ -98,7 +98,9 @@ Only claims require implementation fidelity, faithful reference standards,
 direct evidence, and independent review proportional to their scope. Anything
 presented to a user as settled, written into a final artifact, or used to
 authorize a downstream decision is already a claim and cannot retain an
-"exploration" exemption. Review happens once on a frozen candidate artifact.
+"exploration" exemption. A delivered result is reviewed once, on its frozen
+candidate, when someone will rely on it and a second judgment could change it;
+its producer judges whether it does.
 Ceremonial gates, repeated certification, and artifact counts cannot replace
 direct evidence.
 
@@ -149,7 +151,8 @@ toolchain merely to make one task runnable.
 Questions are a last resort, not a way to transfer risk. Independent Reviewers
 serve material claims and work that genuinely needs a second judgment; they are
 not a permission layer for every local action. Work in progress is not gated
-turn by turn; review happens when a candidate is frozen.
+turn by turn: a look asked for with a concrete question is not a gate, and
+review comes once, when a result is delivered (principle 5).
 
 Authority and obstacles go to whoever can act on them. A role asked for a
 judgment receives the access that judgment needs. An obstacle such as a missing
@@ -200,7 +203,9 @@ These are currently sensible policies, not eternal principles:
 - direct short paths and on-demand Skills follow principle 4;
 - explore/develop/certify follows principle 5;
 - using negative results to repair or reroute follows principles 6 and 7;
-- one independent review of a frozen final candidate follows principle 5;
+- each delivered result is reviewed at most once, on its frozen candidate, and
+  only when its producer judges that someone will rely on it and a second
+  judgment could change it; this follows principles 5 and 8;
 - the runtime snapshots the workspace and gives the Reviewer the change since
   the last accepted state follows principles 1 and 5;
 - a task working beside another gets a git worktree of its own; whether to

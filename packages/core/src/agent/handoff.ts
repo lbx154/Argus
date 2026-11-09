@@ -27,10 +27,10 @@ const TO: Record<Form, Record<string, string>> = {
     operator: OPERATOR,
   },
   engineer: {
-    reviewer: 'the delivery, ready for independent review',
+    reviewer: 'the delivery, for an independent judgment: when someone will rely on it as a result and a second look could change it',
     engineer: 'continue working next turn',
-    planner: 'a task the Planner gave cannot go on as briefed',
-    manager: STUCK,
+    planner: 'the delivery, done, when it needs no second judgment (you judge which); or a task the Planner gave cannot go on as briefed',
+    manager: `the delivery of the Manager’s task, done, when it needs no second judgment; or ${STUCK}`,
     operator: OPERATOR,
   },
   review: {
