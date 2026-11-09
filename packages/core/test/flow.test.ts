@@ -292,7 +292,7 @@ test('PROGRESS.md says where the work stands, rebuilt from the record: each task
   assert.match(progress, /^# Where the work stands\n\nRebuilt by Argus from its record at [\d-]+ [\d:]+ UTC; nobody edits it\.\n\nRequest: the request\nSpent: \$0\.0\n/);
   assert.match(progress, /\n\| t1 \| Build the CSV summary tool\. \| closed \| \d+ min \| \$0\.0 \| Accepted: the totals match the data\. \|\n/);
   assert.match(progress, /\n- [\d-]+ [\d:]+ Manager, to operator: summary\.py prints the totals; checked against data\.csv\.\n/);
-  assert.match(progress, /\n- [\d-]+ [\d:]+ Engineer t1, to reviewer: summary\.py added; run python summary\.py data\.csv\n/);
+  assert.match(progress, /\n- [\d-]+ [\d:]+ Engineer t1, to Reviewer: summary\.py added; run python summary\.py data\.csv\n/);
   // A process that starts afresh rebuilds it from the record alone.
   const again = new Flow(store, agent([]).callAgent);
   (again as unknown as { record(project: Project, event: FlowEvent): void }).record(store.load(id), { type: 'status', status: 'idle' });
@@ -316,6 +316,14 @@ test("the Reviewer is given the candidate as Argus froze it: the task's change, 
   assert.equal(spawnSync('git', ['diff', start, last!, '--', 'summary.py'], { cwd: home, encoding: 'utf8' }).stdout.split('\n').at(-2), '+print(42)');
   // The workspace's branch and index are untouched.
   assert.equal(spawnSync('git', ['status', '--porcelain', 'summary.py'], { cwd: home, encoding: 'utf8' }).stdout, '?? summary.py\n');
+});
+
+test("PROGRESS.md speaks the operator's language: the page's own words follow their latest message", async t => {
+  const { store, flow, id } = await setup(t, [{ role: 'manager', to: 'operator', letter: '42' }]);
+  await say(flow, id, '六乘七是多少？');
+  const progress = readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8');
+  assert.match(progress, /^# 工作进展\n\nArgus 根据记录于 [\d-]+ [\d:]+ UTC 重建，没有人手工编辑。\n\n请求: the request\n已花费: \$0\.0\n\n## 任务\n\n\| 任务 \| 标题 \| 状态 \| 已跑 \| 花费 \| 最后一句 \|/);
+  assert.match(progress, /\n- [\d-]+ [\d:]+ 经理, 给 操作者: 42\n/);
 });
 
 test('a review returns the work once; the Engineer and the Reviewer each go on in their own session', async t => {

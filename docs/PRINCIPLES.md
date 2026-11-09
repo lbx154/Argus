@@ -13,9 +13,9 @@ Chinese version: [PRINCIPLES.zh-CN.md](PRINCIPLES.zh-CN.md)
 ## 1. Agents judge meaning; the runtime guarantees mechanics
 
 Value, strategy, priority, completion quality, and the meaning of evidence
-require context and belong to agents. Permission, irreversibility,
-ownership of a path, and the truth of records are boundaries an agent cannot
-vouch for itself; the runtime guarantees them.
+require context and belong to agents. What each role may read and write, the
+credentials it is given, ownership of a path, and the truth of records are
+boundaries an agent cannot vouch for itself; the runtime guarantees them.
 
 The runtime surfaces facts an agent cannot observe directly. It does not make
 research judgments through regexes, counters, fixed thresholds, or schemas.
@@ -39,8 +39,7 @@ mechanisms: starting and waiting on long jobs, deciding what to wait for and
 for how long, polling, judging whether it is stuck, deciding whether to look
 again. Nor do prompts forbid the backend from doing these its own way. The
 runtime does only what a backend cannot: hand work between roles, deliver new
-messages, keep the records, and hold the permission and irreversibility
-boundaries. A mechanism that only does for an agent what the agent could do
+messages, keep the records, and hold the permission boundaries. A mechanism that only does for an agent what the agent could do
 itself is deleted; the mistakes it meant to prevent are pointed out by an
 observer watching the work, not prevented by more rules.
 
@@ -54,8 +53,8 @@ completion semantics.
 Core does not import named Verticals or know a venue, dataset, theorem, or
 experimental threshold. Built-in and external Verticals load through the same
 interface. Adding or replacing domain policy must not require changing Core.
-Verticals declare requirements; Core environment adapters discover, prepare,
-or reject those capabilities on the current host. A Vertical does not embed
+Verticals declare requirements; Core runs a Vertical's setup steps, and agents
+find out what the current host offers. A Vertical does not embed
 paths or preinstalled environments from one machine.
 
 ## 3. Thought is prose; only side effects need a minimal protocol
@@ -104,14 +103,12 @@ Ceremonial gates, repeated certification, and artifact counts cannot replace
 direct evidence.
 
 The runtime, not the producer, freezes the candidate: everything that changed
-since the last accepted state, with the evidence that produced it. The reviewer
+since the task began and since the candidate before, with the evidence that
+produced it. The reviewer
 reads that change and evidence directly and can read everything the producer
 could change; the producer's account guides the reading but is not the
-evidence. The standard a claim must meet is set by its owner before the
-candidate exists. Review judges the candidate against that standard and says
-what would change the verdict. A concern outside the standard is recorded for
-its owner instead of moving the standard, unless it breaches the integrity
-floor, which always blocks.
+evidence. Review says what would change the verdict, and a breach of the
+integrity floor always blocks.
 
 ## 6. Failure updates strategy; it is not automatically the product
 
@@ -142,7 +139,10 @@ programme view; Planners create only work that advances it.
 Local, reversible actions are autonomous by default: reading,
 research, implementation, tests, isolated dependencies, and reversible
 experiments. Credentials, payment, external publication, destructive deletion,
-global infrastructure, and other irreversible authority stay human-owned.
+global infrastructure, and other irreversible authority stay human-owned. The
+runtime holds what each role may read and write and which credentials it is
+given; within that, an agent judges whether an action can be undone, and when
+it is unsure, asks whoever holds the authority.
 Environment preparation stays project-local or inside an isolated container by
 default. Argus does not assume administrator access or mutate a host's global
 toolchain merely to make one task runnable.
@@ -204,8 +204,9 @@ These are currently sensible policies, not eternal principles:
 - each delivered result is reviewed at most once, on its frozen candidate, and
   only when its producer judges that someone will rely on it and a second
   judgment could change it; this follows principles 5 and 8;
-- the runtime snapshots the workspace and gives the Reviewer the change since
-  the last accepted state follows principles 1 and 5;
+- the runtime freezes the task's files when they are handed to the Reviewer and
+  gives it the change since the task began and since the candidate before; this
+  follows principles 1 and 5;
 - a task working beside another gets a git worktree of its own; whether to
   bring its changes back to the workspace, and whether to keep or delete the
   worktree, are the task's decisions. The runtime makes the worktree, lets the
