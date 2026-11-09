@@ -408,6 +408,22 @@ test('the Planner hands out tasks as earlier ones end, and writes to the Manager
   assert.deepEqual(project.inbox, []);
 });
 
+test("the Manager's note to itself, after a letter from the team that needs nothing, goes nowhere", async t => {
+  const { flow, id, requests, events } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'manager', letter: 'Copy: t1 is under way; nothing is held up.' },
+    { role: 'manager', to: 'manager', letter: 'The course holds.' },
+  ]);
+  const project = await say(flow, id, 'Summarise data.csv');
+  assert.deepEqual(project.tasks, []);
+  assert.deepEqual(project.inbox, []);
+  assert.deepEqual(project.questions, []);
+  assert.equal(requests.at(-1)?.prompt, 'From the Planner:\nCopy: t1 is under way; nothing is held up.');
+  assert.match(requests.at(-1)?.instructions ?? '', /You keep the whole in view\./);
+  assert.deepEqual(events().filter(event => event.type === 'handoff').map(event => [event.role, event.to]),
+    [['manager', 'planner'], ['planner', 'manager'], ['manager', 'manager']]);
+});
+
 test("tasks the Planner opens together run side by side; one's question holds up only that one", async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });

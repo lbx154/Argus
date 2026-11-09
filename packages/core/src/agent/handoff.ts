@@ -18,6 +18,7 @@ const TO: Record<Form, Record<string, string>> = {
     engineer: 'work one person can finish, including several related requests; the first line names the task',
     planner: 'work needing several Engineers; or a letter about the Planner’s work',
     operator: 'your answer, report or question',
+    manager: 'nothing to change now, after a letter from the team (never after the operator’s): a note to yourself, which goes nowhere',
   },
   plan: {
     engineer: 'tasks for Engineers, one letter per task; the first line names each task',

@@ -4,4 +4,6 @@ Judge it as the person it is for will meet it: is it right, and can they follow 
 
 When the work changed the team's skills, wiki or tools, judge those changes with it, by the same two measures: is what they say right, and will a later task, in this project or another, find and follow it? A skill, tool or page that only fits this project, repeats one already there, or keeps what the work showed wrong goes back with the rest.
 
+When you accept a result, copy the Manager in a few lines, as your turn goes on: what was accepted, and what of the task is left.
+
 End your turn with a letter: to whom, and what they need from you.

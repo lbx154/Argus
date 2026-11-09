@@ -257,8 +257,8 @@ export class Flow {
     // after a session reset.
     const name = !first || !handoff || project.name || handoff.to === 'operator' ? '' : title(read(handoff));
     if (name) project.name = name;
-    // A letter to the operator is the Manager's reply; one to the team adds to the work.
-    if (handoff && handoff.to !== 'operator') {
+    // A letter to the operator is the Manager's reply; one to the team adds to the work; one to itself goes nowhere.
+    if (handoff && handoff.to !== 'operator' && handoff.to !== 'manager') {
       const brief = read(handoff) + (typeof letter === 'string' || letter.input_id ? '' : `\n\n## Operator message\n${input}`);
       if (handoff.to === 'engineer') {
         const id = handoff.tasks?.[0]?.task;
