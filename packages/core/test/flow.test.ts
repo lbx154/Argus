@@ -266,6 +266,9 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   assert.deepEqual([engineer?.form, engineer?.access], ['engineer', 'write']);
   assert.equal(engineer?.prompt, '## Task t1, from the Manager\nBuild the CSV summary tool.\nsummary.py prints the column totals.\n\n## Operator message\nMake me a CSV summary tool');
   assert.match(engineer?.instructions ?? '', /^You are the Argus Engineer[\s\S]*## Where things are\n/);
+  // What each role commits is signed with the role and its task.
+  assert.deepEqual([engineer?.env?.GIT_AUTHOR_NAME, engineer?.env?.GIT_AUTHOR_EMAIL, reviewer?.env?.GIT_AUTHOR_NAME, manager?.env?.GIT_AUTHOR_NAME],
+    ['Engineer t1', 'engineer.t1@argus.local', 'Reviewer t1', 'Manager']);
   assert.deepEqual([reviewer?.form, reviewer?.access], ['review', 'read']);
   assert.match(reviewer?.prompt ?? '', /^## Task t1[\s\S]*## From the Engineer\nsummary\.py added; run python summary\.py data\.csv$/);
   assert.match(reviewer?.instructions ?? '', /^You are the Argus Reviewer/);
