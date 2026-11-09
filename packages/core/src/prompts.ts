@@ -165,7 +165,9 @@ export const letterPrompt = (from: Note['from'], text: string): string => sectio
 export function taskPrompt(project: Project, task: Task, resumed: boolean): string {
   const note = join(task.note && section(`From the ${NAMES[task.note.from]}`, task.note.text),
     ...(task.unread ?? []).map(({ from, text }) => section(`From the ${NAMES[from]}, since the task's last turn`, text)));
-  if (resumed) return note || 'Continue the task.';
+  const frozen = task.holder === 'reviewer' && task.frozen?.last ? section('The candidate, frozen by Argus',
+    `Commit ${task.frozen.last} holds the task's files as the Engineer handed them over, uncommitted and new ones included. What changed since the task began: \`git diff ${task.frozen.start} ${task.frozen.last}\`${task.frozen.before && task.frozen.before !== task.frozen.start ? `; since the candidate before: \`git diff ${task.frozen.before} ${task.frozen.last}\`` : ''}. The Engineer's letter guides the reading; the change is the evidence.`) : '';
+  if (resumed) return join(note, frozen) || 'Continue the task.';
   // How each earlier task ended is in Argus's record, which the workspace may not say.
   const earlier = project.tasks.filter(other => other.status === 'closed')
     .map(({ id, title, note }) => `- ${id} ${title}${note ? `. Its last word, from the ${NAMES[note.from]}: ${note.text.split('\n')[0]}` : ''}`);
@@ -175,7 +177,7 @@ export function taskPrompt(project: Project, task: Task, resumed: boolean): stri
   return join(earlier.length > 0 && section('Earlier tasks', earlier.join('\n')),
     beside.length > 0 && section(own ? 'Running beside it' : 'Running beside it, in the same workspace', beside.join('\n')),
     own && section('Where this task works', `In ${own.dir}, a git worktree of the workspace made from it as it was when the task began (commit ${own.base}, uncommitted and new files included), because ${inWorkspace.join(', ') || 'another task'} works in the workspace itself. The task's work counts once it is in the workspace, ${project.workdir}: \`git diff ${own.base}\` and \`git status\` in the worktree show what it changed, and settling a conflict with what changed in the workspace meanwhile is part of the task. Whether to bring its changes back to the workspace, and whether to keep the worktree or delete it (\`git worktree remove\`), are the task's to decide.`),
-    section(`Task ${task.id}, from the ${NAMES[task.from]}`, task.objective), note);
+    section(`Task ${task.id}, from the ${NAMES[task.from]}`, task.objective), note, frozen);
 }
 
 export function plannerPrompt(project: Project): string {

@@ -31,6 +31,14 @@ function snapshot(dir: string): string {
   return git(dir, ['write-tree'], index);
 }
 
+/** A commit of `dir`'s files as they are now, uncommitted and new ones included, on its HEAD; the
+ * checkout's branch and index are untouched. */
+export function freeze(dir: string, message: string): string {
+  let parent: string[] = [];
+  try { parent = ['-p', git(dir, ['rev-parse', '--verify', 'HEAD'])]; } catch { /* a repository with no commit yet */ }
+  return git(dir, ['-c', 'user.name=Argus', '-c', 'user.email=argus@localhost', 'commit-tree', snapshot(dir), ...parent, '-m', message]);
+}
+
 /** A worktree for task `id` at `<workdir>/.argus-worktrees/<id>`, checked out at a commit of the
  * workspace as it is now (the branch and index of the workspace untouched); its commit is `base`. */
 export function makeWorktree(workdir: string, id: string): { dir: string; base: string } {
@@ -38,9 +46,7 @@ export function makeWorktree(workdir: string, id: string): { dir: string; base: 
   const exclude = join(common, 'info', 'exclude');
   mkdirSync(join(common, 'info'), { recursive: true });
   if (!(existsSync(exclude) && readFileSync(exclude, 'utf8').split('\n').includes(`/${WORKTREES}/`))) appendFileSync(exclude, `\n/${WORKTREES}/\n`);
-  let parent: string[] = [];
-  try { parent = ['-p', git(workdir, ['rev-parse', '--verify', 'HEAD'])]; } catch { /* a repository with no commit yet */ }
-  const base = git(workdir, ['-c', 'user.name=Argus', '-c', 'user.email=argus@localhost', 'commit-tree', snapshot(workdir), ...parent, '-m', `Argus: the workspace as task ${id} began`]);
+  const base = freeze(workdir, `Argus: the workspace as task ${id} began`);
   const dir = join(workdir, WORKTREES, id);
   git(workdir, ['worktree', 'add', '--detach', dir, base]);
   return { dir, base };

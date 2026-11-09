@@ -13,25 +13,24 @@ Chinese version: [PRINCIPLES.zh-CN.md](PRINCIPLES.zh-CN.md)
 ## 1. Agents judge meaning; the runtime guarantees mechanics
 
 Value, strategy, priority, completion quality, and the meaning of evidence
-require context and belong to agents. Permission, budget, irreversibility,
+require context and belong to agents. Permission, irreversibility,
 ownership of a path, and the truth of records are boundaries an agent cannot
 vouch for itself; the runtime guarantees them.
 
 The runtime surfaces facts an agent cannot observe directly. It does not make
 research judgments through regexes, counters, fixed thresholds, or schemas.
-Agents cannot use prose to bypass permission, budget, concurrency, or truth.
+Agents cannot use prose to bypass permission, concurrency, or truth.
 A capability cannot depend on a development machine that somebody prepared by
-hand. The runtime discovers host capabilities and either creates a
-project-local, reproducible environment or reports that the capability is
-unavailable. Preinstalled virtual environments, caches, paths, credentials,
+hand. Agents find out what the host offers and either build a project-local,
+reproducible environment or report that the capability is unavailable; the
+runtime tells them what only it can see. Preinstalled virtual environments, caches, paths, credentials,
 and one person's shell configuration are not product capabilities.
 
 The runtime never speaks for an agent. A judgment is recorded once, by the
 actor that made it, and nobody else rewrites it. When the runtime intervenes
-with a budget stop, a pause, or a policy, it records its own fact beside the
+with a pause or a policy, it records its own fact beside the
 judgment instead of editing or imitating it. Whether work is progressing is a
-judgment too: the runtime enforces the budgets a principal set, not its own
-estimate of progress. Summaries, checkpoints, and "latest" views are
+judgment too, and never the runtime's: it does not estimate progress. Summaries, checkpoints, and "latest" views are
 projections rebuilt from these records, never a second source of truth.
 
 The runtime is not a parent. What an agent backend (Copilot, Codex, and the
@@ -140,7 +139,7 @@ programme view; Planners create only work that advances it.
 
 ## 8. Autonomy follows reversibility
 
-Local, reversible, budgeted actions are autonomous by default: reading,
+Local, reversible actions are autonomous by default: reading,
 research, implementation, tests, isolated dependencies, and reversible
 experiments. Credentials, payment, external publication, destructive deletion,
 global infrastructure, and other irreversible authority stay human-owned.
@@ -201,7 +200,6 @@ These are currently sensible policies, not eternal principles:
 - splitting Core and Verticals follows principle 2;
 - prose handoffs ending in one `hand_off` form follow principles 1 and 3;
 - direct short paths and on-demand Skills follow principle 4;
-- explore/develop/certify follows principle 5;
 - using negative results to repair or reroute follows principles 6 and 7;
 - each delivered result is reviewed at most once, on its frozen candidate, and
   only when its producer judges that someone will rely on it and a second
@@ -215,13 +213,11 @@ These are currently sensible policies, not eternal principles:
   judges or deletes for the task. This follows principle 1;
 - the Manager keeps the programme in view: each turn it weighs where the work
   stands against the goal from Argus's record (open tasks, how long each has
-  run, what each delivered and cost, and the machine it runs on: disk, memory,
-  what was left running) and finds what holds it up; a Reviewer
-  copies it on each accepted result, and a turn with nothing to change ends in
+  run, what each delivered and cost, and the machine's disk and memory) and
+  finds what holds it up; whoever accepts a result, or delivers one without
+  review, copies it, and a turn with nothing to change ends in
   a note to itself. The runtime delivers the letters and keeps the record; it
   never judges whether work is stuck. This follows principles 1 and 7;
-- acceptance criteria written before execution, verdicts given per criterion,
-  and out-of-scope concerns kept as follow-ups follow principles 5 and 7;
 - each role's commits name the role and its task as their author, and
   PROGRESS.md, where the work stands, is rebuilt from the record for every role
   and the operator to read; nobody writes it by hand. This is the shared
@@ -232,13 +228,13 @@ These are currently sensible policies, not eternal principles:
 - one append-only record per actor, with runtime interventions recorded as the
   runtime's own and every summary file rebuilt from those records, follows
   principle 1;
-- round limits expressed as principal-set budgets, not inferred progress,
-  follow principles 1 and 8;
 - asking fewer questions and autonomously installing project-local
   dependencies follows principle 8;
-- discovering CUDA, drivers, disk, and schedulers, creating a version-locked
-  project environment, and running a one-batch smoke follows principles 1, 2,
-  8, and 9;
+- agents find out what the machine offers (GPUs and drivers, disk, memory,
+  schedulers) before relying on it, build a version-locked project environment,
+  and run one small batch before the full run; Core's prompts make them aware
+  of this, and the runtime states what only it sees, such as the workspace's
+  free disk. This follows principles 1, 2, 8, and 9;
 - matched Argus-versus-direct-agent trials follow principle 9.
 
 Implementations may change while the principles remain. When an implementation

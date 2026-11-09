@@ -17,7 +17,7 @@ import type { FlowEvent, Note, OperatorMessage, ManagerLetter, Project, Question
 import { answered, copied, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
-import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
+import { forgetWorktree, freeze, isCheckout, makeWorktree } from './worktrees.js';
 import { Progress } from './progress.js';
 import { letterbox } from './letters.js';
 import { keepLibrary } from './libraryHistory.js';
@@ -220,6 +220,11 @@ export class Flow {
         this.record(project, { type: 'task.worktree', task: task.id, error: String(error) });
       }
     } else task.place = 'workspace';
+    // Where the task's changes are counted from, for its Reviewer.
+    if (isCheckout(project.workdir)) {
+      try { task.frozen = { start: typeof task.place === 'object' ? task.place.base : freeze(project.workdir, `Argus: the workspace as task ${task.id} began`) }; }
+      catch { /* a checkout git cannot read: the Reviewer reads the files as they are */ }
+    }
     this.store.save(project);
   }
 
@@ -296,6 +301,13 @@ export class Flow {
     if (handoff.look) this.lookAt(project, task, handoff.look);
     switch (to) {
       case 'engineer': case 'reviewer':
+        // The candidate the Reviewer judges is frozen by Argus, not described by its producer.
+        if (to === 'reviewer' && role === 'engineer' && task.frozen) {
+          try {
+            const at = freeze(typeof task.place === 'object' ? task.place.dir : project.workdir, `Argus: task ${task.id} as handed to its Reviewer`);
+            task.frozen = { start: task.frozen.start, before: task.frozen.last ?? task.frozen.start, last: at };
+          } catch { /* the Reviewer reads the files as they are */ }
+        }
         Object.assign(task, { holder: to, note: { from: role, text: letter } });
         // Beside other tasks, the Planner reads each hand-over in one it gave as the work goes, and may
         // steer this task or those beside it: with its next letter, since a hand-over inside a task

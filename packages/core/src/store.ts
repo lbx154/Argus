@@ -38,6 +38,9 @@ export interface Task {
   /** Where it works, set as it begins: the workspace itself, or a git worktree of its own when
    * another open task already works in the workspace (base: the commit it was made from). */
   place?: 'workspace' | { dir: string; base: string };
+  /** Argus's commits of the task's files, uncommitted ones included: as the task began, as it was last
+   * handed to its Reviewer (`last`), and the one before that (`before`). */
+  frozen?: { start: string; last?: string; before?: string };
 }
 
 /** A question to the operator: its asker, the task's holder or the Planner, waits for the answer. */

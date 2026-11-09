@@ -565,6 +565,11 @@ test('the map shows each task and the letters written about it, and a task its c
   ]);
   assert.ok(trace.groups.every(group => !Object.hasOwn(group, 'output')));
   assert.deepEqual((await get<Trace>(`${P}/map-trace?task=t9`)).groups, []);
+
+  // Where the work stands reads as PROGRESS.md says it.
+  const progress = await call(`${P}/progress`);
+  assert.equal(progress.headers.get('content-type'), 'text/markdown; charset=utf-8');
+  assert.match(await progress.text(), /^# Where the work stands\n[\s\S]*\| t1 \|[\s\S]*\| closed \|/);
 });
 
 test('the built pages are served with the shell uncached and the assets immutable', async t => {

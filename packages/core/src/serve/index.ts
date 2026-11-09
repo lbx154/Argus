@@ -5,7 +5,7 @@
 
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -338,6 +338,12 @@ export async function serve(options: ServeOptions): Promise<Served> {
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/map$/, ({ params: [id], url }) =>
       progressMap(store, project(id!), Number(url.searchParams.get('after')) || 0, runs.live(id!).calls)],
+    // Where the work stands, as PROGRESS.md says it (rebuilt from the record), for the operator to read.
+    ['GET', /^\/api\/projects\/([^/]+)\/progress$/, ({ params: [id], request, response }) => {
+      const file = join(store.dir(project(id!).id), 'PROGRESS.md');
+      if (!existsSync(file)) throw new HttpError(404, 'no progress yet');
+      sendFile(request, response, file, statSync(file).size, { 'content-type': 'text/markdown; charset=utf-8' });
+    }],
     ['GET', /^\/api\/projects\/([^/]+)\/map-trace$/, ({ params: [id], url }) => taskTrace(store, project(id!), url.searchParams.get('task') ?? '')],
     ['POST', /^\/api\/projects\/([^/]+)\/message\/stream$/, async context => {
       const reply = await message(context);

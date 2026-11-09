@@ -299,6 +299,25 @@ test('PROGRESS.md says where the work stands, rebuilt from the record: each task
   assert.equal(readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8').replace(/at [\d-]+ [\d:]+ UTC/, ''), progress.replace(/at [\d-]+ [\d:]+ UTC/, ''));
 });
 
+test("the Reviewer is given the candidate as Argus froze it: the task's change, uncommitted files included", async t => {
+  // The Engineer's edit lands during its turn, after the task began.
+  const edit = { then(resolve: () => void) { writeFileSync(join(home, 'summary.py'), 'print(42)\n'); resolve(); } };
+  const { home, flow, id, requests, store } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added', waits: edit as unknown as Promise<unknown> },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  for (const args of [['init', '-q'], ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'start']]) spawnSync('git', args, { cwd: home });
+  await say(flow, id, 'Make me a CSV summary tool');
+  const { start, last } = store.load(id).tasks[0]!.frozen!;
+  const reviewer = requests.find(request => request.role === 'reviewer');
+  assert.match(reviewer?.prompt ?? '', new RegExp(`## The candidate, frozen by Argus\\nCommit ${last} holds the task's files as the Engineer handed them over, uncommitted and new ones included\\. What changed since the task began: \`git diff ${start} ${last}\`\\.`));
+  assert.equal(spawnSync('git', ['diff', start, last!, '--', 'summary.py'], { cwd: home, encoding: 'utf8' }).stdout.split('\n').at(-2), '+print(42)');
+  // The workspace's branch and index are untouched.
+  assert.equal(spawnSync('git', ['status', '--porcelain', 'summary.py'], { cwd: home, encoding: 'utf8' }).stdout, '?? summary.py\n');
+});
+
 test('a review returns the work once; the Engineer and the Reviewer each go on in their own session', async t => {
   const { flow, id, requests } = await setup(t, [
     toEngineer,
