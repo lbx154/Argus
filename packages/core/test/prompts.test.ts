@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import os from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { instructions, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
 import { withTools } from '../src/flow.js';
@@ -31,7 +31,7 @@ test('standing context keeps locations, date, session lifetime and project GPU v
   }
 });
 
-test('the machine is described with its load, free CPUs, memory and project GPUs', async t => {
+test("the machine is described with its load, free CPUs, memory, the workspace's disk and project GPUs", async t => {
   const home = mkdtempSync(join(os.tmpdir(), 'argus-machine-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const store = new Store(home);
@@ -45,7 +45,9 @@ test('the machine is described with its load, free CPUs, memory and project GPUs
   for (const [load, free] of [[3.25, 13], [23, 0]] as const) {
     t.mock.method(os, 'loadavg', () => [load, 4, 5]);
     syncBuiltinESMExports();
-    const expected = `16 logical CPUs (load ${load.toFixed(1)}, about ${free} free), 32 GiB of memory; project GPUs: CUDA_VISIBLE_DEVICES=2,3.`;
+    const { bavail, blocks, bsize } = statfsSync(home);
+    const disk = `${Math.round(bavail * bsize / 2 ** 30)} GiB free of ${Math.round(blocks * bsize / 2 ** 30)}`;
+    const expected = `16 logical CPUs (load ${load.toFixed(1)}, about ${free} free), 32 GiB of memory; the workspace's disk: ${disk}; project GPUs: CUDA_VISIBLE_DEVICES=2,3.`;
     assert.equal(instructions('engineer', project, store).split('\n').at(-1), expected);
     const lines: string[] = [];
     const logging = t.mock.method(console, 'log', (line: string) => lines.push(line));

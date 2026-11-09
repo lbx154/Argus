@@ -2,7 +2,7 @@
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
-import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, statfsSync, writeFileSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -114,7 +114,7 @@ function where(project: Project, store: Store, role: Role): string {
       ? `The ${pack.name} pack's tools are installed in ${pack.home}; what its setup set for your commands is in ${resolve(pack.home, 'env')} (already in your environment).`
       : `The ${pack.name} pack's setup ${pack.state === 'failed' ? 'failed' : 'has not finished'}: its tools are not installed. Its output: ${pack.log}.`),
     `Today is ${new Date().toISOString().slice(0, 10)} (UTC).`,
-    machine(),
+    machine(project.workdir),
   ].filter(Boolean).join('\n'));
 }
 
@@ -129,12 +129,16 @@ const letters = (role: Role): string => [
     : role === 'reviewer' ? ', and engineer, while the Engineer of your task works on (when you look at their work under way)' : ''}. cc sends a copy, marked as one, the same way. Your turn still ends with your hand-off.`,
 ].join('\n');
 
-/** The machine the work runs on, as far as Argus knows it. */
-function machine(): string {
+/** The machine the work runs on, as far as Argus knows it: a sandboxed role sees neither the
+ * workspace's disk nor the team's processes, so the disk is said here. */
+function machine(workdir: string): string {
   const count = cpus().length;
   const load = loadavg()[0]!;
   const gpus = process.env.CUDA_VISIBLE_DEVICES;
-  return `${count} logical CPUs (load ${load.toFixed(1)}, about ${Math.max(0, count - load).toFixed(0)} free), ${Math.round(totalmem() / 2 ** 30)} GiB of memory; project GPUs: CUDA_VISIBLE_DEVICES=${(gpus ?? '(unset)') || '(none)'}.`;
+  const gib = (blocks: number, size: number): number => Math.round(blocks * size / 2 ** 30);
+  let disk = '';
+  try { const { bavail, blocks, bsize } = statfsSync(workdir); disk = `; the workspace's disk: ${gib(bavail, bsize)} GiB free of ${gib(blocks, bsize)}`; } catch { /* no workspace yet */ }
+  return `${count} logical CPUs (load ${load.toFixed(1)}, about ${Math.max(0, count - load).toFixed(0)} free), ${Math.round(totalmem() / 2 ** 30)} GiB of memory${disk}; project GPUs: CUDA_VISIBLE_DEVICES=${(gpus ?? '(unset)') || '(none)'}.`;
 }
 
 export const managerPrompt = (message: string, resumed: boolean): string => resumed ? message : section('Message', message);
