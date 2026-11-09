@@ -207,6 +207,9 @@ These are currently sensible policies, not eternal principles:
   never judges whether work is stuck. This follows principles 1 and 7;
 - acceptance criteria written before execution, verdicts given per criterion,
   and out-of-scope concerns kept as follow-ups follow principles 5 and 7;
+- each role's commits name the role and its task as their author, and
+  PROGRESS.md, where the work stands, is rebuilt from the record for every role
+  and the operator to read; nobody writes it by hand. This follows principle 1;
 - one append-only record per actor, with runtime interventions recorded as the
   runtime's own and every summary file rebuilt from those records, follows
   principle 1;
