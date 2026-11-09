@@ -18,6 +18,7 @@ import { answered, copied, NAMES, heldLetter, startedAfresh, steeredPrompt, hand
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, isCheckout, makeWorktree } from './worktrees.js';
+import { Progress } from './progress.js';
 import { letterbox } from './letters.js';
 import { keepLibrary } from './libraryHistory.js';
 import { packEnv, prepare } from './packSetup.js';
@@ -60,7 +61,12 @@ export class Flow {
   /** Each project's last Manager turn, which its next one follows. */
   private readonly managing = new Map<string, Promise<unknown>>();
 
-  constructor(readonly store: Store, private readonly callAgent: CallAgent, private readonly options: FlowOptions = {}) {}
+  constructor(readonly store: Store, private readonly callAgent: CallAgent, private readonly options: FlowOptions = {}) {
+    this.progress = new Progress(store);
+  }
+
+  /** PROGRESS.md, where the work stands, rebuilt from the record. */
+  private readonly progress: Progress;
 
   /** The operator's message. The Manager reads it in its next turn, and what its letter hands on
    * joins the work; like a letter from the team it waits in the record until a turn takes it.
@@ -635,6 +641,8 @@ export class Flow {
   private record(project: Project, event: FlowEvent): void {
     if (event.type !== 'step') this.store.save(project);
     this.store.append(project.id, event);
+    // A projection that cannot be written holds nothing up.
+    if (event.type !== 'step') try { this.progress.note(project, event); } catch { /* rebuilt at the next event */ }
     this.options.onEvent?.(event);
   }
 }

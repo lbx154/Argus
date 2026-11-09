@@ -280,6 +280,25 @@ test("the Manager's letter opens a task, whose Reviewer writes its judgment back
   ]);
 });
 
+test('PROGRESS.md says where the work stands, rebuilt from the record: each task, what it cost, and what each role last wrote', async t => {
+  const { store, flow, id } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added; run python summary.py data.csv' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted: the totals match the data.' },
+    report,
+  ]);
+  await say(flow, id, 'Make me a CSV summary tool');
+  const progress = readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8');
+  assert.match(progress, /^# Where the work stands\n\nRebuilt by Argus from its record at [\d-]+ [\d:]+ UTC; nobody edits it\.\n\nRequest: the request\nSpent: \$0\.0\n/);
+  assert.match(progress, /\n\| t1 \| Build the CSV summary tool\. \| closed \| \d+ min \| \$0\.0 \| Accepted: the totals match the data\. \|\n/);
+  assert.match(progress, /\n- [\d-]+ [\d:]+ Manager, to operator: summary\.py prints the totals; checked against data\.csv\.\n/);
+  assert.match(progress, /\n- [\d-]+ [\d:]+ Engineer t1, to reviewer: summary\.py added; run python summary\.py data\.csv\n/);
+  // A process that starts afresh rebuilds it from the record alone.
+  const again = new Flow(store, agent([]).callAgent);
+  (again as unknown as { record(project: Project, event: FlowEvent): void }).record(store.load(id), { type: 'status', status: 'idle' });
+  assert.equal(readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8').replace(/at [\d-]+ [\d:]+ UTC/, ''), progress.replace(/at [\d-]+ [\d:]+ UTC/, ''));
+});
+
 test('a review returns the work once; the Engineer and the Reviewer each go on in their own session', async t => {
   const { flow, id, requests } = await setup(t, [
     toEngineer,

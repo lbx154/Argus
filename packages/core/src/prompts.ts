@@ -94,7 +94,7 @@ function where(project: Project, store: Store, role: Role): string {
   const library = skillsHome(store.home);
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
-    `Argus's record of this project: ${store.dir(project.id)} (project.json holds the tasks and their state; events.jsonl every letter)`,
+    `Argus's record of this project: ${store.dir(project.id)} (PROGRESS.md where the work stands, rebuilt from the rest; project.json holds the tasks and their state; events.jsonl every letter)`,
     project.chief && `You work for the operator across all their projects. Every project's record is in ${resolve(store.home, 'projects')}/<id>/, this one's among them: read them; only a project's own team changes it. The operator knows them by name:`,
     ...project.chief ? store.list().filter(other => other.id !== project.id).map(other => `- ${other.id}: ${other.name || other.request.split('\n')[0]!.slice(0, 80) || '(no request yet)'}`) : [],
     project.repeat && `Each day at ${project.repeat.at} UTC Argus sends this project the operator's message: ${project.repeat.text}`,
