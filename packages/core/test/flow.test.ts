@@ -312,7 +312,7 @@ test("the Reviewer is given the candidate as Argus froze it: the task's change, 
   await say(flow, id, 'Make me a CSV summary tool');
   const { start, last } = store.load(id).tasks[0]!.frozen!;
   const reviewer = requests.find(request => request.role === 'reviewer');
-  assert.match(reviewer?.prompt ?? '', new RegExp(`## The candidate, frozen by Argus\\nCommit ${last} holds the task's files as the Engineer handed them over, uncommitted and new ones included\\. What changed since the task began: \`git diff ${start} ${last}\`\\.`));
+  assert.match(reviewer?.prompt ?? '', new RegExp(`## The candidate, frozen by Argus\\nCommit ${last} holds the task's files as the Engineer handed them over, uncommitted and new ones included\\. What changed since the task began: \`git diff --stat ${start} ${last}\`; read the files that matter`));
   assert.equal(spawnSync('git', ['diff', start, last!, '--', 'summary.py'], { cwd: home, encoding: 'utf8' }).stdout.split('\n').at(-2), '+print(42)');
   // The workspace's branch and index are untouched.
   assert.equal(spawnSync('git', ['status', '--porcelain', 'summary.py'], { cwd: home, encoding: 'utf8' }).stdout, '?? summary.py\n');
