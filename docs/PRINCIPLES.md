@@ -200,7 +200,8 @@ These are currently sensible policies, not eternal principles:
   judges or deletes for the task. This follows principle 1;
 - the Manager keeps the programme in view: each turn it weighs where the work
   stands against the goal from Argus's record (open tasks, how long each has
-  run, what each delivered and cost) and finds what holds it up; a Reviewer
+  run, what each delivered and cost, and the machine it runs on: disk, memory,
+  what was left running) and finds what holds it up; a Reviewer
   copies it on each accepted result, and a turn with nothing to change ends in
   a note to itself. The runtime delivers the letters and keeps the record; it
   never judges whether work is stuck. This follows principles 1 and 7;
