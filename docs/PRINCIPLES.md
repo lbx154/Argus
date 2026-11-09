@@ -5,7 +5,7 @@ remain useful across models, domains, tasks, and implementations, and it must
 derive concrete design choices. A rule about one field, gate, or file is a
 policy or mechanism, not a principle.
 
-Argus keeps nine governing principles. A new mechanism must say which principle
+Argus keeps ten governing principles. A new mechanism must say which principle
 requires it. If it cannot, it should not enter Core.
 
 Chinese version: [PRINCIPLES.zh-CN.md](PRINCIPLES.zh-CN.md)
@@ -180,14 +180,24 @@ rule for itself. Environment-dependent capabilities must also reproduce from a
 clean install or equivalent cold start; success on one hand-maintained server
 is not portability evidence.
 
+## 10. People must be able to understand what they are given
+
+Work between people and agents rests on the person reading what the agents give
+them: an answer, a delivered result, a report, a letter, a progress page, a
+commit. What a person cannot follow, they cannot check, steer, or stop, so it is
+not delivered, however correct it is. Write for the reader in front of you:
+their words, not the team's; the answer to their question first; each thing
+once; numbers and names they can check themselves. Hashes, ids without meaning,
+strings of qualifiers, and defences no one asked for are defects, sent back like
+errors. The runtime's own views follow the same rule.
+
 ## Policies derived from the principles
 
 These are currently sensible policies, not eternal principles:
 
 - splitting Core and Verticals follows principle 2;
 - prose handoffs ending in one `hand_off` form follow principles 1 and 3;
-- direct short paths, on-demand Skills, and a shared mission view follow
-  principle 4;
+- direct short paths and on-demand Skills follow principle 4;
 - explore/develop/certify follows principle 5;
 - using negative results to repair or reroute follows principles 6 and 7;
 - one independent review of a frozen final candidate follows principle 5;
@@ -209,7 +219,11 @@ These are currently sensible policies, not eternal principles:
   and out-of-scope concerns kept as follow-ups follow principles 5 and 7;
 - each role's commits name the role and its task as their author, and
   PROGRESS.md, where the work stands, is rebuilt from the record for every role
-  and the operator to read; nobody writes it by hand. This follows principle 1;
+  and the operator to read; nobody writes it by hand. This is the shared
+  mission view, and follows principles 1, 4 and 10;
+- the Reviewer judges whether the person a work is for can follow it, with
+  whether it is right, and returns it for either. This follows principles 5
+  and 10;
 - one append-only record per actor, with runtime interventions recorded as the
   runtime's own and every summary file rebuilt from those records, follows
   principle 1;
@@ -226,7 +240,7 @@ Implementations may change while the principles remain. When an implementation
 conflicts with a principle, change the implementation instead of adding an
 exception.
 
-## Seven design questions
+## Eight design questions
 
 1. Is this a semantic judgment or a mechanical fact only the runtime can know?
 2. Is this domain policy or a capability every Vertical needs?
@@ -237,6 +251,7 @@ exception.
 6. Who is the only author of this record, and does the judgment that uses it
    read the evidence itself rather than someone's account of it?
 7. Could the agent backend do this itself? If so, do not do it for it.
+8. Can the person who reads this follow it without help?
 
 If a mechanism repeatedly cannot answer these questions, delete it rather than
 adding another layer to protect it.
