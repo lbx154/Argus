@@ -11,7 +11,7 @@ import { summarizeUsage } from '@argus/runtime';
 import { firstLine, openTasks } from '../flow.js';
 import { NAMES } from '../prompts.js';
 import { ManagerInputs } from '../inputs.js';
-import { asker, effortOf, type FlowEvent, type Project, type Question, type Store, type Task } from '../store.js';
+import { asker, effortOf, modelOf, type FlowEvent, type Project, type Question, type Store, type Task } from '../store.js';
 import { ROLES, type Backend, type Role, type Step } from '../types.js';
 
 /** What this process knows of a project's run right now. */
@@ -560,7 +560,7 @@ export function snapshot(store: Store, project: Project, live: Live): Snapshot {
     roles: ROLES.map(role => {
       const under = live.calls.filter(call => call.role === role);
       return {
-        role, backend, backend_label: BACKEND_LABELS[backend], model: project.model ?? String(ran(role)?.model ?? ''), effort: effortOf(project, role) ?? null, active: under.length > 0,
+        role, backend, backend_label: BACKEND_LABELS[backend], model: modelOf(project, role) ?? String(ran(role)?.model ?? ''), effort: effortOf(project, role) ?? null, active: under.length > 0,
         label: NAMES[role], status: under.length ? 'running' : 'idle', age_s: null, tasks: under.flatMap(call => call.task ?? []),
       };
     }),

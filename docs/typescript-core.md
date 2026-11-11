@@ -235,11 +235,12 @@ back unless a project with its id exists.
 What the operator sets on a project is in its `project.json`: its workdir, any existing
 directory, given when the project is made or later; its name, which the project list and the
 snapshot show, an unnamed project named by its request; and the backend, model and reasoning
-effort every role's call uses, written by the Python runtime's setting names, a per-role model
-refused rather than half applied. A role may be given a reasoning effort of its own
-(`ARGUS_SKILL_<ROLE>_REASONING_EFFORT`, kept as `efforts` in `project.json`), which its calls use
-in place of the project's; an empty value gives it the project's again, and a new project takes
-the efforts of the one made before it. A model or effort is the backend's own word for it, passed to
+effort every role's call uses, written by the Python runtime's setting names. A role may be given
+a model and a reasoning effort of its own (`ARGUS_SKILL_<ROLE>_MODEL`,
+`ARGUS_SKILL_<ROLE>_REASONING_EFFORT`, kept as `models` and `efforts` in `project.json`), which its
+calls use in place of the project's; an empty value gives it the project's again, and a new project
+takes those of the one made before it. The backend stays one for the project: a role's own model is
+one of that backend's, and changing the backend clears them. A model or effort is the backend's own word for it, passed to
 its command line as one argument. An unset model is saved from the backend's report at the end
 of a call, and later calls pass that model explicitly. `modelAutomatic` keeps Automatic as the selection inherited by new
 projects; explicit selections inherit the model name. Changing the backend or choosing
