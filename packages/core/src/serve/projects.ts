@@ -7,7 +7,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync,
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { modelPriceFor } from '@argus/runtime';
-import { effortOf, type Project, type Store } from '../store.js';
+import { effortOf, modelOf, type Project, type Store } from '../store.js';
 import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
@@ -16,14 +16,18 @@ import { BACKEND_LABELS } from './views.js';
 /** The optional API capabilities these routes give the page. */
 export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.editions.v1'];
 
-/** The settings the page writes: a project has one backend and model, which every role uses, and one
- * effort, which a role uses unless it is given its own (ARGUS_SKILL_<ROLE>_REASONING_EFFORT; '' takes
- * the project's again). A model or effort is the backend's own word for it; '' or `auto`, the backend's default. */
+/** The settings the page writes: a project has one backend, which every role uses, and one model and
+ * effort, which a role uses unless it is given its own (ARGUS_SKILL_<ROLE>_MODEL,
+ * ARGUS_SKILL_<ROLE>_REASONING_EFFORT; '' takes the project's again). A model or effort is the backend's own word for it; '' or `auto`, the backend's default. */
 const SETTINGS: Record<string, (work: Project, value: string) => void> = {
   // A backend session is the backend's own: every role starts afresh on another.
   ARGUS_SKILL_RUNNER_BACKEND: (work, backend) => {
     if (!BACKENDS.includes(backend as Backend)) throw new HttpError(400, `the backend must be one of ${BACKENDS.join(', ')}`, 'invalid_backend');
-    if (backend !== work.backend) Object.assign(work, { backend, sessions: {}, model: null, modelAutomatic: true });
+    if (backend !== work.backend) {
+      Object.assign(work, { backend, sessions: {}, model: null, modelAutomatic: true });
+      // A role's own model is one of the backend it was chosen on.
+      delete work.models;
+    }
   },
   ARGUS_SKILL_MODEL: (work, model) => { work.model = model || null; work.modelAutomatic = !model; },
   ARGUS_SKILL_REASONING_EFFORT: (work, effort) => {
@@ -36,6 +40,14 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
     else delete efforts[role];
     if (Object.keys(efforts).length) work.efforts = efforts;
     else delete work.efforts;
+  }])),
+  // The role's session goes on with the new model, as the project's does when its model changes.
+  ...Object.fromEntries(ROLES.map(role => [`ARGUS_SKILL_${role.toUpperCase()}_MODEL`, (work: Project, model: string): void => {
+    const models = { ...work.models };
+    if (model) models[role] = model;
+    else delete models[role];
+    if (Object.keys(models).length) work.models = models;
+    else delete work.models;
   }])),
 };
 
@@ -102,7 +114,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       return {
         schema_version: 1, generated_at_utc: new Date().toISOString(),
         roles: ROLES.map(role => ({
-          role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted', model: model ?? '', model_source: source(model),
+          role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted', model: modelOf(work, role) ?? '', model_source: source(modelOf(work, role)),
           reasoning_effort: effortOf(work, role) ?? null, reasoning_effort_source: source(effortOf(work, role)), description: '',
         })),
         operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? '')],
@@ -124,7 +136,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
     ['POST', /^\/api\/projects\/([^/]+)\/config\/set$/, async ({ params: [id], body }) => {
       const { name, value } = await body();
       const set = SETTINGS[String(name ?? '').trim().toUpperCase()];
-      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend and model for every role, an effort (ARGUS_SKILL_REASONING_EFFORT), and a role's own effort (ARGUS_SKILL_<ROLE>_REASONING_EFFORT)`, 'invalid_setting');
+      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend for every role, a model and an effort (ARGUS_SKILL_MODEL, ARGUS_SKILL_REASONING_EFFORT), and a role's own (ARGUS_SKILL_<ROLE>_MODEL, ARGUS_SKILL_<ROLE>_REASONING_EFFORT)`, 'invalid_setting');
       const given = String(value ?? '').trim();
       const word = /^(auto|default)?$/i.test(given) ? '' : given;
       // Given to the backend's command line as one argument: never an option of its own.

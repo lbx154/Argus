@@ -82,6 +82,8 @@ export interface Project {
   effort?: string;
   /** A role's own reasoning effort, where the operator set one: its calls use it in place of `effort`. */
   efforts?: Partial<Record<Role, string>>;
+  /** A role's own model, one of the project's backend, where the operator set one: its calls use it in place of `model`. */
+  models?: Partial<Record<Role, string>>;
   /** The project's name: the operator's, or fixed by the first request's Manager turn;
    * absent, the page names it by its request. */
   name?: string;
@@ -167,7 +169,7 @@ export class Store {
   }
 
   /** A new project; without a workdir it works in its own under $ARGUS_HOME/workspaces. */
-  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'modelAutomatic' | 'effort' | 'efforts'>): Project {
+  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'modelAutomatic' | 'effort' | 'efforts' | 'models'>): Project {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),
@@ -218,10 +220,14 @@ export class Store {
   }
 }
 
-/** The efforts a new project takes from the one made before it: the project's, and each role's own. */
-export const inherited = (recent: Project | undefined): Pick<Project, 'effort' | 'efforts'> => ({
+/** What a new project takes from the one made before it, beside its backend and model: its effort, and each role's own effort and model. */
+export const inherited = (recent: Project | undefined): Pick<Project, 'effort' | 'efforts' | 'models'> => ({
   ...recent?.effort ? { effort: recent.effort } : {}, ...recent?.efforts && Object.keys(recent.efforts).length ? { efforts: { ...recent.efforts } } : {},
+  ...recent?.models && Object.keys(recent.models).length ? { models: { ...recent.models } } : {},
 });
+
+/** The model of a role's calls: its own where one is set, else the project's; none, the backend's choice. */
+export const modelOf = (project: Pick<Project, 'model' | 'models'>, role: Role): string | null => project.models?.[role] ?? project.model;
 
 /** The reasoning effort of a role's calls: its own where one is set, else the project's. */
 export const effortOf = (project: Pick<Project, 'effort' | 'efforts'>, role: Role): string | undefined => project.efforts?.[role] ?? project.effort;
