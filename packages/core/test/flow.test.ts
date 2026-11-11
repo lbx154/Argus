@@ -1449,6 +1449,18 @@ test("a letter copied to the Planner waits for its next letter, which it reads i
   assert.equal(project.beside, undefined);
 });
 
+test("a role with an effort of its own is called with it, the others with the project's", async t => {
+  const { store, flow, id, requests } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added.' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  store.save({ ...store.load(id), effort: 'medium', efforts: { engineer: 'low' } });
+  await say(flow, id, 'Build the summary');
+  assert.deepEqual(requests.map(request => [request.role, request.effort]), [['manager', 'medium'], ['engineer', 'low'], ['reviewer', 'medium'], ['manager', 'medium']]);
+});
+
 test('a resumed session is given its standing instructions again only when they changed since it was given them', async t => {
   const { flow, id, requests } = await setup(t, [report, report, report]);
   await say(flow, id, 'first');
