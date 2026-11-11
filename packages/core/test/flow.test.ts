@@ -1307,7 +1307,7 @@ function checkout(dir: string): void {
 test('a task that begins while another works in a git workspace works in a worktree of its own, and the Planner is told so', async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });
-  const { home, flow, id, requests, events } = await setup(t, [
+  const { home, store, flow, id, requests, events } = await setup(t, [
     { role: 'manager', to: 'planner', letter: brief },
     { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
     { role: 'engineer', waits: held, to: 'planner', letter: 'Parsed 1.' },
@@ -1335,6 +1335,16 @@ test('a task that begins while another works in a git workspace works in a workt
   assert.deepEqual(project.tasks.map(task => typeof task.place === 'object' ? task.id : task.place), ['workspace', 't2']);
   assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.kept));
   assert.ok(existsSync(join(home, '.argus-worktrees', 't2')));
+  // Its task is closed and cannot delete it now: PROGRESS.md says it is there and how much it holds,
+  // for the Manager, who keeps the disk in view, to have it cleared.
+  await (flow as unknown as { progress: { measured(): Promise<void> } }).progress.measured();
+  const progress = readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8');
+  assert.match(progress, /\n## Worktrees closed tasks left\n\nEach is a full copy of the workspace that its task did not delete\. .*`git worktree remove <folder>`.*\n\n- t2: \d+ MiB, .*\.argus-worktrees[\\/]t2\n/);
+  assert.doesNotMatch(progress, /- t1: /);
+  // Once someone deleted it, the page no longer lists it.
+  spawnSync('git', ['worktree', 'remove', '--force', join(home, '.argus-worktrees', 't2')], { cwd: home });
+  (flow as unknown as { record(project: Project, event: FlowEvent): void }).record(project, { type: 'status', status: 'idle' });
+  assert.doesNotMatch(readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8'), /Worktrees closed tasks left/);
 });
 
 test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {
