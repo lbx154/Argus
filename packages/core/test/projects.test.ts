@@ -121,9 +121,10 @@ test('a project has its own backend, model and effort, which the settings change
   assert.deepEqual(store.load(sid).sessions, {}, 'a Codex session is no use to Claude');
   assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-opus-4-1')).status, 200);
   assert.equal((await set('ARGUS_SKILL_REASONING_EFFORT', 'high')).status, 200);
-  // One model and effort for every role, and nothing a backend's command line would read as an option.
+  // One model for every role, and nothing a backend's command line would read as an option.
   for (const [name, value] of [['ARGUS_SKILL_ENGINEER_MODEL', 'gpt-5.5'], ['ARGUS_SKILL_LIGHT_MODEL', 'gpt-5.5'],
-    ['ARGUS_SKILL_MANAGER_REASONING_EFFORT', 'low'], ['ARGUS_SKILL_MODEL', '--dangerously-skip-permissions'],
+    ['ARGUS_SKILL_OBSERVER_REASONING_EFFORT', 'low'], ['ARGUS_SKILL_MODEL', '--dangerously-skip-permissions'],
+    ['ARGUS_SKILL_ENGINEER_REASONING_EFFORT', 'very high'],
     ['ARGUS_SKILL_REASONING_EFFORT', 'very high']] as const) {
     assert.equal((await set(name, value)).status, 400, `${name}=${value}`);
   }
@@ -135,6 +136,16 @@ test('a project has its own backend, model and effort, which the settings change
     Array(4).fill(['claude', 'claude-opus-4-1', 'high']));
   const choices = await get<Choices>(`${P}/model-choices`);
   assert.deepEqual([choices.backend, choices.options.map(option => option.model)], ['claude', ['claude-opus-4-1']]);
+
+  // A role may have an effort of its own, which its calls use in place of the project's; '' gives it the project's again.
+  assert.equal((await set('ARGUS_SKILL_ENGINEER_REASONING_EFFORT', 'low')).status, 200);
+  assert.deepEqual(store.load(sid).efforts, { engineer: 'low' });
+  assert.deepEqual((await get<Config>(`${P}/config`)).roles.map(role => [role.role, role.reasoning_effort]),
+    [['manager', 'high'], ['planner', 'high'], ['engineer', 'low'], ['reviewer', 'high']]);
+  assert.deepEqual((await get<Snapshot>(`${P}/snapshot`)).roles.map(role => role.effort), ['high', 'high', 'low', 'high']);
+  assert.equal((await set('ARGUS_SKILL_ENGINEER_REASONING_EFFORT', '')).status, 200);
+  assert.equal(store.load(sid).efforts, undefined);
+  assert.deepEqual((await get<Snapshot>(`${P}/snapshot`)).roles.map(role => role.effort), Array(4).fill('high'));
 
   await (await send('POST', `${P}/message`, { text: 'Hi' })).json();
   assert.deepEqual(requests.map(({ backend, model, effort }) => ({ backend, model, effort })), [{ backend: 'claude', model: 'claude-opus-4-1', effort: 'high' }]);

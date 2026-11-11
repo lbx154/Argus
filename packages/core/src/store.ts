@@ -80,6 +80,8 @@ export interface Project {
   modelAutomatic?: boolean;
   /** The reasoning effort of every call, in the backend's word for it; absent, the backend's default. */
   effort?: string;
+  /** A role's own reasoning effort, where the operator set one: its calls use it in place of `effort`. */
+  efforts?: Partial<Record<Role, string>>;
   /** The project's name: the operator's, or fixed by the first request's Manager turn;
    * absent, the page names it by its request. */
   name?: string;
@@ -165,7 +167,7 @@ export class Store {
   }
 
   /** A new project; without a workdir it works in its own under $ARGUS_HOME/workspaces. */
-  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'modelAutomatic' | 'effort'>): Project {
+  create(init: Pick<Project, 'workdir' | 'request' | 'backend' | 'model' | 'modelAutomatic' | 'effort' | 'efforts'>): Project {
     const id = `p-${randomBytes(4).toString('hex')}`;
     const project: Project = {
       id, created: new Date().toISOString(), ...init, workdir: init.workdir || join(this.home, 'workspaces', id),
@@ -186,7 +188,7 @@ export class Store {
     const recent = this.list().at(-1);
     const modelAutomatic = recent?.modelAutomatic ?? (recent ?? init).model === null;
     const made: Project = { ...this.create({ workdir: '', request: '', backend: (recent ?? init).backend,
-      model: modelAutomatic ? null : (recent ?? init).model, modelAutomatic, ...recent?.effort ? { effort: recent.effort } : {} }), chief: true };
+      model: modelAutomatic ? null : (recent ?? init).model, modelAutomatic, ...inherited(recent) }), chief: true };
     this.save(made);
     return made;
   }
@@ -215,6 +217,14 @@ export class Store {
     return ids.filter(id => PROJECT_ID.test(id)).map(id => this.load(id)).sort((a, b) => a.created.localeCompare(b.created));
   }
 }
+
+/** The efforts a new project takes from the one made before it: the project's, and each role's own. */
+export const inherited = (recent: Project | undefined): Pick<Project, 'effort' | 'efforts'> => ({
+  ...recent?.effort ? { effort: recent.effort } : {}, ...recent?.efforts && Object.keys(recent.efforts).length ? { efforts: { ...recent.efforts } } : {},
+});
+
+/** The reasoning effort of a role's calls: its own where one is set, else the project's. */
+export const effortOf = (project: Pick<Project, 'effort' | 'efforts'>, role: Role): string | undefined => project.efforts?.[role] ?? project.effort;
 
 /** Whether a file is missing, empty, or ends its last line. */
 function endsLine(path: string): boolean {

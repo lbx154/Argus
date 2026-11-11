@@ -7,7 +7,7 @@ import { accessSync, constants, existsSync, mkdirSync, readFileSync, renameSync,
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { modelPriceFor } from '@argus/runtime';
-import type { Project, Store } from '../store.js';
+import { effortOf, type Project, type Store } from '../store.js';
 import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
@@ -16,8 +16,9 @@ import { BACKEND_LABELS } from './views.js';
 /** The optional API capabilities these routes give the page. */
 export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.editions.v1'];
 
-/** The settings the page writes: a project has one backend, model and effort, which every role
- * uses. A model or effort is the backend's own word for it; '' or `auto`, the backend's default. */
+/** The settings the page writes: a project has one backend and model, which every role uses, and one
+ * effort, which a role uses unless it is given its own (ARGUS_SKILL_<ROLE>_REASONING_EFFORT; '' takes
+ * the project's again). A model or effort is the backend's own word for it; '' or `auto`, the backend's default. */
 const SETTINGS: Record<string, (work: Project, value: string) => void> = {
   // A backend session is the backend's own: every role starts afresh on another.
   ARGUS_SKILL_RUNNER_BACKEND: (work, backend) => {
@@ -29,6 +30,13 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
     if (effort) work.effort = effort;
     else delete work.effort;
   },
+  ...Object.fromEntries(ROLES.map(role => [`ARGUS_SKILL_${role.toUpperCase()}_REASONING_EFFORT`, (work: Project, effort: string): void => {
+    const efforts = { ...work.efforts };
+    if (effort) efforts[role] = effort;
+    else delete efforts[role];
+    if (Object.keys(efforts).length) work.efforts = efforts;
+    else delete work.efforts;
+  }])),
 };
 
 /** The directory a request names, `~` for home, made if it is new; '' when it names none. */
@@ -87,14 +95,15 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
       return { ok: true, sid: id, name };
     }],
     ['GET', /^\/api\/projects\/([^/]+)\/config$/, ({ params: [id] }) => {
-      const { backend, model, effort } = project(id!);
+      const work = project(id!);
+      const { backend, model } = work;
       const source = (value: unknown) => value ? 'persisted' : 'default';
       const knob = (name: string, value: string) => ({ name, group: 'Runtime', value, source: source(value), saved: value, default: '', doc: '' });
       return {
         schema_version: 1, generated_at_utc: new Date().toISOString(),
         roles: ROLES.map(role => ({
           role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted', model: model ?? '', model_source: source(model),
-          reasoning_effort: effort ?? null, reasoning_effort_source: source(effort), description: '',
+          reasoning_effort: effortOf(work, role) ?? null, reasoning_effort_source: source(effortOf(work, role)), description: '',
         })),
         operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? '')],
         how_to_change: [], backends: BACKEND_LABELS,
@@ -115,7 +124,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
     ['POST', /^\/api\/projects\/([^/]+)\/config\/set$/, async ({ params: [id], body }) => {
       const { name, value } = await body();
       const set = SETTINGS[String(name ?? '').trim().toUpperCase()];
-      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend, model and effort, for every role`, 'invalid_setting');
+      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend and model for every role, an effort (ARGUS_SKILL_REASONING_EFFORT), and a role's own effort (ARGUS_SKILL_<ROLE>_REASONING_EFFORT)`, 'invalid_setting');
       const given = String(value ?? '').trim();
       const word = /^(auto|default)?$/i.test(given) ? '' : given;
       // Given to the backend's command line as one argument: never an option of its own.
