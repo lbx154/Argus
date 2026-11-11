@@ -126,7 +126,7 @@ const letters = (role: Role): string => [
   '  EOF',
   `Readers, comma-separated: manager, planner, an open task by its id (its holder reads it)${role === 'engineer'
     ? ', and reviewer: the Reviewer of your task looks now at what your letter asks, beside your work, and writes back into your turn'
-    : role === 'reviewer' ? ', and engineer, while the Engineer of your task works on (when you look at their work under way)' : ''}. cc sends a copy, marked as one, the same way; a copy to the Planner waits for its next turn and does not start one. Your turn still ends with your hand-off.`,
+    : role === 'reviewer' ? ', and engineer, while the Engineer of your task works on (when you look at their work under way)' : ''}. cc sends a copy, marked as one, the same way; a copy to the Planner waits for its next turn and does not start one. A letter written to the Planner starts a turn of the Planner's: write to it when the plan must change; what you did and delivered, your hand-off already tells it. Your turn still ends with your hand-off.`,
 ].join('\n');
 
 /** The machine the work runs on, as far as Argus knows it: a sandboxed role sees neither the
