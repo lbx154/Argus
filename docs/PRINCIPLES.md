@@ -211,7 +211,10 @@ These are currently sensible policies, not eternal principles:
   bring its changes back to the workspace, and whether to keep or delete the
   worktree, are the task's decisions. The runtime makes the worktree, lets the
   task delete it from inside its sandbox, and forgets one deleted; it never
-  judges or deletes for the task. This follows principle 1;
+  judges or deletes for the task. A closed task can no longer delete its
+  worktree, so PROGRESS.md lists those still on the disk and what each holds,
+  for whoever keeps the disk in view to have them cleared. This follows
+  principle 1;
 - the Manager keeps the programme in view: each turn it weighs where the work
   stands against the goal from Argus's record (open tasks, how long each has
   run, what each delivered and cost, and the machine's disk and memory) and
