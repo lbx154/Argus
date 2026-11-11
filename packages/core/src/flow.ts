@@ -361,7 +361,7 @@ export class Flow {
     if (!names.length) throw new Error('name a reader: to=manager, planner, reviewer, engineer or a task id such as t3 (comma-separated); cc= the same');
     if (!text.trim()) throw new Error('the letter is empty: write it as the request body');
     if (project.status !== 'working') throw new Error(`the project's work is ${project.status}`);
-    const deliver = names.map(name => this.reader(project, role, task, name));
+    const deliver = names.map(name => this.reader(project, role, task, name, !to.includes(name)));
     const letter = posted(role, task, to, cc, text);
     for (const reach of deliver) await reach(letter);
     this.record(project, { type: 'letter', role, ...task ? { task: task.id } : {}, to, cc, text });
@@ -369,8 +369,10 @@ export class Flow {
   }
 
   /** How a letter written during a turn reaches `name`; throws when no such reader can have it. */
-  private reader(project: Project, role: Role, task: Task | null, name: string): (letter: string) => Promise<void> {
+  private reader(project: Project, role: Role, task: Task | null, name: string, copy = false): (letter: string) => Promise<void> {
     if (name === 'manager') return async letter => { void this.writeToManager(project, letter).catch(error => this.fail(project, 'manager', null, String(error))); };
+    // A copy asks nothing of the Planner: it reads it beside its next letter, and is not woken for it.
+    if (name === 'planner' && copy) return async letter => { (project.beside ??= []).push(letter); this.store.save(project); };
     if (name === 'planner') return async letter => { project.inbox.push(letter); this.store.save(project); this.works.get(project.id)?.wake(); };
     if (name === 'reviewer') {
       if (role !== 'engineer' || !task) throw new Error('only an Engineer writes to the Reviewer of their task; for another task, name the task');

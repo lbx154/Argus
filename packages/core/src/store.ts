@@ -93,7 +93,7 @@ export interface Project {
   tasks: Task[];
   /** Letters to the Planner, which it reads as they come. */
   inbox: string[];
-  /** Hand-overs inside the Planner's tasks as the work goes: what it reads beside its next letter,
+  /** Hand-overs inside the Planner's tasks as the work goes, and letters it was only copied on: what it reads beside its next letter,
    * which they do not wake it for. */
   beside?: string[];
   /** Letters to the Manager, the operator's and the team's, that no Manager turn has taken yet. */
