@@ -497,7 +497,7 @@ test("tasks the Planner opens together run side by side; one's question holds up
   assert.match(requests[3]?.prompt ?? '', /## Running beside it, in the same workspace\n- t1 Parse data\.csv\n\n## Task t2, from the Planner\nParse data2\.csv$/);
   assert.deepEqual(requests.map(request => request.role), ['manager', 'planner', 'engineer', 'engineer', 'reviewer', 'planner']);
   assert.equal(requests[5]?.prompt, '## Tasks\n- t1 [open, with the Engineer] Parse data.csv\n- t2 [closed] Parse data2.csv\nThe next task opened is t3.\n\n'
-    + '## Hand-overs inside your tasks since your last turn\nFrom the Engineer to the Reviewer, on task t2 (Parse data2.csv), as the work goes:\nparsed 2\n\n'
+    + '## Copies and hand-overs inside your tasks since your last turn\nFrom the Engineer to the Reviewer, on task t2 (Parse data2.csv), as the work goes:\nparsed 2\n\n'
     + '## Since your last turn\nFrom the Reviewer, on task t2 (Parse data2.csv):\nAccepted 2.');
   steps.push(
     { role: 'engineer', to: 'reviewer', letter: 'parsed 1' },
@@ -1393,7 +1393,7 @@ test("an Engineer going on asks the Reviewer to look now; the look's letter reac
   assert.equal(project.tasks[0]!.status, 'closed');
 });
 
-test('an Engineer writes to the Reviewer as their turn goes on, copied to the Planner: the Reviewer looks now and writes back into the turn', async t => {
+test('an Engineer writes to the Reviewer as their turn goes on, copied to the Planner: the Reviewer looks now and writes back into the turn, and the copy starts no Planner turn', async t => {
   lettersAt('http://127.0.0.1:1');
   t.after(() => lettersAt(null));
   let release = (): void => {};
@@ -1406,7 +1406,6 @@ test('an Engineer writes to the Reviewer as their turn goes on, copied to the Pl
       { to: ['reviewer'], cc: ['planner'], text: 'Is the delimiter handling right so far?' },
     ], waits: looked, to: 'reviewer', letter: 'summary.py prints the totals.' },
     { role: 'reviewer', to: 'engineer', letter: 'So far right; mind empty lines.' },
-    { role: 'planner', to: 'planner', letter: 'Noted.' },
     { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
     report,
   ]);
@@ -1418,10 +1417,36 @@ test('an Engineer writes to the Reviewer as their turn goes on, copied to the Pl
   assert.match(requests[1]!.letters ?? '', /^http:\/\/127\.0\.0\.1:1\/letters\/[0-9a-f]{32}$/);
   const look = requests.find(request => request.role === 'reviewer' && request.prompt.includes('asks you to look now'));
   assert.match(look?.prompt ?? '', /From the Engineer on task t1 \(.*\), as their turn goes on, to the Reviewer; copied to the Planner:\nIs the delimiter handling right so far\?/);
-  const planner = requests.find(request => request.role === 'planner');
-  assert.match(planner?.prompt ?? '', /copied to the Planner:\nIs the delimiter handling right so far\?/);
+  // The copy asks nothing of the Planner: no turn starts for it, and it waits for the Planner's next letter.
+  assert.equal(requests.filter(request => request.role === 'planner').length, 0);
+  assert.match(project.beside?.[0] ?? '', /copied to the Planner:\nIs the delimiter handling right so far\?/);
+  assert.deepEqual(project.inbox, []);
   assert.ok(events().some(event => event.type === 'letter' && event.to[0] === 'reviewer' && event.cc[0] === 'planner'));
   assert.equal(project.tasks[0]!.status, 'closed');
+});
+
+test("a letter copied to the Planner waits for its next letter, which it reads it beside; one written to it starts its turn", async t => {
+  lettersAt('http://127.0.0.1:1');
+  t.after(() => lettersAt(null));
+  const { flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv'] },
+    { role: 'engineer', posts: [{ to: ['manager'], cc: ['planner'], text: 'Half the rows are parsed.' }], to: 'engineer', letter: 'Going on.' },
+    { role: 'manager', to: 'manager', letter: 'Nothing to change.' },
+    { role: 'engineer', posts: [{ to: ['planner'], text: 'The file has a second sheet: plan for it?' }], to: 'engineer', letter: 'Going on.' },
+    { role: 'planner', later: true, to: 'planner', letter: '' },
+    { role: 'engineer', later: true, to: 'planner', letter: 'Parsed.' },
+    { role: 'planner', to: 'manager', letter: 'Parsed.' },
+    report,
+  ]);
+  const project = await say(flow, id, 'Parse the file');
+  assert.equal(project.status, 'idle');
+  const planner = requests.filter(request => request.role === 'planner');
+  // Three Planner turns: the brief, the letter written to it, the task's end. The copy started none.
+  assert.equal(planner.length, 3);
+  assert.match(planner[1]!.prompt, /## Copies and hand-overs inside your tasks since your last turn\nFrom the Engineer on task t1 \(.*\), as their turn goes on, to the Manager; copied to the Planner:\nHalf the rows are parsed\.\n\n## Since your last turn\nFrom the Engineer on task t1 \(.*\), as their turn goes on, to the Planner:\nThe file has a second sheet: plan for it\?/);
+  assert.doesNotMatch(planner[2]!.prompt, /Half the rows are parsed/);
+  assert.equal(project.beside, undefined);
 });
 
 test('a resumed session is given its standing instructions again only when they changed since it was given them', async t => {

@@ -126,7 +126,7 @@ const letters = (role: Role): string => [
   '  EOF',
   `Readers, comma-separated: manager, planner, an open task by its id (its holder reads it)${role === 'engineer'
     ? ', and reviewer: the Reviewer of your task looks now at what your letter asks, beside your work, and writes back into your turn'
-    : role === 'reviewer' ? ', and engineer, while the Engineer of your task works on (when you look at their work under way)' : ''}. cc sends a copy, marked as one, the same way. Your turn still ends with your hand-off.`,
+    : role === 'reviewer' ? ', and engineer, while the Engineer of your task works on (when you look at their work under way)' : ''}. cc sends a copy, marked as one, the same way; a copy to the Planner waits for its next turn and does not start one. Your turn still ends with your hand-off.`,
 ].join('\n');
 
 /** The machine the work runs on, as far as Argus knows it: a sandboxed role sees neither the
@@ -189,7 +189,7 @@ export function plannerPrompt(project: Project): string {
   };
   const tasks = project.tasks.map(task => `- ${task.id} [${state(task)}] ${task.title}`);
   return join(section('Tasks', [...tasks, `The next task opened is t${project.tasks.length + 1}.`].join('\n')),
-    !!project.beside?.length && section('Hand-overs inside your tasks since your last turn', project.beside.join('\n\n')),
+    !!project.beside?.length && section('Copies and hand-overs inside your tasks since your last turn', project.beside.join('\n\n')),
     section('Since your last turn', project.inbox.join('\n\n')));
 }
 
