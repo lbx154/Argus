@@ -11,7 +11,7 @@ import { Store, type FlowEvent, type Project, type Question } from '../src/store
 import { Flow, title, type FlowOptions } from '../src/flow.js';
 import { conversationRows, daemon, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
 import { words } from './helpers/words.js';
-import { packsHome, SKILLS } from '../src/prompts.js';
+import { packsHome, SKILLS, wikiHome } from '../src/prompts.js';
 import { formSchema, judge } from '../src/agent/handoff.js';
 import { boxAt, lettersAt } from '../src/letters.js';
 
@@ -1469,6 +1469,21 @@ test('a resumed session is given its standing instructions again only when they 
   (flow as unknown as { projects: Map<string, Project> }).projects.get(id)!.instructed!.manager = 'older';
   await say(flow, id, 'third');
   assert.match(requests[2]!.prompt, /^## Your standing instructions, as they now are[^\n]*\n[\s\S]*## Where things are[\s\S]*third/);
+});
+
+test('editing a wiki page does not give resumed sessions their standing instructions again; a new page does', async t => {
+  const { flow, id, requests, store } = await setup(t, [report, report, report]);
+  const wiki = wikiHome(store.home);
+  mkdirSync(wiki, { recursive: true });
+  writeFileSync(join(wiki, 'routes.md'), 'one line\n');
+  await say(flow, id, 'first');
+  writeFileSync(join(wiki, 'routes.md'), 'one line\ntwo lines\nthree lines\n');
+  await say(flow, id, 'second');
+  assert.match(requests[1]!.instructions ?? '', /routes\.md \(4 lines\)/);
+  assert.doesNotMatch(requests[1]!.prompt, /standing instructions, as they now are/);
+  writeFileSync(join(wiki, 'pitfalls.md'), 'new\n');
+  await say(flow, id, 'third');
+  assert.match(requests[2]!.prompt, /^## Your standing instructions, as they now are[\s\S]*pitfalls\.md/);
 });
 
 test("two looks at once on a task take turns in the task's one Reviewer session, and one that fails holds nothing up: the Engineer hears of it", async t => {
