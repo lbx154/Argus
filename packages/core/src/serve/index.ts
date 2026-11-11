@@ -15,7 +15,7 @@ import {
 import corePackage from '../../package.json' with { type: 'json' };
 import { rewritePrompt } from '../prompts.js';
 import { credentials, saveCredentials } from '../credentials.js';
-import { PROJECT_ID, asker, inherited, type Project, type Store } from '../store.js';
+import { PROJECT_ID, asker, effortOf, inherited, modelOf, type Project, type Store } from '../store.js';
 import type { Backend, CallAgent } from '../types.js';
 import { attached, attachedFile, attachments } from './attachments.js';
 import { atDelivery, artifactInfo, artifacts, modelAssets, rawHeaders, sendFile, sendStatic, under } from './files.js';
@@ -368,7 +368,10 @@ export async function serve(options: ServeOptions): Promise<Served> {
     ['POST', /^\/api\/projects\/([^/]+)\/prompt\/rewrite$/, async ({ params: [id], body }) => {
       const original = String((await body()).text ?? '').trim();
       if (!original) throw new HttpError(400, 'empty prompt', 'input_required');
-      const { id: sid, backend, workdir, model, effort } = project(id!);
+      const work = project(id!);
+      const { id: sid, backend, workdir } = work;
+      // The rewrite is a Manager's turn: with the Manager's model and effort.
+      const [model, effort] = [modelOf(work, 'manager'), effortOf(work, 'manager')];
       const dir = store.dir(sid);
       const { handoff, error } = await options.callAgent({
         backend, role: 'manager', form: 'manager', access: 'read', cwd: workdir, prompt: rewritePrompt(original),

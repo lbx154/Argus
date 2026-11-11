@@ -1461,6 +1461,19 @@ test("a role with an effort of its own is called with it, the others with the pr
   assert.deepEqual(requests.map(request => [request.role, request.effort]), [['manager', 'medium'], ['engineer', 'low'], ['reviewer', 'medium'], ['manager', 'medium']]);
 });
 
+test("a role with a model of its own is called with it, the others with the project's; what it reports is not taken for the project's", async t => {
+  const { store, flow, id, requests } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added.' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  store.save({ ...store.load(id), model: 'big', models: { engineer: 'small' } });
+  await say(flow, id, 'Build the summary');
+  assert.deepEqual(requests.map(request => [request.role, request.model]), [['manager', 'big'], ['engineer', 'small'], ['reviewer', 'big'], ['manager', 'big']]);
+  assert.deepEqual([store.load(id).model, store.load(id).models], ['big', { engineer: 'small' }]);
+});
+
 test('a resumed session is given its standing instructions again only when they changed since it was given them', async t => {
   const { flow, id, requests } = await setup(t, [report, report, report]);
   await say(flow, id, 'first');
