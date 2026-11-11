@@ -507,8 +507,9 @@ export class Flow {
     const ready = packs.filter(pack => pack.state === 'ready').map(pack => pack.home);
     const standing = instructions(role, project, this.store);
     // Only what the session has not been told: a resumed one learns of changed instructions in its prompt.
-    // The digest leaves out the date and the machine's load, which change by themselves.
-    const digest = createHash('sha256').update(standing.replace(/^Today is .*$|^\d+ logical CPUs.*$/gm, '')).digest('hex').slice(0, 16);
+    // The digest leaves out the date and the machine's load, which change by themselves, and the
+    // length of each wiki page, which changes whenever anyone edits one; a new page still counts.
+    const digest = createHash('sha256').update(standing.replace(/^Today is .*$|^\d+ logical CPUs.*$/gm, '').replace(/ \(\d+ lines\)/g, '')).digest('hex').slice(0, 16);
     const told = resume !== undefined && project.instructed?.[key] !== digest;
     (project.instructed ??= {})[key] = digest;
     let result: AgentResult;
