@@ -520,6 +520,8 @@ test('the map shows each task and the letters written about it, and a task its c
     { role: 'reviewer', to: 'engineer', letter: 'Add the units.' },
     { role: 'engineer', to: 'reviewer', letter: 'Units added.' },
     { role: 'reviewer', to: 'planner', letter: 'Accepted.' },
+    // The task that closed reaches the Manager too, which has nothing to change.
+    { role: 'manager', to: 'manager', letter: 'The course holds.' },
     { role: 'planner', to: 'manager', letter: 'The totals are in report.md.' },
     { role: 'manager', to: 'operator', letter: 'report.md gives the totals.' },
   ]);

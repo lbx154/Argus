@@ -26,6 +26,8 @@ export async function plannerBatchReplay({ reverse = false, correctSecond = fals
     const result = (to: string, letters: string[]) => ({ callId: 'controlled', threadId: 'session', completed: true, error: null,
       handoff: { form: request.form, to, letters }, model: 'fixture', usage: null, ms: 1 });
     if (request.role === 'manager') {
+      // A task that closed to the Planner reaches the Manager too; it has nothing to change.
+      if (/^Task t\d+ \(.*\) closed with the /.test(request.prompt)) return result('manager', ['照计划进行。']);
       if (request.prompt.includes('请求B')) return result('planner', ['计划B']);
       return result('planner', ['计划A']);
     }
