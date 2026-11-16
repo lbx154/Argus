@@ -121,8 +121,8 @@ test('a project has its own backend, model and effort, which the settings change
   assert.deepEqual(store.load(sid).sessions, {}, 'a Codex session is no use to Claude');
   assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-opus-4-1')).status, 200);
   assert.equal((await set('ARGUS_SKILL_REASONING_EFFORT', 'high')).status, 200);
-  // One model for every role, and nothing a backend's command line would read as an option.
-  for (const [name, value] of [['ARGUS_SKILL_ENGINEER_MODEL', 'gpt-5.5'], ['ARGUS_SKILL_LIGHT_MODEL', 'gpt-5.5'],
+  // Only the four roles have settings of their own, and nothing a backend's command line would read as an option.
+  for (const [name, value] of [['ARGUS_SKILL_OBSERVER_MODEL', 'gpt-5.5'], ['ARGUS_SKILL_LIGHT_MODEL', 'gpt-5.5'], ['ARGUS_SKILL_ENGINEER_MODEL', '--model=x'],
     ['ARGUS_SKILL_OBSERVER_REASONING_EFFORT', 'low'], ['ARGUS_SKILL_MODEL', '--dangerously-skip-permissions'],
     ['ARGUS_SKILL_ENGINEER_REASONING_EFFORT', 'very high'],
     ['ARGUS_SKILL_REASONING_EFFORT', 'very high']] as const) {
@@ -146,6 +146,20 @@ test('a project has its own backend, model and effort, which the settings change
   assert.equal((await set('ARGUS_SKILL_ENGINEER_REASONING_EFFORT', '')).status, 200);
   assert.equal(store.load(sid).efforts, undefined);
   assert.deepEqual((await get<Snapshot>(`${P}/snapshot`)).roles.map(role => role.effort), Array(4).fill('high'));
+
+  // A role may have a model of its own too, one of the project's backend; '' gives it the project's again.
+  assert.equal((await set('ARGUS_SKILL_ENGINEER_MODEL', 'claude-haiku-4-5')).status, 200);
+  assert.deepEqual(store.load(sid).models, { engineer: 'claude-haiku-4-5' });
+  assert.deepEqual((await get<Config>(`${P}/config`)).roles.map(role => role.model), ['claude-opus-4-1', 'claude-opus-4-1', 'claude-haiku-4-5', 'claude-opus-4-1']);
+  assert.deepEqual((await get<Snapshot>(`${P}/snapshot`)).roles.map(role => role.model), ['claude-opus-4-1', 'claude-opus-4-1', 'claude-haiku-4-5', 'claude-opus-4-1']);
+  assert.equal((await set('ARGUS_SKILL_ENGINEER_MODEL', 'auto')).status, 200);
+  assert.equal(store.load(sid).models, undefined);
+  // Another backend has other models: a role's own does not outlast a change of backend.
+  assert.equal((await set('ARGUS_SKILL_REVIEWER_MODEL', 'claude-haiku-4-5')).status, 200);
+  assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'codex')).status, 200);
+  assert.equal(store.load(sid).models, undefined);
+  assert.equal((await set('ARGUS_SKILL_RUNNER_BACKEND', 'claude')).status, 200);
+  assert.equal((await set('ARGUS_SKILL_MODEL', 'claude-opus-4-1')).status, 200);
 
   await (await send('POST', `${P}/message`, { text: 'Hi' })).json();
   assert.deepEqual(requests.map(({ backend, model, effort }) => ({ backend, model, effort })), [{ backend: 'claude', model: 'claude-opus-4-1', effort: 'high' }]);
