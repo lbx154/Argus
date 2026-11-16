@@ -10,7 +10,7 @@
 
 让长期 Agent 能够规划、执行、验证、暂停，并在一次模型调用之后继续推进。
 
-**Argus v0.1.8**
+**Argus v0.4.1**
 
 [![GitHub Stars](https://img.shields.io/github/stars/lbx154/Argus?style=flat-square)](https://github.com/lbx154/Argus/stargazers)
 [![License](https://img.shields.io/github/license/lbx154/Argus?style=flat-square)](LICENSE)
