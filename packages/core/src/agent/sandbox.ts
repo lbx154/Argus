@@ -73,13 +73,18 @@ export function launcher(name: string): string[] {
   return /\.(exe|com)$/i.test(file) ? [file] : [process.execPath, file];
 }
 
-/** The login files the CLI refreshes, the settings it only reads, and the variables it signs in with. */
-function cliSetup(backend: Backend): { login: string[]; settings: string[]; signsInWith: (name: string) => boolean } {
+/** The login files the CLI refreshes, the settings it only reads, the variables it signs in with, and
+ * those its settings set, which it reads from there at each start: not from Argus's own environment,
+ * where they stay as they were when Argus started though the file changes (a token rotated). */
+function cliSetup(backend: Backend): { login: string[]; settings: string[]; signsInWith: (name: string) => boolean; setInSettings?: Set<string> } {
   if (backend === 'claude') {
     const dir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
+    let set = new Set<string>();
+    try { set = new Set(Object.keys((JSON.parse(read(join(dir, 'settings.json')) || '{}') as { env?: Record<string, unknown> }).env ?? {})); }
+    catch { /* settings it cannot read set nothing */ }
     return {
       login: [join(dir, '.credentials.json')], settings: [join(dir, 'settings.json'), join(dir, 'CLAUDE.md')],
-      signsInWith: name => name.startsWith('ANTHROPIC_') || name === 'CLAUDE_CODE_OAUTH_TOKEN',
+      signsInWith: name => name.startsWith('ANTHROPIC_') || name === 'CLAUDE_CODE_OAUTH_TOKEN', setInSettings: set,
     };
   }
   if (backend === 'copilot') {
@@ -117,10 +122,11 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
 
 /** The CLI's login environment and the operator's registrations; other credentials stay out. */
 export function agentEnv(backend: Backend): Record<string, string> {
-  const { signsInWith } = cliSetup(backend);
+  const { signsInWith, setInSettings } = cliSetup(backend);
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
-    if (value !== undefined && (signsInWith(name) || !/^(GH_|GITHUB_)|^(SSH_AUTH_SOCK|GIT_ASKPASS)$|TOKEN|SECRET|KEY/i.test(name))) kept[name] = value;
+    if (value === undefined || setInSettings?.has(name)) continue;
+    if (signsInWith(name) || !/^(GH_|GITHUB_)|^(SSH_AUTH_SOCK|GIT_ASKPASS)$|TOKEN|SECRET|KEY/i.test(name)) kept[name] = value;
   }
   return { ...kept, ...credentials() };
 }

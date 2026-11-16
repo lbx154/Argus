@@ -1397,6 +1397,42 @@ test('a task that begins while another works in a git workspace works in a workt
   assert.doesNotMatch(readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8'), /Worktrees closed tasks left/);
 });
 
+test('a task that deletes its own worktree goes on in the workspace: its Reviewer starts there, on a frozen candidate (replays worktree-deleted)', async t => {
+  // The record: t4 cherry-picked its commit into the workspace, deleted its worktree and handed over;
+  // Argus started its Reviewer in the deleted folder, and the spawn failed with ENOENT.
+  const record = readFileSync(new URL('./fixtures/worktree-deleted/events.jsonl', import.meta.url), 'utf8').trim().split('\n')
+    .map(line => JSON.parse(line) as { type: string; letter?: string; error?: string });
+  const handover = record.find(event => event.type === 'handoff')!.letter!;
+  assert.match(record.find(event => event.type === 'call.end')!.error!, /ENOENT/);
+  let release = (): void => {};
+  const deleted = new Promise<void>(resolve => { release = resolve; });
+  const { home, flow, id, requests, events } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'Parsed 1.' },
+    { role: 'engineer', waits: deleted, to: 'reviewer', letter: handover },
+    noted,
+    { role: 'reviewer', to: 'planner', letter: 'Accepted.' },
+    noted,
+    { role: 'planner', later: true, to: 'planner', letter: '' },
+    { role: 'planner', to: 'manager', letter: 'Both parsed.' },
+    report,
+  ]);
+  checkout(home);
+  await flow.say(id, 'Parse both files');
+  while (!requests.some(request => request.role === 'engineer' && request.cwd.includes('.argus-worktrees'))) await new Promise(resolve => setImmediate(resolve));
+  const worktree = join(home, '.argus-worktrees', 't2');
+  assert.equal(spawnSync('git', ['worktree', 'remove', '--force', worktree], { cwd: home }).status, 0);
+  release();
+  const project = await flow.settled(id);
+  assert.equal(project.status, 'idle');
+  const review = requests.find(request => request.role === 'reviewer')!;
+  assert.equal(review.cwd, home);
+  assert.match(review.prompt, /## The candidate, frozen by Argus\nCommit [0-9a-f]+ holds the task's files/);
+  assert.ok(events().some(event => event.type === 'task.worktree' && event.task === 't2' && event.removed));
+  assert.deepEqual(project.tasks.map(task => task.place), ['workspace', 'workspace']);
+});
+
 test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });
