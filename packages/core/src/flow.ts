@@ -14,7 +14,7 @@ import { join, delimiter } from 'node:path';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import { effortOf, type FlowEvent, type Note, type OperatorMessage, type ManagerLetter, type Project, type Question, type Status, type Store, type Task } from './store.js';
-import { answered, copied, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
+import { answered, closedTo, copied, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, freeze, isCheckout, makeWorktree } from './worktrees.js';
@@ -319,6 +319,8 @@ export class Flow {
       case 'planner':
         this.close(project, task, role, letter);
         project.inbox.push(handedTo(role, task, letter));
+        // The Manager keeps the whole in view: every task that closes reaches it too, accepted or not.
+        void this.writeToManager(project, closedTo(role, task, letter)).catch(error => this.fail(project, 'manager', null, String(error)));
         break;
       case 'manager':
         this.close(project, task, role, letter);

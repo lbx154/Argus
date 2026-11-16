@@ -8,11 +8,13 @@ you find while using it, you are the one who knows, so you are the one who acts.
 history in git, so a change can always be read back or undone.
 
 **While you use it.** A page that was wrong, stale, or hard to find your way in; a skill whose steps
-no longer work; a tool that almost did what you needed: put it right now, as part of your task,
-in the smallest change that fixes it. A page you had trouble reading is too long or mixes topics for
-you: split it the way you would have wanted to find it. What only one project needs moves to that
-project's page. What a tool now checks is said in a line that names the tool. In your letter, say
-in a line which of them you used and whether they helped, misled or were out of date.
+no longer work; a tool that almost did what you needed: put it right now, as part of your task, in
+the smallest change that fixes it. A repair that would take more than that is not your task: name it
+in your letter, and the Planner decides whether it is worth a task of its own. A page you had
+trouble reading is too long or mixes topics for you: split it the way you would have wanted to find
+it. What only one project needs moves to that project's page. What a tool now checks is said in a
+line that names the tool. In your letter, say in a line which of them you used and whether they
+helped, misled or were out of date.
 
 **While you write a script.** When you write a script for a check or a step, ask then, while you
 know what it does: would another task, in this project or another, write the same thing? If so,

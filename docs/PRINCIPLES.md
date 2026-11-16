@@ -218,8 +218,9 @@ These are currently sensible policies, not eternal principles:
 - the Manager keeps the programme in view: each turn it weighs where the work
   stands against the goal from Argus's record (open tasks, how long each has
   run, what each delivered and cost, and the machine's disk and memory) and
-  finds what holds it up; whoever accepts a result, or delivers one without
-  review, copies it, and a turn with nothing to change ends in
+  finds what holds it up; every task that closes reaches it with its last
+  letter as written, whether the result was accepted, delivered without review
+  or could not go on, and a turn with nothing to change ends in
   a note to itself. The runtime delivers the letters and keeps the record; it
   never judges whether work is stuck. This follows principles 1 and 7;
 - each role's commits name the role and its task as their author, and
