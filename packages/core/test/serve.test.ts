@@ -161,6 +161,27 @@ test('credentials preserve UTF-8 across real HTTP chunks and large fetch bodies'
   for (const backend of ['codex', 'claude', 'copilot', 'pi'] as const) assert.equal(agentEnv(backend).WANDB_API_KEY, large);
 });
 
+test('a credential the Claude settings file sets is read from there, not from the environment Argus started with (replays token-rotated)', async t => {
+  // The record: the gateway token in settings.json was rotated while Argus ran; every role kept the stale
+  // value Argus had started with, which outranks the file, and each call and retry failed with 401.
+  const failures = (await readFile(new URL('./fixtures/token-rotated/events.jsonl', import.meta.url), 'utf8')).trim().split('\n').map(line => JSON.parse(line) as { error: string });
+  assert.ok(failures.length > 0 && failures.every(failure => /401/.test(failure.error)));
+  const dir = await mkdtemp(join(tmpdir(), 'argus-claude-settings-'));
+  const previous = { ...process.env };
+  t.after(async () => { process.env = previous; await rm(dir, { recursive: true, force: true }); });
+  await writeFile(join(dir, 'settings.json'), JSON.stringify({ env: { ANTHROPIC_AUTH_TOKEN: 'rotated', ANTHROPIC_BASE_URL: 'https://gateway.example' } }));
+  Object.assign(process.env, { CLAUDE_CONFIG_DIR: dir, ANTHROPIC_AUTH_TOKEN: 'stale', ANTHROPIC_BASE_URL: 'https://gateway.example', ANTHROPIC_API_KEY: 'login' });
+  const env = agentEnv('claude');
+  // What the file sets comes from the file, which each call reads afresh; the rest still comes along.
+  assert.equal(env.ANTHROPIC_AUTH_TOKEN, undefined);
+  assert.equal(env.ANTHROPIC_BASE_URL, undefined);
+  assert.equal(env.ANTHROPIC_API_KEY, 'login');
+  // A settings file that cannot be read sets nothing, and another backend's variables are its own.
+  await writeFile(join(dir, 'settings.json'), '{ not json');
+  assert.equal(agentEnv('claude').ANTHROPIC_AUTH_TOKEN, 'stale');
+  assert.equal(agentEnv('pi').ANTHROPIC_AUTH_TOKEN, 'stale');
+});
+
 test('authenticated settings keep literal credentials in one private file and only return names', async t => {
   const { home, call, get, store } = await setup(t, [], 'settings-token');
   const path = '/api/settings/credentials';

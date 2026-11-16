@@ -303,6 +303,7 @@ export class Flow {
       case 'engineer': case 'reviewer':
         // The candidate the Reviewer judges is frozen by Argus, not described by its producer.
         if (to === 'reviewer' && role === 'engineer' && task.frozen) {
+          this.inWorkspaceOnceDeleted(project, task);
           try {
             const at = freeze(typeof task.place === 'object' ? task.place.dir : project.workdir, `Argus: task ${task.id} as handed to its Reviewer`);
             task.frozen = { start: task.frozen.start, before: task.frozen.last ?? task.frozen.start, last: at };
@@ -502,6 +503,7 @@ export class Flow {
     let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
+    if (task) this.inWorkspaceOnceDeleted(project, task);
     const own = task && typeof task.place === 'object' ? task.place : null;
     this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
     // A pack's tools are ready before any role works: the first turn waits for its setup.
@@ -618,6 +620,15 @@ export class Flow {
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
     return task;
+  }
+
+  /** A task may delete its own worktree once its changes are in the workspace: from then on it works
+   * there, and its candidate is frozen there. Argus only notes that the worktree is gone. */
+  private inWorkspaceOnceDeleted(project: Project, task: Task): void {
+    if (typeof task.place !== 'object' || !forgetWorktree(project.workdir, task.place.dir)) return;
+    this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, removed: true });
+    task.place = 'workspace';
+    this.store.save(project);
   }
 
   /** A letter out of the task closes it, and stays on it as its last word; its sessions end, and

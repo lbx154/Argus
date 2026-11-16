@@ -1,0 +1,3 @@
+{"ts": "2026-11-16T12:21:24.435Z", "type": "call.end", "role": "engineer", "task": "t5", "error": "Failed to authenticate. API Error: 401 Unauthorized"}
+{"ts": "2026-11-16T12:21:40.146Z", "type": "call.end", "role": "engineer", "task": "t4", "error": "Failed to authenticate. API Error: 401 Unauthorized"}
+{"ts": "2026-11-16T12:21:53.096Z", "type": "call.end", "role": "engineer", "task": "t3", "error": "Failed to authenticate. API Error: 401 Unauthorized"}
