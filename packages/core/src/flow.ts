@@ -51,6 +51,9 @@ export interface FlowOptions {
 }
 
 /** Waits, or stops waiting when the work is interrupted. */
+/** How many times a turn that ended without its form goes back before it counts as failed. */
+const NUDGES = 3;
+
 const pause = (ms: number, signal?: AbortSignal): Promise<void> => new Promise(resolve => {
   const timer = setTimeout(resolve, ms);
   signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
@@ -525,7 +528,7 @@ export class Flow {
   /** One backend turn that ends in an accepted form; null when it failed (recorded, the work
    * stops) or was interrupted. A refused form goes back once, in the same session, with why. */
   private async call(project: Project, role: Role, task: Task | null, prompt: (resumed: boolean) => string,
-                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: true; retried?: true; afresh?: string } = {}): Promise<AgentResult | null> {
+                     turn: { refused?: string; answers?: string; input_id?: string; planner_inputs?: number; look?: true; retried?: true; afresh?: string; nudged?: number } = {}): Promise<AgentResult | null> {
     const { refused, answers, input_id } = turn;
     const answering = { ...answers ? { answers } : {}, ...input_id ? { input_id } : {} };
     const { signal } = this.options;
@@ -628,7 +631,10 @@ export class Flow {
     }
     // A turn Argus ended to give it its letters goes on at once, in its session, with them.
     if (this.delivered(session) && !completed && !signal?.aborted) return this.call(project, role, task, prompt, turn);
-    if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
+    // A turn that ended without its form goes back, in its session, saying why: some models end a turn on
+    // a sentence about what they will do next. After a few, it is a failed turn.
+    const nudged = turn.nudged ?? 0;
+    if (completed && threadId && nudged < NUDGES) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '', nudged: nudged + 1 });
     const again = !completed && !unpaid ? await this.tryAgain(project, role, key, turn, error ?? 'The turn failed.') : null;
     if (again) return this.call(project, role, task, prompt, again);
     if (!signal?.aborted && !turn.look) this.fail(project, role, task, completed ? `The ${role}'s hand-off was refused: ${error}` : error ?? `The ${role}'s turn failed.`, unpaid);
@@ -640,7 +646,7 @@ export class Flow {
   /** How a call that failed goes on by itself, if it does: first in its session, as most failures pass;
    * then in a new one, for a session that itself cannot go on. A new one has lost the session's memory, not
    * its work. The Manager's failure shows at once to the operator who is talking to it. */
-  private async tryAgain<Turn extends { look?: true; retried?: true; afresh?: string; refused?: string }>(project: Project, role: Role, key: string, turn: Turn, error: string): Promise<Turn | null> {
+  private async tryAgain<Turn extends { look?: true; retried?: true; afresh?: string; refused?: string; nudged?: number }>(project: Project, role: Role, key: string, turn: Turn, error: string): Promise<Turn | null> {
     const { retryFailedAfterMs: wait, signal } = this.options;
     if (wait === undefined || role === 'manager' || turn.look || signal?.aborted) return null;
     if (turn.afresh !== undefined || (turn.retried && !project.sessions[key])) return null;
@@ -649,7 +655,7 @@ export class Flow {
     if (!turn.retried) return { ...turn, retried: true };
     delete project.sessions[key];
     this.store.save(project);
-    const { refused: _, ...rest } = turn;
+    const { refused: _, nudged: __, ...rest } = turn;
     return { ...rest, afresh: error } as Turn;
   }
 

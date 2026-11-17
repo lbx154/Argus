@@ -757,6 +757,8 @@ test('a failed review holds up its task and leaves its sessions running, the Eng
     { role: 'engineer', to: 'reviewer', letter: 'Training runs in the background; the first checkpoint is in two hours.' },
     { role: 'reviewer' },
     { role: 'reviewer' },
+    { role: 'reviewer' },
+    { role: 'reviewer' },
   ]);
   const { sid } = await (await post('/api/daemons', {})).json() as { sid: string };
   await frames(await post(`/api/projects/${sid}/message/stream`, { text: 'Train it', request_id: 'r1' }));
