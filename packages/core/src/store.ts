@@ -87,6 +87,8 @@ export interface Project {
   freshAt?: number;
   /** Each session's context at its last step, by the session's key, as its backend reported it. */
   contexts?: Record<string, number>;
+  /** Sessions whose task's worktree was removed: each goes on in a fresh session that searches its record. */
+  moved?: string[];
   /** A role's own model, one of the project's backend, where the operator set one: its calls use it in place of `model`. */
   models?: Partial<Record<Role, string>>;
   /** The project's name: the operator's, or fixed by the first request's Manager turn;
@@ -143,7 +145,7 @@ export type FlowEvent =
   | { type: 'task.closed'; task: string }
   | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; kept?: true; error?: string }
   /** A session past the project's limit of context, replaced by a fresh one; `calls` hold its record. */
-  | { type: 'session.fresh'; role: Role; task?: string; context: number; calls: string[] }
+  | { type: 'session.fresh'; role: Role; task?: string; context: number | 'moved'; calls: string[] }
   | ({ type: 'step'; role: Role; task?: string } & Step)
   | { type: 'status'; status: Status; error?: string };
 
