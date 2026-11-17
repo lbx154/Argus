@@ -203,8 +203,8 @@ export const heldLetter = (role: Role, task: Task | null, error: string): string
   `From Argus: the ${NAMES[role]}'s turn${task ? ` on task ${task.id} (${task.title})` : ''} failed and did not go on by itself. It waits, with whatever waits for it; the rest of the work goes on. The error: ${error}\nTell the operator in plain words what is held up; any word from them sends it on.`;
 
 /** A turn that starts a fresh session because the old one passed the project's limit of context. */
-export const freshSession = (context: number, calls: string[], prompt: string): string =>
-  `${section('A fresh session', `Your session on this work had grown to ${context} tokens of context, so this turn starts a new one, without its memory. Where the work stands is in the workspace and in your task's notes. Everything the earlier session read, ran, wrote and was told is in its record${calls.length ? `: ${calls.join(', ')}` : ''}. Search it (\`grep -n\`) for what you need, rather than reading it whole.`)}\n\n${prompt}`;
+export const freshSession = (why: number | 'moved', calls: string[], prompt: string): string =>
+  `${section('A fresh session', `${why === 'moved' ? 'Your worktree was removed, so the work goes on in the workspace, where your session on it cannot follow' : `Your session on this work had grown to ${why} tokens of context`}, so this turn starts a new one, without its memory. Where the work stands is in the workspace and in your task's notes. Everything the earlier session read, ran, wrote and was told is in its record${calls.length ? `: ${calls.join(', ')}` : ''}. Search it (\`grep -n\`) for what you need, rather than reading it whole.`)}\n\n${prompt}`;
 
 /** What an Engineer's turn is told, as it goes on, when its context passes the project's limit; {context} is filled in. */
 export const overflow = (limit: number): string =>

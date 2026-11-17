@@ -502,18 +502,21 @@ export class Flow {
     const key = task ? `${task.id}.${role}` : role;
     // A session past the project's limit of context goes on in a fresh one, which searches the old one's record.
     const ran = project.contexts?.[key];
-    const fresh = project.freshAt !== undefined && project.sessions[key] !== undefined && ran !== undefined && ran > project.freshAt
+    if (task) this.inWorkspaceOnceDeleted(project, task);
+    // A session lives in its folder: once the task's worktree is gone, it cannot be resumed in the workspace.
+    const moved = project.moved?.includes(key) ?? false;
+    if (moved) project.moved = project.moved!.filter(other => other !== key);
+    const fresh = project.sessions[key] !== undefined && (moved || (project.freshAt !== undefined && ran !== undefined && ran > project.freshAt))
       ? this.recordOf(project, project.sessions[key]!) : null;
     if (fresh) {
-      this.record(project, { type: 'session.fresh', role, ...task ? { task: task.id } : {}, context: ran!, calls: fresh });
+      this.record(project, { type: 'session.fresh', role, ...task ? { task: task.id } : {}, context: moved ? 'moved' : ran!, calls: fresh });
       delete project.sessions[key];
-      delete project.contexts![key];
+      if (project.contexts) delete project.contexts[key];
     }
     const resume = project.sessions[key];
     let stepped = false;
     const where = task ? { task: task.id } : {};
     const dir = this.store.dir(project.id);
-    if (task) this.inWorkspaceOnceDeleted(project, task);
     const own = task && typeof task.place === 'object' ? task.place : null;
     this.record(project, { type: 'call.start', role, ...where, ...answering, ...turn.planner_inputs !== undefined ? { planner_inputs: turn.planner_inputs } : {} });
     // A pack's tools are ready before any role works: the first turn waits for its setup.
@@ -530,7 +533,7 @@ export class Flow {
     try {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
-        prompt: turn.afresh !== undefined ? startedAfresh(turn.afresh, join(dir, 'events.jsonl'), prompt(false)) : fresh ? freshSession(ran!, fresh, prompt(false)) : refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
+        prompt: turn.afresh !== undefined ? startedAfresh(turn.afresh, join(dir, 'events.jsonl'), prompt(false)) : fresh ? freshSession(moved ? 'moved' : ran!, fresh, prompt(false)) : refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills, and adds to the team's skills, wiki and tools.
         readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home), ...TURN[role].access === 'write' ? [] : ready], writeDirs: [skillsHome(this.store.home), wikiHome(this.store.home), toolsHome(this.store.home), ...own ? [project.workdir] : [], ...TURN[role].access === 'write' ? ready : []],
         env: { ...withTools(packEnv(packs, project.workdir, process.env), toolsHome(this.store.home)), ...author(role, task) }, ...(modelOf(project, role) ? { model: modelOf(project, role)! } : {}),
@@ -654,6 +657,9 @@ export class Flow {
     if (typeof task.place !== 'object' || !forgetWorktree(project.workdir, task.place.dir)) return;
     this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, removed: true });
     task.place = 'workspace';
+    // Its sessions stayed in the worktree's folder; each goes on in a fresh one that searches its record.
+    const own = Object.keys(project.sessions).filter(key => key.startsWith(`${task.id}.`));
+    if (own.length) project.moved = [...new Set([...project.moved ?? [], ...own])];
     this.store.save(project);
   }
 

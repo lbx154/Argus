@@ -1436,6 +1436,39 @@ test('a task that deletes its own worktree goes on in the workspace: its Reviewe
   assert.deepEqual(project.tasks.map(task => task.place), ['workspace', 'workspace']);
 });
 
+test("a task's sessions do not follow it out of a deleted worktree: its next turn starts afresh and searches the old record", async t => {
+  // B2's t4 deleted its worktree mid-turn; Argus resumed its session in the workspace, where Claude keeps none
+  // ("No conversation found with session ID"), and retried it every minute.
+  let release = (): void => {};
+  const deleted = new Promise<void>(resolve => { release = resolve; });
+  const { home, flow, id, requests, events } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'Parsed 1.' },
+    { role: 'engineer', waits: deleted, to: 'engineer', letter: 'Picked into the workspace; going on there.' },
+    { role: 'engineer', to: 'reviewer', letter: 'Parsed 2.' },
+    noted,
+    { role: 'reviewer', to: 'planner', letter: 'Accepted.' },
+    noted,
+    { role: 'planner', later: true, to: 'planner', letter: '' },
+    { role: 'planner', to: 'manager', letter: 'Both parsed.' },
+    report,
+  ]);
+  checkout(home);
+  await flow.say(id, 'Parse both files');
+  while (!requests.some(request => request.role === 'engineer' && request.cwd.includes('.argus-worktrees'))) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(spawnSync('git', ['worktree', 'remove', '--force', join(home, '.argus-worktrees', 't2')], { cwd: home }).status, 0);
+  release();
+  const project = await flow.settled(id);
+  assert.equal(project.status, 'idle');
+  const engineers = requests.filter(request => request.role === 'engineer' && request.cwd === home && request.prompt.includes('## A fresh session'));
+  assert.equal(engineers.length, 1);
+  assert.equal(engineers[0]!.resume, undefined);
+  assert.match(engineers[0]!.prompt, /Your worktree was removed/);
+  assert.ok(events().some(event => event.type === 'session.fresh' && event.task === 't2' && event.context === 'moved'));
+  assert.deepEqual(project.moved ?? [], []);
+});
+
 test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });
