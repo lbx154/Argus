@@ -40,6 +40,8 @@ interface Step {
   interrupt?: boolean;
   /** The agent layer throws this instead of returning. */
   throws?: string;
+  /** The context the turn's last step read, as a backend reports it. */
+  context?: number;
   says?: string;
 }
 
@@ -68,6 +70,7 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     return {
       callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: !step.interrupt,
       error: step.interrupt ? 'interrupted' : handoff ? null : 'The turn ended without the hand-off form.', handoff, model: 'fake', usage: null, ms: 1,
+      ...step.context !== undefined ? { context: step.context } : {},
     };
   };
   return { callAgent, requests };
@@ -1534,6 +1537,31 @@ test("a letter copied to the Planner waits for its next letter, which it reads i
   assert.match(planner[1]!.prompt, /## Copies and hand-overs inside your tasks since your last turn\nFrom the Engineer on task t1 \(.*\), as their turn goes on, to the Manager; copied to the Planner:\nHalf the rows are parsed\.\n\n## Since your last turn\nFrom the Engineer on task t1 \(.*\), as their turn goes on, to the Planner:\nThe file has a second sheet: plan for it\?/);
   assert.doesNotMatch(planner[2]!.prompt, /Half the rows are parsed/);
   assert.equal(project.beside, undefined);
+});
+
+test('a session past the project\'s limit of context goes on in a fresh one, which is told where the old one\'s record is', async t => {
+  const { store, flow, id, requests, events } = await setup(t, [
+    toEngineer,
+    { role: 'engineer', to: 'engineer', letter: 'Notes written; going on.', context: 150000 },
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py added.', context: 30000 },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ]);
+  store.save({ ...store.load(id), freshAt: 100000 });
+  await say(flow, id, 'Build the summary');
+  const [first, second] = requests.filter(request => request.role === 'engineer');
+  // Every role knows the limit; only the Engineer's turn is told to hand on when it passes it.
+  assert.deepEqual([first!.freshAt, typeof first!.overflow], [100000, 'string']);
+  assert.match(first!.overflow!, /past the 100000 this project allows.*handing the work to yourself/s);
+  assert.deepEqual([requests[0]!.freshAt, requests[0]!.overflow], [100000, undefined]);
+  // The turn after the long one starts a fresh session, told where the old one's record is.
+  assert.equal(second!.resume, undefined);
+  assert.match(second!.prompt, /^## A fresh session\nYour session on this work had grown to 150000 tokens of context.*calls[\\/]call-2\.jsonl.*Search it/s);
+  assert.match(second!.prompt, /## Task t1, from the Manager/);
+  const fresh = events().find(event => event.type === 'session.fresh');
+  assert.deepEqual(fresh && 'context' in fresh ? [fresh.role, fresh.context] : null, ['engineer', 150000]);
+  // The fresh session's own context is what counts from then on.
+  assert.equal(store.load(id).contexts?.['t1.engineer'], 30000);
 });
 
 test("a role with an effort of its own is called with it, the others with the project's", async t => {

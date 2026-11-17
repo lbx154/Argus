@@ -30,12 +30,16 @@ export const claude: StartBackend = (request, { confined, schema }) => {
   let spent = 0;
   return {
     args, instructed: true,
-    async turn(cli, prompt, { onStep }) {
+    async turn(cli, prompt, { onStep, request }) {
       let result: Record<string, unknown> | null = null;
       // Claude takes a turn of its own when a background job it started ends; this turn's events
       // begin where its message is played back.
       const uuid = randomUUID();
       let mine = false;
+      // The context each step reads, and whether this turn was told it passed the project's limit.
+      let context: number | undefined;
+      let told = false;
+      const steps = new Set<string>();
       const ended = cli.until(event => {
         if (typeof event.session_id === 'string' && event.session_id) threadId = event.session_id;
         if (event.type === 'system' && event.subtype === 'init' && typeof event.model === 'string') model = event.model;
@@ -47,6 +51,17 @@ export const claude: StartBackend = (request, { confined, schema }) => {
         // A thought is Claude's summary of its thinking, where it gives one.
         const content = event.type === 'assistant' && isJsonObject(event.message) && Array.isArray(event.message.content)
           ? event.message.content.filter(isJsonObject) : [];
+        if (event.type === 'assistant' && !event.parent_tool_use_id && isJsonObject(event.message) && typeof event.message.id === 'string'
+          && !steps.has(event.message.id) && isJsonObject(event.message.usage)) {
+          steps.add(event.message.id);
+          const read = event.message.usage;
+          context = count(read.input_tokens) + count(read.cache_read_input_tokens) + count(read.cache_creation_input_tokens);
+          // Claude reads a user message sent during a turn at its next step, in the same turn.
+          if (!told && request.freshAt && request.overflow && context > request.freshAt) {
+            told = true;
+            cli.send({ type: 'user', message: { role: 'user', content: request.overflow.replace('{context}', String(context)) } });
+          }
+        }
         for (const part of content) {
           onStep(part.type === 'text' && !event.parent_tool_use_id ? said(part.text) : part.type === 'tool_use' ? used(part.name, part.input)
             : part.type === 'thinking' && !event.parent_tool_use_id ? thought([part.thinking]) : null);
@@ -72,7 +87,7 @@ export const claude: StartBackend = (request, { confined, schema }) => {
       };
       if (total !== null) spent = total;
       return {
-        threadId, completed, model: model ?? request.model ?? null, usage, output: ending.structured_output ?? undefined,
+        threadId, completed, model: model ?? request.model ?? null, usage, ...context !== undefined ? { context } : {}, output: ending.structured_output ?? undefined,
         error: completed ? null : !finished ? cli.why() : words || `Claude reported ${String(ending.subtype ?? 'an error')}.`,
       };
     },

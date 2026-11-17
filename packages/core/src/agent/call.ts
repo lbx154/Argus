@@ -34,7 +34,7 @@ export interface Conversation {
 }
 
 /** How a turn ended; `output` is its final answer, the form as filled in. */
-export type TurnEnd = Pick<AgentResult, 'threadId' | 'completed' | 'error' | 'model' | 'usage'> & { output: unknown };
+export type TurnEnd = Pick<AgentResult, 'threadId' | 'completed' | 'error' | 'model' | 'usage' | 'context'> & { output: unknown };
 
 export type StartBackend = (
   request: AgentRequest,
