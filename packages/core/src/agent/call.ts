@@ -147,6 +147,12 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
 }, {
   /** Ends every CLI kept under a key that starts with `prefix`, and all they started. */
   close: (prefix: string): Promise<void> => Promise.all([...live.keys()].filter(key => key.startsWith(prefix)).map(key => end(key))).then(() => undefined),
+  interrupt: async (key: string): Promise<boolean> => {
+    const kept = live.get(key);
+    if (!kept || kept.cli.gone) return false;
+    await end(key);
+    return true;
+  },
   steer: async (key: string, text: string): Promise<boolean> => {
     const kept = live.get(key);
     return !!kept && !kept.cli.gone && (await kept.conversation.steer?.(kept.cli, text) ?? false);
