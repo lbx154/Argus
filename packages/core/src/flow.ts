@@ -510,7 +510,7 @@ export class Flow {
     if (wait === undefined || this.delivering.has(session)) return;
     this.delivering.add(session);
     void pause(wait, signal).then(async () => {
-      if (signal?.aborted || !this.running.has(session) || !task.unread?.includes(note) || !await this.callAgent.interrupt?.(session)) {
+      if (signal?.aborted || !this.delivering.has(session) || !this.running.has(session) || !task.unread?.includes(note) || !await this.callAgent.interrupt?.(session)) {
         this.delivering.delete(session);
         return;
       }
@@ -592,6 +592,8 @@ export class Flow {
     }
     this.running.delete(session);
     const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid, context } = result;
+    // A turn that ended by itself: the next one reads every letter waiting, so none is delivered by ending it.
+    if (completed) this.delivering.delete(session);
     if (context !== undefined) (project.contexts ??= {})[key] = context;
     // What the turn changed of the team's library is kept, under its name, in the library's history.
     if (TURN[role].access === 'write') {
@@ -630,7 +632,7 @@ export class Flow {
       return result;
     }
     // A turn Argus ended to give it its letters goes on at once, in its session, with them.
-    if (this.delivered(session) && !completed && !signal?.aborted) return this.call(project, role, task, prompt, turn);
+    if (!completed && !signal?.aborted && this.delivered(session)) return this.call(project, role, task, prompt, turn);
     // A turn that ended without its form goes back, in its session, saying why: some models end a turn on
     // a sentence about what they will do next. After a few, it is a failed turn.
     const nudged = turn.nudged ?? 0;
