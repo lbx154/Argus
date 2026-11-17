@@ -386,18 +386,21 @@ test('a refused hand-off goes back to its writer once, in its session, with why'
   assert.deepEqual([requests[2]?.resume, requests[2]?.prompt], ['engineer-2', refusal]);
 });
 
-test('a hand-off refused again is a failed call: recorded, and nothing runs after it', async t => {
-  const steps: Step[] = [toEngineer, { role: 'engineer' }, { role: 'engineer' }];
+test('a turn that keeps ending without its form goes back three times in its session, then is a failed call: recorded, and nothing runs after it', async t => {
+  // Gemini on Copilot ends a turn on "I will now inspect ..." with no tool call; on virtiofs t13 the second such
+  // turn held the task until the operator resumed it.
+  const steps: Step[] = [toEngineer, { role: 'engineer' }, { role: 'engineer' }, { role: 'engineer' }, { role: 'engineer' }];
   const { flow, id, requests, events } = await setup(t, steps);
   const failed = await say(flow, id, 'Make me a CSV summary tool');
   assert.equal(failed.status, 'failed');
   assert.equal(failed.error, "The engineer's hand-off was refused: The turn ended without the hand-off form.");
-  assert.equal(requests.length, 3);
+  assert.equal(requests.length, 5);
+  assert.ok(requests.slice(2).every(request => request.resume === 'engineer-2'));
   assert.deepEqual(events().slice(-3).map(event => event.type), ['call.start', 'call.end', 'status']);
   // The operator's next message continues the work, in the Engineer's session.
   steps.push({ role: 'manager', to: 'operator', letter: 'Trying again.' }, { role: 'engineer', to: 'reviewer' }, { role: 'reviewer', to: 'manager' }, report);
   assert.equal((await say(flow, id, 'try again')).status, 'idle');
-  assert.deepEqual([requests[4]?.resume, requests[4]?.prompt], ['engineer-2', 'Continue the task.']);
+  assert.deepEqual([requests[6]?.resume, requests[6]?.prompt], ['engineer-2', 'Continue the task.']);
 });
 
 test('a call the agent layer cannot make is a failed call too', async t => {
