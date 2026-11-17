@@ -44,6 +44,10 @@ export interface FlowOptions {
   /** With no one watching, a failed turn must not wait unseen: it goes on by itself after this long,
    * in its session and then in a new one, and if it still fails the Manager hears of it, to tell the operator. Unset, it just holds. */
   retryFailedAfterMs?: number;
+  /** A backend that cannot take a letter into a turn under way (Copilot's runs a turn to its end) reads
+   * one from the Planner or Manager this long after it came: Argus ends the turn, and it goes on in its
+   * session with its letters. Unset, letters wait for the turn's end. */
+  deliverLettersAfterMs?: number;
 }
 
 /** Waits, or stops waiting when the work is interrupted. */
@@ -421,6 +425,10 @@ export class Flow {
 
   /** The letters put into a turn under way, which its hand-off shows it has read. */
   private readonly steered = new WeakSet<Note>();
+  /** The sessions whose turn is under way, by key (project/task.role). */
+  private readonly running = new Set<string>();
+  /** Sessions whose turn Argus ended to give them their letters: they go on at once. */
+  private readonly delivering = new Set<string>();
 
   /** Each project's letters a Manager turn is taking or will take, one entry for each. */
   private readonly handing = new Map<Project, Array<ManagerLetter>>();
@@ -480,7 +488,31 @@ export class Flow {
     const note = { from, text: letter };
     (task.unread ??= []).push(note);
     this.store.save(project);
-    if (await this.callAgent.steer?.(`${project.id}/${task.id}.${task.holder}`, letterPrompt(from, letter))) this.steered.add(note);
+    const session = `${project.id}/${task.id}.${task.holder}`;
+    if (await this.callAgent.steer?.(session, letterPrompt(from, letter))) this.steered.add(note);
+    else if ((from === 'planner' || from === 'manager') && this.running.has(session)) this.deliverLater(project, task, note, session);
+  }
+
+  /** Whether Argus ended this session's last turn to give it its letters; it hears so once. */
+  private delivered(session: string): boolean {
+    const was = this.delivering.has(session) && !this.running.has(session);
+    if (was) this.delivering.delete(session);
+    return was;
+  }
+
+  /** A letter a turn under way could not take: if it is still unread after a while, the turn ends,
+   * and the task goes on in its session with what it was sent. */
+  private deliverLater(project: Project, task: Task, note: Note, session: string): void {
+    const { deliverLettersAfterMs: wait, signal } = this.options;
+    if (wait === undefined || this.delivering.has(session)) return;
+    this.delivering.add(session);
+    void pause(wait, signal).then(async () => {
+      if (signal?.aborted || !this.running.has(session) || !task.unread?.includes(note) || !await this.callAgent.interrupt?.(session)) {
+        this.delivering.delete(session);
+        return;
+      }
+      this.record(project, { type: 'letters.delivered', task: task.id, role: task.holder, letters: task.unread.length });
+    });
   }
 
   /** An unread letter goes back to its writer; a Manager's waits until its current turn ends. */
@@ -530,6 +562,8 @@ export class Flow {
     const told = resume !== undefined && project.instructed?.[key] !== digest;
     (project.instructed ??= {})[key] = digest;
     let result: AgentResult;
+    const session = `${project.id}/${key}`;
+    this.running.add(session);
     try {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
@@ -543,14 +577,17 @@ export class Flow {
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
     } catch (thrown) {
+      this.running.delete(session);
       // The call never ran to an end of its own: it is recorded as ended, failed.
       const error = thrown instanceof Error ? thrown.message : String(thrown);
       this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
+      if (this.delivered(session)) return this.call(project, role, task, prompt, turn);
       const again = await this.tryAgain(project, role, key, turn, error);
       if (again) return this.call(project, role, task, prompt, again);
       if (!signal?.aborted && !turn.look) this.fail(project, role, task, error);
       return null;
     }
+    this.running.delete(session);
     const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid, context } = result;
     if (context !== undefined) (project.contexts ??= {})[key] = context;
     // What the turn changed of the team's library is kept, under its name, in the library's history.
@@ -589,6 +626,8 @@ export class Flow {
         ...(tasks?.[at]?.task ? { task: tasks[at]!.task } : {}), to, letter, ...delivered, ...answering });
       return result;
     }
+    // A turn Argus ended to give it its letters goes on at once, in its session, with them.
+    if (this.delivered(session) && !completed && !signal?.aborted) return this.call(project, role, task, prompt, turn);
     if (completed && threadId && !refused) return this.call(project, role, task, prompt, { ...turn, refused: error ?? '' });
     const again = !completed && !unpaid ? await this.tryAgain(project, role, key, turn, error ?? 'The turn failed.') : null;
     if (again) return this.call(project, role, task, prompt, again);

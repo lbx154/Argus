@@ -38,6 +38,8 @@ interface Step {
   waits?: Promise<unknown>;
   /** The operator interrupts the process during this turn. */
   interrupt?: boolean;
+  /** The turn's CLI is ended under it: it returns cut off, its session kept. */
+  cut?: boolean;
   /** The agent layer throws this instead of returning. */
   throws?: string;
   /** The context the turn's last step read, as a backend reports it. */
@@ -63,6 +65,7 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     await step.waits;
     if (step.interrupt) controller?.abort();
     if (step.throws) throw new Error(step.throws);
+    if (step.cut) return { callId: `call-${requests.length}`, threadId: request.resume ?? `${request.role}-${requests.length}`, completed: false, error: 'The backend CLI exited with SIGTERM.', handoff: null, model: 'fake', usage: null, ms: 1 };
     const handoff = step.to === undefined ? null
       : { form: request.form, to: step.to, letters: step.letters ?? [step.letter ?? `${step.role} to ${step.to}`],
           ...step.tasks ? { tasks: step.tasks } : {}, ...step.open ? { open: step.open } : {},
@@ -1467,6 +1470,39 @@ test("a task's sessions do not follow it out of a deleted worktree: its next tur
   assert.match(engineers[0]!.prompt, /Your worktree was removed/);
   assert.ok(events().some(event => event.type === 'session.fresh' && event.task === 't2' && event.context === 'moved'));
   assert.deepEqual(project.moved ?? [], []);
+});
+
+test("a backend that cannot take a letter mid-turn gets the Planner's after a while: Argus ends the turn and it goes on in its session with it", async t => {
+  // virtiofs on Copilot: t8's turn ran from 10:15 to 12:04 while the Planner's "freeze now" (11:04) and 22 other
+  // letters waited unread, because Copilot cannot take a letter into a turn under way.
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests, events, callAgent } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Prove the tables'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'Parsed 1.' },
+    { role: 'engineer', says: 'Proving the tables.', waits: held, cut: true },
+    noted,
+    { role: 'planner', to: 'engineer', letters: ['Freeze now: commit the contracts and hand over.'], tasks: [{ task: 't2', after: [] }] },
+    { role: 'engineer', to: 'reviewer', letter: 'Frozen.' },
+    { role: 'reviewer', to: 'planner', letter: 'Accepted.' },
+    noted,
+    { role: 'planner', to: 'manager', letter: 'Both done.' },
+    report,
+  ], undefined, { deliverLettersAfterMs: 5 });
+  let interrupted = 0;
+  callAgent.interrupt = async () => { interrupted += 1; release(); return true; };
+  await flow.say(id, 'Parse and prove');
+  const project = await flow.settled(id);
+  assert.equal(project.status, 'idle');
+  assert.equal(interrupted, 1);
+  const engineers = requests.filter(request => request.role === 'engineer');
+  assert.equal(engineers.length, 3);
+  // The fake names a session by the requests made when its turn ends; the cut turn's session goes on.
+  assert.match(engineers[2]!.resume ?? '', /^engineer-\d+$/);
+  assert.match(engineers[2]!.prompt, /Freeze now: commit the contracts and hand over\./);
+  assert.ok(events().some(event => event.type === 'letters.delivered' && event.task === 't2'));
+  assert.deepEqual(project.failures ?? [], []);
 });
 
 test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {

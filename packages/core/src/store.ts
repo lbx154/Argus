@@ -145,6 +145,7 @@ export type FlowEvent =
   | { type: 'task.closed'; task: string }
   | { type: 'task.worktree'; task: string; dir?: string; base?: string; removed?: true; kept?: true; error?: string }
   /** A session past the project's limit of context, replaced by a fresh one; `calls` hold its record. */
+  | { type: 'letters.delivered'; task: string; role: Role; letters: number }
   | { type: 'session.fresh'; role: Role; task?: string; context: number | 'moved'; calls: string[] }
   | ({ type: 'step'; role: Role; task?: string } & Step)
   | { type: 'status'; status: Status; error?: string };

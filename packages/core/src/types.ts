@@ -114,5 +114,7 @@ export interface AgentResult {
 export type CallAgent = ((request: AgentRequest) => Promise<AgentResult>) & {
   close?: (prefix: string) => Promise<void>;
   steer?: (session: string, text: string) => Promise<boolean>;
+  /** Ends the turn under way in a session, its session kept: false when none runs. */
+  interrupt?: (session: string) => Promise<boolean>;
   models?: (backend: Backend, cwd: string) => Promise<{ model: string; default: boolean }[]>;
 };
