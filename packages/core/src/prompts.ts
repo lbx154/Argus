@@ -202,6 +202,14 @@ export function handedTo(role: Role, task: Task | null, letter: string): string 
 export const heldLetter = (role: Role, task: Task | null, error: string): string =>
   `From Argus: the ${NAMES[role]}'s turn${task ? ` on task ${task.id} (${task.title})` : ''} failed and did not go on by itself. It waits, with whatever waits for it; the rest of the work goes on. The error: ${error}\nTell the operator in plain words what is held up; any word from them sends it on.`;
 
+/** A turn that starts a fresh session because the old one passed the project's limit of context. */
+export const freshSession = (context: number, calls: string[], prompt: string): string =>
+  `${section('A fresh session', `Your session on this work had grown to ${context} tokens of context, so this turn starts a new one, without its memory. Where the work stands is in the workspace and in your task's notes. Everything the earlier session read, ran, wrote and was told is in its record${calls.length ? `: ${calls.join(', ')}` : ''}. Search it (\`grep -n\`) for what you need, rather than reading it whole.`)}\n\n${prompt}`;
+
+/** What an Engineer's turn is told, as it goes on, when its context passes the project's limit; {context} is filled in. */
+export const overflow = (limit: number): string =>
+  `From Argus: this session's context is now {context} tokens, past the ${limit} this project allows. Finish the step you are on, write in your task's notes what the next session needs (what is done, what did not work, what is next), and end this turn handing the work to yourself. The next turn starts a fresh session, which can search this one's record.`;
+
 /** The turn that takes over from a session that could not go on. */
 export const startedAfresh = (error: string, events: string, prompt: string): string =>
   `${prompt}\n\n${section('You are taking over', `The session that had this work failed twice and could not go on, so this is a new one, without its memory. Its failure: ${error}\nWhat it did is in the working folder; each step it took is in ${events}. Look at what is there before doing anything again. If the failure objects to something in how the work was going, go about that part another way.`)}`;

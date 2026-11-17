@@ -103,7 +103,14 @@ test('a project has its own backend, model and effort, which the settings change
   const config = await get<Config>(`${P}/config`);
   assert.deepEqual(config.roles.map(role => [role.role, role.backend, role.model, role.reasoning_effort]),
     ['manager', 'planner', 'engineer', 'reviewer'].map(role => [role, 'codex', '', null]));
-  assert.deepEqual(config.operator_knobs.map(knob => [knob.name, knob.value]), [['ARGUS_SKILL_RUNNER_BACKEND', 'codex'], ['ARGUS_SKILL_MODEL', '']]);
+  assert.deepEqual(config.operator_knobs.map(knob => [knob.name, knob.value]), [['ARGUS_SKILL_RUNNER_BACKEND', 'codex'], ['ARGUS_SKILL_MODEL', ''], ['ARGUS_SKILL_FRESH_SESSION_TOKENS', '']]);
+  // The context past which a session is replaced: a whole number of tokens, or '' for never.
+  for (const value of ['5000', '120k', '1.5e5']) assert.equal((await set('ARGUS_SKILL_FRESH_SESSION_TOKENS', value)).status, 400, value);
+  assert.equal((await set('ARGUS_SKILL_FRESH_SESSION_TOKENS', '120000')).status, 200);
+  assert.equal(store.load(sid).freshAt, 120000);
+  assert.equal((await get<Config>(`${P}/config`)).operator_knobs.find(knob => knob.name === 'ARGUS_SKILL_FRESH_SESSION_TOKENS')?.value, '120000');
+  assert.equal((await set('ARGUS_SKILL_FRESH_SESSION_TOKENS', '')).status, 200);
+  assert.equal(store.load(sid).freshAt, undefined);
   // The backends the page offers are those there are.
   assert.deepEqual(config.backends, { codex: 'Codex', claude: 'Claude Code', copilot: 'Copilot CLI', pi: 'Pi' });
   type Choices = { backend: string; options: { model: string; default: boolean }[] };

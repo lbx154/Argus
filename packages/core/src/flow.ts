@@ -11,10 +11,11 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { join, delimiter } from 'node:path';
+import { readFileSync } from 'node:fs';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import { effortOf, modelOf, type FlowEvent, type Note, type OperatorMessage, type ManagerLetter, type Project, type Question, type Status, type Store, type Task } from './store.js';
-import { answered, closedTo, copied, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
+import { answered, closedTo, copied, freshSession, overflow, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, freeze, isCheckout, makeWorktree } from './worktrees.js';
@@ -499,6 +500,15 @@ export class Flow {
     if (signal?.aborted) return null;
     // A task's Reviewer is one session, its looks and reviews alike, kept like the Engineer's.
     const key = task ? `${task.id}.${role}` : role;
+    // A session past the project's limit of context goes on in a fresh one, which searches the old one's record.
+    const ran = project.contexts?.[key];
+    const fresh = project.freshAt !== undefined && project.sessions[key] !== undefined && ran !== undefined && ran > project.freshAt
+      ? this.recordOf(project, project.sessions[key]!) : null;
+    if (fresh) {
+      this.record(project, { type: 'session.fresh', role, ...task ? { task: task.id } : {}, context: ran!, calls: fresh });
+      delete project.sessions[key];
+      delete project.contexts![key];
+    }
     const resume = project.sessions[key];
     let stepped = false;
     const where = task ? { task: task.id } : {};
@@ -520,11 +530,12 @@ export class Flow {
     try {
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
-        prompt: turn.afresh !== undefined ? startedAfresh(turn.afresh, join(dir, 'events.jsonl'), prompt(false)) : refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
+        prompt: turn.afresh !== undefined ? startedAfresh(turn.afresh, join(dir, 'events.jsonl'), prompt(false)) : fresh ? freshSession(ran!, fresh, prompt(false)) : refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills, and adds to the team's skills, wiki and tools.
         readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home), ...TURN[role].access === 'write' ? [] : ready], writeDirs: [skillsHome(this.store.home), wikiHome(this.store.home), toolsHome(this.store.home), ...own ? [project.workdir] : [], ...TURN[role].access === 'write' ? ready : []],
         env: { ...withTools(packEnv(packs, project.workdir, process.env), toolsHome(this.store.home)), ...author(role, task) }, ...(modelOf(project, role) ? { model: modelOf(project, role)! } : {}),
-        ...(effortOf(project, role) ? { effort: effortOf(project, role)! } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
+        ...(effortOf(project, role) ? { effort: effortOf(project, role)! } : {}),
+        ...(project.freshAt ? { freshAt: project.freshAt, ...role === 'engineer' ? { overflow: overflow(project.freshAt) } : {} } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
         ...(task ? { giver: task.from } : {}), ...this.box(project, role, task, `${project.id}/${key}`), onStep: step => { stepped = true; this.record(project, { type: 'step', role, ...where, ...step }); },
         onWords: (words, kind) => this.options.onWords?.(role, task?.id, words, kind), callsDir: join(dir, 'calls'), usageFile: join(dir, 'usage.jsonl'),
       });
@@ -537,7 +548,8 @@ export class Flow {
       if (!signal?.aborted && !turn.look) this.fail(project, role, task, error);
       return null;
     }
-    const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid } = result;
+    const { callId, threadId, completed, error, model, usage, ms, handoff, unpaid, context } = result;
+    if (context !== undefined) (project.contexts ??= {})[key] = context;
     // What the turn changed of the team's library is kept, under its name, in the library's history.
     if (TURN[role].access === 'write') {
       const said = (handoff?.letters[0] ?? '').split('\n')[0]!.slice(0, 200);
@@ -621,6 +633,19 @@ export class Flow {
     project.tasks.push(task);
     this.record(project, { type: 'task.added', task });
     return task;
+  }
+
+  /** The raw records of the calls a backend session took, for a fresh session to search. */
+  private recordOf(project: Project, thread: string): string[] {
+    const calls = join(this.store.dir(project.id), 'calls');
+    let text = '';
+    try { text = readFileSync(join(this.store.dir(project.id), 'events.jsonl'), 'utf8'); } catch { return []; }
+    const ids = new Set<string>();
+    for (const line of text.split('\n')) {
+      if (!line.includes('"call.end"') || !line.includes(thread)) continue;
+      try { const event = JSON.parse(line) as { type: string; threadId?: string; callId?: string }; if (event.threadId === thread && event.callId) ids.add(event.callId); } catch { /* a line cut short */ }
+    }
+    return [...ids].map(id => join(calls, `${id}.jsonl`));
   }
 
   /** A task may delete its own worktree once its changes are in the workspace: from then on it works

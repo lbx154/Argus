@@ -26,6 +26,10 @@ export interface AgentRequest {
   readDirs?: string[];
   model?: string;
   effort?: string;
+  /** Tokens of context past which a session is replaced by a fresh one; and `overflow`, what a turn under
+   * way is told when its context passes them, so that it hands its work on to the session after it. */
+  freshAt?: number;
+  overflow?: string;
   /** Continue this backend session instead of starting a new one. */
   resume?: string;
   /** The key the session's CLI runs under between turns, till CallAgent.close ends it; without
@@ -99,6 +103,8 @@ export interface AgentResult {
   handoff: HandOff | null;
   model: string | null;
   usage: Usage | null;
+  /** Tokens of context the turn's last step read, where the backend reports it. */
+  context?: number;
   ms: number;
 }
 

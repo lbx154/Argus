@@ -30,6 +30,13 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
     }
   },
   ARGUS_SKILL_MODEL: (work, model) => { work.model = model || null; work.modelAutomatic = !model; },
+  // Tokens of context past which a session is replaced by a fresh one; '' never replaces it.
+  ARGUS_SKILL_FRESH_SESSION_TOKENS: (work, tokens) => {
+    if (!tokens) { delete work.freshAt; return; }
+    const value = /^\d+$/.test(tokens) ? Number(tokens) : NaN;
+    if (!(value >= 20000)) throw new HttpError(400, `ARGUS_SKILL_FRESH_SESSION_TOKENS is a whole number of tokens, at least 20000: ${tokens}`, 'invalid_fresh_session_tokens');
+    work.freshAt = value;
+  },
   ARGUS_SKILL_REASONING_EFFORT: (work, effort) => {
     if (effort) work.effort = effort;
     else delete work.effort;
@@ -117,7 +124,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
           role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted', model: modelOf(work, role) ?? '', model_source: source(modelOf(work, role)),
           reasoning_effort: effortOf(work, role) ?? null, reasoning_effort_source: source(effortOf(work, role)), description: '',
         })),
-        operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? '')],
+        operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? ''), knob('ARGUS_SKILL_FRESH_SESSION_TOKENS', work.freshAt ? String(work.freshAt) : '')],
         how_to_change: [], backends: BACKEND_LABELS,
       };
     }],
@@ -136,7 +143,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
     ['POST', /^\/api\/projects\/([^/]+)\/config\/set$/, async ({ params: [id], body }) => {
       const { name, value } = await body();
       const set = SETTINGS[String(name ?? '').trim().toUpperCase()];
-      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend for every role, a model and an effort (ARGUS_SKILL_MODEL, ARGUS_SKILL_REASONING_EFFORT), and a role's own (ARGUS_SKILL_<ROLE>_MODEL, ARGUS_SKILL_<ROLE>_REASONING_EFFORT)`, 'invalid_setting');
+      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend for every role, a model and an effort (ARGUS_SKILL_MODEL, ARGUS_SKILL_REASONING_EFFORT), a role's own (ARGUS_SKILL_<ROLE>_MODEL, ARGUS_SKILL_<ROLE>_REASONING_EFFORT), and the context past which a session is replaced by a fresh one (ARGUS_SKILL_FRESH_SESSION_TOKENS)`, 'invalid_setting');
       const given = String(value ?? '').trim();
       const word = /^(auto|default)?$/i.test(given) ? '' : given;
       // Given to the backend's command line as one argument: never an option of its own.
