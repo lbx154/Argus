@@ -1004,7 +1004,9 @@ test('every task that closes to the Planner reaches the Manager as written, acce
   const project = await say(flow, id, 'Review family 077');
   assert.equal(project.status, 'idle');
   const managers = requests.filter(request => request.role === 'manager').map(request => request.prompt);
-  assert.deepEqual(managers.slice(1, 3), [
+  // While a task is still open, Argus adds its measure of the pace; the closing letter itself comes as written.
+  assert.match(managers[1]!, /\n\n## Pace, as Argus measures it\n0 of 1 open tasks have a turn under way; 0 wait for others\.\n- t2 /);
+  assert.deepEqual(managers.slice(1, 3).map(prompt => prompt.replace(/\n\n## Pace, as Argus measures it[\s\S]*$/, '')), [
     `Task t1 (${title('t4')}) closed with the Reviewer's letter to the Planner:\n${closing('t4')}`,
     `Task t2 (${title('t3')}) closed with the Reviewer's letter to the Planner:\n${closing('t3')}`,
   ]);
@@ -1531,6 +1533,30 @@ test("a project with a publish remote is pushed there when a task closes, Argus'
   assert.equal(page.status, 0);
   // The page pushed is the one Argus wrote (which it may have written again since).
   assert.equal(page.stdout.split('\n')[0], readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8').split('\n')[0]);
+});
+
+test("the Planner withdraws an open task: its turn under way stops, the task closes with the Planner's letter, and nothing is retried", async t => {
+  // virtiofs t15: told its work was done by t25, it went on redoing it for hours, a letter being all the Planner had.
+  let release = (): void => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const { flow, id, requests, callAgent } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Parse data.csv', 'Parse data2.csv'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'Parsed both: data2.csv too.' },
+    { role: 'engineer', says: 'Parsing data2.csv.', waits: held, cut: true },
+    noted,
+    { role: 'planner', to: 'engineer', letters: ['t1 parsed data2.csv already; this task is done.'], tasks: [{ task: 't2', after: [], withdraw: true }] },
+  ], undefined, { retryFailedAfterMs: 1 });
+  let closed = 0;
+  callAgent.close = async (prefix: string) => { if (prefix.endsWith('/t2.')) { closed += 1; release(); } };
+  await flow.say(id, 'Parse both files');
+  const project = await flow.settled(id);
+  const t2 = project.tasks.find(task => task.id === 't2')!;
+  assert.deepEqual([t2.status, t2.note], ['closed', { from: 'planner', text: 't1 parsed data2.csv already; this task is done.' }]);
+  assert.ok(closed >= 1);
+  assert.deepEqual(project.failures ?? [], []);
+  assert.equal(requests.filter(request => request.role === 'engineer').length, 2);
+  assert.equal(project.status, 'idle');
 });
 
 test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {

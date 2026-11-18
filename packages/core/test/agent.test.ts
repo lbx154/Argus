@@ -59,11 +59,11 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   assert.deepEqual(judge('manager', formSchema('manager'), report), { form: 'manager', to: 'operator', letters: ['The report is done.'], open: report.open });
   assert.deepEqual(judge('manager', formSchema('manager'), { ...report, open: [] }), { form: 'manager', to: 'operator', letters: ['The report is done.'] });
   // Only letters to the Engineer are for tasks: the Planner's question naming one is for none, so its answer finds it.
-  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'operator', letters: [{ letter: 'Which dataset should t1 use?', task: 't1', after: [] }] }),
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'operator', letters: [{ letter: 'Which dataset should t1 use?', task: 't1', after: [], withdraw: false }] }),
     { form: 'plan', to: 'operator', letters: ['Which dataset should t1 use?'] });
   assert.deepEqual(judge('review', formSchema('review', 'planner'), { to: 'planner', letter: report.letter, open: report.open, tell: [] }),
     { form: 'review', to: 'planner', letters: ['The report is done.'], open: report.open });
-  assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [], task: '' }], open: [] }, formSchema('plan')), ['open is not allowed']);
+  assert.deepEqual(schemaErrors({ to: 'engineer', letters: [{ letter: 'Parse it', after: [], task: '', withdraw: false }], open: [] }, formSchema('plan')), ['open is not allowed']);
   // A task's form offers its giver: the Planner, which never had a task the Manager gave, is not on its form.
   for (const form of ['engineer', 'review'] as const) {
     assert.deepEqual([formSchema(form, 'manager'), formSchema(form, 'planner')].map(({ properties }) => properties!.to!.enum!.includes('planner')), [false, true]);
@@ -71,15 +71,18 @@ test('a hand-off is a letter to one of the places its role can write to', () => 
   // The Planner's letters to the Engineer open a task each, waiting for the tasks each names.
   assert.deepEqual(schemaErrors({ to: 'engineer', letters: [] }, formSchema('plan')), ['letters must have 1 or more items']);
   // A letter naming an open task is for whoever holds it.
-  const plan = { to: 'engineer', letters: [{ letter: 'Train the baseline', after: [], task: '' }, { letter: 'Compare with it', after: ['t3'], task: '' },
-    { letter: 'Use the newer model.', after: [], task: 't2' }] };
+  const plan = { to: 'engineer', letters: [{ letter: 'Train the baseline', after: [], task: '', withdraw: false }, { letter: 'Compare with it', after: ['t3'], task: '', withdraw: false },
+    { letter: 'Use the newer model.', after: [], task: 't2', withdraw: false }] };
   assert.deepEqual(judge('plan', formSchema('plan'), plan), { form: 'plan', to: 'engineer', letters: ['Train the baseline', 'Compare with it', 'Use the newer model.'],
     tasks: [{ task: '', after: [] }, { task: '', after: ['t3'] }, { task: 't2', after: [] }] });
-  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'manager', letters: [{ letter: 'Done.', after: [], task: '' }] }), { form: 'plan', to: 'manager', letters: ['Done.'] });
+  // A letter withdrawing an open task says so; one withdrawing no task withdraws nothing.
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'engineer', letters: [{ letter: 'Done elsewhere.', after: [], task: 't2', withdraw: true }, { letter: 'Parse it', after: [], task: '', withdraw: true }] }),
+    { form: 'plan', to: 'engineer', letters: ['Done elsewhere.', 'Parse it'], tasks: [{ task: 't2', after: [], withdraw: true }, { task: '', after: [] }] });
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'manager', letters: [{ letter: 'Done.', after: [], task: '', withdraw: false }] }), { form: 'plan', to: 'manager', letters: ['Done.'] });
   // A Planner turn with nothing to steer says nothing: an empty letter to itself, which no one is shown.
-  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'planner', letters: [{ letter: '', after: [], task: '' }] }), { form: 'plan', to: 'planner', letters: [] });
+  assert.deepEqual(judge('plan', formSchema('plan'), { to: 'planner', letters: [{ letter: '', after: [], task: '', withdraw: false }] }), { form: 'plan', to: 'planner', letters: [] });
   // An empty letter to anyone else is sent back.
-  assert.match(String(judge('plan', formSchema('plan'), { to: 'engineer', letters: [{ letter: ' ', after: [], task: '' }] })), /letter to the engineer is empty/);
+  assert.match(String(judge('plan', formSchema('plan'), { to: 'engineer', letters: [{ letter: ' ', after: [], task: '', withdraw: false }] })), /letter to the engineer is empty/);
   assert.deepEqual(judge('manager', formSchema('manager'), { to: 'engineer', letter: '继续现有任务，使用新模型。', task: 't1', open: [] }),
     { form: 'manager', to: 'engineer', letters: ['继续现有任务，使用新模型。'], tasks: [{ task: 't1', after: [] }] });
   // A letter that opens a task names it in its first line, the title the progress map shows.
@@ -159,6 +162,8 @@ for (const backend of BACKENDS) {
     const { env, ...report } = reported[backend];
     assert.deepEqual(seen(backend).env, env);
     assert.deepEqual({ model: result.model, usage: result.usage }, report);
+    // Copilot's tool telemetry gives the session's context, which a project's fresh-session limit is held to.
+    if (backend === 'copilot') assert.equal(result.context, 42000);
     const line = readFileSync(usageFile, 'utf8').trim().split('\n').map(row => JSON.parse(row)).find(row => row.callId === result.callId);
     const { cost_usd, ...tokens } = result.usage!;
     assert.deepEqual({ ...line, ts: 0 }, { ts: 0, callId: result.callId, role: 'engineer', backend, model: result.model, ms: result.ms, tokens, cost_usd });

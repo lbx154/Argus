@@ -217,6 +217,8 @@ if (cli === 'codex') {
       const message = (content, toolRequests = [], more = {}) => ({ type: 'assistant.message', data: { model: 'copilot-test', content, toolRequests, ...more } });
       emit(message('Working on it.', [{ name: 'bash', arguments: { command: 'npm test' } }, { name: 'view', arguments: { path: 'README.md' } },
         { name: 'edit', arguments: { path: 'parser.js' } }], { reasoningText: '**Reading the parser**' }));
+      // Each tool call's telemetry carries the session's context as copilot measures it.
+      emit({ type: 'tool.execution_complete', data: { toolTelemetry: { metrics: { context_current_tokens: 42000 } } } });
       emit(called ? message('', [{ toolCallId: 'call_1', name: 'hand_off', arguments: called, type: 'function' }]) : message(answer));
       // A background subagent reports after the turn's last message.
       emit({ ...message('Background check done.'), agentId: 'sub-1' });

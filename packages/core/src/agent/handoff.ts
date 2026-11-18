@@ -45,6 +45,7 @@ const LETTER = 'Your letter, passed on as written. The reader sees the workspace
 const LETTERS = 'One letter per Engineer task; one letter to any other addressee.';
 const AFTER = 'Task ids this task waits for. Earlier letters take the next free ids in order. Empty to start now, or when writing to anyone else.';
 const TASK = 'An open task id to send this letter to its holder. Empty to open a new task, or when writing to anyone except the Engineer.';
+const WITHDRAW = 'With task: true ends that open task now, this letter its last word: for a task whose work another has done, or that is no longer wanted. Its turn under way stops; nothing it did is undone. False otherwise.';
 const OPEN = 'Result file paths relative to the workspace, first to open first. Empty when handing over no files.';
 const TELL = 'Letters to other open tasks (Running beside it names them), each read by whoever holds that task while they work; your own task goes on as `to` says. Empty for none.';
 const LOOK = 'With to=engineer: what you want the Reviewer to look at now, while you go on working; their letter reaches you as you work, and is not the review of your delivery. Empty for none.';
@@ -62,9 +63,9 @@ export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSc
   const fields: Record<string, PayloadSchema> = form === 'plan' ? {
     letters: {
       type: 'array', minItems: 1, description: LETTERS, items: {
-        type: 'object', additionalProperties: false, required: ['letter', 'after', 'task'],
+        type: 'object', additionalProperties: false, required: ['letter', 'after', 'task', 'withdraw'],
         // Empty only to the Planner itself: a turn with nothing to steer says nothing.
-        properties: { letter: { type: 'string', maxLength: 20000 }, after: strings(AFTER), task: { type: 'string', description: TASK } },
+        properties: { letter: { type: 'string', maxLength: 20000 }, after: strings(AFTER), task: { type: 'string', description: TASK }, withdraw: { type: 'boolean', description: WITHDRAW } },
       },
     },
   } : { letter: { ...letter, description: LETTER }, open: strings(OPEN),
@@ -94,7 +95,8 @@ export function judge(form: Form, schema: PayloadSchema, payload: unknown): stri
   const errors = schemaErrors(payload, schema);
   if (errors.length || !isJsonObject(payload)) return errors.join('; ');
   const items = Array.isArray(payload.letters) ? payload.letters.filter(isJsonObject) : [payload];
-  const tasks = items.map(item => ({ task: String(item.task ?? '').trim(), after: Array.isArray(item.after) ? item.after.map(String) : [] }));
+  const tasks = items.map(item => ({ task: String(item.task ?? '').trim(), after: Array.isArray(item.after) ? item.after.map(String) : [],
+    ...item.withdraw === true && String(item.task ?? '').trim() ? { withdraw: true as const } : {} }));
   const open = Array.isArray(payload.open) ? payload.open.map(String) : [];
   const to = String(payload.to);
   const tell = Array.isArray(payload.tell) ? payload.tell.filter(isJsonObject)

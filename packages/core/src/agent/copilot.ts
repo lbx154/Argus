@@ -40,6 +40,8 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
   let completed = false;
   let error: string | null = null;
   let last: Record<string, unknown> | null = null;
+  /** The session's context at its last tool call, as copilot measures it: past the project's limit, the next turn starts afresh. */
+  let context: number | undefined;
   const consume = (event: Record<string, unknown>): (Step | null)[] => {
     if (event.agentId !== undefined) return []; // a subagent's
     const data = isJsonObject(event.data) ? event.data : {};
@@ -48,6 +50,10 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
       const calls = Array.isArray(data.toolRequests) ? data.toolRequests.filter(isJsonObject) : [];
       // What it thought first, as copilot sums it up, then what it says and runs.
       return [thought([data.reasoningText]), said(data.content), ...calls.map(call => used(call.name, call.arguments))];
+    } else if (event.type === 'tool.execution_complete') {
+      const telemetry = isJsonObject(data.toolTelemetry) ? data.toolTelemetry : {};
+      const metrics = isJsonObject(telemetry.metrics) ? telemetry.metrics : {};
+      if (typeof metrics.context_current_tokens === 'number') context = metrics.context_current_tokens;
     } else if (event.type === 'session.error' && typeof data.message === 'string') error = data.message;
     else if (event.type === 'result') {
       if (typeof event.sessionId === 'string') threadId = event.sessionId;
@@ -75,6 +81,7 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
         output: requests.find(call => call.name === tool.name)?.arguments,
         model: typeof last?.model === 'string' ? last.model : request.model ?? null,
         usage: threadId ? copilotUsage(join(confined ? privatePath(states, request.cwd) : states, threadId, 'events.jsonl'), started) : null,
+        ...context !== undefined ? { context } : {},
       };
     },
   };

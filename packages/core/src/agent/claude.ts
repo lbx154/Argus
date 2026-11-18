@@ -17,8 +17,10 @@ export const claude: StartBackend = (request, { confined, schema }) => {
     ...request.instructions ? ['--append-system-prompt', request.instructions] : [],
     // Inside bubblewrap the sandbox is bubblewrap's, and a reader's workdir is mounted read-only,
     // so it may run commands (a check) too; outside it, a reader only reads and a writer only edits.
+    // A writer gets the tools the work uses and no more: every tool's definition, and every skill a Skill tool
+    // lists, is read again at every step (a role's 24 tools and 18 skills were 9K tokens a request, used never).
     ...request.access === 'read' && !confined ? ['--tools', 'Read,Glob,Grep']
-      : [...request.access === 'read' ? ['--tools', 'Read,Glob,Grep,Bash'] : [], '--permission-mode', confined ? 'bypassPermissions' : 'acceptEdits'],
+      : ['--tools', request.access === 'read' ? 'Read,Glob,Grep,Bash' : 'Bash,Read,Edit,Write,Glob,Grep,TaskStop', '--permission-mode', confined ? 'bypassPermissions' : 'acceptEdits'],
     ...[...request.readDirs ?? [], ...request.writeDirs ?? []].flatMap(dir => ['--add-dir', dir]),
     '--json-schema', JSON.stringify(schema),
     ...request.resume ? ['--resume', request.resume] : [],
