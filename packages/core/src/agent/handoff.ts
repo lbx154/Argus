@@ -53,7 +53,9 @@ export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSc
   // The Planner hears only of the tasks it gave: it never had the Manager's.
   const to = Object.fromEntries(Object.entries(TO[form]).filter(([place]) => place !== 'planner' || giver !== 'manager'));
   const meanings = Object.entries(to).map(([place, meaning]) => `${place}, ${meaning}`).join('; ');
-  const letter: PayloadSchema = { type: 'string', minLength: 1, maxLength: 20000 };
+  // A letter can carry a whole report: an audit Reviewer, who cannot write files, hands over the campaign's
+  // final report as its letter, and on a large target that passes 20,000 characters (virtiofs).
+  const letter: PayloadSchema = { type: 'string', minLength: 1, maxLength: 100000 };
   const strings = (description: string): PayloadSchema => ({ type: 'array', items: { type: 'string', minLength: 1 }, description });
   // The Planner may open several tasks at once, each waiting for those it names; every other turn
   // ends in one letter, and may hand over a result.
