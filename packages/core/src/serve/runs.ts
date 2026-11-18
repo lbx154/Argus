@@ -36,6 +36,9 @@ export class Runs {
 
   resume(id: string): void { this.start(id, flow => flow.resume(id)).catch(error => log(id, error)); }
 
+  /** Pushes the project to its publish remote now. */
+  publish(id: string): void { this.start(id, flow => flow.publish(id)).catch(error => log(id, error)); }
+
   /** Change the project's record where it is held: by its flow while anything is under way, or on disk. */
   edit(id: string, change: (project: Project) => void): void {
     const active = this.active.get(id);
@@ -131,6 +134,10 @@ export class Runs {
     const flow = new Flow(this.store, this.callAgent, {
       retryFailedAfterMs: 60_000,
       deliverLettersAfterMs: 10 * 60_000,
+      // A project with a publish remote is pushed 20 s after a task closes or the work rests, and every half hour as it works.
+      publishAfterMs: 20_000,
+      publishEveryMs: 30 * 60_000,
+      ...process.env.ARGUS_GIT_CREDENTIAL_HELPER ? { gitCredentialHelper: process.env.ARGUS_GIT_CREDENTIAL_HELPER } : {},
       signal: controller.signal,
       onEvent: event => {
         if (event.type === 'call.start') calls.push({ role: event.role, task: event.task, started_ts: Date.now() / 1000, ...event.answers ? { answers: event.answers } : {} });

@@ -20,6 +20,7 @@ import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, freeze, isCheckout, makeWorktree } from './worktrees.js';
 import { Progress } from './progress.js';
+import { PROGRESS_BRANCH, publish } from './publish.js';
 import { letterbox } from './letters.js';
 import { keepLibrary } from './libraryHistory.js';
 import { packEnv, prepare } from './packSetup.js';
@@ -48,6 +49,12 @@ export interface FlowOptions {
    * one from the Planner or Manager this long after it came: Argus ends the turn, and it goes on in its
    * session with its letters. Unset, letters wait for the turn's end. */
   deliverLettersAfterMs?: number;
+  /** A project with a publish remote is pushed there this long after a task closes or its status changes
+   * (one push for what comes together), and every `publishEveryMs` while it works. Unset, never. */
+  publishAfterMs?: number;
+  publishEveryMs?: number;
+  /** The git credential helper Argus pushes with, in place of the host's own. */
+  gitCredentialHelper?: string;
 }
 
 /** Waits, or stops waiting when the work is interrupted. */
@@ -75,6 +82,43 @@ export class Flow {
 
   /** PROGRESS.md, where the work stands, rebuilt from the record. */
   private readonly progress: Progress;
+  /** Each project's next push, while one waits; and the projects being pushed now. */
+  private readonly publishing = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly pushing = new Set<string>();
+
+  /** The project goes to its publish remote soon: a push already waiting takes what comes before it. */
+  private publishSoon(project: Project, after = this.options.publishAfterMs): void {
+    if (!project.publish || after === undefined || this.publishing.has(project.id)) return;
+    const timer = setTimeout(() => {
+      this.publishing.delete(project.id);
+      void this.publishNow(project);
+    }, after);
+    timer.unref?.();
+    this.publishing.set(project.id, timer);
+  }
+
+  /** Pushes the workspace's branches and Argus's page; what the remote refused, or why nothing went, is recorded. */
+  private async publishNow(project: Project): Promise<void> {
+    const remote = project.publish;
+    if (!remote) return;
+    if (this.pushing.has(project.id)) return this.publishSoon(project);
+    this.pushing.add(project.id);
+    try {
+      const dir = this.store.dir(project.id);
+      let page = '';
+      try { page = readFileSync(join(dir, 'PROGRESS.md'), 'utf8'); } catch { /* none written yet */ }
+      const readme = `# Where the work stands\n\nArgus keeps this branch (${PROGRESS_BRANCH}) for project ${project.id}: PROGRESS.md is its page of the work, `
+        + `pushed when a task closes, when the work rests, and every while as it goes on. The team's own branches are beside it.\n`;
+      const result = await publish(project.workdir, remote, { 'PROGRESS.md': page, 'README.md': readme }, this.options.gitCredentialHelper);
+      if (result.pushed.length || result.rejected.length || result.error) this.record(project, { type: 'published', remote, ...result });
+    } catch (error) {
+      this.record(project, { type: 'published', remote, pushed: [], rejected: [], error: String(error) });
+    } finally {
+      this.pushing.delete(project.id);
+    }
+    // While the work goes on, it is pushed again every while, whether or not a task closes.
+    if (project.status === 'working' && this.options.publishEveryMs !== undefined) this.publishSoon(project, this.options.publishEveryMs);
+  }
 
   /** The operator's message. The Manager reads it in its next turn, and what its letter hands on
    * joins the work; like a letter from the team it waits in the record until a turn takes it.
@@ -153,6 +197,9 @@ export class Flow {
     change(project);
     this.store.save(project);
   }
+
+  /** Pushes the project to its publish remote now, as it stands. */
+  publish(id: string): void { this.publishSoon(this.project(id), 0); }
 
   /** The project once nothing is under way on it: no Manager turn, no work. */
   async settled(id: string): Promise<Project> {
@@ -750,6 +797,7 @@ export class Flow {
     this.store.append(project.id, event);
     // A projection that cannot be written holds nothing up.
     if (event.type !== 'step') try { this.progress.note(project, event); } catch { /* rebuilt at the next event */ }
+    if (event.type === 'task.closed' || event.type === 'status') this.publishSoon(project);
     this.options.onEvent?.(event);
   }
 }
