@@ -1508,6 +1508,31 @@ test("a backend that cannot take a letter mid-turn gets the Planner's after a wh
   assert.deepEqual(project.failures ?? [], []);
 });
 
+test("a project with a publish remote is pushed there when a task closes, Argus's page on a branch of its own", async t => {
+  // virtiofs: no one could see the run without watching the machine; the team was told to push and never could.
+  const { home, flow, id, events, store } = await setup(t, [
+    { role: 'manager', to: 'engineer', letter: brief },
+    { role: 'engineer', to: 'reviewer', letter: 'summary.py prints the totals.' },
+    { role: 'reviewer', to: 'manager', letter: 'Accepted.' },
+    report,
+  ], undefined, { publishAfterMs: 1 });
+  checkout(home);
+  const remote = join(home, 'projects', 'remote.git');
+  assert.equal(spawnSync('git', ['init', '-q', '--bare', remote]).status, 0);
+  flow.edit(id, project => { project.publish = remote; });
+  await flow.say(id, 'Make me a CSV summary tool');
+  await flow.settled(id);
+  for (let i = 0; i < 200 && !events().some(event => event.type === 'published'); i++) await new Promise(resolve => setTimeout(resolve, 25));
+  const published = events().filter((event): event is Extract<FlowEvent, { type: 'published' }> => event.type === 'published');
+  assert.ok(published.length >= 1, JSON.stringify(events().map(event => event.type)));
+  assert.equal(published[0]!.error, undefined);
+  assert.ok(published.some(event => event.pushed.includes('argus-progress')));
+  const page = spawnSync('git', ['show', 'argus-progress:PROGRESS.md'], { cwd: remote, encoding: 'utf8' });
+  assert.equal(page.status, 0);
+  // The page pushed is the one Argus wrote (which it may have written again since).
+  assert.equal(page.stdout.split('\n')[0], readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8').split('\n')[0]);
+});
+
 test('an Engineer writes to the task beside its own, whose holder reads it as they work', async t => {
   let release = (): void => {};
   const held = new Promise<void>(resolve => { release = resolve; });

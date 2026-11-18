@@ -12,6 +12,7 @@ import { BACKENDS, ROLES, type Backend } from '../types.js';
 import { HttpError, type Handler } from './index.js';
 import type { Runs } from './runs.js';
 import { BACKEND_LABELS } from './views.js';
+import { isRemote } from '../publish.js';
 
 /** The optional API capabilities these routes give the page. */
 export const CAPABILITIES = ['project.workdir.v1', 'project.config.v1', 'project.editions.v1'];
@@ -36,6 +37,12 @@ const SETTINGS: Record<string, (work: Project, value: string) => void> = {
     const value = /^\d+$/.test(tokens) ? Number(tokens) : NaN;
     if (!(value >= 20000)) throw new HttpError(400, `ARGUS_SKILL_FRESH_SESSION_TOKENS is a whole number of tokens, at least 20000: ${tokens}`, 'invalid_fresh_session_tokens');
     work.freshAt = value;
+  },
+  // Where Argus pushes the workspace's branches and its page of the work: a GitHub owner/repo or a git URL; '' nowhere.
+  ARGUS_PUBLISH_REMOTE: (work, remote) => {
+    if (!remote) { delete work.publish; return; }
+    if (!isRemote(remote)) throw new HttpError(400, `ARGUS_PUBLISH_REMOTE is a GitHub owner/repo or a git URL: ${remote}`, 'invalid_publish_remote');
+    work.publish = remote;
   },
   ARGUS_SKILL_REASONING_EFFORT: (work, effort) => {
     if (effort) work.effort = effort;
@@ -124,7 +131,7 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
           role, backend, backend_label: BACKEND_LABELS[backend], backend_source: 'persisted', model: modelOf(work, role) ?? '', model_source: source(modelOf(work, role)),
           reasoning_effort: effortOf(work, role) ?? null, reasoning_effort_source: source(effortOf(work, role)), description: '',
         })),
-        operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? ''), knob('ARGUS_SKILL_FRESH_SESSION_TOKENS', work.freshAt ? String(work.freshAt) : '')],
+        operator_knobs: [knob('ARGUS_SKILL_RUNNER_BACKEND', backend), knob('ARGUS_SKILL_MODEL', model ?? ''), knob('ARGUS_SKILL_FRESH_SESSION_TOKENS', work.freshAt ? String(work.freshAt) : ''), knob('ARGUS_PUBLISH_REMOTE', work.publish ?? '')],
         how_to_change: [], backends: BACKEND_LABELS,
       };
     }],
@@ -143,12 +150,14 @@ export function projectRoutes(store: Store, runs: Runs, project: (id: string) =>
     ['POST', /^\/api\/projects\/([^/]+)\/config\/set$/, async ({ params: [id], body }) => {
       const { name, value } = await body();
       const set = SETTINGS[String(name ?? '').trim().toUpperCase()];
-      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend for every role, a model and an effort (ARGUS_SKILL_MODEL, ARGUS_SKILL_REASONING_EFFORT), a role's own (ARGUS_SKILL_<ROLE>_MODEL, ARGUS_SKILL_<ROLE>_REASONING_EFFORT), and the context past which a session is replaced by a fresh one (ARGUS_SKILL_FRESH_SESSION_TOKENS)`, 'invalid_setting');
+      if (!set) throw new HttpError(400, `${String(name)} is not a setting of this project: it has one backend for every role, a model and an effort (ARGUS_SKILL_MODEL, ARGUS_SKILL_REASONING_EFFORT), a role's own (ARGUS_SKILL_<ROLE>_MODEL, ARGUS_SKILL_<ROLE>_REASONING_EFFORT), the context past which a session is replaced by a fresh one (ARGUS_SKILL_FRESH_SESSION_TOKENS), and where the project is published (ARGUS_PUBLISH_REMOTE)`, 'invalid_setting');
       const given = String(value ?? '').trim();
       const word = /^(auto|default)?$/i.test(given) ? '' : given;
       // Given to the backend's command line as one argument: never an option of its own.
       if (word && !/^\w[\w.:/@+[\]-]*$/.test(word)) throw new HttpError(400, `not a name a backend takes: ${given}`, 'invalid_model');
       edit(id!, work => set(work, word), set === SETTINGS.ARGUS_SKILL_RUNNER_BACKEND);
+      // A remote just named gets the project as it stands now, not at the next task.
+      if (set === SETTINGS.ARGUS_PUBLISH_REMOTE && word) runs.publish(project(id!).id);
       return { name, value: word };
     }],
     // The models to choose from are those the backend names, and the one set if it names it not;
