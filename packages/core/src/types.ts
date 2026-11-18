@@ -69,7 +69,7 @@ export interface HandOff {
   letters: string[];
   /** For each letter to the Engineer, the open task it is for, or the tasks the Planner's new
    * task waits for. */
-  tasks?: { task: string; after: string[] }[];
+  tasks?: { task: string; after: string[]; withdraw?: true }[];
   /** The files of the result the letter hands over, the first to open first. */
   open?: string[];
   /** An Engineer's or Reviewer's letters to other open tasks, each read by whoever holds that task as they work. */

@@ -82,6 +82,35 @@ export class Flow {
 
   /** PROGRESS.md, where the work stands, rebuilt from the record. */
   private readonly progress: Progress;
+  /** When each task was opened and when it last did anything, as this process saw it: the pace the Manager reads. */
+  private readonly opened = new Map<string, number>();
+  private readonly active = new Map<string, number>();
+
+  /** Where the work's time goes, for the Manager at each closed task: what runs, what waits, what has gone quiet. */
+  private pace(project: Project): string {
+    const now = Date.now();
+    const ago = (ms: number): string => ms < 60_000 ? 'under a minute' : ms < 3_600_000 ? `${Math.round(ms / 60_000)} min` : `${(ms / 3_600_000).toFixed(1)} h`;
+    const open = openTasks(project);
+    if (!open.length) return '';
+    const running = open.filter(task => this.running.has(`${project.id}/${task.id}.${task.holder}`));
+    const waiting = open.filter(task => (task.after ?? []).some(id => project.tasks.some(other => other.id === id && other.status === 'open')));
+    const rows = open.map(task => {
+      const key = `${project.id}/${task.id}`;
+      const since = this.opened.get(key);
+      const last = this.active.get(key);
+      const state = running.includes(task) ? `the ${NAMES[task.holder]} at work` : waiting.includes(task) ? `waits for ${(task.after ?? []).join(', ')}` : 'no turn under way';
+      return `- ${task.id} (${task.title}): ${state}; open ${since ? ago(now - since) : 'since before Argus last started'}; last step ${last ? `${ago(now - last)} ago` : 'not seen since Argus last started'}`;
+    });
+    const quiet = open.filter(task => { const last = this.active.get(`${project.id}/${task.id}`); return last !== undefined && now - last > 30 * 60_000; });
+    const long = open.filter(task => { const since = this.opened.get(`${project.id}/${task.id}`); return since !== undefined && now - since > 3 * 3_600_000; });
+    return [
+      `${running.length} of ${open.length} open tasks have a turn under way; ${waiting.length} wait for others.`,
+      ...rows,
+      ...quiet.length ? [`Quiet for over 30 minutes: ${quiet.map(task => task.id).join(', ')}.`] : [],
+      ...long.length ? [`Open for over 3 hours: ${long.map(task => task.id).join(', ')}: one that has grown past one result is worth splitting.`] : [],
+    ].join('\n');
+  }
+
   /** Each project's next push, while one waits; and the projects being pushed now. */
   private readonly publishing = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly pushing = new Set<string>();
@@ -376,7 +405,7 @@ export class Flow {
         this.close(project, task, role, letter);
         project.inbox.push(handedTo(role, task, letter));
         // The Manager keeps the whole in view: every task that closes reaches it too, accepted or not.
-        void this.writeToManager(project, closedTo(role, task, letter)).catch(error => this.fail(project, 'manager', null, String(error)));
+        void this.writeToManager(project, closedTo(role, task, letter, this.pace(project))).catch(error => this.fail(project, 'manager', null, String(error)));
         break;
       case 'manager':
         this.close(project, task, role, letter);
@@ -521,14 +550,24 @@ export class Flow {
     if (to === 'engineer') {
       const opened = new Map<string, string>();
       for (const [at, letter] of letters.entries()) {
-        const { task: id = '', after = [] } = tasks?.[at] ?? {};
+        const { task: id = '', after = [], withdraw } = tasks?.[at] ?? {};
         if (!id) opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
+        else if (withdraw) this.withdraw(project, id, letter);
         else await this.taskLetter(project, 'planner', id, letter);
       }
       this.store.save(project);
     }
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
     else if (to === 'manager') await this.writeToManager(project, handedTo('planner', null, read(handoff)));
+  }
+
+  /** The Planner ends an open task, its letter the task's last word: the turn under way stops (close ends its
+   * sessions), and what it did stays where it is. On virtiofs a task told its work was done elsewhere went on
+   * redoing it for hours, a letter being all the Planner had. */
+  private withdraw(project: Project, id: string, letter: string): void {
+    const task = openTasks(project).find(task => task.id === id);
+    if (!task) return this.returnLetter(project, 'planner', id, letter);
+    this.close(project, task, 'planner', letter);
   }
 
   /** A letter stays on its task till a turn that read it ends; a backend that takes one reads it as it goes. */
@@ -631,6 +670,8 @@ export class Flow {
       // The call never ran to an end of its own: it is recorded as ended, failed.
       const error = thrown instanceof Error ? thrown.message : String(thrown);
       this.record(project, { type: 'call.end', role, ...where, callId: '', threadId: null, completed: false, error, model: null, usage: null, ms: 0 });
+      // A task withdrawn while its turn went on is over: nothing of the turn is taken or tried again.
+      if (task && task.status !== 'open') return null;
       if (this.delivered(session)) return this.call(project, role, task, prompt, turn);
       const again = await this.tryAgain(project, role, key, turn, error);
       if (again) return this.call(project, role, task, prompt, again);
@@ -661,6 +702,7 @@ export class Flow {
       project.model = model;
     }
     this.record(project, { type: 'call.end', role, ...where, callId, threadId, completed, error, model, usage, ms });
+    if (task && task.status !== 'open') return null;
     if (handoff) {
       const { to, letters, tasks } = handoff;
       // What a letter hands over is files the operator can open, by their paths in the workspace: one
@@ -798,6 +840,8 @@ export class Flow {
     // A projection that cannot be written holds nothing up.
     if (event.type !== 'step') try { this.progress.note(project, event); } catch { /* rebuilt at the next event */ }
     if (event.type === 'task.closed' || event.type === 'status') this.publishSoon(project);
+    if (event.type === 'task.added') this.opened.set(`${project.id}/${event.task.id}`, Date.now());
+    else if ('task' in event && typeof event.task === 'string') this.active.set(`${project.id}/${event.task}`, Date.now());
     this.options.onEvent?.(event);
   }
 }

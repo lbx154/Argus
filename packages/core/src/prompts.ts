@@ -215,8 +215,8 @@ export const startedAfresh = (error: string, events: string, prompt: string): st
   `${prompt}\n\n${section('You are taking over', `The session that had this work failed twice and could not go on, so this is a new one, without its memory. Its failure: ${error}\nWhat it did is in the working folder; each step it took is in ${events}. Look at what is there before doing anything again. If the failure objects to something in how the work was going, go about that part another way.`)}`;
 
 /** A task that closed with a letter to the Planner, as the Manager has it: the letter as written. */
-export function closedTo(from: Role, task: Task, letter: string): string {
-  return `Task ${task.id} (${task.title}) closed with the ${NAMES[from]}'s letter to the Planner:\n${letter}`;
+export function closedTo(from: Role, task: Task, letter: string, pace = ''): string {
+  return `Task ${task.id} (${task.title}) closed with the ${NAMES[from]}'s letter to the Planner:\n${letter}${pace ? `\n\n${section('Pace, as Argus measures it', pace)}` : ''}`;
 }
 
 /** A hand-over inside a task, which the Planner reads as the work goes, to steer it or the tasks beside it. */
