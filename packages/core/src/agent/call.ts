@@ -85,7 +85,7 @@ async function end(key: string, cli = live.get(key)?.cli): Promise<void> {
   finally { if (kept && kept.cli === cli && kept.tempRoot) rmSync(kept.tempRoot, { recursive: true, force: true }); }
 }
 
-export const callAgent: CallAgent = Object.assign(async (request: AgentRequest): Promise<AgentResult> => {
+async function once(request: AgentRequest): Promise<AgentResult> {
   const started = Date.now();
   const callId = `${new Date(started).toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(3).toString('hex')}`;
   mkdirSync(request.callsDir, { recursive: true });
@@ -143,6 +143,18 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
     return result;
   } finally {
     await new Promise(resolve => raw.end(resolve));
+  }
+}
+
+/** Copilot holds a session's lock a moment after its CLI exits: a turn that starts at once on the same
+ * session (one sent back for its missing form) is refused with this, and goes on once the lock is free. */
+const HELD = /Session ownership handshake is already held/;
+
+export const callAgent: CallAgent = Object.assign(async (request: AgentRequest): Promise<AgentResult> => {
+  for (let tries = 1; ; tries++) {
+    const result = await once(request);
+    if (result.completed || tries >= 10 || request.signal?.aborted || !HELD.test(result.error ?? '')) return result;
+    await new Promise(resolve => setTimeout(resolve, 3000));
   }
 }, {
   /** Ends every CLI kept under a key that starts with `prefix`, and all they started. */
