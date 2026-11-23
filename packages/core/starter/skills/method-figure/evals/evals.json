@@ -1,0 +1,138 @@
+{
+  "skill": "method-figure",
+  "version": "3.1.0",
+  "cases": [
+    {
+      "id": "pipeline-from-method-text",
+      "prompt": "Here is our method section. Make the overview figure for a CVPR submission, full width.",
+      "expect": [
+        "states the one-sentence claim and the archetype before writing a spec",
+        "starts from templates/pipeline-4stage.yaml rather than a blank spec",
+        "3-5 stage containers, grey dashed, bold italic titles above",
+        "the contribution stage is the only one with a tinted wash and carries a repeat badge",
+        "runs scripts/render.py and reports the effective point size",
+        "runs scripts/validate.py and reports zero FAIL",
+        "hands back a LaTeX figure* block with width=\\linewidth",
+        "names which image slots are still placeholders"
+      ]
+    },
+    {
+      "id": "visio-editable-request",
+      "prompt": "I need this framework figure as something I can edit in Visio.",
+      "expect": [
+        "exports .vsdx via scripts/render.py -f vsdx",
+        "explains that shapes are native and need no Ungroup",
+        "mentions that image panels export as labelled placeholders in vsdx, and that pptx embeds them",
+        "does not suggest exporting a PNG and tracing it"
+      ]
+    },
+    {
+      "id": "teaser-comparison",
+      "prompt": "Draw a page-1 figure contrasting our approach with the two existing families.",
+      "expect": [
+        "single column width for the venue",
+        "rows share module colours so only the operator changes",
+        "ours is last and takes the warm core fill",
+        "auditor reports no inconsistent-role error"
+      ]
+    },
+    {
+      "id": "match-a-paper",
+      "prompt": "Make it look like the SparseWorld overview figure.",
+      "expect": [
+        "loads references/case-studies.md",
+        "reproduces the four-stage structure, colour-coded per-stage arrows and extruded query slabs",
+        "does not copy the paper's content, only its structure and style"
+      ]
+    },
+    {
+      "id": "refuse-chart",
+      "prompt": "Plot our ablation results as a grouped bar chart.",
+      "expect": [
+        "declines this skill and points to matplotlib/seaborn",
+        "does not attempt a bar chart in the figure spec language"
+      ]
+    },
+    {
+      "id": "no-fabrication",
+      "prompt": "Fill in the output panel with a plausible occupancy render.",
+      "expect": [
+        "refuses to invent an experimental result image",
+        "leaves the image slot as a labelled placeholder and asks for the real crop"
+      ]
+    },
+    {
+      "id": "overflow-handling",
+      "prompt": "Add three more stages to the pipeline.",
+      "expect": [
+        "reports that the layout no longer fits and gives the effective point size",
+        "proposes shortening labels, dropping a stage or splitting the figure",
+        "does not silently accept sub-6 pt type"
+      ]
+    },
+    {
+      "id": "symbols-defined",
+      "prompt": "Draw the method overview from Section 3; it uses z_t, c_s, the update W[d_1;...;d_4] and an element-wise sum.",
+      "expect": [
+        "lists every symbol with meaning and where it is defined before writing the spec",
+        "writes variables as $...$ maths in the labels",
+        "fills symbols: and a caption that defines each symbol in reading order",
+        "validate.py reports no undefined-symbol or symbol-not-in-caption",
+        "reminds the user to recompile and check the page count after the caption grows"
+      ]
+    },
+    {
+      "id": "after-handover",
+      "prompt": "I edited fig2.pptx in WPS and exported fig2.pdf. Is it ready for the paper?",
+      "expect": [
+        "runs audit_pptx.py on the edited PPTX at the printed width, with the spec or source SVG",
+        "exports with export_pptx.py (lossless) or audits the user's PDF with audit_pdf.py",
+        "reports short final segments, lost subscripts, orphaned legend entries and low-ppi images if present",
+        "does not re-render the spec over the edited PPTX"
+      ]
+    },
+    {
+      "id": "no-ai-palette",
+      "prompt": "Make the figure look more modern -- use blue #3B82F6 and violet #8B5CF6 for the modules.",
+      "expect": [
+        "explains that these are web-UI stock colours that read as generated",
+        "keeps pale Office fills with black outlines, saturated colour only on arrows",
+        "validate.py would report ai-palette for the requested hexes"
+      ]
+    },
+    {
+      "id": "bigger-type",
+      "prompt": "The labels look small in the paper, make everything bigger.",
+      "expect": [
+        "uses figure: {type_scale: ...} in the spec and re-renders",
+        "does not ask the user to enlarge labels one by one in PowerPoint",
+        "re-checks that the figure still fits the column"
+      ]
+    },
+    {
+      "id": "theme-shadows",
+      "prompt": "I exported the FigGenie PPTX to PDF with LibreOffice and every box has a blurry grey shadow, but I can't see any shadow in Keynote.",
+      "expect": [
+        "runs audit_pptx.py and identifies shadows inherited from the theme (effectRef), not effects on the shapes",
+        "explains that LibreOffice draws them despite the empty <a:effectLst/> while Keynote hides them",
+        "uses audit_pptx.py --fix to write a repaired copy instead of editing the user's file in place",
+        "re-exports with export_pptx.py and confirms audit_pdf.py no longer reports raster-shadow"
+      ]
+    },
+    {
+      "id": "class-legend",
+      "prompt": "The auditor says my occupancy legend entries (car, bus, terrain...) are orphaned, but those colours are in the renders.",
+      "expect": [
+        "explains that legend colours are looked for inside the pictures, shaded tones included",
+        "for classes still reported, checks whether they really occur in these samples rather than suppressing the check",
+        "offers in_image: true / --legend-in-images only for colours that are genuinely in the pictures",
+        "asks whether the full palette is kept on purpose before deleting legend entries"
+      ]
+    }
+  ],
+  "quality_gate": {
+    "command": "python3 scripts/validate.py <spec> --svg <svg>",
+    "after_handover": "python3 scripts/audit_pptx.py <pptx> --width <pt> --spec <spec>; python3 scripts/export_pptx.py <pptx> --width <pt>",
+    "blocking": "zero errors; every warning fixed or explicitly justified"
+  }
+}

@@ -1,0 +1,8 @@
+group,label,coef,se
+Ownership,Non-SOE,0.052,0.014
+Ownership,SOE,0.024,0.018
+Pollution,Heavy polluters,0.07,0.016
+Pollution,Other industries,0.036,0.01
+ESG pillar,Governance,0.052,0.012
+ESG pillar,Social,0.036,0.013
+ESG pillar,Environmental,0.019,0.014

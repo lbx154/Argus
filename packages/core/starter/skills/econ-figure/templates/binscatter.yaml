@@ -1,0 +1,12 @@
+# Binned scatter: y on x after partialling out the controls and fixed effects (do that in the paper's script,
+# then write the residuals). Only with real micro data -- never invent observations for it.
+figure:
+  language: zh
+  width_pt: 455.24
+  height_ratio: 0.5
+panels:
+  - archetype: binscatter
+    data: data/binscatter.csv          # x, y (residualised); or x_bin, y_bin if already binned
+    bins: 20
+    xlabel: 数字化转型指数（残差）
+    ylabel: ESG 评级（残差）

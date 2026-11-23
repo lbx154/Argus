@@ -21,7 +21,7 @@ import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, freeze, isCheckout, makeWorktree } from './worktrees.js';
 import { Progress } from './progress.js';
 import { PROGRESS_BRANCH, publish } from './publish.js';
-import { letterbox } from './letters.js';
+import { closeLetterbox, letterbox } from './letters.js';
 import { keepLibrary } from './libraryHistory.js';
 import { packEnv, prepare } from './packSetup.js';
 
@@ -158,7 +158,7 @@ export class Flow {
     const message: OperatorMessage = { text, request_id, ...attachments?.length ? { attachments } : {} };
     // A message to a stopped project takes the place of the operator's the stop left unanswered, not
     // of one sent since that a Manager turn is taking; the team's letters wait for Resume.
-    const taking = this.handing.get(project) ?? [];
+    const taking = (this.handing.get(project) ?? []).map(entry => entry.letter);
     const replaced = project.status === 'stopped' ? (project.forManager ?? []).filter(letter => typeof letter !== 'string' && !letter.input_id && !taking.includes(letter)) : [];
     if (replaced.length) project.forManager = project.forManager!.filter(letter => !replaced.includes(letter));
     // The project's request is its first message, or the one that took that one's place.
@@ -213,7 +213,7 @@ export class Flow {
     }
     if (project.failures?.length) Object.assign(project, { failures: [], error: null });
     if (project.status === 'failed') this.status(project, 'working');
-    const under = [...this.handing.get(project) ?? []];
+    const under = (this.handing.get(project) ?? []).map(entry => entry.letter);
     for (const letter of project.forManager ?? []) {
       if (under.includes(letter)) under.splice(under.indexOf(letter), 1);
       else this.handOver(project, letter).catch(error => this.fail(project, 'manager', null, String(error)));
@@ -237,7 +237,9 @@ export class Flow {
   }
 
   private busy(id: string): Promise<unknown>[] {
-    return [this.managing.get(id), this.works.get(id)?.done].filter(promise => promise !== undefined);
+    const project = this.projects.get(id);
+    const handing = project ? (this.handing.get(project) ?? []).map(entry => entry.done) : [];
+    return [...handing, this.managing.get(id), this.works.get(id)?.done].filter(promise => promise !== undefined);
   }
 
   private project(id: string): Project {
@@ -270,8 +272,9 @@ export class Flow {
         if (!running.has('planner') && project.inbox.length && !held(project, null)) start('planner', () => this.plan(project));
       }
       const looks = this.looks.get(project.id) ?? new Set<Promise<void>>();
-      if (!running.size && !looks.size) break;
-      await Promise.race([...running.values(), ...looks, new Promise<void>(resolve => { work.wake = resolve; })]);
+      const handing = this.going(project) ? (this.handing.get(project) ?? []).map(entry => entry.done) : [];
+      if (!running.size && !looks.size && !handing.length) break;
+      await Promise.race([...running.values(), ...looks, ...handing, new Promise<void>(resolve => { work.wake = resolve; })]);
     }
     // At rest, what still waits is for the operator: a failed turn to resume, or a question.
     if (this.going(project)) {
@@ -290,11 +293,11 @@ export class Flow {
     while (task.status === 'open' && ready(project, task) && this.going(project)) await this.work(project, task);
   }
 
-  /** As a task begins it works in the workspace, unless another open task already does; then, in a
-   * git checkout, in a worktree of its own. Elsewhere tasks share the workspace, as before. */
+  /** As a task begins it works in the workspace, unless another open task already works on the project;
+   * then, in a git checkout, in a worktree of its own. Elsewhere tasks share the workspace, as before. */
   private place(project: Project, task: Task): void {
     if (task.place) return;
-    const shared = project.tasks.some(other => other !== task && other.status === 'open' && other.place === 'workspace');
+    const shared = project.tasks.some(other => other !== task && other.status === 'open' && Boolean(other.place));
     if (shared && isCheckout(project.workdir)) {
       try {
         task.place = makeWorktree(project.workdir, task.id);
@@ -405,7 +408,7 @@ export class Flow {
         this.close(project, task, role, letter);
         project.inbox.push(handedTo(role, task, letter));
         // The Manager keeps the whole in view: every task that closes reaches it too, accepted or not.
-        void this.writeToManager(project, closedTo(role, task, letter, this.pace(project))).catch(error => this.fail(project, 'manager', null, String(error)));
+        this.tellManager(project, closedTo(role, task, letter, this.pace(project)));
         break;
       case 'manager':
         this.close(project, task, role, letter);
@@ -448,6 +451,7 @@ export class Flow {
     if (!names.length) throw new Error('name a reader: to=manager, planner, reviewer, engineer or a task id such as t3 (comma-separated); cc= the same');
     if (!text.trim()) throw new Error('the letter is empty: write it as the request body');
     if (project.status !== 'working') throw new Error(`the project's work is ${project.status}`);
+    if (task && task.status !== 'open') throw new Error(`task ${task.id} is not open`);
     const deliver = names.map(name => this.reader(project, role, task, name, !to.includes(name)));
     const letter = posted(role, task, to, cc, text);
     for (const reach of deliver) await reach(letter);
@@ -457,7 +461,7 @@ export class Flow {
 
   /** How a letter written during a turn reaches `name`; throws when no such reader can have it. */
   private reader(project: Project, role: Role, task: Task | null, name: string, copy = false): (letter: string) => Promise<void> {
-    if (name === 'manager') return async letter => { void this.writeToManager(project, letter).catch(error => this.fail(project, 'manager', null, String(error))); };
+    if (name === 'manager') return async letter => { this.tellManager(project, letter); };
     // A copy asks nothing of the Planner: it reads it beside its next letter, and is not woken for it.
     if (name === 'planner' && copy) return async letter => { (project.beside ??= []).push(letter); this.store.save(project); };
     if (name === 'planner') return async letter => { project.inbox.push(letter); this.store.save(project); this.works.get(project.id)?.wake(); };
@@ -502,6 +506,15 @@ export class Flow {
     return this.handOver(project, letter);
   }
 
+  /** Sends a team or host letter to the Manager alongside work under way. */
+  private tellManager(project: Project, letter: ManagerLetter): void {
+    try {
+      void this.writeToManager(project, letter).catch(error => {
+        try { if (!this.options.signal?.aborted) this.fail(project, 'manager', null, String(error)); } catch { /* store gone */ }
+      });
+    } catch { /* store gone */ }
+  }
+
   /** The letters put into a turn under way, which its hand-off shows it has read. */
   private readonly steered = new WeakSet<Note>();
   /** The sessions whose turn is under way, by key (project/task.role). */
@@ -510,16 +523,19 @@ export class Flow {
   private readonly delivering = new Set<string>();
 
   /** Each project's letters a Manager turn is taking or will take, one entry for each. */
-  private readonly handing = new Map<Project, Array<ManagerLetter>>();
+  private readonly handing = new Map<Project, Array<{ letter: ManagerLetter; done: Promise<unknown> }>>();
 
   private async handOver(project: Project, letter: ManagerLetter): Promise<HandOff | null> {
-    const handing = this.handing.get(project) ?? [];
-    this.handing.set(project, [...handing, letter]);
-    // A team letter that comes while the Manager's turn goes on is read in that turn, which answers it.
-    const running = this.managerTurns.get(project.id);
-    if (running && typeof letter !== 'string' && letter.input_id && !this.readBy.has(letter)
-      && await this.callAgent.steer?.(`${project.id}/manager`, steeredPrompt(letter.text))) this.readBy.set(letter, running);
+    let finish = (): void => {};
+    const entry = { letter, done: new Promise<void>(resolve => { finish = resolve; }) };
+    const list = this.handing.get(project) ?? [];
+    list.push(entry);
+    this.handing.set(project, list);
     try {
+      // A team letter that comes while the Manager's turn goes on is read in that turn, which answers it.
+      const running = this.managerTurns.get(project.id);
+      if (running && typeof letter !== 'string' && letter.input_id && !this.readBy.has(letter)
+        && await this.callAgent.steer?.(`${project.id}/manager`, steeredPrompt(letter.text))) this.readBy.set(letter, running);
       const handoff = await this.manager(project, letter);
       const at = project.forManager?.indexOf(letter) ?? -1;
       if (handoff && at >= 0) {
@@ -528,8 +544,10 @@ export class Flow {
       }
       return handoff;
     } finally {
-      const now = this.handing.get(project)!;
-      now.splice(now.indexOf(letter), 1);
+      const now = this.handing.get(project);
+      const index = now ? now.indexOf(entry) : -1;
+      if (index >= 0) now!.splice(index, 1);
+      finish();
     }
   }
 
@@ -549,12 +567,37 @@ export class Flow {
     // one naming a task, which its holder reads as soon as they can, or once it has closed, the Planner.
     if (to === 'engineer') {
       const opened = new Map<string, string>();
+      const start = project.tasks.length;
+      for (const [at] of letters.entries()) {
+        if (!tasks?.[at]?.task) opened.set(`t${base + opened.size + 1}`, `t${start + opened.size + 1}`);
+      }
+      const existing = new Set(project.tasks.map(task => task.id));
+      const added = new Set(opened.values());
+      const accepted = new Map<string, string[]>();
+      const reaches = (from: string, target: string, visited = new Set<string>()): boolean =>
+        from === target || !visited.has(from) && Boolean(visited.add(from)) && (accepted.get(from) ?? []).some(next => reaches(next, target, visited));
+      const steers: Promise<void>[] = [];
+      let created = 0;
       for (const [at, letter] of letters.entries()) {
         const { task: id = '', after = [], withdraw } = tasks?.[at] ?? {};
-        if (!id) opened.set(`t${base + opened.size + 1}`, this.open(project, 'planner', letter, after.map(id => opened.get(id) ?? id)).id);
+        if (!id) {
+          const own = `t${start + ++created}`;
+          const waits: string[] = [];
+          for (const raw of after) {
+            const dep = opened.get(raw) ?? raw;
+            if (dep === own || waits.includes(dep)) continue;
+            if (existing.has(dep)) waits.push(dep);
+            else if (added.has(dep) && !reaches(dep, own)) {
+              waits.push(dep);
+              accepted.set(own, waits);
+            }
+          }
+          this.open(project, 'planner', letter, waits, added);
+        }
         else if (withdraw) this.withdraw(project, id, letter);
-        else await this.taskLetter(project, 'planner', id, letter);
+        else steers.push(this.taskLetter(project, 'planner', id, letter));
       }
+      await Promise.all(steers);
       this.store.save(project);
     }
     else if (to === 'operator') this.ask(project, 'planner', null, read(handoff));
@@ -607,7 +650,7 @@ export class Flow {
   /** An unread letter goes back to its writer; a Manager's waits until its current turn ends. */
   private returnLetter(project: Project, from: Note['from'], task: string, letter: string): void {
     const note = unread(task, letter);
-    if (from === 'manager') void this.writeToManager(project, note).catch(error => this.fail(project, 'manager', null, String(error)));
+    if (from === 'manager') this.tellManager(project, note);
     else project.inbox.push(note);
   }
 
@@ -654,11 +697,14 @@ export class Flow {
     const session = `${project.id}/${key}`;
     this.running.add(session);
     try {
+      const protectDirs = openTasks(project)
+        .flatMap(other => other !== task && typeof other.place === 'object' ? [other.place.dir] : []);
       result = await this.callAgent({
         backend: project.backend, role, ...TURN[role], cwd: own ? own.dir : project.workdir, instructions: standing,
         prompt: turn.afresh !== undefined ? startedAfresh(turn.afresh, join(dir, 'events.jsonl'), prompt(false)) : fresh ? freshSession(moved ? 'moved' : ran!, fresh, prompt(false)) : refused ? refusedPrompt(refused) : told ? reinstructed(standing, prompt(true)) : prompt(resume !== undefined),
         // Every role reads Argus's record of the project (the chief's, of every project) and the skills, and adds to the team's skills, wiki and tools.
         readDirs: [project.chief ? join(this.store.home, 'projects') : dir, SKILLS, packsHome(this.store.home), ...TURN[role].access === 'write' ? [] : ready], writeDirs: [skillsHome(this.store.home), wikiHome(this.store.home), toolsHome(this.store.home), ...own ? [project.workdir] : [], ...TURN[role].access === 'write' ? ready : []],
+        ...protectDirs.length ? { protectDirs } : {},
         env: { ...withTools(packEnv(packs, project.workdir, process.env), toolsHome(this.store.home)), ...author(role, task) }, ...(modelOf(project, role) ? { model: modelOf(project, role)! } : {}),
         ...(effortOf(project, role) ? { effort: effortOf(project, role)! } : {}),
         ...(project.freshAt ? { freshAt: project.freshAt, ...role === 'engineer' ? { overflow: overflow(project.freshAt) } : {} } : {}), ...(resume ? { resume } : {}), ...(signal ? { signal } : {}), session: `${project.id}/${key}`,
@@ -757,15 +803,14 @@ export class Flow {
     else this.status(project, 'failed', error);
     // Beside work that goes on, nothing else shows that this part of it waits: the operator is told.
     if (this.options.retryFailedAfterMs !== undefined && goesOn && role !== 'manager' && project.status !== 'stopped') {
-      void this.writeToManager(project, heldLetter(role, task, error)).catch((thrown: unknown) => this.fail(project, 'manager', null, String(thrown)));
+      this.tellManager(project, heldLetter(role, task, error));
     }
   }
 
-  /** A letter to the Engineer opens a task; its first sentence names it. It waits only for tasks opened
-   * before it, so no tasks wait for each other in a circle. */
-  private open(project: Project, from: Task['from'], letter: string, after: string[] = []): Task {
+  /** A letter to the Engineer opens a task; its first sentence names it. Its `after` has no circle. */
+  private open(project: Project, from: Task['from'], letter: string, after: string[] = [], known?: ReadonlySet<string>): Task {
     const named = title(letter);
-    const waits = [...new Set(after)].filter(id => project.tasks.some(task => task.id === id));
+    const waits = [...new Set(after)].filter(id => known?.has(id) || project.tasks.some(task => task.id === id));
     const task: Task = {
       id: `t${project.tasks.length + 1}`, title: named, from, objective: letter, status: 'open', holder: 'engineer', note: null, ...waits.length ? { after: waits } : {},
     };
@@ -812,6 +857,7 @@ export class Flow {
         this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, ...deleted ? { removed: true } : { kept: true } });
       } catch (error) { this.record(project, { type: 'task.worktree', task: task.id, dir: task.place.dir, error: String(error) }); }
     }
+    closeLetterbox(`${project.id}/${task.id}.`);
     void this.callAgent.close?.(`${project.id}/${task.id}.`);
   }
 

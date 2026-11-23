@@ -1,0 +1,85 @@
+# Counterfactual / ablation factorial.
+# Archetype: an analysis paper's central design figure -- two binary factors
+# crossed into four conditions, with the cell that carries the claim called out.
+# The whole point is that the reader can read a *row* and a *column* as a
+# controlled contrast, so the axis headers do as much work as the cells.
+figure:
+  id: factorial-2x2
+  pad_bottom: 14
+  venue: aaai
+  width: single
+  font: times
+  pad_top: 2
+
+layout: col
+gap: 7
+
+panels:
+  - id: grid
+    frame: none
+    body:
+      # column axis title, offset to sit over the cells rather than the row head
+      - row:
+          gap: 0
+          justify: start
+          body:
+            - {id: pad0, shape: spacer, w: 46, h: 8}
+            - {id: coltitle, shape: text, text: "**factor A** taken from", w: 150}
+      - row:
+          gap: 0
+          justify: start
+          body:
+            - {id: pad1, shape: spacer, w: 46, h: 9}
+            - {id: colA, shape: text, text: "level 1", w: 74}
+            - {id: colB, shape: text, text: "level 2", w: 74}
+      - row:
+          gap: 4
+          align: center
+          body:
+            - {id: rowtitle, shape: text, text: "**factor B** taken from", rotate: 90, w: 10, h: 96}
+            - id: rowheads
+              col:
+                gap: 6
+                body:
+                  - {id: rowA, shape: text, text: "level 1", w: 30, h: 44}
+                  - {id: rowB, shape: text, text: "level 2", w: 30, h: 44}
+            - id: cells
+              col:
+                gap: 6
+                body:
+                  - row:
+                      gap: 6
+                      body:
+                        - {id: cA, text: "**A**\nreference", role: baseline,
+                           w: 70, h: 44}
+                        - {id: cB, text: "**B**\nfactor A only", role: attention,
+                           w: 70, h: 44}
+                  - row:
+                      gap: 6
+                      body:
+                        - {id: cC, text: "**C**\nfactor B only", role: ours,
+                           lw: emphasis, w: 70, h: 44}
+                        - {id: cD, text: "**D**\nboth (real)", role: decoder,
+                           w: 70, h: 44}
+
+  # the sentence that tells the reader what the grid is for
+  - id: note
+    frame: none
+    body:
+      - {id: claim, shape: text, italic: true, text_color: "#C00000",
+         text: "left column: metric identical to A by construction"}
+
+edges:
+  - {from: cA.e, to: cB.w, arrow: none, lw: hairline, dash: thin}
+  - {from: cA.s, to: cC.n, arrow: none, lw: hairline, dash: thin}
+
+legend:
+  corner: se
+  items:
+    - {text: "differ in one factor", color: ink, kind: dashed, dash: thin, arrow: false, lw: hairline}
+
+caption: >-
+  \textbf{A $2\times2$ design isolates one cause.} Conditions A--D cross two
+  factors; neighbouring cells differ in exactly one. A and C share the
+  standard metric by construction, so any difference between them is what
+  that metric cannot see.

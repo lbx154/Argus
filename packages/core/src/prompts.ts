@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
+import { sandboxed } from './agent/sandbox.js';
 import { isCheckout, WORKTREES } from './worktrees.js';
 import { lettersOn } from './letters.js';
 import { packSetups } from './packSetup.js';
@@ -42,8 +43,9 @@ export function toolsHome(home: string): string {
 export const tools = (home: string): (readonly [string, string])[] => readdirSync(toolsHome(home)).sort().flatMap(name => {
   const file = resolve(toolsHome(home), name);
   const stat = lstatSync(file);
-  if (!stat.isFile() || !(stat.mode & 0o111)) return [];
-  const head = readFileSync(file, 'utf8').slice(0, 4096).split('\n').slice(0, 6);
+  if (!stat.isFile() || (process.platform !== 'win32' && !(stat.mode & 0o111))) return [];
+  const head = readFileSync(file, 'utf8').slice(0, 4096).split(/\r?\n/).slice(0, 6);
+  if (process.platform === 'win32' && !head[0]?.startsWith('#!') && !/\.(cmd|bat|exe)$/i.test(name)) return [];
   const said = head.map(line => /^\s*(?:#|\/\/)\s*(?!!)(.+)$/.exec(line)?.[1]?.trim()).find(Boolean) ?? '';
   return [[name, said] as const];
 });
@@ -74,10 +76,20 @@ export function packsHome(home: string): string {
 export const skills = (home: string): (readonly [string, string])[] => [SKILLS, packsHome(home), skillsHome(home)].flatMap(root => readdirSync(root)
   .map(name => [name, resolve(root, name)] as const)
   .filter(([, dir]) => lstatSync(dir).isDirectory() && lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile()));
-/** What a skill is for: the description in its SKILL.md's front matter, plain or quoted. */
+/** What a skill is for: the description in its SKILL.md's front matter, plain, quoted or folded. */
 export function purpose(dir: string, key = 'description'): string {
-  const matter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
-  const said = new RegExp(`^${key}:[ \t]*(.*)$`, 'm').exec(matter)?.[1]?.trim() ?? '';
+  const matter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
+  const match = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(matter);
+  if (!match) return '';
+  const said = match[1]!.trim();
+  if (/^[>|][-+]?$/.test(said)) {
+    const lines: string[] = [];
+    for (const line of matter.slice(match.index + match[0].length).split(/\r?\n/).slice(1)) {
+      if (line.trim() && !/^[ \t]/.test(line)) break;
+      if (line.trim()) lines.push(line.trim());
+    }
+    return lines.join(' ');
+  }
   try { if (said.startsWith('"')) return String(JSON.parse(said)); } catch { /* as written */ }
   return said.replace(/^'(.*)'$/, '$1');
 }
@@ -94,6 +106,7 @@ function where(project: Project, store: Store, role: Role): string {
   const library = skillsHome(store.home);
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
+    sandboxed() && 'In the sandbox, ~ is private to your working folder and /tmp to this CLI (~/.cache is shared): put environments, toolchains and files another task or session needs inside the workspace.',
     `Argus's record of this project: ${store.dir(project.id)} (PROGRESS.md where the work stands, rebuilt from the rest; project.json holds the tasks and their state; events.jsonl every letter)`,
     project.chief && `You work for the operator across all their projects. Every project's record is in ${resolve(store.home, 'projects')}/<id>/, this one's among them: read them; only a project's own team changes it. The operator knows them by name:`,
     ...project.chief ? store.list().filter(other => other.id !== project.id).map(other => `- ${other.id}: ${other.name || other.request.split('\n')[0]!.slice(0, 80) || '(no request yet)'}`) : [],
@@ -176,7 +189,7 @@ export function taskPrompt(project: Project, task: Task, resumed: boolean): stri
   const inWorkspace = project.tasks.filter(other => other.status === 'open' && other !== task && other.place === 'workspace').map(({ id }) => id);
   return join(earlier.length > 0 && section('Earlier tasks', earlier.join('\n')),
     beside.length > 0 && section(own ? 'Running beside it' : 'Running beside it, in the same workspace', beside.join('\n')),
-    own && section('Where this task works', `In ${own.dir}, a git worktree of the workspace made from it as it was when the task began (commit ${own.base}, uncommitted and new files included), because ${inWorkspace.join(', ') || 'another task'} works in the workspace itself. The task's work counts once it is in the workspace, ${project.workdir}: \`git diff ${own.base}\` and \`git status\` in the worktree show what it changed, and settling a conflict with what changed in the workspace meanwhile is part of the task. Whether to bring its changes back to the workspace, and whether to keep the worktree or delete it (\`git worktree remove\`), are the task's to decide.`),
+    own && section('Where this task works', `In ${own.dir}, a git worktree of the workspace made from it as it was when the task began (commit ${own.base}, uncommitted and new files included), because ${inWorkspace.length ? `${inWorkspace.join(', ')} works in the workspace itself` : 'another task is open beside it'}. The task's work counts once it is in the workspace, ${project.workdir}: \`git diff ${own.base}\` and \`git status\` in the worktree show what it changed, and settling a conflict with what changed in the workspace meanwhile is part of the task. Whether to bring its changes back to the workspace, and whether to keep the worktree or delete it (\`git worktree remove\`), are the task's to decide.`),
     section(`Task ${task.id}, from the ${NAMES[task.from]}`, task.objective), note, frozen);
 }
 

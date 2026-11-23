@@ -23,7 +23,7 @@ interface Step {
   /** The Planner's letters, one task each. */
   letters?: string[];
   /** For each of the Planner's letters, the open task it is for, or the tasks its task waits for. */
-  tasks?: { task: string; after: string[] }[];
+  tasks?: { task: string; after: string[]; withdraw?: true }[];
   /** The files of a result the Manager hands the operator. */
   open?: string[];
   /** An Engineer's or Reviewer's letters to other open tasks. */
@@ -1910,4 +1910,156 @@ test('no second try where it cannot help: a turn that wants paying, or the Manag
   const { flow: alone, id: other, requests } = await setup(t, [{ role: 'manager', throws: 'unexpected status 401 Unauthorized' }], undefined, retrying);
   assert.equal((await say(alone, other, 'hello')).status, 'failed');
   assert.equal(requests.length, 1);
+});
+
+test('a working project does not rest before the Manager reads a closed task, on live delivery or restart', async t => {
+  const managerHold = gate();
+  t.after(managerHold.open);
+  const { home, store, flow, id, requests, events } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Parse data.csv' },
+    { role: 'engineer', to: 'planner', letter: 'Parsed.' },
+    { role: 'manager', waits: managerHold.shut, to: 'engineer', letter: 'Now check data.csv.' },
+    { role: 'planner', to: 'planner', letter: '' },
+    { role: 'engineer', to: 'manager', letter: 'Checked.' },
+    report,
+  ]);
+  const done = say(flow, id, 'Parse and check');
+  while (requests.filter(request => request.role === 'planner').length < 2) await tick();
+  await tick();
+  // Planner finished with nothing new while Manager is still reading the closed task: status stays working.
+  assert.equal(store.load(id).status, 'working');
+  managerHold.open();
+  assert.equal((await done).status, 'idle');
+  assert.deepEqual(events().filter(event => event.type === 'status').map(event => event.status), ['working', 'idle']);
+
+  // Restart with all tasks closed and a team delivery still waiting in forManager: status stays working until Manager answers.
+  const restartHold = gate();
+  t.after(restartHold.open);
+  const persisted = store.load(id);
+  store.save({ ...persisted, status: 'working', forManager: [{ text: 'From the Engineer, on task t2:\nChecked.', input_id: 'in-restart' }] });
+  const restarted = agent([{ role: 'manager', waits: restartHold.shut, to: 'operator', letter: 'All done.' }]);
+  const nextFlow = new Flow(new Store(home), restarted.callAgent);
+  nextFlow.resume(id);
+  while (!restarted.requests.length) await tick();
+  assert.equal(store.load(id).status, 'working');
+  restartHold.open();
+  assert.equal((await nextFlow.settled(id)).status, 'idle');
+});
+
+test('a dead Manager session is dropped when its backend reports no threadId, so the next message starts afresh', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-dead-mgr-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const { id } = store.create({ workdir: home, request: 'hi', backend: 'claude', model: null });
+  store.save({ ...store.load(id), sessions: { manager: 'dead-session' } });
+  const resumes: Array<string | undefined> = [];
+  const callAgent: CallAgent = async request => {
+    resumes.push(request.resume);
+    if (request.resume === 'dead-session') {
+      return { callId: 'c1', threadId: null, completed: false, error: 'No conversation found with session ID: dead-session', handoff: null, model: null, usage: null, ms: 1 };
+    }
+    return { callId: 'c2', threadId: 'fresh-session', completed: true, error: null, handoff: { form: 'manager', to: 'operator', letters: ['Recovered.'] }, model: 'fake', usage: null, ms: 1 };
+  };
+  const flow = new Flow(store, callAgent);
+  assert.equal((await say(flow, id, 'First try')).status, 'failed');
+  assert.equal(store.load(id).sessions.manager, undefined);
+  assert.equal((await say(flow, id, 'Second try')).status, 'idle');
+  // Sending again retries the unanswered first message in a fresh session, then answers the second on it.
+  assert.deepEqual(resumes, ['dead-session', undefined, 'fresh-session']);
+  assert.equal(store.load(id).sessions.manager, 'fresh-session');
+});
+
+test('the Planner may name a later task in the same batch in after, while a cycle is broken without deadlock', async t => {
+  const order: string[] = [];
+  const { flow, id, store } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Compare against baseline', 'Train baseline'],
+      tasks: [{ task: '', after: ['t2'] }, { task: '', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'Baseline trained.' },
+    noted,
+    { role: 'planner', to: 'planner', letter: '' },
+    { role: 'engineer', to: 'planner', letter: 'Compared.' },
+    noted,
+    { role: 'planner', to: 'engineer', letters: ['Cycle A', 'Cycle B'],
+      tasks: [{ task: '', after: ['t4'] }, { task: '', after: ['t3'] }] },
+    { role: 'engineer', to: 'planner', letter: 'B done.' },
+    noted,
+    { role: 'planner', to: 'planner', letter: '' },
+    { role: 'engineer', to: 'planner', letter: 'A done.' },
+    noted,
+    { role: 'planner', to: 'manager', letter: 'All done.' },
+    report,
+  ]);
+  const original = flow['callAgent'];
+  (flow as unknown as { callAgent: CallAgent }).callAgent = async request => {
+    if (request.role === 'engineer') order.push(request.prompt.match(/## Task (t\d+)/)?.[1] ?? '?');
+    return original(request);
+  };
+  const project = await say(flow, id, 'Run forward and cyclic batches');
+  assert.equal(project.status, 'idle');
+  assert.deepEqual(order.slice(0, 2), ['t2', 't1']);
+  assert.deepEqual(store.load(id).tasks.slice(0, 4).map(task => [task.id, task.after ?? []]), [
+    ['t1', ['t2']], ['t2', []], ['t3', ['t4']], ['t4', []],
+  ]);
+});
+
+test('a task opened after the workspace task closed still gets a worktree while another worktree task is open, and closing drops its letterbox', async t => {
+  lettersAt('http://127.0.0.1:1');
+  t.after(() => lettersAt(null));
+  const t2Hold = gate();
+  t.after(t2Hold.open);
+  const { home, flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['First task', 'Second task'], tasks: [{ task: '', after: [] }, { task: '', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'First done.' },
+    { role: 'engineer', waits: t2Hold.shut, to: 'planner', letter: 'Second done.' },
+    noted,
+    { role: 'planner', to: 'engineer', letters: ['Third task'], tasks: [{ task: '', after: [] }] },
+    { role: 'engineer', to: 'planner', letter: 'Third done.' },
+    noted,
+    { role: 'planner', later: true, to: 'planner', letter: '' },
+    noted,
+    { role: 'planner', to: 'manager', letter: 'All three done.' },
+    report,
+  ]);
+  checkout(home);
+  const done = say(flow, id, 'Run three overlapping tasks');
+  while (requests.filter(request => request.role === 'engineer').length < 3) await tick();
+  const [e1, e2, e3] = requests.filter(request => request.role === 'engineer');
+  assert.equal(e1!.cwd, home);
+  assert.equal(e2!.cwd, join(home, '.argus-worktrees', 't2'));
+  assert.equal(e3!.cwd, join(home, '.argus-worktrees', 't3'));
+  assert.deepEqual(e3!.protectDirs, [join(home, '.argus-worktrees', 't2')]);
+  const t1Token = new URL(e1!.letters!).pathname.split('/').pop()!;
+  const t2Token = new URL(e2!.letters!).pathname.split('/').pop()!;
+  assert.equal(boxAt(t1Token), undefined);
+  assert.equal(typeof boxAt(t2Token), 'function');
+  t2Hold.open();
+  assert.equal((await done).status, 'idle');
+  assert.equal(boxAt(t2Token), undefined);
+});
+
+test('PROGRESS.md strips duplicate task-id prefixes and marks unstarted tasks as waiting for their dependencies', async t => {
+  const hold = gate();
+  t.after(hold.open);
+  const { store, flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['t1 — Build baseline', 't2: Write paper'],
+      tasks: [{ task: '', after: [] }, { task: '', after: ['t1'] }] },
+    { role: 'engineer', waits: hold.shut, to: 'planner', letter: 'Baseline built.' },
+    noted,
+    { role: 'planner', to: 'planner', letter: '' },
+    { role: 'engineer', to: 'planner', letter: 'Paper written.' },
+    noted,
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ]);
+  const done = say(flow, id, 'Build and write');
+  while (requests.filter(request => request.role === 'engineer').length < 1) await tick();
+  const during = readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8');
+  assert.match(during, /\| t1 \| Build baseline \| open, with the Engineer \| \d+ min \|/);
+  assert.match(during, /\| t2 \| Write paper \| open, waits for t1 \|  \|/);
+  hold.open();
+  await done;
 });

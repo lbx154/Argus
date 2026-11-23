@@ -1,0 +1,128 @@
+name: method-figure
+version: 3.1.0
+description: >
+  Declarative manifest for the static/dynamic split. SKILL.md and AGENTS.md use
+  this to decide which fragments to load for a given figure request. The main
+  axis is the figure archetype; the large body of style, grammar, workflow and
+  audit material stays in on-demand references.
+
+always_load:
+  - static/core/stance.md
+  - static/core/contract.md
+
+engine:
+  entry: scripts/render.py
+  auditor: scripts/validate.py
+  audit_pptx: scripts/audit_pptx.py     # after the hand-over: any PPTX
+  audit_pdf: scripts/audit_pdf.py       # the PDF LaTeX includes (needs PyMuPDF)
+  export_pptx: scripts/export_pptx.py   # lossless PPTX -> PDF, then audit_pdf
+  from_code: scripts/from_code.py
+  stencil: scripts/make_stencil.py
+  package: scripts/cvprfig
+  runtime: python>=3.8, standard library only
+  optional:
+    - PyYAML (a bundled parser covers the same subset when absent)
+    - PyMuPDF, for audit_pdf.py
+    - Inkscape / LibreOffice / rsvg-convert / cairosvg / ImageMagick, for pdf, png, emf
+
+outputs:
+  bundled: [svg, vsdx, pptx]      # written by this package, always available
+  converted: [pdf, png, tiff, emf] # need one external converter
+  raster_note: |
+    Rasters are always taken from the PDF, because LibreOffice's direct PNG
+    filter ignores the requested density. render.py checks the produced pixel
+    size against --dpi and warns if a converter ignored it. 600 dpi is
+    camera-ready; 1200 dpi for a poster.
+
+axes:
+  archetype:
+    detect: |
+      Choose from the reviewer question the figure must answer.
+      "Isn't this just X?" -> teaser. "What are the moving parts?" -> pipeline.
+      "Does the maths match the wiring?" -> module. "Why is this attention
+      pattern better?" -> attention. "What is remembered between steps?" ->
+      streaming. "How do the two branches relate?" -> dual. "What exactly did
+      you change and what did you freeze?" -> gated.
+      For a paper whose contribution is a measurement rather than a model:
+      "what can the standard metric not see?" -> blindspot. "what is the shape
+      of the study?" -> study. "what did the controlled design isolate?" ->
+      factorial. "where does this sit in the field?" -> taxonomy.
+      A paper normally needs one teaser-class figure plus one or two others.
+    values:
+      # architecture papers
+      teaser:     templates/teaser-comparison.yaml
+      pipeline:   templates/pipeline-4stage.yaml
+      module:     templates/module-detail.yaml
+      attention:  templates/attention-tokens.yaml
+      streaming:  templates/streaming-worldmodel.yaml
+      dual:       templates/dual-branch.yaml
+      gated:      templates/gated-module.yaml
+      # analysis, evaluation and position papers
+      blindspot:  templates/blindspot-teaser.yaml
+      study:      templates/study-overview.yaml
+      factorial:  templates/factorial-2x2.yaml
+      taxonomy:   templates/taxonomy.yaml
+      # v2, from the 46-paper corpus scan
+      framework:  templates/framework-with-io.yaml
+      surround:   templates/surroundview-pipeline.yaml
+      frozen:     templates/trainable-frozen.yaml
+      distill:    templates/teacher-student.yaml
+      wrapped:    templates/wrapped-pipeline.yaml
+    multi: false
+
+references:
+  on_demand:
+    - condition: choosing the figure's shape, or deciding whether one figure should be two
+      path: references/archetypes.md
+    - condition: writing or editing a spec — full grammar, shapes, roles, routing, notes, legends
+      path: references/spec-language.md
+    - condition: need a colour, size or stroke weight; or the user asks why the style is what it is; or reading an existing figure's palette out of its PDF
+      path: references/house-style.md
+    - condition: the user names a paper or lab whose figures they want to match
+      path: references/case-studies.md
+    - condition: before delivering; auditing a figure for machine-generated tells; writing the caption
+      path: references/anti-ai-checklist.md
+    - condition: hand-editing in Visio or PowerPoint, generating the module stencil, or choosing an export format
+      path: references/visio-workflow.md
+    - condition: placing the figure in LaTeX, sizing, float placement, camera-ready checks
+      path: references/latex-integration.md
+    - condition: the user asks where a number, colour or threshold came from, or challenges the house style
+      path: references/corpus-report.md
+    - condition: drafting a figure from a model implementation or an mmengine/mmdet config
+      path: references/from-code.md
+    - condition: the figure shows symbols or maths; writing the symbol table or the caption; sharing notation across figures
+      path: references/symbols-and-captions.md
+    - condition: the user has hand-edited the PPTX, exported a PDF from it, or asks whether the shipped files are fine
+      path: references/after-handover.md
+    - condition: the user edits in WPS, Keynote, LibreOffice or PowerPoint, or an export looks different from the SVG
+      path: references/app-compatibility.md
+
+templates:
+  - templates/teaser-comparison.yaml
+  - templates/pipeline-4stage.yaml
+  - templates/module-detail.yaml
+  - templates/attention-tokens.yaml
+  - templates/streaming-worldmodel.yaml
+  - templates/dual-branch.yaml
+  - templates/gated-module.yaml
+  - templates/blindspot-teaser.yaml
+  - templates/study-overview.yaml
+  - templates/factorial-2x2.yaml
+  - templates/taxonomy.yaml
+  - templates/framework-with-io.yaml
+  - templates/surroundview-pipeline.yaml
+  - templates/trainable-frozen.yaml
+  - templates/teacher-student.yaml
+  - templates/wrapped-pipeline.yaml
+  - templates/stencil.vsdx        # drag-and-drop module palette for Visio
+  - templates/stencil.pptx        # ...and for PowerPoint
+
+quality_gate:
+  command: python3 scripts/validate.py <spec> --svg <rendered.svg>
+  after_handover:
+    - python3 scripts/audit_pptx.py <edited.pptx> --width <pt> --spec <spec>
+    - python3 scripts/export_pptx.py <edited.pptx> --width <pt>
+  blocking: |
+    Every FAIL must be fixed before delivery. Every WARN must be fixed or
+    explicitly justified to the user. The auditor cannot judge whether the
+    figure communicates -- render a PNG and look at it as well.

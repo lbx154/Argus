@@ -1,0 +1,23 @@
+# Research framework: constructs and hypotheses only. No coefficients, samples or findings in the boxes.
+# Columns: explanatory variable | channels | outcome. The main effect (H1) is routed over the channels; a moderator
+# above it points at its horizontal run. Leave row 1 empty as the lane for that routed arrow.
+figure:
+  language: zh
+  width_pt: 455.24
+  height_ratio: 0.42
+panels:
+  - archetype: framework
+    rows: 4
+    nodes:
+      - {id: soe,  text: 产权性质,      col: 1, row: 0}
+      - {id: dt,   text: 数字化转型,    col: 0, row: 2}
+      - {id: info, text: 信息不对称,    col: 1, row: 2}
+      - {id: esg,  text: 企业 ESG 表现, col: 2, row: 2}
+      - {id: gov,  text: 内部治理,      col: 1, row: 3}
+    edges:
+      - {from: dt,   to: esg, label: H1, route: over}
+      - {from: dt,   to: info, label: H2a}
+      - {from: info, to: esg}
+      - {from: dt,   to: gov, label: H2b}
+      - {from: gov,  to: esg}
+      - {from: soe,  to: dt->esg, label: H3, dashed: true}

@@ -1,0 +1,164 @@
+# Streaming / world-model framework: nested containers, a coloured entity
+# legend carried by the label text itself, and a time rail along the bottom.
+# Archetype: the method figure for a recurrent or online system, where the
+# reader must see both the per-step computation and its place in the stream.
+figure:
+  id: streaming-worldmodel
+  pad_bottom: 9
+  venue: cvpr
+  width: double
+  font: times
+  pad_top: 4
+
+layout: col
+gap: 8
+
+panels:
+  - id: main
+    frame: none
+    halign: left
+    body:
+      - row:
+          gap: 14
+          align: start
+          body:
+            # ---- left: the two inputs the model reconciles
+            - id: inputs
+              col:
+                gap: 12
+                align: center
+                body:
+                  - {id: hist, shape: image, w: 74, h: 34,
+                     caption: "Historical Gaussians",
+                     caption_color: "#953735"}
+                  - {id: prior, shape: image, w: 74, h: 34,
+                     caption: "Random Prior",
+                     caption_color: "#7F6000"}
+                  - {id: obs, shape: image, w: 74, h: 32,
+                     caption: "Current Observation",
+                     caption_color: "#2E75B6"}
+            # ---- middle: the world model, drawn as a container of containers
+            - id: wm
+              title: "3D Gaussian World Model"
+              title_pos: inside-top
+              title_italic: false
+              frame: solid
+              frame_color: "#1F4E79"
+              frame_lw: 0.8
+              padt: 16
+              col:
+                gap: 10
+                body:
+                  - row:
+                      gap: 14
+                      align: center
+                      body:
+                        - id: align_col
+                          col:
+                            gap: 22
+                            body:
+                              - {id: ema, text: "Ego Motion\nAlignment", role: attention}
+                              - {id: nac, text: "New Area\nCompletion", role: memory}
+                        - id: layer
+                          title: "Gaussian World Layer"
+                          title_pos: inside-top
+                          title_italic: false
+                          title_size: 7.0
+                          frame: solid
+                          frame_color: "#1F4E79"
+                          padt: 14
+                          row:
+                            gap: 8
+                            body:
+                              - {id: selfenc, text: "Self-Encoding", role: core, tint: pale,
+                                 rotate: 90, w: 17, h: 62}
+                              - {id: xattn, text: "Cross-Attention", role: encoder,
+                                 rotate: 90, w: 17, h: 62}
+                              - id: refine
+                                title: "Unified Refinement Block"
+                                title_pos: inside-top
+                                title_italic: false
+                                title_size: 6.8
+                                frame: solid
+                                frame_color: grey.strong
+                                fill: grey.pale
+                                padt: 13
+                                row:
+                                  gap: 14
+                                  body:
+                                    - {id: pred, text: "Prediction\nLayer", role: decoder,
+                                       rotate: 90, w: 22, h: 48}
+                                    - id: heads
+                                      col:
+                                        gap: 7
+                                        body:
+                                          - {id: motion, text: "Motion", role: memory, tint: soft}
+                                          - {id: percep, text: "Perception", role: attention}
+      - {id: gapz, shape: spacer, h: 6, w: 4}
+      - row:
+          gap: 16
+          align: center
+          body:
+            - {id: imgenc, shape: trapezoid, text: "Image Encoder", role: encoder, dir: right}
+            - {id: feats, shape: slab, n: 4, cell: 7, cellh: 30, role: steel}
+            - {id: sp_a, shape: spacer, w: 40, h: 4}
+            - {id: curg, shape: image, w: 68, h: 40, caption: "Current Gaussians"}
+            - {id: gs2occ, shape: trapezoid, text: "GS-to-Occ", role: encoder, dir: right}
+            - {id: occres, shape: image, w: 62, h: 40}
+
+  # ---------------------------------------------------- the streaming rail
+  - id: rail
+    frame: none
+    halign: left
+    body:
+      - row:
+          gap: 3
+          align: center
+          body:
+            - {id: r_dots0, shape: ellipsis, w: 14, h: 8}
+            - {id: r1, shape: sharpbox, w: 20, h: 15, role: attention, tint: pale}
+            - {id: r2, shape: sharpbox, w: 20, h: 15, role: attention, tint: pale, caption: "$T-2$"}
+            - {id: r3, shape: sharpbox, w: 20, h: 15, role: attention, tint: pale, caption: "$T-1$"}
+            - {id: rcar, shape: image, w: 34, h: 18, caption: "$T$"}
+            - {id: r4, shape: sharpbox, w: 20, h: 15, role: neutral, caption: "$T+1$"}
+            - {id: r5, shape: sharpbox, w: 20, h: 15, role: neutral, caption: "$T+2$"}
+            - {id: r6, shape: sharpbox, w: 20, h: 15, role: neutral}
+            - {id: r_dots1, shape: ellipsis, w: 14, h: 8}
+
+edges:
+  - {from: hist, to: ema}
+  - {from: prior, to: nac}
+  - {from: ema.e, to: selfenc.w, color: "#953735", route: hv}
+  - {from: nac.e, to: selfenc.w, color: "#7F6000", route: hv}
+  - {from: selfenc, to: xattn}
+  - {from: xattn, to: pred}
+  - {from: pred.e, to: motion.w, color: "#953735", lw: box}
+  - {from: pred.e, to: percep.w, color: "#7F6000", lw: box}
+  - {from: obs, to: imgenc}
+  - {from: imgenc, to: feats}
+  - {from: feats.n, to: xattn.s, route: vh, mid: 0.5}
+  - {from: refine.s, to: curg.n, route: vh}
+  - {from: curg, to: gs2occ}
+  - {from: gs2occ, to: occres}
+
+notes:
+  - {text: "Ego Pose", near: ema.s, dy: 11, color: "#953735", italic: false}
+  - {text: "History", near: r2.s, dy: 5, italic: false}
+  - {text: "Future", near: r5.s, dy: 5, italic: false}
+
+# The two coloured streams are the paper's own colour code; say so.
+legend:
+  corner: se
+  dir: row
+  items:
+    - {text: "from history", color: "#953735", kind: arrow}
+    - {text: "from the prior", color: "#7F6000", kind: arrow}
+
+symbols:
+  "T": {meaning: "index of the current frame", defined_in: caption}
+
+caption: >-
+  \textbf{The world model is carried, not rebuilt.} At frame $T$, Gaussians
+  from history (red) and a random prior (yellow) are reconciled with the
+  current observation (blue), refined, and passed on to frame $T+1$; the
+  same state serves motion forecasting and perception.

@@ -8,26 +8,34 @@ import { createHmac, randomBytes } from 'node:crypto';
 export type Post = (to: string[], cc: string[], text: string) => Promise<string[]>;
 
 const secret = randomBytes(32);
-const boxes = new Map<string, Post>();
+const boxes = new Map<string, { key: string; post: Post }>();
 let base: string | null = null;
 
 /** Where the server takes letters: set once it listens; till then no session has a letterbox. */
-export function lettersAt(url: string | null): void { base = url; }
+export function lettersAt(url: string | null): void {
+  base = url;
+  if (!url) boxes.clear();
+}
 
 /** The address of the letterbox of session `key`, the same for the session's life in this process
  * (its CLI keeps the address it started with), which now delivers with `post`. */
 export function letterbox(key: string, post: Post): string | undefined {
   if (!base) return undefined;
   const token = createHmac('sha256', secret).update(key).digest('hex').slice(0, 32);
-  boxes.set(token, post);
+  boxes.set(token, { key, post });
   return `${base}/letters/${token}`;
+}
+
+/** Drops every letterbox whose session key starts with `prefix`. */
+export function closeLetterbox(prefix: string): void {
+  for (const [token, { key }] of boxes) if (key.startsWith(prefix)) boxes.delete(token);
 }
 
 /** Whether sessions have letterboxes: in a server, once it listens. */
 export const lettersOn = (): boolean => base !== null;
 
 /** The letterbox an address names, or none. */
-export const boxAt = (token: string): Post | undefined => boxes.get(token);
+export const boxAt = (token: string): Post | undefined => boxes.get(token)?.post;
 
 /** The readers a letterbox address lists in `name` (to or cc), comma-separated. */
 export const readers = (value: string | null): string[] => (value ?? '').split(',').map(reader => reader.trim().toLowerCase()).filter(Boolean);

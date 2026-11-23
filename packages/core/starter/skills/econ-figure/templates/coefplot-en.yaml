@@ -1,0 +1,9 @@
+# The same figure for an English-language journal (JFE, TAR, RFS ...): fonts switch to Times only.
+figure:
+  language: en
+  width_cm: 16.5
+panels:
+  - archetype: coefplot
+    data: data/heterogeneity_en.csv
+    reference: {value: 0.040, label: Full sample}
+    xlabel: Effect of digital transformation on the ESG rating

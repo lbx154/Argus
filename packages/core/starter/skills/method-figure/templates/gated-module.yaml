@@ -1,0 +1,110 @@
+# Two-lane gated module: one path passes through frozen, another is modulated.
+# Archetype: the module figure for adapters, calibration heads, FiLM/gating,
+# LoRA, prompt tuning -- anywhere the claim is "we change only this part".
+# The operators are staggered horizontally and each gate is placed under the
+# operator it drives with `align_x`, so the arrows rise straight and never cross.
+figure:
+  id: gated-module
+  venue: cvpr
+  width: single
+  font: times
+  pad_top: 3
+
+layout: col
+gap: 8
+
+panels:
+  - id: head
+    title: "Conditioned Adaptation Head"
+    frame: dashed
+    gap: 7
+    body:
+      # -------- lane 1: untouched
+      - row:
+          gap: 0
+          justify: start
+          body:
+            - {id: a_in, text: "$\\alpha$", role: backbone, w: 44, h: 16}
+            - {id: g_a, shape: spacer, w: 116, h: 4}
+            - {id: a_out, text: "$\\alpha$", role: backbone, w: 44, h: 16}
+
+      # -------- lane 2: rescaled
+      - row:
+          gap: 0
+          justify: start
+          align: center
+          body:
+            - {id: b_in, text: "$\\beta$", role: core, w: 44, h: 16}
+            - {id: g_b, shape: spacer, w: 16, h: 4}
+            - {id: op_s, shape: circleop, op: "x", d: 14}
+            - {id: g_c, shape: spacer, w: 86, h: 4}
+            - {id: b_out, text: "$\\beta'$", role: ours, w: 44, h: 16}
+
+      # -------- lane 3: re-normalised
+      - row:
+          gap: 0
+          justify: start
+          align: center
+          body:
+            - {id: c_in, text: "$\\gamma$", role: core, w: 44, h: 16}
+            - {id: g_d, shape: spacer, w: 46, h: 4}
+            - {id: op_t, text: "softmax", role: attention, w: 54, h: 16}
+            - {id: g_e, shape: spacer, w: 16, h: 4}
+            - {id: c_out, text: "$\\gamma'$", role: ours, w: 44, h: 16}
+
+      # -------- the gates sit directly under the operators they drive
+      - {id: sp1, shape: spacer, h: 7, w: 4}
+      - row:
+          gap: 0
+          justify: start
+          align: center
+          body:
+            - {id: g_f, shape: spacer, w: 16.5, h: 4}
+            - {id: gate1, text: "$\\log\\tau$", role: attention, w: 32, h: 15, align_x: op_s}
+            - {id: g_g, shape: spacer, w: 17, h: 4}
+            - {id: gate2, text: "$\\log\\theta$", role: attention, w: 34, h: 15, align_x: op_t}
+
+      - {id: sp2, shape: spacer, h: 6, w: 4}
+      - row:
+          gap: 7
+          align: center
+          body:
+            - {id: cond, text: "conditioning $h$", role: input, minw: 100}
+            - {id: net, text: "2-layer MLP", role: encoder}
+
+  - id: eqs
+    frame: none
+    body:
+      - {id: e1, shape: text,
+         text: "$\\beta' = \\tau(h)\\,\\beta \\qquad \\gamma' = \\mathrm{softmax}(\\log\\gamma \\,/\\, \\theta(h))$"}
+      - {id: e2, shape: text, text_color: muted, italic: true,
+         text: "the frozen lane is untouched, so the headline metric is unchanged"}
+
+edges:
+  - {from: a_in, to: a_out, route: straight, lw: box, color: steel.deep, dash: true,
+     label: "frozen", label_dy: -3.2}
+  - {from: b_in, to: op_s, color: orange.deep, lw: box, route: straight}
+  - {from: op_s, to: b_out, color: orange.deep, lw: box, route: straight}
+  - {from: c_in, to: op_t, color: orange.deep, lw: box, route: straight}
+  - {from: op_t, to: c_out, color: orange.deep, lw: box, route: straight}
+  - {from: cond, to: net, lw: box}
+  - {from: net.n, to: gate2.s, color: blue.deep, lw: box, mid: 0.5}
+  - {from: net.n, to: gate1.s, color: blue.deep, lw: box, mid: 0.72}
+  - {from: gate1.n, to: op_s.s, route: straight, color: blue.deep, lw: box}
+  - {from: gate2.n, to: op_t.s, route: straight, color: blue.deep, lw: box}
+
+symbols:
+  "\\alpha":  {meaning: "frozen logits, passed through", defined_in: caption}
+  "\\beta":   {meaning: "scale parameters, rescaled", defined_in: caption}
+  "\\gamma":  {meaning: "mixture weights, re-normalised", defined_in: caption}
+  "\\tau":    {meaning: "predicted temperature on beta", defined_in: caption}
+  "\\theta":  {meaning: "predicted temperature on gamma", defined_in: caption}
+  "h":        {meaning: "conditioning features", defined_in: figure}
+  "\\otimes": {meaning: "element-wise product", defined_in: caption}
+
+caption: >-
+  \textbf{The head changes only what calibration needs.} The frozen output
+  $\alpha$ passes through untouched; the scales $\beta$ are multiplied
+  ($\otimes$) by a temperature $\tau$ and the weights $\gamma$ are
+  re-normalised with a temperature $\theta$, both predicted from the
+  conditioning features by a two-layer MLP.

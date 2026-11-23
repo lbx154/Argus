@@ -1,0 +1,63 @@
+# Which parameters move, and which do not.
+#
+# The flame / snowflake convention is near-universal in adapter, distillation
+# and foundation-model papers.  Here they are vector shapes rather than pasted
+# emoji, so they stay sharp at print resolution and survive PDF/A.
+#
+# Convention in the corpus: the marker sits on the module, and the arrow
+# colour follows it -- warm for the path that receives gradient, cool for the
+# path that does not.
+figure:
+  id: trainable-frozen
+  venue: cvpr
+  width: double
+  font: times
+
+layout: col
+gap: 9
+
+panels:
+  - id: s_main
+    frame: none
+    body:
+      - row:
+          gap: 11
+          align: center
+          body:
+            - {id: x, shape: image, w: 42, caption: "input", src: null}
+            - col:
+                gap: 3
+                align: center
+                body:
+                  - {id: mf, shape: marker, kind: frozen, d: 7}
+                  - {id: enc, shape: trapezoid, text: "Frozen\nBackbone", role: frozen}
+            - col:
+                gap: 3
+                align: center
+                body:
+                  - {id: mt, shape: marker, kind: trainable, d: 7}
+                  - {id: ada, shape: box, text: "Adapter", role: core}
+            - {id: head, shape: invtrapezoid, text: "Head", role: decoder}
+            - {id: y, shape: image, w: 42, caption: "prediction", src: null}
+
+  - id: s_key
+    frame: none
+    body:
+      - row:
+          gap: 14
+          align: center
+          body:
+            - {id: k1, shape: marker, kind: trainable, d: 6}
+            - {id: k1t, shape: text, text: "trainable", type: annot}
+            - {id: k2, shape: marker, kind: frozen, d: 6}
+            - {id: k2t, shape: text, text: "frozen", type: annot}
+
+edges:
+  - {from: x.e, to: enc.w}
+  - {from: enc.e, to: ada.w, color: "#2E75B6"}
+  - {from: ada.e, to: head.w, color: "#ED7D31"}
+  - {from: head.e, to: y.w}
+
+caption: >-
+  \textbf{Only the adapter is trained.} The backbone is frozen (snowflake);
+  the adapter and the head are trained (flame).

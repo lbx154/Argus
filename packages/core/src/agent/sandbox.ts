@@ -120,13 +120,13 @@ function cliSetup(backend: Backend): { login: string[]; settings: string[]; sign
   };
 }
 
-/** The CLI's login environment and the operator's registrations; other credentials stay out. */
+/** The CLI's login environment and the operator's registrations; other credentials and ambient git overrides stay out. */
 export function agentEnv(backend: Backend): Record<string, string> {
   const { signsInWith, setInSettings } = cliSetup(backend);
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (value === undefined || setInSettings?.has(name)) continue;
-    if (signsInWith(name) || !/^(GH_|GITHUB_)|^(SSH_AUTH_SOCK|GIT_ASKPASS)$|TOKEN|SECRET|KEY/i.test(name)) kept[name] = value;
+    if (signsInWith(name) || !/^(GH_|GITHUB_|GIT_)|^SSH_AUTH_SOCK$|TOKEN|SECRET|KEY/i.test(name)) kept[name] = value;
   }
   return { ...kept, ...credentials() };
 }
@@ -209,6 +209,10 @@ export function confine(argv: string[], request: AgentRequest, temp?: string): s
   for (const dir of given) {
     const writable = writes.includes(dir);
     if (!given.some(outer => outer !== dir && within(dir, outer) && writes.includes(outer) === writable)) bind(dir, writable);
+  }
+  for (const dir of request.protectDirs ?? []) {
+    const target = resolve(dir);
+    if (target !== cwd && existsSync(target)) bind(target, false);
   }
   const ordered = [...new Map(mounts.map(mount => [mount.join('\0'), mount])).values()]
     .sort((a, b) => depth(a[1]) - depth(b[1]) || Number(a[0] !== a[1]) - Number(b[0] !== b[1]));

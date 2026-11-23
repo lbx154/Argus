@@ -108,6 +108,29 @@ test('a daily message goes out at its time, in the words the record holds then, 
   assert.equal(sent.length, 2);
 });
 
+test('schedules that fall on the same time across projects all fire without cancelling each other', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'argus-repeat-many-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const first = store.create({ workdir: '', request: '', backend: 'codex', model: null, modelAutomatic: true });
+  const second = store.create({ workdir: '', request: '', backend: 'codex', model: null, modelAutomatic: true });
+  store.save({ ...first, repeat: { at: '08:00', text: 'Morning A.' }, every: { hours: 4, text: 'Pulse A.' } });
+  store.save({ ...second, repeat: { at: '08:00', text: 'Morning B.' } });
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: new Date('2026-11-02T07:00:00Z') });
+  const sent: string[] = [];
+  const daily = repeating(store, (id, text) => sent.push(`${id}: ${text}`));
+  t.after(() => daily.close());
+  daily.arm();
+  t.mock.timers.tick(60 * 60_000);
+  assert.deepEqual(sent.slice().sort(), [
+    `${first.id}: Morning A.`,
+    `${first.id}: Pulse A.`,
+    `${second.id}: Morning B.`,
+  ].sort());
+  t.mock.timers.tick(4 * 3600_000);
+  assert.deepEqual(sent.slice(3), [`${first.id}: Pulse A.`]);
+});
+
 test('every few hours and when another project rests, the chief hears the operator\'s words; other projects are not told', async t => {
   const { store, requests, send } = await setup(t);
   const chief = store.list().find(project => project.chief)!.id;

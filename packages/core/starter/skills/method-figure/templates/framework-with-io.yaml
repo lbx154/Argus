@@ -1,0 +1,98 @@
+# The dominant framework figure in the reference corpus: real inputs on the
+# left, the architecture across the middle, real predictions on the right.
+#
+# 57% of architecture diagrams in the corpus embed rasters; 66% of those put
+# images at both the far left and the far right (corpus-report.md, finding 4).
+# A pipeline drawn as boxes alone reads as a slide, not as a result.
+#
+# Point `src:` at real files -- a frame from your dataset and a render from
+# your own checkpoint.  Aspect ratio is read from the file, so give width only.
+figure:
+  id: framework-with-io
+  venue: cvpr
+  width: double
+  font: times
+
+layout: row
+gap: 12
+
+panels:
+  - id: s_in
+    title: "Input"
+    frame: dashed
+    valign: middle
+    body:
+      - col:
+          gap: 6
+          align: center
+          body:
+            - {id: rgb, shape: image, w: 62, caption: "RGB frame", src: null}
+            - {id: prior, shape: image, w: 62, caption: "geometry prior", src: null}
+
+  - id: s_enc
+    title: "Encoder"
+    frame: dashed
+    valign: middle
+    body:
+      - col:
+          gap: 7
+          align: center
+          body:
+            - {id: bb, shape: trapezoid, text: "Backbone", role: backbone}
+            - {id: fm, shape: planestack, n: 4, w: 22, h: 28, role: attention,
+               dash: thin, caption: "multi-scale"}
+
+  - id: s_core
+    title: "Our Module"
+    frame: dashed
+    fill: orange.pale
+    valign: middle
+    body:
+      - col:
+          gap: 6
+          align: center
+          body:
+            - {id: q, shape: slab, n: 5, cell: 7, cellh: 22, role: core,
+               caption: "$N$ queries"}
+            - {id: mix, shape: box, text: "Adaptive Mixing", role: core}
+            - {id: add, shape: circleop, op: "+", d: 9}
+            - {id: mhsa, shape: box, text: "Temporal-Spatial MHSA", role: core,
+               badge: "$\\times L$"}
+
+  - id: s_out
+    title: "Decoders"
+    frame: dashed
+    valign: middle
+    body:
+      - col:
+          gap: 6
+          align: center
+          body:
+            - {id: h1, shape: invtrapezoid, text: "Occupancy Head", role: decoder}
+            - {id: o1, shape: image, w: 66, caption: "prediction", src: null}
+            - {id: h2, shape: invtrapezoid, text: "Planning Head", role: decoder}
+            - {id: o2, shape: image, w: 66, caption: "trajectory", src: null}
+
+edges:
+  - {from: rgb.e, to: bb.w}
+  - {from: prior.e, to: bb.w}
+  - {from: bb.s, to: fm.n}
+  - {from: fm.e, to: q.w}
+  - {from: q.s, to: mix.n}
+  - {from: mix.s, to: add.n}
+  - {from: add.s, to: mhsa.n}
+  - {from: mhsa.e, to: h1.w, color: core}
+  - {from: mhsa.e, to: h2.w, color: core}
+  - {from: h1.s, to: o1.n}
+  - {from: h2.s, to: o2.n}
+
+symbols:
+  "N":       {meaning: "number of queries", defined_in: figure}
+  "L":       {meaning: "number of refinement layers", defined_in: caption}
+  "\\oplus": {meaning: "residual addition", defined_in: caption}
+
+caption: >-
+  \textbf{Queries carry the scene from input to output.} An RGB frame and a
+  geometry prior (left) are encoded; $N$ learnable queries sample the
+  multi-scale features and are refined over $L$ layers ($\oplus$: residual
+  addition); two heads read occupancy and the trajectory (right).

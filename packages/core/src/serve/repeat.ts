@@ -50,27 +50,33 @@ export const RESTING: readonly Status[] = ['idle', 'asking', 'failed'];
 
 /** One timer for each project's daily message and each one's every few hours; `arm` sets them again from the records, after a change. */
 export function repeating(store: Store, send: (id: string, text: string) => void): { arm: () => void; close: () => void } {
-  const timers: NodeJS.Timeout[] = [];
+  let timers = new Set<NodeJS.Timeout>();
   const close = (): void => {
-    for (const timer of timers.splice(0)) clearTimeout(timer);
+    for (const timer of timers) clearTimeout(timer);
+    timers = new Set();
   };
-  const set = (id: string, wait: number, words: (project: Project) => string | undefined): void => {
+  const set = (id: string, schedule: (project: Project, now: Date) => { wait: number; text: string } | undefined, wait: number): void => {
+    const group = timers;
     const timer = setTimeout(() => {
+      if (!group.delete(timer)) return;
       // Read again when it fires: the operator may have changed the words since.
-      let text: string | undefined;
-      try { text = words(store.load(id)); } catch { text = undefined; }
-      if (text) send(id, text);
-      arm();
+      let due: { wait: number; text: string } | undefined;
+      try { due = schedule(store.load(id), new Date()); } catch { due = undefined; }
+      if (!due) return;
+      if (due.text) send(id, due.text);
+      if (timers === group) set(id, schedule, due.wait);
     }, wait);
     timer.unref?.();
-    timers.push(timer);
+    group.add(timer);
   };
+  const byDay = (project: Project, now: Date) => project.repeat && { wait: untilNext(project.repeat.at, now), text: project.repeat.text };
+  const byHours = (project: Project, now: Date) => project.every && { wait: untilEvery(project.every.hours, now), text: project.every.text };
   const arm = (): void => {
     close();
     const now = new Date();
     for (const { id, repeat, every } of store.list()) {
-      if (repeat) set(id, untilNext(repeat.at, now), project => project.repeat?.text);
-      if (every) set(id, untilEvery(every.hours, now), project => project.every?.text);
+      if (repeat) set(id, byDay, untilNext(repeat.at, now));
+      if (every) set(id, byHours, untilEvery(every.hours, now));
     }
   };
   return { arm, close };

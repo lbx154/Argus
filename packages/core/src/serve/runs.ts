@@ -5,6 +5,7 @@
 
 import type { UploadedAttachment } from '@argus/contracts';
 import { Flow } from '../flow.js';
+import { closeLetterbox } from '../letters.js';
 import type { FlowEvent, Project, Question, Store } from '../store.js';
 import type { CallAgent } from '../types.js';
 import { readRecord, conversationRows, type Live } from './views.js';
@@ -60,6 +61,7 @@ export class Runs {
     }
     else {
       this.edit(id, project => { if (project.status === 'working') project.status = 'stopped'; });
+      closeLetterbox(`${id}/`);
       void this.callAgent.close?.(`${id}/`);
     }
   }
@@ -69,6 +71,7 @@ export class Runs {
     const active = [...this.active.values()];
     for (const { controller } of active) controller.abort();
     await Promise.all(active.map(({ settled }) => settled));
+    closeLetterbox('');
     await this.callAgent.close?.('');
   }
 
@@ -159,7 +162,10 @@ export class Runs {
         this.changed(id);
         // A project at rest keeps no CLI running, unless a question or a failure waits in a session:
         // what the failed task left running in the background runs on till the task closes.
-        if (status !== 'asking' && status !== 'failed') return this.callAgent.close?.(`${id}/`);
+        if (status !== 'asking' && status !== 'failed') {
+          closeLetterbox(`${id}/`);
+          return this.callAgent.close?.(`${id}/`);
+        }
       });
     }
   }

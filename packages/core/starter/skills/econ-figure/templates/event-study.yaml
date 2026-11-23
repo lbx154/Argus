@@ -1,0 +1,16 @@
+# Dynamic effects around a staggered policy (DID event study). The most common figure in an empirical paper.
+# data: one row per estimator x relative period k; coef and se (or lo, hi) from the paper's event-study regression.
+# The base period (-1) is omitted from the regression and drawn at zero without an interval.
+figure:
+  language: zh            # zh | en: sets the Song/Times or Times fonts the paper uses
+  width_pt: 455.24         # \textwidth of the template, read from the build log; see references/house-style.md
+panels:
+  - archetype: event-study
+    data: data/event_study.csv
+    series: {twfe: 双向固定效应, sa: Sun–Abraham 估计量}   # legend labels, in drawing order
+    base: -1
+    ci: 0.95
+    binned_ends: true      # the first and last periods pool everything beyond them: label them <= and >=
+    xlabel: 相对“宽带中国”试点的年份 $k$
+    ylabel: 对 ESG 评级的动态效应
+    legend: upper left

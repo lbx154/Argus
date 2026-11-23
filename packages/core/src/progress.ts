@@ -14,6 +14,7 @@ type Dated = FlowEvent & { ts: string };
 interface Board {
   spent: number;
   opened: Map<string, string>;
+  started: Map<string, string>;
   closed: Map<string, string>;
   cost: Map<string, number>;
   /** Each role's (on each task) last letter: when, and its first line. */
@@ -27,12 +28,14 @@ const CJK = /[\u3400-\u9fff]/;
 /** The page's own words, in the operator's language; what the roles wrote stays as they wrote it. */
 const WORDS = {
   en: { title: 'Where the work stands', rebuilt: (at: string) => `Rebuilt by Argus from its record at ${at} UTC; nobody edits it.`, request: 'Request', spent: 'Spent',
-    tasks: 'Tasks', head: '| Task | Title | State | Ran | Cost | Last word |', open: (holder: string) => `open, with the ${holder}`, closed: 'closed',
+    tasks: 'Tasks', head: '| Task | Title | State | Ran | Cost | Last word |', open: (holder: string) => `open, with the ${holder}`,
+    waiting: (ids: string) => `open, waits for ${ids}`, closed: 'closed',
     said: 'Latest from each role', commits: 'Latest commits', to: 'to', min: 'min', h: 'h',
     total: 'In all', left: 'Worktrees closed tasks left', leftWhy: 'Each is a full copy of the workspace that its task did not delete. Its task is closed, so it stays on the disk until someone deletes it (`git worktree remove <folder>`, run in the workspace).',
     roles: { manager: 'Manager', planner: 'Planner', engineer: 'Engineer', reviewer: 'Reviewer', operator: 'operator' } },
   zh: { title: '工作进展', rebuilt: (at: string) => `Argus 根据记录于 ${at} UTC 重建，没有人手工编辑。`, request: '请求', spent: '已花费',
-    tasks: '任务', head: '| 任务 | 标题 | 状态 | 已跑 | 花费 | 最后一句 |', open: (holder: string) => `进行中，在${holder}手里`, closed: '已关闭',
+    tasks: '任务', head: '| 任务 | 标题 | 状态 | 已跑 | 花费 | 最后一句 |', open: (holder: string) => `进行中，在${holder}手里`,
+    waiting: (ids: string) => `等待 ${ids}`, closed: '已关闭',
     said: '各角色最近说的话', commits: '最近的提交', to: '给', min: '分钟', h: '小时',
     total: '合计', left: '已关闭任务留下的工作树', leftWhy: '每个都是工作区的一份完整拷贝，任务没有删。任务已经关闭，所以它会一直占着磁盘，直到有人删掉它（在工作区里运行 `git worktree remove <目录>`）。',
     roles: { manager: '经理', planner: '规划者', engineer: '工程师', reviewer: '审查员', operator: '操作者' } },
@@ -46,7 +49,8 @@ const line = (text: string): string => {
 function take(board: Board, event: Dated): void {
   const who = 'role' in event ? `${event.role}${'task' in event && event.task ? ` ${event.task}` : ''}` : '';
   if (event.type === 'message' && event.from === 'operator') board.zh = CJK.test(event.text);
-  if (event.type === 'call.end') {
+  if (event.type === 'call.start' && event.task && !board.started.has(event.task)) board.started.set(event.task, event.ts);
+  else if (event.type === 'call.end') {
     const cost = event.usage?.cost_usd ?? 0;
     board.spent += cost;
     if (event.task) board.cost.set(event.task, (board.cost.get(event.task) ?? 0) + cost);
@@ -86,11 +90,15 @@ function render(project: Project, board: Board, now: string, sizes: ReadonlyMap<
   const words = WORDS[board.zh ? 'zh' : 'en'];
   const name = (who: string): string => { const [role, task] = who.split(' '); return `${words.roles[role as keyof typeof words.roles] ?? role}${task ? ` ${task}` : ''}`; };
   const cell = (text: string): string => text.replace(/\|/g, '\\|');
+  const openIds = new Set(project.tasks.filter(task => task.status === 'open').map(task => task.id));
+  const cleanTitle = ({ id, title }: Pick<Project['tasks'][number], 'id' | 'title'>): string =>
+    title.replace(new RegExp(`^${id}(?![\\p{L}\\p{N}])[\\s\\p{P}]*`, 'iu'), '') || title;
   const row = (task: Project['tasks'][number]): string => {
-    const opened = board.opened.get(task.id);
+    const waits = task.status === 'open' ? (task.after ?? []).filter(id => openIds.has(id)) : [];
+    const started = board.started.get(task.id) ?? (!waits.length && board.cost.has(task.id) ? board.opened.get(task.id) : undefined);
     const closed = board.closed.get(task.id);
-    const state = task.status === 'open' ? words.open(words.roles[task.holder]) : words.closed;
-    return `| ${task.id} | ${cell(line(task.title))} | ${state} | ${opened ? hours(opened, closed ?? now, words) : ''} | $${(board.cost.get(task.id) ?? 0).toFixed(1)} | ${cell(task.note ? line(task.note.text) : '')} |`;
+    const state = task.status !== 'open' ? words.closed : waits.length ? words.waiting(waits.join(', ')) : words.open(words.roles[task.holder]);
+    return `| ${task.id} | ${cell(line(cleanTitle(task)))} | ${state} | ${started ? hours(started, closed ?? now, words) : ''} | $${(board.cost.get(task.id) ?? 0).toFixed(1)} | ${cell(task.note ? line(task.note.text) : '')} |`;
   };
   const open = project.tasks.filter(task => task.status === 'open');
   const closed = project.tasks.filter(task => task.status === 'closed').reverse().slice(0, 20);
@@ -140,9 +148,10 @@ export class Progress {
   note(project: Project, event: FlowEvent): void {
     const now = new Date().toISOString();
     let board = this.boards.get(project.id);
+    const firstStart = event.type === 'call.start' && Boolean(event.task) && !board?.started.has(event.task!);
     if (board) take(board, { ts: now, ...event } as Dated);
     else this.boards.set(project.id, board = this.read(project));
-    if (event.type === 'call.start') return;
+    if (event.type === 'call.start' && !firstStart) return;
     const write = (): void => writeFileSync(join(this.store.dir(project.id), 'PROGRESS.md'), render(project, board, new Date().toISOString(), this.sizes));
     write();
     // A worktree's size is read beside the work, and the page written again once it is known.
@@ -163,7 +172,7 @@ export class Progress {
 
   /** The record so far, this event included; a step changes nothing here, and a line cut short is skipped. */
   private read({ id, request }: Project): Board {
-    const board: Board = { spent: 0, opened: new Map(), closed: new Map(), cost: new Map(), said: new Map(), zh: CJK.test(request) };
+    const board: Board = { spent: 0, opened: new Map(), started: new Map(), closed: new Map(), cost: new Map(), said: new Map(), zh: CJK.test(request) };
     let text = '';
     try { text = readFileSync(join(this.store.dir(id), 'events.jsonl'), 'utf8'); } catch { return board; }
     for (const entry of text.split('\n')) {

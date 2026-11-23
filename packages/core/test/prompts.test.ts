@@ -3,8 +3,8 @@ import test from 'node:test';
 import os from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { instructions, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
+import { delimiter, join } from 'node:path';
+import { instructions, purpose, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
 import { withTools } from '../src/flow.js';
 import { Store } from '../src/store.js';
 
@@ -97,8 +97,8 @@ test("the team's tools: executable files listed by their first comment, first on
   const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
   const prompt = instructions('reviewer', project, store);
   assert.ok(prompt.includes(`The team's tools, commands on your PATH (${dir}):\n- digest: One screen on a project from its record\n`));
-  assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}:/usr/bin` });
-  assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(':')[0], dir);
+  assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}${delimiter}/usr/bin` });
+  assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(delimiter)[0], dir);
 });
 
 test("the wiki's pages are listed with their length, which no one sees from a page's name", t => {
@@ -112,4 +112,21 @@ test("the wiki's pages are listed with their length, which no one sees from a pa
   const store = new Store(home);
   const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
   assert.ok(instructions('engineer', project, store).includes(' Its pages: gif.md (2 lines), verus.md (5 lines).'));
+});
+
+test('a skill whose SKILL.md folds its description across lines is listed with its words, not >-', t => {
+  const dir = mkdtempSync(join(os.tmpdir(), 'argus-skill-purpose-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'SKILL.md'), '---\nname: cvpr-figure\ndescription: >-\n  Create and audit conference figures\n  for LaTeX and PowerPoint.\nversion: 1.0.0\n---\n');
+  assert.equal(purpose(dir), 'Create and audit conference figures for LaTeX and PowerPoint.');
+  assert.equal(purpose(dir, 'version'), '1.0.0');
+});
+
+test('built-in skills include paper-writing, and sandboxed hosts tell roles that ~ is private to the working folder', t => {
+  const home = mkdtempSync(join(os.tmpdir(), 'argus-paper-skill-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'claude', model: null });
+  const prompt = instructions('engineer', project, store);
+  assert.match(prompt, /- paper-writing: Write, illustrate, polish and audit camera-ready conference and journal papers/);
 });

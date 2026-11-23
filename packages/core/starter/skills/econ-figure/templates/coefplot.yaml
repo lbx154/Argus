@@ -1,0 +1,11 @@
+# Heterogeneity: one estimate per subsample, grouped, with the full-sample estimate as a reference line.
+# Use instead of (not as well as) a split-sample table only when the pattern across groups is the point.
+figure:
+  language: zh
+  width_pt: 455.24
+panels:
+  - archetype: coefplot
+    data: data/heterogeneity.csv      # group, label, coef, se
+    orientation: horizontal
+    reference: {value: 0.040, label: 全样本估计}
+    xlabel: 数字化转型对 ESG 评级的影响

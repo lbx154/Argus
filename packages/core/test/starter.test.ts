@@ -26,7 +26,7 @@ test("a new operator's library begins as the starter library, once", t => {
   const { home, starter } = place(t);
   assert.deepEqual(seed(home, starter), ['skills/proof', 'wiki/verus.md', 'tools/digest']);
   assert.ok(existsSync(join(home, 'skills', 'proof', 'SKILL.md')));
-  assert.ok(statSync(join(home, 'tools', 'digest')).mode & 0o111, 'a tool stays executable');
+  assert.ok(process.platform === 'win32' || statSync(join(home, 'tools', 'digest')).mode & 0o111, 'a tool stays executable');
   const index = readFileSync(join(home, 'wiki', 'INDEX.md'), 'utf8');
   assert.match(index, /^# Wiki/);
   assert.ok(index.includes('- [verus.md](verus.md): Verus pitfalls'));
@@ -56,8 +56,10 @@ test('an upgrade adds only what is new to the starter library, and what the oper
 test('the starter library Argus ships holds skills, wiki pages listed in its index, and runnable tools', () => {
   const index = readFileSync(join(STARTER, 'wiki', 'INDEX.md'), 'utf8');
   for (const page of ['verus.md', 'slides.md']) assert.ok(index.includes(`](${page})`), page);
-  assert.ok(existsSync(join(STARTER, 'skills', 'verus-query-timing', 'SKILL.md')));
-  assert.ok(statSync(join(STARTER, 'tools', 'argus-digest')).mode & 0o111);
+  for (const skill of ['verus-query-timing', 'local-pptx-render', 'method-figure', 'scipilot-figure', 'scientific-visualization', 'econ-figure', 'academic-figures', 'theory-tricks']) {
+    assert.ok(existsSync(join(STARTER, 'skills', skill, 'SKILL.md')), skill);
+  }
+  assert.ok(process.platform === 'win32' || statSync(join(STARTER, 'tools', 'argus-digest')).mode & 0o111);
   // Written for any operator: no path of the machine it was made on.
   const files = readdirSync(STARTER, { withFileTypes: true, recursive: true }).filter(entry => entry.isFile()).map(entry => join(entry.parentPath, entry.name));
   for (const file of files) assert.doesNotMatch(readFileSync(file, 'utf8'), /\/fastdata\/|\/home\/v-boxiuli/, file);

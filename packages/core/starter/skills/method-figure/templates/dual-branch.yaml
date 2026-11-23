@@ -1,0 +1,114 @@
+# Two-branch training figure: teacher/student, momentum encoder, contrastive
+# pair, or any setup where two paths meet at a loss.
+# Archetype: the method figure for self-supervised, distillation and
+# consistency-regularised training.  The symmetry is the point, so the two
+# branches must be visually parallel and differ in exactly the ways claimed.
+figure:
+  id: dual-branch
+  venue: cvpr
+  width: double
+  font: times
+  pad_top: 3
+
+layout: row
+gap: 13
+
+panels:
+  - id: s_in
+    title: "Input"
+    frame: dashed
+    valign: middle
+    body:
+      - {id: aug1, text: "strong\naugmentation", role: input, wrap: 62}
+      - {id: sp0, shape: spacer, h: 16, w: 4}
+      - {id: img, shape: image, w: 60, h: 44, caption: "sample"}
+      - {id: sp0b, shape: spacer, h: 16, w: 4}
+      - {id: aug2, text: "weak\naugmentation", role: input, wrap: 62}
+
+  - id: s_branch
+    title: "Two Branches"
+    frame: dashed
+    valign: middle
+    padb: 16
+    body:
+      - group:
+          id: online
+          frame: region
+          frame_color: orange.deep
+          fill: orange.pale
+          pad: 6
+          gap: 5
+          title: "online branch (updated)"
+          title_pos: below
+          title_bold: false
+          title_italic: true
+          title_color: "#BF6000"
+          row:
+            gap: 6
+            body:
+              - {id: enc_o, shape: trapezoid, text: "encoder $f_\\theta$", role: encoder}
+              - {id: proj_o, text: "projector $g_\\theta$", role: attention}
+              - {id: pred_o, text: "predictor", role: ours}
+      - {id: sp1, shape: spacer, h: 14, w: 4}
+      - group:
+          id: target
+          frame: region
+          frame_color: grey.strong
+          fill: grey.pale
+          pad: 6
+          gap: 5
+          title: "target branch (EMA, stop-grad)"
+          title_pos: below
+          title_bold: false
+          title_italic: true
+          title_color: muted
+          row:
+            gap: 6
+            body:
+              - {id: enc_t, shape: trapezoid, text: "encoder $f_\\xi$", role: baseline}
+              - {id: proj_t, text: "projector $g_\\xi$", role: baseline}
+              - {id: stop, text: "stop-grad", role: neutral}
+
+  - id: s_loss
+    title: "Objective"
+    frame: dashed
+    valign: middle
+    body:
+      - {id: z1, shape: slab, n: 3, cell: 7, cellh: 22, role: ours,
+         caption: "$z$"}
+      - {id: sp2, shape: spacer, h: 8, w: 4}
+      - {id: loss, text: "consistency loss", role: loss, minw: 88}
+      - {id: sp3, shape: spacer, h: 8, w: 4}
+      - {id: z2, shape: slab, n: 3, cell: 7, cellh: 22, role: baseline,
+         caption: "$z'$"}
+
+edges:
+  - {from: img.n, to: aug1.s, lw: box}
+  - {from: img.s, to: aug2.n, lw: box}
+  - {from: aug1.e, to: enc_o.w, color: orange.deep, route: hv}
+  - {from: aug2.e, to: enc_t.w, color: grey, route: hv}
+  - {from: enc_o, to: proj_o, color: orange.deep, lw: box}
+  - {from: proj_o, to: pred_o, color: orange.deep, lw: box}
+  - {from: enc_t, to: proj_t, color: grey, lw: box}
+  - {from: proj_t, to: stop, color: grey, lw: box}
+  - {from: pred_o.e, to: z1.w, color: orange.deep, route: hv}
+  - {from: stop.e, to: z2.w, color: grey, route: hv}
+  - {from: z1.s, to: loss.n, color: rose.strong}
+  - {from: z2.n, to: loss.s, color: rose.strong}
+  - {from: enc_o.s, to: enc_t.n, dash: true, lw: box,
+     color: orange.deep, label: "EMA", label_dx: 3, label_anchor: start}
+
+# Encoders and projectors are named in words beside their symbols, so they
+# are defined in the figure; the two embeddings are defined in the caption.
+symbols:
+  "f_\\theta": {meaning: "online encoder", defined_in: figure, tex: "$f_\\theta$"}
+  "g_\\theta": {meaning: "online projector", defined_in: figure, tex: "$g_\\theta$"}
+  "f_\\xi":    {meaning: "target encoder (EMA of f_theta)", defined_in: figure, tex: "$f_\\xi$"}
+  "g_\\xi":    {meaning: "target projector", defined_in: figure, tex: "$g_\\xi$"}
+  "z":         {meaning: "online prediction / target embedding", defined_in: caption}
+
+caption: >-
+  \textbf{Two views, one model, no labels.} Two augmentations of a sample go
+  through an online branch, which is trained, and a target branch, an EMA of
+  it that receives no gradient. The loss pulls the online prediction $z$
+  towards the target embedding $z'$.

@@ -1,0 +1,19 @@
+# Yearly means of the key variables. Two variables on different scales get two panels, never a second y-axis.
+figure:
+  language: zh
+  width_pt: 455.24
+  layout: [1, 2]
+panels:
+  - archetype: trend
+    data: data/trend_dt.csv            # year, value
+    subtitle: 数字化转型指数
+    event_year: 2014
+    event_label: 首批试点
+    ylabel: 年度均值
+  - archetype: trend
+    data: data/trend_esg.csv           # series, year, value
+    subtitle: ESG 评级
+    series: {nonsoe: 非国有企业, soe: 国有企业}
+    event_year: 2014
+    ylabel: 年度均值
+    legend: lower right

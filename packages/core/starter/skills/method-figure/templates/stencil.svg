@@ -1,0 +1,273 @@
+<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' version='1.1' width='560pt' height='582.864pt' viewBox='0 0 676 703.6'>
+<defs><marker id='a0' markerWidth='14.143' markerHeight='10.143' refX='13.143' refY='0' orient='auto' markerUnits='strokeWidth' viewBox='-5.071 -5.071 14.143 10.143'><path d='M0,-4.571 L13.143,0 L0,4.571 Z' fill='#000000'/></marker><marker id='a1' markerWidth='8.077' markerHeight='5.923' refX='7.077' refY='0' orient='auto' markerUnits='strokeWidth' viewBox='-2.962 -2.962 8.077 5.923'><path d='M0,-2.462 L7.077,0 L0,2.462 Z' fill='#000000'/></marker><marker id='a2' markerWidth='6.75' markerHeight='5' refX='5.75' refY='0' orient='auto' markerUnits='strokeWidth' viewBox='-2.5 -2.5 6.75 5'><path d='M0,-2 L5.75,0 L0,2 Z' fill='#000000'/></marker><marker id='a3' markerWidth='5.182' markerHeight='3.909' refX='4.182' refY='0' orient='auto' markerUnits='strokeWidth' viewBox='-1.955 -1.955 5.182 3.909'><path d='M0,-1.455 L4.182,0 L0,1.455 Z' fill='#000000'/></marker><marker id='a4' markerWidth='9.364' markerHeight='6.818' refX='8.364' refY='0' orient='auto' markerUnits='strokeWidth' viewBox='-3.409 -3.409 9.364 6.818'><path d='M0,-2.909 L8.364,0 L0,2.909 Z' fill='#000000'/></marker></defs>
+<rect x='0' y='0' width='676' height='703.6' fill='#FFFFFF'/>
+<rect x='167' y='25.8' width='342' height='80.2' rx='5' ry='5' fill='none' stroke='#A5A5A5' stroke-width='0.55' stroke-linejoin='round' stroke-dasharray='3.2,2.2'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='169' y='19.85' font-size='7.8' font-weight='bold' text-anchor='start' xml:space='preserve'>Semantic roles -- keep these stable across every figure in the paper</text></g>
+<rect x='175' y='33.8' width='74' height='15.4' rx='2.6' ry='2.6' fill='#F2F2F2' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='212' y='43.88' font-size='7' text-anchor='middle' xml:space='preserve'>Input</text></g>
+<rect x='259' y='33.8' width='74' height='15.4' rx='2.6' ry='2.6' fill='#DDEBF7' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='296' y='43.88' font-size='7' text-anchor='middle' xml:space='preserve'>Backbone</text></g>
+<rect x='343' y='33.8' width='74' height='15.4' rx='2.6' ry='2.6' fill='#EBF1DF' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='380' y='43.88' font-size='7' text-anchor='middle' xml:space='preserve'>Encoder</text></g>
+<rect x='427' y='33.8' width='74' height='15.4' rx='2.6' ry='2.6' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='464' y='43.88' font-size='7' text-anchor='middle' xml:space='preserve'>Attention</text></g>
+<rect x='175' y='58.2' width='74' height='15.4' rx='2.6' ry='2.6' fill='#FFE699' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='212' y='68.28' font-size='7' text-anchor='middle' xml:space='preserve'>Core</text></g>
+<rect x='259' y='58.2' width='74' height='15.4' rx='2.6' ry='2.6' fill='#FBE5D6' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='296' y='68.28' font-size='7' text-anchor='middle' xml:space='preserve'>Temporal</text></g>
+<rect x='343' y='58.2' width='74' height='15.4' rx='2.6' ry='2.6' fill='#F2DCDA' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='380' y='68.28' font-size='7' text-anchor='middle' xml:space='preserve'>Memory</text></g>
+<rect x='427' y='58.2' width='74' height='15.4' rx='2.6' ry='2.6' fill='#EEEAF2' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='464' y='68.28' font-size='7' text-anchor='middle' xml:space='preserve'>Decoder</text></g>
+<rect x='175' y='82.6' width='74' height='15.4' rx='2.6' ry='2.6' fill='#DBEEF3' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='212' y='92.68' font-size='7' text-anchor='middle' xml:space='preserve'>Output</text></g>
+<rect x='259' y='82.6' width='74' height='15.4' rx='2.6' ry='2.6' fill='#D6EDE7' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='296' y='92.68' font-size='7' text-anchor='middle' xml:space='preserve'>Aux</text></g>
+<rect x='343' y='82.6' width='74' height='15.4' rx='2.6' ry='2.6' fill='#F2F2F2' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='380' y='92.68' font-size='7' text-anchor='middle' xml:space='preserve'>Baseline</text></g>
+<rect x='427' y='82.6' width='74' height='15.4' rx='2.6' ry='2.6' fill='#F7F7F7' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='464' y='92.68' font-size='7' text-anchor='middle' xml:space='preserve'>Neutral</text></g>
+<rect x='191.998' y='135.8' width='292.003' height='200.8' rx='5' ry='5' fill='none' stroke='#A5A5A5' stroke-width='0.55' stroke-linejoin='round' stroke-dasharray='3.2,2.2'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='193.998' y='129.85' font-size='7.8' font-weight='bold' text-anchor='start' xml:space='preserve'>Shape vocabulary</text></g>
+<rect x='218.344' y='143.8' width='49.196' height='23.4' rx='2.6' ry='2.6' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='242.942' y='157.88' font-size='7' text-anchor='middle' xml:space='preserve'>Module Box</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='242.942' y='175.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>box</text></g>
+<polygon points='281.54,143.8 327.864,148.948 327.864,162.052 281.54,167.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='304.702' y='157.88' font-size='7' text-anchor='middle' xml:space='preserve'>Encoder</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='304.702' y='175.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>trapezoid</text></g>
+<polygon points='341.864,148.948 388.573,143.8 388.573,167.2 341.864,162.052' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='365.218' y='157.88' font-size='7' text-anchor='middle' xml:space='preserve'>Decoder</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='365.218' y='175.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>invtrapezoid</text></g>
+<polygon points='406.928,143.8 425.434,143.8 429.789,155.5 425.434,167.2 406.928,167.2 402.573,155.5' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='416.181' y='157.88' font-size='7' text-anchor='middle' xml:space='preserve'>Gate</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='416.181' y='175.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>hexagon</text></g>
+<polygon points='450.341,143.8 476.002,143.8 469.45,167.2 443.789,167.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='459.896' y='157.88' font-size='7' text-anchor='middle' xml:space='preserve'>Data</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='459.896' y='175.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>parallelogram</text></g>
+<polygon points='199.998,208.8 248.41,208.8 255.41,216.5 248.41,224.2 199.998,224.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='224.204' y='218.88' font-size='7' text-anchor='middle' xml:space='preserve'>Memory Op</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='227.704' y='232.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>chevron</text></g>
+<polygon points='290.49,198.2 331.41,198.2 310.33,224.2 269.41,224.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='300.41' y='232.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>plane</text></g>
+<rect x='345.41' y='194.2' width='30' height='30' rx='0' ry='0' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='345.41,194.2 351.17,188.44 381.17,188.44 375.41,194.2' fill='#C2E2EB' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='375.41,194.2 381.17,188.44 381.17,218.44 375.41,224.2' fill='#A4C6D0' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<line x1='355.41' y1='194.2' x2='355.41' y2='224.2' stroke='#000000' stroke-width='0.52' stroke-linecap='butt'/>
+<line x1='345.41' y1='204.2' x2='375.41' y2='204.2' stroke='#000000' stroke-width='0.52' stroke-linecap='butt'/>
+<line x1='365.41' y1='194.2' x2='365.41' y2='224.2' stroke='#000000' stroke-width='0.52' stroke-linecap='butt'/>
+<line x1='345.41' y1='214.2' x2='375.41' y2='214.2' stroke='#000000' stroke-width='0.52' stroke-linecap='butt'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='363.29' y='232.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>cube</text></g>
+<polygon points='395.17,198.2 398.77,194.6 406.77,194.6 403.17,198.2' fill='#C2E2EB' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='403.17,198.2 406.77,194.6 406.77,220.6 403.17,224.2' fill='#A4C6D0' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<rect x='395.17' y='198.2' width='8' height='26' rx='0' ry='0' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='406.17,198.2 409.77,194.6 417.77,194.6 414.17,198.2' fill='#C2E2EB' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='414.17,198.2 417.77,194.6 417.77,220.6 414.17,224.2' fill='#A4C6D0' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<rect x='406.17' y='198.2' width='8' height='26' rx='0' ry='0' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='417.17,198.2 420.77,194.6 428.77,194.6 425.17,198.2' fill='#C2E2EB' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='425.17,198.2 428.77,194.6 428.77,220.6 425.17,224.2' fill='#A4C6D0' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<rect x='417.17' y='198.2' width='8' height='26' rx='0' ry='0' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='428.17,198.2 431.77,194.6 439.77,194.6 436.17,198.2' fill='#C2E2EB' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<polygon points='436.17,198.2 439.77,194.6 439.77,220.6 436.17,224.2' fill='#A4C6D0' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<rect x='428.17' y='198.2' width='8' height='26' rx='0' ry='0' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='417.47' y='232.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>slab</text></g>
+<rect x='453.77' y='185' width='8' height='8' rx='1.2' ry='1.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<rect x='453.77' y='195.4' width='8' height='8' rx='1.2' ry='1.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<rect x='453.77' y='205.8' width='8' height='8' rx='1.2' ry='1.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<rect x='453.77' y='216.2' width='8' height='8' rx='1.2' ry='1.2' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='464.886' y='232.072' font-size='5.8' text-anchor='middle' xml:space='preserve'>tokengrid</text></g>
+<circle cx='219.179' cy='269.5' r='6.5' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<line x1='215.539' y1='269.5' x2='222.819' y2='269.5' stroke='#000000' stroke-width='0.65' stroke-linecap='butt'/>
+<line x1='219.179' y1='265.86' x2='219.179' y2='273.14' stroke='#000000' stroke-width='0.65' stroke-linecap='butt'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='219.179' y='283.872' font-size='5.8' text-anchor='middle' xml:space='preserve'>circleop</text></g>
+<circle cx='251.861' cy='269.5' r='6.5' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<line x1='249.24' y1='266.879' x2='254.482' y2='272.121' stroke='#000000' stroke-width='0.65' stroke-linecap='butt'/>
+<line x1='249.24' y1='272.121' x2='254.482' y2='266.879' stroke='#000000' stroke-width='0.65' stroke-linecap='butt'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='251.861' y='283.872' font-size='5.8' text-anchor='middle' xml:space='preserve'>circleop</text></g>
+<rect x='275.202' y='242' width='54' height='34' rx='0' ry='0' fill='#F2F2F2' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<line x1='275.202' y1='242' x2='329.202' y2='276' stroke='#BFBFBF' stroke-width='0.3' stroke-linecap='butt'/>
+<line x1='329.202' y1='242' x2='275.202' y2='276' stroke='#BFBFBF' stroke-width='0.3' stroke-linecap='butt'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#595959'><text x='302.202' y='261.38' font-size='7' text-anchor='middle' xml:space='preserve'>panel</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='302.202' y='283.872' font-size='5.8' text-anchor='middle' xml:space='preserve'>image</text></g>
+<rect x='343.202' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='347.002' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='350.802' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='354.602' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='358.402' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='362.202' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#F2F2F2'/>
+<rect x='366.002' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#F2F2F2'/>
+<rect x='369.802' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#F2F2F2'/>
+<rect x='373.602' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#F2F2F2'/>
+<rect x='377.402' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#F2F2F2'/>
+<rect x='381.202' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='385.002' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='388.802' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='392.602' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='396.402' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#F2F2F2'/>
+<rect x='400.202' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='404.002' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='407.802' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='411.602' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<rect x='415.402' y='265' width='2.6' height='11' rx='0.6' ry='0.6' fill='#5B9BD5'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='380.602' y='283.872' font-size='5.8' text-anchor='middle' xml:space='preserve'>framestrip</text></g>
+<path d='M432.002,276 L432.002,275.77 L432.919,275.668 L433.835,275.529 L434.752,275.34 L435.669,275.091 L436.585,274.768 L437.502,274.355 L438.419,273.837 L439.335,273.201 L440.252,272.434 L441.169,271.528 L442.085,270.477 L443.002,269.286 L443.919,267.965 L444.835,266.532 L445.752,265.017 L446.669,263.457 L447.585,261.897 L448.502,260.39 L449.419,258.989 L450.335,257.75 L451.252,256.724 L452.169,255.956 L453.085,255.481 L454.002,255.32 L454.919,255.481 L455.835,255.956 L456.752,256.724 L457.669,257.75 L458.585,258.989 L459.502,260.39 L460.419,261.897 L461.335,263.457 L462.252,265.017 L463.169,266.532 L464.085,267.965 L465.002,269.286 L465.919,270.477 L466.835,271.528 L467.752,272.434 L468.669,273.201 L469.585,273.837 L470.502,274.355 L471.419,274.768 L472.335,275.091 L473.252,275.34 L474.169,275.529 L475.085,275.668 L476.002,275.77 L476.002,276 Z' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<line x1='432.002' y1='276' x2='476.002' y2='276' stroke='#000000' stroke-width='0.3' stroke-linecap='butt'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='454.002' y='283.872' font-size='5.8' text-anchor='middle' xml:space='preserve'>dist</text></g>
+<path d='M375.008,319.8 L375.008,315.35 L375.925,313.905 L376.841,312.21 L377.758,310.3 L378.675,308.242 L379.591,306.133 L380.508,304.092 L381.425,302.252 L382.341,300.745 L383.258,299.688 L384.175,299.167 L385.091,299.225 L386.008,299.857 L386.925,301.011 L387.841,302.592 L388.758,304.48 L389.675,306.537 L390.591,308.63 L391.508,310.641 L392.425,312.473 L393.341,314.058 L394.258,315.352 L395.175,316.338 L396.091,317.011 L397.008,317.379 L397.925,317.454 L398.841,317.252 L399.758,316.788 L400.675,316.083 L401.591,315.164 L402.508,314.067 L403.425,312.844 L404.341,311.56 L405.258,310.292 L406.175,309.127 L407.091,308.148 L408.008,307.434 L408.925,307.043 L409.841,307.007 L410.758,307.33 L411.675,307.986 L412.591,308.92 L413.508,310.061 L414.425,311.327 L415.341,312.634 L416.258,313.91 L417.175,315.094 L418.091,316.145 L419.008,317.041 L419.008,319.8 Z' fill='#B7DDE8' stroke='#000000' stroke-width='0.65' stroke-linejoin='round'/>
+<line x1='375.008' y1='319.8' x2='419.008' y2='319.8' stroke='#000000' stroke-width='0.3' stroke-linecap='butt'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='397.008' y='327.672' font-size='5.8' text-anchor='middle' xml:space='preserve'>dist</text></g>
+<path d='M433.008,293.8 Q433.008,293.8 436.008,293.8 L436.008,303.8 Q436.008,303.8 436.008,306.8 Q436.008,309.8 436.008,309.8 L436.008,316.8 Q436.008,319.8 433.008,319.8' fill='none' stroke='#000000' stroke-width='0.48' stroke-linecap='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='439.286' y='327.672' font-size='5.8' text-anchor='middle' xml:space='preserve'>brace</text></g>
+<circle cx='463.674' cy='315.8' r='1.05' fill='#000000'/>
+<circle cx='467.784' cy='315.8' r='1.05' fill='#000000'/>
+<circle cx='471.893' cy='315.8' r='1.05' fill='#000000'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.784' y='327.672' font-size='5.8' text-anchor='middle' xml:space='preserve'>ellipsis</text></g>
+<rect x='183.5' y='366.4' width='309' height='273.4' rx='5' ry='5' fill='none' stroke='#A5A5A5' stroke-width='0.55' stroke-linejoin='round' stroke-dasharray='3.2,2.2'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='185.5' y='360.45' font-size='7.8' font-weight='bold' text-anchor='start' xml:space='preserve'>Tint ladders -- fills come from pale/light/soft, ink from strong/deep</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='386.876' font-size='6.4' text-anchor='middle' xml:space='preserve'>blue</text></g>
+<rect x='228.5' y='374.4' width='34' height='13' rx='0' ry='0' fill='#EBF5F8' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='394.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#EBF5F8</text></g>
+<rect x='265.5' y='374.4' width='34' height='13' rx='0' ry='0' fill='#DBEEF3' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='394.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#DBEEF3</text></g>
+<rect x='302.5' y='374.4' width='34' height='13' rx='0' ry='0' fill='#B7DDE8' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='394.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#B7DDE8</text></g>
+<rect x='339.5' y='374.4' width='34' height='13' rx='0' ry='0' fill='#92CDDC' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='394.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#92CDDC</text></g>
+<rect x='376.5' y='374.4' width='34' height='13' rx='0' ry='0' fill='#4BACC6' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='394.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#4BACC6</text></g>
+<rect x='413.5' y='374.4' width='34' height='13' rx='0' ry='0' fill='#31859B' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='394.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#31859B</text></g>
+<rect x='450.5' y='374.4' width='34' height='13' rx='0' ry='0' fill='#205867' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='394.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#205867</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='416.476' font-size='6.4' text-anchor='middle' xml:space='preserve'>steel</text></g>
+<rect x='228.5' y='404' width='34' height='13' rx='0' ry='0' fill='#EAF1FA' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='423.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#EAF1FA</text></g>
+<rect x='265.5' y='404' width='34' height='13' rx='0' ry='0' fill='#DDEBF7' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='423.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#DDEBF7</text></g>
+<rect x='302.5' y='404' width='34' height='13' rx='0' ry='0' fill='#BDD7EE' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='423.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#BDD7EE</text></g>
+<rect x='339.5' y='404' width='34' height='13' rx='0' ry='0' fill='#9DC3E6' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='423.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#9DC3E6</text></g>
+<rect x='376.5' y='404' width='34' height='13' rx='0' ry='0' fill='#5B9BD5' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='423.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#5B9BD5</text></g>
+<rect x='413.5' y='404' width='34' height='13' rx='0' ry='0' fill='#2E75B6' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='423.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#2E75B6</text></g>
+<rect x='450.5' y='404' width='34' height='13' rx='0' ry='0' fill='#1F4E79' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='423.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#1F4E79</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='446.076' font-size='6.4' text-anchor='middle' xml:space='preserve'>green</text></g>
+<rect x='228.5' y='433.6' width='34' height='13' rx='0' ry='0' fill='#F3F7EC' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='453.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F3F7EC</text></g>
+<rect x='265.5' y='433.6' width='34' height='13' rx='0' ry='0' fill='#EBF1DF' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='453.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#EBF1DF</text></g>
+<rect x='302.5' y='433.6' width='34' height='13' rx='0' ry='0' fill='#D7E4BD' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='453.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#D7E4BD</text></g>
+<rect x='339.5' y='433.6' width='34' height='13' rx='0' ry='0' fill='#C0D39A' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='453.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#C0D39A</text></g>
+<rect x='376.5' y='433.6' width='34' height='13' rx='0' ry='0' fill='#9BBB59' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='453.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#9BBB59</text></g>
+<rect x='413.5' y='433.6' width='34' height='13' rx='0' ry='0' fill='#76923C' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='453.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#76923C</text></g>
+<rect x='450.5' y='433.6' width='34' height='13' rx='0' ry='0' fill='#4F6228' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='453.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#4F6228</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='475.676' font-size='6.4' text-anchor='middle' xml:space='preserve'>gold</text></g>
+<rect x='228.5' y='463.2' width='34' height='13' rx='0' ry='0' fill='#FFF9E6' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='483.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FFF9E6</text></g>
+<rect x='265.5' y='463.2' width='34' height='13' rx='0' ry='0' fill='#FFF2CC' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='483.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FFF2CC</text></g>
+<rect x='302.5' y='463.2' width='34' height='13' rx='0' ry='0' fill='#FFE699' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='483.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FFE699</text></g>
+<rect x='339.5' y='463.2' width='34' height='13' rx='0' ry='0' fill='#FFD965' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='483.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FFD965</text></g>
+<rect x='376.5' y='463.2' width='34' height='13' rx='0' ry='0' fill='#FFC000' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='483.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FFC000</text></g>
+<rect x='413.5' y='463.2' width='34' height='13' rx='0' ry='0' fill='#BF9000' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='483.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#BF9000</text></g>
+<rect x='450.5' y='463.2' width='34' height='13' rx='0' ry='0' fill='#7F6000' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='483.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#7F6000</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='505.276' font-size='6.4' text-anchor='middle' xml:space='preserve'>orange</text></g>
+<rect x='228.5' y='492.8' width='34' height='13' rx='0' ry='0' fill='#FDF0E6' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='512.664' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FDF0E6</text></g>
+<rect x='265.5' y='492.8' width='34' height='13' rx='0' ry='0' fill='#FBE5D6' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='512.664' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FBE5D6</text></g>
+<rect x='302.5' y='492.8' width='34' height='13' rx='0' ry='0' fill='#F8CBAD' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='512.664' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F8CBAD</text></g>
+<rect x='339.5' y='492.8' width='34' height='13' rx='0' ry='0' fill='#F4B183' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='512.664' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F4B183</text></g>
+<rect x='376.5' y='492.8' width='34' height='13' rx='0' ry='0' fill='#ED7D31' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='512.664' font-size='4.6' text-anchor='middle' xml:space='preserve'>#ED7D31</text></g>
+<rect x='413.5' y='492.8' width='34' height='13' rx='0' ry='0' fill='#C55A11' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='512.664' font-size='4.6' text-anchor='middle' xml:space='preserve'>#C55A11</text></g>
+<rect x='450.5' y='492.8' width='34' height='13' rx='0' ry='0' fill='#833C0C' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='512.664' font-size='4.6' text-anchor='middle' xml:space='preserve'>#833C0C</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='534.876' font-size='6.4' text-anchor='middle' xml:space='preserve'>purple</text></g>
+<rect x='228.5' y='522.4' width='34' height='13' rx='0' ry='0' fill='#F5F3F8' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='542.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F5F3F8</text></g>
+<rect x='265.5' y='522.4' width='34' height='13' rx='0' ry='0' fill='#EEEAF2' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='542.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#EEEAF2</text></g>
+<rect x='302.5' y='522.4' width='34' height='13' rx='0' ry='0' fill='#D3C9DE' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='542.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#D3C9DE</text></g>
+<rect x='339.5' y='522.4' width='34' height='13' rx='0' ry='0' fill='#B4A7D6' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='542.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#B4A7D6</text></g>
+<rect x='376.5' y='522.4' width='34' height='13' rx='0' ry='0' fill='#8064A2' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='542.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#8064A2</text></g>
+<rect x='413.5' y='522.4' width='34' height='13' rx='0' ry='0' fill='#5F497A' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='542.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#5F497A</text></g>
+<rect x='450.5' y='522.4' width='34' height='13' rx='0' ry='0' fill='#3F3151' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='542.264' font-size='4.6' text-anchor='middle' xml:space='preserve'>#3F3151</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='564.476' font-size='6.4' text-anchor='middle' xml:space='preserve'>rose</text></g>
+<rect x='228.5' y='552' width='34' height='13' rx='0' ry='0' fill='#FCEFEF' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='571.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#FCEFEF</text></g>
+<rect x='265.5' y='552' width='34' height='13' rx='0' ry='0' fill='#F2DCDA' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='571.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F2DCDA</text></g>
+<rect x='302.5' y='552' width='34' height='13' rx='0' ry='0' fill='#F5C6C4' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='571.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F5C6C4</text></g>
+<rect x='339.5' y='552' width='34' height='13' rx='0' ry='0' fill='#EFA3A0' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='571.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#EFA3A0</text></g>
+<rect x='376.5' y='552' width='34' height='13' rx='0' ry='0' fill='#C0504D' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='571.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#C0504D</text></g>
+<rect x='413.5' y='552' width='34' height='13' rx='0' ry='0' fill='#953735' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='571.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#953735</text></g>
+<rect x='450.5' y='552' width='34' height='13' rx='0' ry='0' fill='#632523' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='571.864' font-size='4.6' text-anchor='middle' xml:space='preserve'>#632523</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='594.076' font-size='6.4' text-anchor='middle' xml:space='preserve'>teal</text></g>
+<rect x='228.5' y='581.6' width='34' height='13' rx='0' ry='0' fill='#EAF6F3' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='601.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#EAF6F3</text></g>
+<rect x='265.5' y='581.6' width='34' height='13' rx='0' ry='0' fill='#D6EDE7' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='601.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#D6EDE7</text></g>
+<rect x='302.5' y='581.6' width='34' height='13' rx='0' ry='0' fill='#AEDCD0' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='601.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#AEDCD0</text></g>
+<rect x='339.5' y='581.6' width='34' height='13' rx='0' ry='0' fill='#86CAB9' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='601.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#86CAB9</text></g>
+<rect x='376.5' y='581.6' width='34' height='13' rx='0' ry='0' fill='#3FA796' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='601.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#3FA796</text></g>
+<rect x='413.5' y='581.6' width='34' height='13' rx='0' ry='0' fill='#2E7D70' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='601.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#2E7D70</text></g>
+<rect x='450.5' y='581.6' width='34' height='13' rx='0' ry='0' fill='#1E524A' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='601.464' font-size='4.6' text-anchor='middle' xml:space='preserve'>#1E524A</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='208.5' y='623.676' font-size='6.4' text-anchor='middle' xml:space='preserve'>grey</text></g>
+<rect x='228.5' y='611.2' width='34' height='13' rx='0' ry='0' fill='#F7F7F7' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='245.5' y='631.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F7F7F7</text></g>
+<rect x='265.5' y='611.2' width='34' height='13' rx='0' ry='0' fill='#F2F2F2' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='282.5' y='631.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#F2F2F2</text></g>
+<rect x='302.5' y='611.2' width='34' height='13' rx='0' ry='0' fill='#E4E4E4' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='319.5' y='631.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#E4E4E4</text></g>
+<rect x='339.5' y='611.2' width='34' height='13' rx='0' ry='0' fill='#D8D8D8' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='356.5' y='631.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#D8D8D8</text></g>
+<rect x='376.5' y='611.2' width='34' height='13' rx='0' ry='0' fill='#BFBFBF' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='393.5' y='631.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#BFBFBF</text></g>
+<rect x='413.5' y='611.2' width='34' height='13' rx='0' ry='0' fill='#A5A5A5' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='430.5' y='631.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#A5A5A5</text></g>
+<rect x='450.5' y='611.2' width='34' height='13' rx='0' ry='0' fill='#7F7F7F' stroke='#000000' stroke-width='0.3' stroke-linejoin='round'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='467.5' y='631.064' font-size='4.6' text-anchor='middle' xml:space='preserve'>#7F7F7F</text></g>
+<rect x='8' y='669.6' width='660' height='26' rx='5' ry='5' fill='none' stroke='#A5A5A5' stroke-width='0.55' stroke-linejoin='round' stroke-dasharray='3.2,2.2'/>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='10' y='663.65' font-size='7.8' font-weight='bold' text-anchor='start' xml:space='preserve'>Line weights</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='85' y='684.64' font-size='6' text-anchor='middle' xml:space='preserve'>hairline (0.30 pt)</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='219' y='684.64' font-size='6' text-anchor='middle' xml:space='preserve'>frame (0.55 pt)</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='353' y='684.64' font-size='6' text-anchor='middle' xml:space='preserve'>box (0.65 pt)</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='487' y='684.64' font-size='6' text-anchor='middle' xml:space='preserve'>flow (0.80 pt)</text></g>
+<g font-family='Times New Roman, Nimbus Roman, Liberation Serif, Times, serif' fill='#000000'><text x='621' y='684.64' font-size='6' text-anchor='middle' xml:space='preserve'>emphasis (1.10 pt)</text></g>
+<path d='M20,682.6 L46,682.6' fill='none' stroke='#000000' stroke-width='0.3' stroke-linejoin='miter' stroke-linecap='butt' marker-end='url(#a0)'/>
+<path d='M288,682.6 L314,682.6' fill='none' stroke='#000000' stroke-width='0.65' stroke-linejoin='miter' stroke-linecap='butt' marker-end='url(#a1)'/>
+<path d='M422,682.6 L448,682.6' fill='none' stroke='#000000' stroke-width='0.8' stroke-linejoin='miter' stroke-linecap='butt' marker-end='url(#a2)'/>
+<path d='M556,682.6 L582,682.6' fill='none' stroke='#000000' stroke-width='1.1' stroke-linejoin='miter' stroke-linecap='butt' marker-end='url(#a3)'/>
+<path d='M154,682.6 L180,682.6' fill='none' stroke='#000000' stroke-width='0.55' stroke-linejoin='miter' stroke-linecap='butt' marker-end='url(#a4)'/>
+</svg>

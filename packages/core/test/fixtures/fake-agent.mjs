@@ -160,21 +160,11 @@ if (cli === 'codex') {
   };
 } else if (cli === 'claude') {
   // A user message a line, each answered by a turn ending in a result, whose cost is the session's so far.
-  const session = (args.includes('--resume') && option('--resume')) || randomUUID();
+  const resumed = args.includes('--resume') ? option('--resume') : null;
+  const session = resumed || randomUUID();
   let spent = 0;
-  createInterface({ input: process.stdin }).on('line', line => {
-    const { message, uuid } = JSON.parse(line);
-    // A turn of its own first, as claude takes one when a background job ends, and then the message played back.
-    if (args.includes('--replay-user-messages')) {
-      emit({ type: 'result', subtype: 'success', session_id: session, is_error: false, result: 'The job ended.', structured_output: { to: 'operator', letter: 'stray', open: [] } });
-      emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
-    }
-    const scenario = scenarioOf(message.content);
-    note({ schema: JSON.parse(option('--json-schema')), instructions: args.includes('--append-system-prompt') ? option('--append-system-prompt') : undefined,
-      model: args.includes('--model') ? option('--model') : undefined });
-    leave(scenario);
-    emit({ type: 'system', subtype: 'init', session_id: session, model: 'claude-test' });
-    if (scenario.hang) return;
+  let steerable = null;
+  const finishTurn = scenario => {
     const usage = { input_tokens: 10, cache_read_input_tokens: 300, cache_creation_input_tokens: 50, output_tokens: 40,
       output_tokens_details: { thinking_tokens: 5 } };
     const result = { type: 'result', subtype: 'success', session_id: session, usage, total_cost_usd: spent = Math.round((spent + 0.0123) * 1e4) / 1e4 };
@@ -185,6 +175,37 @@ if (cli === 'codex') {
     const output = scenario.output;
     emit(scenario.fail ? { ...result, is_error: true, result: scenario.fail }
       : { ...result, is_error: false, result: answerOf(output), ...typeof output === 'object' ? { structured_output: output } : {} });
+  };
+  createInterface({ input: process.stdin }).on('line', line => {
+    const { message, uuid } = JSON.parse(line);
+    if (resumed === 'gone') {
+      process.stderr.write(`No conversation found with session ID: ${resumed}\n`);
+      emit({ type: 'result', subtype: 'error_during_execution', is_error: true, session_id: resumed, errors: [`No conversation found with session ID: ${resumed}`] });
+      process.exit(1);
+    }
+    if (steerable) {
+      emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
+      const go = steerable;
+      steerable = null;
+      return go(message.content);
+    }
+    // A turn of its own first, as claude takes one when a background job ends, and then the message played back.
+    if (args.includes('--replay-user-messages')) {
+      emit({ type: 'result', subtype: 'success', session_id: session, is_error: false, result: 'The job ended.', structured_output: { to: 'operator', letter: 'stray', open: [] } });
+      emit({ type: 'user', uuid, isReplay: true, session_id: session, message });
+    }
+    const scenario = scenarioOf(message.content);
+    const seen = { schema: JSON.parse(option('--json-schema')), instructions: args.includes('--append-system-prompt') ? option('--append-system-prompt') : undefined,
+      model: args.includes('--model') ? option('--model') : undefined };
+    note(seen);
+    leave(scenario);
+    emit({ type: 'system', subtype: 'init', session_id: session, model: 'claude-test' });
+    if (scenario.hang) return;
+    if (scenario.steer) {
+      steerable = steered => { note({ ...seen, steered }); finishTurn(scenario); };
+      return;
+    }
+    finishTurn(scenario);
   });
 } else {
   const input = readFileSync(0, 'utf8');
@@ -192,6 +213,10 @@ if (cli === 'codex') {
   const tool = await handOffTool();
   note({ schema: tool?.parameters, ends: tool?.ends, instructions: input.trimEnd().split('\n').slice(0, -1).join('\n').trim() || undefined });
   const resumed = cli === 'copilot' ? args.find(arg => arg.startsWith('--resume='))?.slice(9) : args.includes('--session') && option('--session');
+  if (resumed === 'gone') {
+    process.stderr.write(cli === 'copilot' ? `Error: No session, task, or name matched 'gone'.\n` : `Cannot open session gone\n`);
+    process.exit(1);
+  }
   const thread = resumed || randomUUID();
   if (cli === 'pi') emit({ type: 'session', version: 3, id: thread, cwd: process.cwd() });
   leave(scenario);

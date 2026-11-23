@@ -24,6 +24,8 @@ export interface AgentRequest {
   /** Further directories the turn may write (Access 'write') or read. */
   writeDirs?: string[];
   readDirs?: string[];
+  /** Directories inside a writable mount that stay read-only to this turn, such as sibling open worktrees. */
+  protectDirs?: string[];
   model?: string;
   effort?: string;
   /** Tokens of context past which a session is replaced by a fresh one; and `overflow`, what a turn under

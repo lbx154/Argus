@@ -55,6 +55,24 @@ test('under bubblewrap a task deletes its own worktree, as it works in it', { sk
   assert.equal(forgetWorktree(dir, wt.dir), true);
 });
 
+test('under bubblewrap sibling open worktrees stay read-only while the task writes the workspace and removes its own', { skip: !sandboxed() && 'requires bubblewrap' }, t => {
+  const dir = repo(t);
+  const wt2 = makeWorktree(dir, 't2');
+  const wt3 = makeWorktree(dir, 't3');
+  const blocked = confine(['sh', '-c', `echo bad > ${ JSON.stringify(join(wt2.dir, 'a.txt')) }`], {
+    backend: 'codex', role: 'engineer', form: 'engineer', prompt: '', cwd: wt3.dir, writeDirs: [dir], protectDirs: [wt2.dir], access: 'write', callsDir: '', usageFile: '',
+  });
+  assert.notEqual(spawnSync(blocked[0]!, blocked.slice(1), { encoding: 'utf8' }).status, 0);
+  assert.equal(readFileSync(join(wt2.dir, 'a.txt'), 'utf8'), 'a\n');
+  const own = confine(['sh', '-c', `echo ok > ${ JSON.stringify(join(dir, 'merged.txt')) } && git worktree remove --force ${ JSON.stringify(wt3.dir) }`], {
+    backend: 'codex', role: 'engineer', form: 'engineer', prompt: '', cwd: wt3.dir, writeDirs: [dir], protectDirs: [wt2.dir], access: 'write', callsDir: '', usageFile: '',
+  });
+  const done = spawnSync(own[0]!, own.slice(1), { encoding: 'utf8' });
+  assert.equal(done.status, 0, done.stderr);
+  assert.equal(readFileSync(join(dir, 'merged.txt'), 'utf8'), 'ok\n');
+  assert.ok(!existsSync(wt3.dir) && existsSync(wt2.dir));
+});
+
 test('a folder that is not the top of a git checkout gets no worktree', t => {
   const dir = mkdtempSync(join(tmpdir(), 'argus-plain-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
