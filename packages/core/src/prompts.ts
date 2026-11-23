@@ -43,8 +43,9 @@ export function toolsHome(home: string): string {
 export const tools = (home: string): (readonly [string, string])[] => readdirSync(toolsHome(home)).sort().flatMap(name => {
   const file = resolve(toolsHome(home), name);
   const stat = lstatSync(file);
-  if (!stat.isFile() || !(stat.mode & 0o111)) return [];
-  const head = readFileSync(file, 'utf8').slice(0, 4096).split('\n').slice(0, 6);
+  if (!stat.isFile() || (process.platform !== 'win32' && !(stat.mode & 0o111))) return [];
+  const head = readFileSync(file, 'utf8').slice(0, 4096).split(/\r?\n/).slice(0, 6);
+  if (process.platform === 'win32' && !head[0]?.startsWith('#!') && !/\.(cmd|bat|exe)$/i.test(name)) return [];
   const said = head.map(line => /^\s*(?:#|\/\/)\s*(?!!)(.+)$/.exec(line)?.[1]?.trim()).find(Boolean) ?? '';
   return [[name, said] as const];
 });
@@ -77,13 +78,13 @@ export const skills = (home: string): (readonly [string, string])[] => [SKILLS, 
   .filter(([, dir]) => lstatSync(dir).isDirectory() && lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile()));
 /** What a skill is for: the description in its SKILL.md's front matter, plain, quoted or folded. */
 export function purpose(dir: string, key = 'description'): string {
-  const matter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
+  const matter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
   const match = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(matter);
   if (!match) return '';
   const said = match[1]!.trim();
   if (/^[>|][-+]?$/.test(said)) {
     const lines: string[] = [];
-    for (const line of matter.slice(match.index + match[0].length).split('\n').slice(1)) {
+    for (const line of matter.slice(match.index + match[0].length).split(/\r?\n/).slice(1)) {
       if (line.trim() && !/^[ \t]/.test(line)) break;
       if (line.trim()) lines.push(line.trim());
     }

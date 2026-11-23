@@ -8,7 +8,7 @@
 
 import { spawn } from 'node:child_process';
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { packsHome, purpose, SKILL } from './prompts.js';
 
 /** A pack whose SKILL.md names a setup script, and how its setup stands. */
@@ -74,11 +74,12 @@ function install(pack: PackSetup & { script: string }): Promise<void> {
   rmSync(join(pack.home, FAILED), { force: true });
   const log = openSync(pack.log, 'w');
   // A script the store kept without its executable bit runs with the interpreter its #! line names.
-  let executable = true;
-  try { accessSync(pack.script, constants.X_OK); } catch { executable = false; }
-  const shebang = /^#!\s*(\S+)(?:\s+(\S+))?/.exec(readFileSync(pack.script, 'utf8').split('\n')[0] ?? '');
+  let executable = process.platform !== 'win32' || /\.(cmd|bat|exe)$/i.test(pack.script);
+  if (executable) try { accessSync(pack.script, constants.X_OK); } catch { executable = false; }
+  const shebang = /^#!\s*(\S+)(?:\s+(\S+))?/.exec(readFileSync(pack.script, 'utf8').split(/\r?\n/)[0] ?? '');
   const named = shebang ? (shebang[1]!.endsWith('/env') && shebang[2] ? [shebang[2]] : [shebang[1]!, ...shebang[2] ? [shebang[2]] : []]) : ['/bin/sh'];
-  const [command, args] = executable ? [pack.script, []] : [named[0]!, [...named.slice(1), pack.script]];
+  const interpreter = process.platform === 'win32' && named[0]!.startsWith('/') ? basename(named[0]!) : named[0]!;
+  const [command, args] = executable ? [pack.script, []] : [interpreter, [...named.slice(1), pack.script]];
   return new Promise<void>(done => {
     const child = spawn(command, args, {
       cwd: resolve(pack.script, '..'), stdio: ['ignore', log, log],

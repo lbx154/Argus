@@ -25,7 +25,7 @@ test('an installed pack is set up once for its version, and its env reaches the 
   await prepare(home);
   assert.equal(ready!.state, 'ready');
   assert.equal(readFileSync(join(ready!.home, 'runs'), 'utf8'), 'run\n');
-  assert.match(ready!.home, /pack-homes\/prover\/1\.2$/);
+  assert.match(ready!.home, /pack-homes[\\/]prover[\\/]1\.2$/);
   assert.deepEqual(packEnv([ready!], '/work/repo', { PATH: '/usr/bin' }), { PATH: `${ready!.home}/bin:/usr/bin`, PROVER_ROOT: '/work/repo/.prover' });
 });
 
