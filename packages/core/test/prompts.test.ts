@@ -3,7 +3,7 @@ import test from 'node:test';
 import os from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { instructions, purpose, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
 import { withTools } from '../src/flow.js';
 import { Store } from '../src/store.js';
@@ -97,8 +97,8 @@ test("the team's tools: executable files listed by their first comment, first on
   const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
   const prompt = instructions('reviewer', project, store);
   assert.ok(prompt.includes(`The team's tools, commands on your PATH (${dir}):\n- digest: One screen on a project from its record\n`));
-  assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}:/usr/bin` });
-  assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(':')[0], dir);
+  assert.deepEqual(withTools({ PATH: '/usr/bin' }, dir), { PATH: `${dir}${delimiter}/usr/bin` });
+  assert.deepEqual(withTools({ A: '1' }, dir).PATH?.split(delimiter)[0], dir);
 });
 
 test("the wiki's pages are listed with their length, which no one sees from a page's name", t => {
