@@ -1,0 +1,7 @@
+---
+name: verus-endian-interface
+description: Reproduce Verus anonymous-const endian signature mismatch and distinguish a trusted standard-library wrapper from a checked codec body.
+---
+Run `python3 probe.py /path/to/verus /path/to/evidence`. The direct u32::to_be_bytes external specification must fail exact matching on core's anonymous return-array-length constant. The alternative wrapper must compile and its contract consumer must verify. This is diagnostic evidence only: the wrapper is external_body, its endian value/totality semantics remain explicit standard-library TCB, and its body is not verified. Do not treat its consumer as an endian implementation proof.
+
+Case t24: unchanged decoder shifts/table reads/copy operations verified at actual source locations after replacing only the endian receiver expression with inline library wrappers whose bodies are exactly x.to_be_bytes(). Both 32- and 64-bit wrappers have precise per-byte big-endian contracts. Body binding expands just these two pure calls before exact ghost erasure and compares against production; negative wrong-shift checks and actual decoder verification are required separately. For production correspondence, account for the added call frame/source-location observation even if byte/count/frame behavior is preserved. Prefer a working direct standard specification when the toolchain supports it; never rewrite a decoder to evade a codec obligation.

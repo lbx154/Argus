@@ -55,9 +55,8 @@ test('an upgrade adds only what is new to the starter library, and what the oper
 
 test('the starter library Argus ships holds skills, wiki pages listed in its index, and runnable tools', () => {
   const index = readFileSync(join(STARTER, 'wiki', 'INDEX.md'), 'utf8');
-  assert.ok(index.includes('](slides.md)'));
-  assert.ok(!index.includes('verus.md'));
-  for (const skill of ['local-pptx-render', 'method-figure', 'scipilot-figure', 'scientific-visualization', 'econ-figure', 'academic-figures', 'theory-tricks']) {
+  for (const page of ['verus.md', 'slides.md']) assert.ok(index.includes(`](${page})`), page);
+  for (const skill of ['verus-query-timing', 'local-pptx-render', 'method-figure', 'scipilot-figure', 'scientific-visualization', 'econ-figure', 'academic-figures', 'theory-tricks']) {
     assert.ok(existsSync(join(STARTER, 'skills', skill, 'SKILL.md')), skill);
   }
   assert.ok(statSync(join(STARTER, 'tools', 'argus-digest')).mode & 0o111);
