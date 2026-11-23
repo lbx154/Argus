@@ -2039,3 +2039,27 @@ test('a task opened after the workspace task closed still gets a worktree while 
   assert.equal((await done).status, 'idle');
   assert.equal(boxAt(t2Token), undefined);
 });
+
+test('PROGRESS.md strips duplicate task-id prefixes and marks unstarted tasks as waiting for their dependencies', async t => {
+  const hold = gate();
+  t.after(hold.open);
+  const { store, flow, id, requests } = await setup(t, [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['t1 — Build baseline', 't2: Write paper'],
+      tasks: [{ task: '', after: [] }, { task: '', after: ['t1'] }] },
+    { role: 'engineer', waits: hold.shut, to: 'planner', letter: 'Baseline built.' },
+    noted,
+    { role: 'planner', to: 'planner', letter: '' },
+    { role: 'engineer', to: 'planner', letter: 'Paper written.' },
+    noted,
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ]);
+  const done = say(flow, id, 'Build and write');
+  while (requests.filter(request => request.role === 'engineer').length < 1) await tick();
+  const during = readFileSync(join(store.dir(id), 'PROGRESS.md'), 'utf8');
+  assert.match(during, /\| t1 \| Build baseline \| open, with the Engineer \| \d+ min \|/);
+  assert.match(during, /\| t2 \| Write paper \| open, waits for t1 \|  \|/);
+  hold.open();
+  await done;
+});

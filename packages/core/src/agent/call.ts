@@ -47,16 +47,37 @@ const START: Record<Backend, StartBackend> = { codex, claude, copilot, pi };
 interface Live { cli: Cli; conversation: Conversation; settings: string; thread: string | null; tempRoot: string | undefined }
 /** Every CLI running, by its session's key, or for a call with none, by the call's. */
 const live = new Map<string, Live>();
+/** Earlier CLIs of a kept role that started a fresh session: what they left running in the
+ * background runs on until the task closes or the project comes to rest. */
+const retired = new Map<string, Live[]>();
 
 /** What a CLI is started with: a turn that asks for others starts a new one. */
 const settings = ({ backend, cwd, access, readDirs, writeDirs, model, effort, env }: AgentRequest): string =>
   JSON.stringify([backend, cwd, access, readDirs, writeDirs, model, effort, env ?? {}]);
 
+async function closeLive(entry: Live): Promise<void> {
+  try { await entry.cli.close(); }
+  finally { if (entry.tempRoot) rmSync(entry.tempRoot, { recursive: true, force: true }); }
+}
+
 /** The session's CLI as it runs, or a new one, which resumes the session from the backend's record. */
 async function session(key: string, request: AgentRequest, stem: string): Promise<Live> {
   const kept = live.get(key);
   if (kept && !kept.cli.gone && kept.settings === settings(request) && kept.thread === (request.resume ?? null)) return kept;
-  await end(key);
+  if (kept && !kept.cli.gone && KEPT.includes(request.backend) && request.session !== undefined && !request.resume && kept.thread !== null) {
+    live.delete(key);
+    const list = retired.get(key) ?? [];
+    list.push(kept);
+    retired.set(key, list);
+    const forget = (): void => {
+      const current = retired.get(key);
+      const at = current ? current.indexOf(kept) : -1;
+      if (at >= 0) current!.splice(at, 1);
+      if (current && !current.length) retired.delete(key);
+    };
+    void kept.cli.ended.then(forget);
+    request.signal?.addEventListener('abort', () => { forget(); void closeLive(kept); }, { once: true });
+  } else await end(key);
   const confined = sandboxed();
   const temps = request.role === 'reviewer' ? privatePath('/tmp', request.cwd) : undefined;
   if (temps) mkdirSync(temps, { recursive: true, mode: 0o700 });
@@ -80,9 +101,12 @@ async function session(key: string, request: AgentRequest, stem: string): Promis
 /** Ends a CLI, the one kept under `key` unless another is named, and all it started. */
 async function end(key: string, cli = live.get(key)?.cli): Promise<void> {
   const kept = live.get(key);
-  if (kept?.cli === cli) live.delete(key);
-  try { await cli?.close(); }
-  finally { if (kept && kept.cli === cli && kept.tempRoot) rmSync(kept.tempRoot, { recursive: true, force: true }); }
+  if (kept && kept.cli === cli) {
+    live.delete(key);
+    await closeLive(kept);
+    return;
+  }
+  await cli?.close();
 }
 
 async function once(request: AgentRequest): Promise<AgentResult> {
@@ -158,7 +182,15 @@ export const callAgent: CallAgent = Object.assign(async (request: AgentRequest):
   }
 }, {
   /** Ends every CLI kept under a key that starts with `prefix`, and all they started. */
-  close: (prefix: string): Promise<void> => Promise.all([...live.keys()].filter(key => key.startsWith(prefix)).map(key => end(key))).then(() => undefined),
+  close: async (prefix: string): Promise<void> => {
+    const closing = [...live.keys()].filter(key => key.startsWith(prefix)).map(key => end(key));
+    for (const [key, list] of retired) {
+      if (!key.startsWith(prefix)) continue;
+      retired.delete(key);
+      closing.push(...list.map(entry => closeLive(entry)));
+    }
+    await Promise.all(closing);
+  },
   interrupt: async (key: string): Promise<boolean> => {
     const kept = live.get(key);
     if (!kept || kept.cli.gone) return false;

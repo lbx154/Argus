@@ -1,0 +1,13 @@
+matplotlib>=3.7
+seaborn>=0.13
+plotly>=5.18
+Pillow>=10.0
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+
+# Optional enhancements (skill degrades gracefully if missing)
+# SciencePlots>=2.1
+# pypdf>=4.0
+# kaleido>=0.2.1
+# PyMuPDF>=1.23      # only for visual_qa.render_preview() of already-saved PDFs

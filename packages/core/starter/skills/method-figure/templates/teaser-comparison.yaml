@@ -1,0 +1,90 @@
+# Paradigm-comparison teaser: prior families (a)(b) versus ours (c).
+# Archetype: page-1 single-column figure that states the gap the paper closes.
+# Rule of the archetype -- every row shares the same module colours, so the
+# reader sees *what changed*, not a new colour scheme per row.
+figure:
+  id: teaser-comparison
+  venue: cvpr
+  width: single
+  font: times
+  pad_top: 4
+
+layout: col
+gap: 9
+
+panels:
+  - id: pa
+    title: "(a) Decoupled Methods"
+    title_pos: above
+    title_align: left
+    frame: none
+    halign: left
+    body:
+      - row:
+          gap: 8
+          align: center
+          body:
+            - {id: a_occ,  shape: image, w: 44, h: 30, caption: "Current Occupancy"}
+            - {id: a_enc,  shape: trapezoid, text: "$E$", role: encoder, w: 16, h: 22, size: 8}
+            - {id: a_feat, shape: slab, n: 3, cell: 7, cellh: 22, role: encoder,
+               caption: "Embedded Features"}
+            - {id: a_fc,   text: "Embed-based\nForecast", role: encoder, tint: pale, wrap: 52}
+            - {id: a_dec,  shape: invtrapezoid, text: "$D$", role: encoder, w: 16, h: 22, size: 8}
+
+  - id: pb
+    title: "(b) Grid Feature-based Methods"
+    title_pos: above
+    title_align: left
+    frame: none
+    halign: left
+    body:
+      - row:
+          gap: 10
+          align: center
+          body:
+            - {id: b_vol,  shape: cube, side: 30, role: attention, grid: 3, caption: "Volume Features"}
+            - {id: b_cls,  text: "Static-grid\nClassification", role: baseline}
+            - {id: b_out,  shape: cube, side: 30, role: attention, grid: 3}
+
+  - id: pc
+    title: "(c) Dynamic Query-based (Ours)"
+    title_pos: above
+    title_align: left
+    frame: none
+    halign: left
+    body:
+      - row:
+          gap: 10
+          align: center
+          body:
+            - {id: c_dyn,  shape: plane, w: 56, h: 26, role: neutral, caption: "Dynamic Features"}
+            - {id: c_reg,  text: "Dynamic-query\nRegression", role: ours}
+            - {id: c_out,  shape: plane, w: 56, h: 26, role: neutral}
+
+edges:
+  - {from: a_occ, to: a_enc, color: "#C00000", dash: true, lw: box}
+  - {from: a_enc, to: a_feat}
+  - {from: a_feat, to: a_fc}
+  - {from: a_fc, to: a_dec}
+  - {from: b_vol, to: b_cls}
+  - {from: b_cls, to: b_out}
+  - {from: c_dyn, to: c_reg}
+  - {from: c_reg, to: c_out}
+
+# The legend lists only line styles the figure actually draws -- validate.py
+# fails a legend entry that nothing in the figure uses.
+legend:
+  corner: ne
+  items:
+    - {text: "gradient detached", color: "#C00000", kind: dashed}
+
+symbols:
+  "E": {meaning: "occupancy encoder", defined_in: caption}
+  "D": {meaning: "occupancy decoder", defined_in: caption}
+
+caption: >-
+  \textbf{Forecasting with dynamic queries.} (a) Decoupled methods encode the
+  current occupancy with an encoder $E$, forecast in the embedding and decode
+  with $D$; the red dashed arrow marks where gradients are detached.
+  (b) Grid methods classify a static volume. (c) Ours regresses the future
+  from queries that move with the scene.

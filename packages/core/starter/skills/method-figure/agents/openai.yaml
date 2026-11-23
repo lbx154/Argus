@@ -1,0 +1,5 @@
+interface:
+  display_name: "Conference Figure (CVPR/NeurIPS)"
+  short_description: "Build Visio-editable pipeline and framework figures for AI conference papers"
+  default_prompt: "Use $method-figure to build a publication-grade framework figure for this method, and export it as PDF for LaTeX plus an editable .vsdx."
+entry: AGENTS.md

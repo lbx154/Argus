@@ -99,9 +99,8 @@ description: "Research that ends in a result worth publishing: choosing the ques
 
 ## The paper
 
-- It argues for the claim with what ran; it is not an experiment log.
-- It states what the results show plainly; a caveat goes in only where it would change what a
-  reader does.
-- References are copied from their source, never recalled.
-- Figures are vector PDFs with TrueType fonts.
-- The venue's rules come from its current author kit.
+- Read the `paper-writing` skill before planning or writing any paper or technical report; use `method-figure`, `scipilot-figure`, `scientific-visualization`, `econ-figure` and `academic-figures` for figures, and `theory-tricks` when formulating theorems.
+- Write for a reader, never as an experiment log: lead every section with what the evidence establishes and why, keep numbers in macro-generated tables/figures rather than parenthetical dumps, and verify the finished PDF with `audit_paper.py` and 300-DPI zoomed tiles (`tile_figures.py`).
+- References are copied and verified from primary sources, never recalled.
+- Figures are vector PDFs with embedded Type 42 / OpenType fonts (never Type 3), varied across chart archetypes, and free of any label or legend collisions.
+- The venue's template and page limit come from its official author kit.

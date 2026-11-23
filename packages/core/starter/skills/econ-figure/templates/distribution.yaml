@@ -1,0 +1,14 @@
+# Placebo test: the distribution of estimates from randomly reassigned treatment, with the actual estimate marked.
+figure:
+  language: zh
+  width_pt: 455.24
+  height_ratio: 0.42
+panels:
+  - archetype: distribution
+    data: data/placebo.csv             # value: one estimate per draw, written by the placebo script
+    mode: hist
+    bins: 30
+    actual: 0.064
+    actual_label: 实际估计值
+    xlabel: 随机处理组的估计系数
+    ylabel: 频数

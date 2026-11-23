@@ -121,3 +121,12 @@ test('a skill whose SKILL.md folds its description across lines is listed with i
   assert.equal(purpose(dir), 'Create and audit conference figures for LaTeX and PowerPoint.');
   assert.equal(purpose(dir, 'version'), '1.0.0');
 });
+
+test('built-in skills include paper-writing, and sandboxed hosts tell roles that ~ is private to the working folder', t => {
+  const home = mkdtempSync(join(os.tmpdir(), 'argus-paper-skill-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const project = store.create({ workdir: home, request: '', backend: 'claude', model: null });
+  const prompt = instructions('engineer', project, store);
+  assert.match(prompt, /- paper-writing: Write, illustrate, polish and audit camera-ready conference and journal papers/);
+});

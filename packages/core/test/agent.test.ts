@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { schemaErrors } from '@argus/contracts';
 import { quoteTokenUsage } from '@argus/runtime';
 import { formSchema, judge } from '../src/agent/handoff.js';
-import { confine, privatePath, sandboxed } from '../src/agent/sandbox.js';
+import { agentEnv, confine, privatePath, sandboxed } from '../src/agent/sandbox.js';
 import { writing } from '../src/agent/steps.js';
 import { BACKENDS, callAgent, type Access, type AgentRequest, type AgentResult, type Backend, type Step } from '../src/index.js';
 
@@ -281,7 +281,47 @@ for (const backend of ['codex', 'claude'] as const) {
     }
     assert.deepEqual(jobs(), ['started\n', 'started\n']);
   });
+
+  test(`${backend}: rotating to a fresh session keeps background jobs alive until the task closes`, { skip: unseen, timeout: 30_000 }, async t => {
+    const server = createServer().listen(0, '127.0.0.1').unref();
+    await once(server, 'listening');
+    const held: Socket[] = [];
+    server.on('connection', (job: Socket) => held.push(job.unref().on('error', () => {}).resume()));
+    const session = `p-fresh/t1.${backend}`;
+    t.after(() => callAgent.close!('p-fresh/'));
+    const first = await call(backend, { output: handoff, jobs: { ms: 60_000, port: (server.address() as AddressInfo).port } }, { session });
+    for (let waited = 0; held.length < 2; waited += 50) {
+      assert.ok(waited < 10_000, 'the jobs did not start');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    // Next turn starts afresh (no `resume`, as after passing freshAt): background jobs keep running.
+    const fresh = await call(backend, { output: handoff }, { session });
+    assert.notEqual(fresh.threadId, first.threadId);
+    assert.ok(held.every(job => !job.closed), 'fresh-session rotation killed a running background job');
+    await callAgent.close!('p-fresh/t1.');
+    for (let waited = 0; held.some(job => !job.closed); waited += 50) {
+      assert.ok(waited < 10_000, 'a job outlived task close');
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.deepEqual(jobs(), ['started\n', 'started\n']);
+  });
 }
+
+test('ambient GIT_* variables from the host shell do not leak into agent environments', t => {
+  process.env.GIT_CONFIG_COUNT = '1';
+  process.env.GIT_CONFIG_KEY_0 = 'safe.bareRepository';
+  process.env.GIT_CONFIG_VALUE_0 = 'explicit';
+  t.after(() => {
+    delete process.env.GIT_CONFIG_COUNT;
+    delete process.env.GIT_CONFIG_KEY_0;
+    delete process.env.GIT_CONFIG_VALUE_0;
+  });
+  for (const backend of BACKENDS) {
+    const env = agentEnv(backend);
+    assert.equal(env.GIT_CONFIG_COUNT, undefined);
+    assert.equal(env.GIT_CONFIG_KEY_0, undefined);
+  }
+});
 
 test('codex: the words a role writes are told as they come, none once said, and of its form its letter so far', async () => {
   const words: string[] = [];

@@ -1,0 +1,86 @@
+# Cross-modal or cross-architecture distillation.
+#
+# Two parallel branches that must read as parallel: same box widths, same
+# vertical rhythm, one distinguishing tint each, and the distillation losses
+# drawn as horizontal ties between matched depths rather than as a single
+# arrow at the end.
+figure:
+  id: teacher-student
+  venue: cvpr
+  width: double
+  font: times
+
+layout: row
+gap: 14
+
+panels:
+  - id: s_in
+    frame: none
+    valign: middle
+    body:
+      - col:
+          gap: 16
+          align: center
+          body:
+            - {id: xl, shape: image, w: 50, caption: "LiDAR sweep", src: null}
+            - {id: xc, shape: image, w: 50, caption: "camera view", src: null}
+
+  - id: s_branch
+    title: "Teacher / Student"
+    frame: dashed
+    valign: middle
+    body:
+      - col:
+          gap: 14
+          align: center
+          body:
+            - row:
+                gap: 8
+                align: center
+                body:
+                  - {id: te, shape: trapezoid, text: "LiDAR Encoder", role: backbone}
+                  - {id: tf, shape: slab, n: 4, cell: 6, cellh: 18, role: backbone}
+                  - {id: th, shape: invtrapezoid, text: "Teacher Head", role: backbone}
+            - row:
+                gap: 8
+                align: center
+                body:
+                  - {id: se, shape: trapezoid, text: "Camera Encoder", role: encoder}
+                  - {id: sf, shape: slab, n: 4, cell: 6, cellh: 18, role: encoder}
+                  - {id: sh, shape: invtrapezoid, text: "Student Head", role: encoder}
+
+  - id: s_loss
+    title: "Objectives"
+    frame: dashed
+    valign: middle
+    body:
+      - col:
+          gap: 9
+          align: center
+          body:
+            - {id: lf, shape: box, text: "Feature KD", role: loss}
+            - {id: lr, shape: box, text: "Response KD", role: loss}
+            - {id: lt, shape: box, text: "Task Loss", role: loss}
+
+edges:
+  - {from: xl.e, to: te.w}
+  - {from: xc.e, to: se.w}
+  - {from: te.e, to: tf.w}
+  - {from: tf.e, to: th.w}
+  - {from: se.e, to: sf.w}
+  - {from: sf.e, to: sh.w}
+  - {from: tf.s, to: sf.n, dash: flow, arrow: both, color: loss, label: "align"}
+  - {from: th.e, to: lf.w, dash: flow, color: loss}
+  - {from: sh.e, to: lr.w, dash: flow, color: loss}
+  - {from: sh.e, to: lt.w}
+
+legend:
+  corner: se
+  dir: row
+  items:
+    - {text: "supervision", color: loss, kind: dashed}
+
+caption: >-
+  \textbf{The camera student learns where the LiDAR teacher looks.} Both
+  branches encode the same scene; dashed red lines are supervision: feature
+  and response distillation from the teacher, and the task loss.

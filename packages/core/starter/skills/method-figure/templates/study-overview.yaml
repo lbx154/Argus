@@ -1,0 +1,163 @@
+# Measurement-study overview: source -> controlled design -> audit -> remedies.
+# Archetype: the method figure of an empirical or analysis paper, which has no
+# trained architecture to draw but does have an experimental argument.  Each
+# stage is one step of that argument, not one layer of a network.
+figure:
+  id: study-overview
+  venue: cvpr
+  width: double
+  font: times
+  pad_top: 4
+
+layout: row
+gap: 11
+
+panels:
+  - id: s_data
+    title: "Data and Regimes"
+    frame: dashed
+    valign: top
+    body:
+      - {id: pop, text: "N items,\nfull population", role: input, wrap: 88}
+      - {id: sp1, shape: spacer, h: 5, w: 4}
+      - {id: r_full, shape: framestrip, pattern: "####################",
+         cell: 3.4, cellgap: 0.9, h: 11, on_fill: steel.mid,
+         caption: "regime A"}
+      - {id: r_part, shape: framestrip, pattern: "..................##",
+         cell: 3.4, cellgap: 0.9, h: 11, on_fill: steel.mid,
+         caption: "regime B"}
+      - {id: sp2, shape: spacer, h: 5, w: 4}
+      - {id: model, text: "frozen model", role: baseline}
+      - {id: sp3, shape: spacer, h: 4, w: 4}
+      - row:
+          gap: 3
+          body:
+            - {id: o1, text: "$\\alpha$", role: backbone, w: 26, h: 17}
+            - {id: o2, text: "$\\beta$", role: core, w: 26, h: 17}
+            - {id: o3, text: "$\\gamma$", role: core, w: 26, h: 17}
+
+  - id: s_design
+    title: "Controlled Design"
+    frame: dashed
+    valign: top
+    fill: orange.pale
+    body:
+      - {id: dsc, shape: text, text_color: muted, wrap: 100,
+         text: "cross the two factors across the two regimes"}
+      - {id: sp4, shape: spacer, h: 3, w: 4}
+      - row:
+          gap: 4
+          body:
+            - {id: cA, text: "**A**", role: baseline, w: 44, h: 22}
+            - {id: cB, text: "**B**", role: attention, w: 44, h: 22}
+      - row:
+          gap: 4
+          body:
+            - {id: cC, text: "**C**", role: ours, outline: match, lw: emphasis,
+               w: 44, h: 22}
+            - {id: cD, text: "**D**", role: memory, w: 44, h: 22}
+      - {id: sp5, shape: spacer, h: 4, w: 4}
+      - {id: pin, shape: text, text_color: "#2E75B6", wrap: 100,
+         text: "A and C share the standard metric exactly"}
+      - {id: sp6, shape: spacer, h: 3, w: 4}
+      - {id: strat, text: "label-free strata", role: neutral, wrap: 92}
+
+  - id: s_audit
+    title: "Diagnostics"
+    frame: dashed
+    valign: top
+    body:
+      - row:
+          gap: 6
+          align: end
+          body:
+            - {id: d_a, shape: dist, kind: gauss, w: 40, h: 22, role: backbone,
+               caption: "regime A"}
+            - {id: d_b, shape: dist, kind: gauss, spread: 1.9, skew: 0.55,
+               w: 40, h: 22, role: memory, caption: "regime B"}
+      - {id: sp7, shape: spacer, h: 4, w: 4}
+      - {id: a1, text: "primary diagnostic", role: attention, minw: 96}
+      - {id: a2, text: "one-sided variant", role: attention, minw: 96}
+      - {id: a3, text: "distance to reference", role: attention, minw: 96}
+      - {id: a4, text: "proper score", role: attention, minw: 96}
+      - {id: sp8, shape: spacer, h: 4, w: 4}
+      - {id: split, text: "component 1  vs.\ncomponent 2", role: memory, minw: 96}
+
+  - id: s_fix
+    title: "Remedies and Limits"
+    frame: dashed
+    valign: top
+    body:
+      - {id: m1, text: "regime-conditioned\ncorrection", role: encoder, wrap: 92}
+      - {id: sp9, shape: spacer, h: 4, w: 4}
+      - group:
+          id: topos
+          frame: region
+          frame_color: grey.strong
+          pad: 5
+          gap: 3
+          title: "matched budget, four topologies"
+          title_pos: below
+          title_bold: false
+          title_italic: true
+          title_color: "#953735"
+          body:
+            - row:
+                gap: 4
+                align: center
+                body:
+                  - {id: t1, shape: framestrip, pattern: "..........##########",
+                     cell: 2.0, cellgap: 0.5, h: 8, on_fill: green.strong}
+                  - {id: l1, shape: text, text: "topology 1", w: 46, anchor: start}
+            - row:
+                gap: 4
+                align: center
+                body:
+                  - {id: t2, shape: framestrip, pattern: "#####..........#####",
+                     cell: 2.0, cellgap: 0.5, h: 8, on_fill: green.strong}
+                  - {id: l2, shape: text, text: "topology 2", w: 46, anchor: start}
+            - row:
+                gap: 4
+                align: center
+                body:
+                  - {id: t3, shape: framestrip, pattern: "###....###....####..",
+                     cell: 2.0, cellgap: 0.5, h: 8, on_fill: green.strong}
+                  - {id: l3, shape: text, text: "topology 3", w: 46, anchor: start}
+            - row:
+                gap: 4
+                align: center
+                body:
+                  - {id: t4, shape: framestrip, pattern: "#.#..##.#.#..#.#.##.",
+                     cell: 2.0, cellgap: 0.5, h: 8, on_fill: rose.strong}
+                  - {id: l4, shape: text, text: "topology 4", w: 46,
+                     anchor: start, text_color: "#953735"}
+      - {id: sp10, shape: spacer, h: 5, w: 4}
+      - {id: m2, text: "structure-preserving\nalternative", role: encoder, wrap: 92}
+      - {id: sp11, shape: spacer, h: 3, w: 4}
+      - {id: ev, text: "pre-registered\nevaluation suite", role: neutral, wrap: 92}
+
+edges:
+  - {from: pop.s, to: r_full.n, lw: box}
+  - {from: r_part.s, to: model.n, lw: box}
+  - {from: model.s, to: o2.n, lw: box}
+  - {from: s_data.e, to: s_design.w}
+  - {from: s_design.e, to: s_audit.w}
+  - {from: s_audit.e, to: s_fix.w}
+  - {from: a1, to: a2, lw: box}
+  - {from: a2, to: a3, lw: box}
+  - {from: a3, to: a4, lw: box}
+  - {from: a4, to: split, color: rose.strong, lw: box}
+  - {from: m1.s, to: topos.n, lw: box}
+  - {from: topos.s, to: m2.n, lw: box}
+  - {from: m2, to: ev, lw: box}
+
+symbols:
+  "\\alpha": {meaning: "modal means", defined_in: caption}
+  "\\beta":  {meaning: "scales", defined_in: caption}
+  "\\gamma": {meaning: "mixture weights", defined_in: caption}
+
+caption: >-
+  \textbf{One frozen model, four controlled conditions, one audit.} The model
+  outputs means $\alpha$, scales $\beta$ and weights $\gamma$; the design
+  crosses two factors over two regimes, the audit reads all three outputs,
+  and the fix is compared against four topologies at a matched budget.

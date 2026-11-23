@@ -1,0 +1,79 @@
+# Module zoom-in: one block of the pipeline expanded, with tensor shapes and
+# operators named.  Archetype: the second method figure, referenced from the
+# equations, that lets a reviewer check the maths against the wiring.
+#
+# Every symbol it prints is in `symbols:` and defined in `caption:` -- a
+# reviewer reads the figure before Section 3.  Variables are written as $...$
+# so they come out italic, exactly as the equations set them.
+figure:
+  id: module-detail
+  venue: cvpr
+  width: single
+  font: times
+
+layout: col
+gap: 8
+
+panels:
+  - id: blk
+    title: "Deformable Query Refinement"
+    frame: dashed
+    padl: 22
+    body:
+      - row:
+          gap: 9
+          align: center
+          body:
+            - {id: q_in, shape: slab, n: 3, cell: 7, cellh: 26, role: attention,
+               caption: "$Q_t$"}
+            - {id: proj, text: "Linear", role: encoder}
+            - {id: off,  text: "Offset\nPrediction", role: core}
+      - {id: s1, shape: spacer, h: 7, w: 4}
+      - row:
+          gap: 9
+          align: center
+          body:
+            - {id: samp, text: "Bilinear\nSampling", role: attention}
+            - {id: mix,  shape: circleop, op: "x", d: 12}
+            - {id: wts,  text: "Attention\nWeights", role: core, tint: light}
+      - {id: s2, shape: spacer, h: 7, w: 4}
+      - row:
+          gap: 9
+          align: center
+          body:
+            - {id: agg, shape: circleop, op: "+", d: 12}
+            - {id: ffn, text: "FFN", role: encoder}
+            - {id: q_out, shape: slab, n: 3, cell: 7, cellh: 26, role: attention,
+               caption: "$Q_{t+1}$"}
+
+edges:
+  - {from: q_in, to: proj}
+  - {from: proj, to: off}
+  - {from: off.s, to: samp.n, route: vh}
+  - {from: samp, to: mix}
+  - {from: wts, to: mix}
+  - {from: mix.s, to: agg.n, route: vh}
+  - {from: q_in.w, to: agg.w, route: bus, bend: 9, dash: true, lw: box,
+     label: "residual", label_rotate: -90, label_pos: 0.5}
+  - {from: agg, to: ffn}
+  - {from: ffn, to: q_out}
+
+notes:
+  - {text: "$N \\times C$", near: q_in.n, dy: -5.5}
+  - {text: "$N \\times K \\times C$", near: samp.s, dy: 6.5}
+
+# What each symbol means, where a reader of the figure alone finds it, and
+# how the text writes it.  validate.py checks all three.
+symbols:
+  "Q_t":    {meaning: "the N queries entering refinement step t", defined_in: caption, tex: "$Q_t$"}
+  "N":      {meaning: "number of queries", defined_in: caption}
+  "C":      {meaning: "channel width", defined_in: caption}
+  "K":      {meaning: "sampling points per query", defined_in: caption}
+  "\\otimes": {meaning: "weighting of sampled features", defined_in: caption}
+  "\\oplus":  {meaning: "residual addition", defined_in: caption}
+
+caption: >-
+  \textbf{Each refinement step moves its sampling points, not its queries.}
+  The $N$ queries $Q_t$ (channel width $C$) predict $K$ offsets each, sample
+  the feature map there, weight the samples ($\otimes$), and add the result
+  back to the queries ($\oplus$) before an FFN produces $Q_{t+1}$.

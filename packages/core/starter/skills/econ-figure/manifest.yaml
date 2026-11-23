@@ -1,0 +1,30 @@
+name: econ-figure
+version: 1.0.0
+description: >
+  Which fragments to load for a figure request. The axis is the figure archetype; style constants,
+  LaTeX hand-over and the eye-pass checklist stay in on-demand references.
+
+always_load:
+  - static/core/stance.md
+  - static/core/contract.md
+
+engine:
+  entry: scripts/render.py            # spec (YAML/JSON) + CSV -> PDF + PNG, then audit
+  auditor: scripts/audit.py           # any PDF; exit 2 on FAIL
+  style: scripts/econfig/style.py     # import for hand-written matplotlib
+  runtime: python>=3.9, matplotlib>=3.8, numpy, PyYAML, PyMuPDF; xelatex with fontspec, xeCJK, unicode-math
+  fonts: TeX Gyre Termes, TeX Gyre Termes Math, FandolSong (all ship with TeX Live)
+
+archetypes:
+  event-study: {template: templates/event-study.yaml, data: [series?, k, coef, se | lo hi]}
+  coefplot: {template: templates/coefplot.yaml, data: [group?, label, series?, coef, se | lo hi]}
+  binscatter: {template: templates/binscatter.yaml, data: [series?, x, y] or [series?, x_bin, y_bin]}
+  trend: {template: templates/trend.yaml, data: [series?, year, value]}
+  distribution: {template: templates/distribution.yaml, data: [series?, value]}
+  framework: {template: templates/framework.yaml, data: none (nodes and edges in the spec)}
+
+on_demand:
+  references/archetypes.md: choosing a figure and the conventions of each
+  references/house-style.md: text-block widths, fonts, sizes, palette, line weights
+  references/latex-integration.md: figure environment, caption and note in Chinese and English journals
+  references/anti-checklist.md: the eye pass before delivering

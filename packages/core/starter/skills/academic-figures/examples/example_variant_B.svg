@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="183mm" height="155.0mm" viewBox="0 0 183 155.0" version="1.1">
+  <sodipodi:namedview inkscape:document-units="mm" units="mm"/>
+
+  <defs>
+    <marker id="arrow-std" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+      <path d="M 0 1 L 10 5 L 0 9 z" fill="#0072B2"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#0072B2"/>
+    </marker>
+  </defs>
+
+  <rect width="183" height="155.0" fill="#FFFFFF"/>
+  <g id="panel-a" inkscape:groupmode="layer" inkscape:label="Panel a - RLHF Pipeline">
+    <text x="6" y="10.5" font-family="Helvetica, Arial, sans-serif" font-size="3.5" font-weight="bold" fill="#1A1A1A">a</text>
+    <g id="rlhf-pipeline">
+      <text x="43.2" y="17.5" font-family="Helvetica, Arial, sans-serif" font-size="2.4" fill="#1A1A1A" text-anchor="middle" font-weight="bold">RLHF Training Pipeline</text>
+      <rect x="8.0" y="21.0" width="7.7" height="18.9" fill="#E3F2FD" stroke="#0072B2" stroke-width="0.5" rx="2.5"/>
+      <text x="11.8" y="29.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">Base</text>
+      <text x="11.8" y="32.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">LLM</text>
+      <rect x="23.7" y="21.0" width="7.7" height="18.9" fill="#FFF3E0" stroke="#E69F00" stroke-width="0.5" rx="2.5"/>
+      <text x="27.6" y="31.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">SFT</text>
+      <rect x="39.4" y="21.0" width="7.7" height="18.9" fill="#E8F5E9" stroke="#009E73" stroke-width="0.5" rx="2.5"/>
+      <text x="43.2" y="29.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">Reward</text>
+      <text x="43.2" y="32.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">Model</text>
+      <rect x="55.1" y="21.0" width="7.7" height="18.9" fill="#FCE4EC" stroke="#D55E00" stroke-width="0.5" rx="2.5"/>
+      <text x="59.0" y="31.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">PPO</text>
+      <rect x="70.8" y="21.0" width="7.7" height="18.9" fill="#F3E5F5" stroke="#CC79A7" stroke-width="0.5" rx="2.5"/>
+      <text x="74.6" y="29.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">Final</text>
+      <text x="74.6" y="32.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">LLM</text>
+    <!-- SKIP: arrow 4.0mm -->
+    <!-- SKIP: arrow 4.0mm -->
+    <!-- SKIP: arrow 4.0mm -->
+    <!-- SKIP: arrow 4.0mm -->
+      <rect x="29.2" y="53.9" width="28" height="12.6" fill="#FCE4EC" stroke="#D55E00" stroke-width="0.5" rx="2.5"/>
+      <text x="43.2" y="59.2" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#1A1A1A" text-anchor="middle">Human Feedback</text>
+      <text x="43.2" y="62.4" font-family="Helvetica, Arial, sans-serif" font-size="1.8" fill="#777777" text-anchor="middle">Pairwise Rankings</text>
+    <line x1="43.2" y1="51.9" x2="43.2" y2="41.9" stroke="#0072B2" stroke-width="0.6" marker-end="url(#arrow-accent)"/>
+    <path d="M 58.9 43.9 Q 64.0 51.9 59.2 60.2" fill="none" stroke="#0072B2" stroke-width="0.6" marker-end="url(#arrow-accent)"/>
+      <text x="67.0" y="70.0" font-family="Helvetica, Arial, sans-serif" font-size="1.8" fill="#777777" text-anchor="middle" font-style="italic">Generate responses</text>
+      <text x="43.2" y="69.0" font-family="Helvetica, Arial, sans-serif" font-size="1.7" fill="#777777" text-anchor="middle">SFT: 50K examples  |  Reward: 100K comparisons  |  PPO: 500K episodes</text>
+    </g>
+  </g>
+  <g id="panel-b" inkscape:groupmode="layer" inkscape:label="Panel b - Training Curves">
+    <text x="102.5" y="10.5" font-family="Helvetica, Arial, sans-serif" font-size="3.5" font-weight="bold" fill="#1A1A1A">b</text>
+    <g id="placeholder-training">
+      <rect x="102.5" y="14.0" width="74.5" height="57.0"
+            fill="#F0F7FF" stroke="#90CAF9"
+            stroke-width="0.3" stroke-dasharray="2.5,2" rx="1.5"/>
+      <text x="139.8" y="39.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="2.8" fill="#1A1A1A" text-anchor="middle" font-weight="bold">Training Curves</text>
+      <text x="139.8" y="43.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="2" fill="#777777" text-anchor="middle">Loss, reward, KL divergence vs. steps</text>
+      <text x="139.8" y="47.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="1.6" fill="#777777" text-anchor="middle" font-style="italic">[Import plot here]</text>
+      <text x="175.0" y="69.0" font-family="Helvetica, Arial, sans-serif"
+            font-size="1.3" fill="#90CAF9" text-anchor="end">74×57 mm</text>
+    </g>
+  </g>
+  <g id="panel-c" inkscape:groupmode="layer" inkscape:label="Panel c - Benchmarks">
+    <text x="6" y="88.5" font-family="Helvetica, Arial, sans-serif" font-size="3.5" font-weight="bold" fill="#1A1A1A">c</text>
+    <g id="placeholder-benchmarks">
+      <rect x="6" y="92.0" width="74.5" height="57.0"
+            fill="#F0F7FF" stroke="#90CAF9"
+            stroke-width="0.3" stroke-dasharray="2.5,2" rx="1.5"/>
+      <text x="43.2" y="117.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="2.8" fill="#1A1A1A" text-anchor="middle" font-weight="bold">Benchmark Comparison</text>
+      <text x="43.2" y="121.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="2" fill="#777777" text-anchor="middle">MMLU, GSM8K, HumanEval, MATH, TruthfulQA</text>
+      <text x="43.2" y="125.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="1.6" fill="#777777" text-anchor="middle" font-style="italic">[Import plot here]</text>
+      <text x="78.5" y="147.0" font-family="Helvetica, Arial, sans-serif"
+            font-size="1.3" fill="#90CAF9" text-anchor="end">74×57 mm</text>
+    </g>
+  </g>
+  <g id="panel-d" inkscape:groupmode="layer" inkscape:label="Panel d - Human Evaluation">
+    <text x="102.5" y="88.5" font-family="Helvetica, Arial, sans-serif" font-size="3.5" font-weight="bold" fill="#1A1A1A">d</text>
+    <g id="placeholder-human-eval">
+      <rect x="102.5" y="92.0" width="74.5" height="57.0"
+            fill="#F0F7FF" stroke="#90CAF9"
+            stroke-width="0.3" stroke-dasharray="2.5,2" rx="1.5"/>
+      <text x="139.8" y="117.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="2.8" fill="#1A1A1A" text-anchor="middle" font-weight="bold">Human Evaluation</text>
+      <text x="139.8" y="121.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="2" fill="#777777" text-anchor="middle">Win rate vs. baseline on helpfulness &amp; safety</text>
+      <text x="139.8" y="125.5" font-family="Helvetica, Arial, sans-serif"
+            font-size="1.6" fill="#777777" text-anchor="middle" font-style="italic">[Import plot here]</text>
+      <text x="175.0" y="147.0" font-family="Helvetica, Arial, sans-serif"
+            font-size="1.3" fill="#90CAF9" text-anchor="end">74×57 mm</text>
+    </g>
+  </g>
+  <g id="flow-arrows" inkscape:groupmode="layer" inkscape:label="Flow Arrows">
+    <line x1="83.5" y1="42.0" x2="99.5" y2="42.0" stroke="#0072B2" stroke-width="0.6" marker-end="url(#arrow-accent)"/>
+    <text x="91.5" y="38.5" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#0072B2" text-anchor="middle" font-style="italic">Monitor</text>
+    <line x1="43.2" y1="74.0" x2="43.2" y2="88.0" stroke="#0072B2" stroke-width="0.6" marker-end="url(#arrow-accent)"/>
+    <text x="39.2" y="81.7" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#0072B2" text-anchor="end" font-style="italic">Evaluate</text>
+    <line x1="83.5" y1="120.0" x2="99.5" y2="120.0" stroke="#0072B2" stroke-width="0.6" marker-end="url(#arrow-accent)"/>
+    <text x="91.5" y="116.5" font-family="Helvetica, Arial, sans-serif" font-size="2" fill="#0072B2" text-anchor="middle" font-style="italic">Compare</text>
+  </g>
+</svg>

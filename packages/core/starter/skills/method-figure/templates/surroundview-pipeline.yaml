@@ -1,0 +1,78 @@
+# Surround-camera perception pipeline: the canonical opening figure of the
+# driving literature.  `cameraring` lays the six views out the way nuScenes
+# and Waymo papers do -- three forward, three rear, ego glyph in the middle.
+#
+# Leave `srcs` empty to get labelled placeholder tiles while you draft.
+figure:
+  id: surroundview-pipeline
+  venue: cvpr
+  width: double
+  font: times
+
+layout: row
+gap: 13
+
+panels:
+  - id: s_cam
+    title: "Multi-View Input"
+    frame: dashed
+    valign: middle
+    body:
+      - {id: cams, shape: cameraring, cell: 27, cellgap: 1.4,
+         caption: "6 surround cameras", srcs: []}
+
+  - id: s_lift
+    title: "View Transform"
+    frame: dashed
+    valign: middle
+    body:
+      - col:
+          gap: 7
+          align: center
+          body:
+            - {id: bb, shape: trapezoid, text: "Image Backbone", role: backbone}
+            - {id: depth, shape: box, text: "Depth Distribution", role: aux}
+            - {id: lift, shape: box, text: "Lift-Splat", role: core}
+
+  - id: s_bev
+    title: "BEV Encoding"
+    frame: dashed
+    fill: orange.pale
+    valign: middle
+    body:
+      - row:
+          gap: 9
+          align: center
+          body:
+            - {id: vox, shape: voxelgrid, grid: 3, side: 30, role: core,
+               caption: "BEV volume"}
+            - {id: benc, shape: box, text: "BEV\nEncoder", role: encoder}
+
+  - id: s_head
+    title: "Heads"
+    frame: dashed
+    valign: middle
+    body:
+      - col:
+          gap: 7
+          align: center
+          body:
+            - {id: det, shape: invtrapezoid, text: "Detection", role: decoder}
+            - {id: occ, shape: invtrapezoid, text: "Occupancy", role: decoder}
+            - {id: pred, shape: image, w: 62, caption: "semantic occupancy", src: null}
+
+edges:
+  - {from: cams.e, to: bb.w}
+  - {from: bb.s, to: depth.n}
+  - {from: depth.s, to: lift.n}
+  - {from: lift.e, to: vox.w, color: core}
+  - {from: vox.e, to: benc.w}
+  - {from: benc.e, to: det.w}
+  - {from: benc.e, to: occ.w}
+  - {from: occ.s, to: pred.n}
+
+caption: >-
+  \textbf{Depth is predicted, not assumed.} Six surround-view images are
+  encoded, each pixel is lifted along a predicted depth distribution and
+  splatted into a voxel grid (orange: ours), and a BEV encoder feeds the
+  detection and occupancy heads.

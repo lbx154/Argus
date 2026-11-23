@@ -1,0 +1,129 @@
+# Token-level attention figure: per-frame token banks, a spatial block and a
+# causal temporal block, then parallel prediction heads.
+# Archetype: the "what the layer actually does" figure, used when the claim is
+# about an attention pattern rather than about a pipeline.
+figure:
+  id: attention-tokens
+  venue: iclr
+  width: double
+  font: helvetica
+
+layout: row
+gap: 8
+
+panels:
+  - id: p_in
+    title: "Streaming Input"
+    frame: none
+    valign: top
+    body:
+      - {id: f2, shape: image, w: 54, h: 34, caption: "Frame $T-2$"}
+      - {id: sp1, shape: spacer, h: 8, w: 4}
+      - {id: f1, shape: image, w: 54, h: 34, caption: "Frame $T-1$"}
+      - {id: sp2, shape: spacer, h: 8, w: 4}
+      - {id: f0, shape: image, w: 54, h: 34, caption: "Frame $T$"}
+      - {id: dots, shape: ellipsis, dir: down, w: 8, h: 12}
+
+  - id: p_enc
+    frame: none
+    valign: top
+    body:
+      - {id: e2, text: "Image\nEncoder", role: backbone, rotate: 90, w: 20, h: 40}
+      - {id: sp3, shape: spacer, h: 16, w: 4}
+      - {id: e1, text: "Image\nEncoder", role: backbone, rotate: 90, w: 20, h: 40}
+      - {id: sp4, shape: spacer, h: 16, w: 4}
+      - {id: e0, text: "Image\nEncoder", role: backbone, rotate: 90, w: 20, h: 40}
+
+  - id: p_dec
+    title: "Spatial-Temporal Decoder"
+    title_pos: inside-bottom
+    title_color: "#C00000"
+    title_italic: false
+    frame: dashed
+    badge: "$\\times L$"
+    valign: top
+    body:
+      - row:
+          gap: 13
+          align: start
+          body:
+            - id: c_left
+              col:
+                gap: 12
+                body:
+                  - {id: t2a, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, green.soft, green.soft, green.soft]}
+                  - {id: t1a, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, orange.soft, orange.soft, orange.soft]}
+                  - {id: t0a, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, blue.soft, blue.soft, blue.soft]}
+            - {id: sa, text: "Spatial Attention", role: encoder, tint: pale, rotate: 90,
+               w: 17, h: 128, outline: none}
+            - id: c_mid
+              col:
+                gap: 12
+                body:
+                  - {id: t2b, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, green.soft, green.soft, green.soft]}
+                  - {id: t1b, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, orange.soft, orange.soft, orange.soft]}
+                  - {id: t0b, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, blue.soft, blue.soft, blue.soft]}
+            - {id: ta, text: "Temporal Causal\nAttention", role: core, tint: pale,
+               rotate: 90, w: 17, h: 128, outline: none}
+            - id: c_right
+              col:
+                gap: 12
+                body:
+                  - {id: t2c, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, green.soft, green.soft, green.soft]}
+                  - {id: t1c, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, orange.soft, orange.soft, orange.soft]}
+                  - {id: t0c, shape: tokengrid, rows: 4, cols: 1, cell: 8, role: aux,
+                     colors: [gold.soft, blue.soft, blue.soft, blue.soft]}
+
+  - id: p_head
+    frame: none
+    valign: top
+    body:
+      - {id: h_cam, text: "Camera\nHead", role: temporal, rotate: 90, w: 20, h: 40}
+      - {id: sp5, shape: spacer, h: 11, w: 4}
+      - {id: h_pt,  text: "Point\nHead",  role: core, rotate: 90, w: 20, h: 40}
+      - {id: sp6, shape: spacer, h: 11, w: 4}
+      - {id: h_dep, text: "Depth\nHead",  role: encoder, rotate: 90, w: 20, h: 40}
+
+  - id: p_out
+    title: "Online Output"
+    frame: none
+    valign: top
+    body:
+      - {id: o_pc, shape: image, w: 102, h: 60, caption: "Point Map & Pose"}
+      - {id: sp7, shape: spacer, h: 10, w: 4}
+      - {id: o_d,  shape: image, w: 102, h: 36, caption: "Depth Map"}
+
+edges:
+  - {from: f2, to: e2, color: steel, lw: box}
+  - {from: f1, to: e1, color: steel, lw: box}
+  - {from: f0, to: e0, color: steel, lw: box}
+  - {from: e2, to: t2a, color: steel, lw: box}
+  - {from: e1, to: t1a, color: steel, lw: box}
+  - {from: e0, to: t0a, color: steel, lw: box}
+  - {from: t2c, to: h_cam, lw: box}
+  - {from: t1c, to: h_pt, lw: box}
+  - {from: t0c, to: h_dep, lw: box}
+  - {from: h_cam, to: o_pc.w, lw: box}
+  - {from: h_pt,  to: o_pc.w, lw: box}
+  - {from: h_dep, to: o_d.w, lw: box}
+
+notes:
+  - {text: "camera token", near: t2a.n, dy: -12, dx: 4, color: gold, italic: false}
+
+symbols:
+  "T": {meaning: "index of the current frame", defined_in: caption}
+  "L": {meaning: "number of decoder layers", defined_in: caption}
+
+caption: >-
+  \textbf{One causal decoder serves every frame of the stream.} Tokens of
+  frames $T-2$ to $T$ (one colour per frame, a camera token on top) pass
+  $L$ times through spatial attention within a frame and causal attention
+  across frames, and three heads read camera pose, points and depth.

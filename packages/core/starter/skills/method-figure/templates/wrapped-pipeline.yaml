@@ -1,0 +1,62 @@
+# A pipeline too long for one row, folded into two bands.
+#
+# Corpus diagrams run to a median aspect of 1.82 and a 90th percentile of
+# 3.35; past that the type has to shrink, and shrinking type is what puts
+# figures under 5 pt.  Folding keeps the type at full size.
+#
+# The fold itself has to read.  Leave the upper band from the *bottom* of its
+# last box and enter the lower band at the *top* of its first; joining
+# right-edge to left-edge instead sends the horizontal leg through the boxes.
+# `mid: 0.95` then pushes that leg down to just above the target box -- at the
+# default 0.5 it runs halfway down the gap, which is where stage titles live.
+figure:
+  id: wrapped-pipeline
+  venue: cvpr
+  width: single
+  font: times
+
+layout: col
+gap: 12
+
+panels:
+  - id: band0
+    frame: none
+    valign: middle
+    body:
+      - row:
+          gap: 11
+          align: center
+          body:
+            - {id: x, shape: image, w: 40, caption: "input", src: null}
+            - {id: a, shape: trapezoid, text: "Backbone", role: backbone}
+            - {id: b, shape: box, text: "Neck", role: encoder}
+            - {id: c, shape: box, text: "Tokenizer", role: attention}
+
+  - id: band1
+    frame: none
+    valign: middle
+    body:
+      - row:
+          gap: 11
+          align: center
+          body:
+            - {id: d, shape: box, text: "Our Block", role: core, badge: "$\\times N$"}
+            - {id: e, shape: box, text: "Refine", role: core}
+            - {id: f, shape: invtrapezoid, text: "Head", role: decoder}
+            - {id: y, shape: image, w: 40, caption: "prediction", src: null}
+
+edges:
+  - {from: x.e, to: a.w}
+  - {from: a.e, to: b.w}
+  - {from: b.e, to: c.w}
+  - {from: c.s, to: d.n, mid: 0.95}   # the fold: down, across, down
+  - {from: d.e, to: e.w}
+  - {from: e.e, to: f.w}
+  - {from: f.e, to: y.w}
+
+symbols:
+  "N": {meaning: "number of stacked blocks", defined_in: caption}
+
+caption: >-
+  \textbf{A pipeline too long for one row wraps once.} The first row prepares
+  tokens; the second applies our block $N$ times, refines and decodes.

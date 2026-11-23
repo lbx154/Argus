@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { KEPT, type Role } from './types.js';
 import type { Note, Project, Store, Task } from './store.js';
+import { sandboxed } from './agent/sandbox.js';
 import { isCheckout, WORKTREES } from './worktrees.js';
 import { lettersOn } from './letters.js';
 import { packSetups } from './packSetup.js';
@@ -104,6 +105,7 @@ function where(project: Project, store: Store, role: Role): string {
   const library = skillsHome(store.home);
   return section('Where things are', [
     `Workspace: ${project.workdir}`,
+    sandboxed() && 'In the sandbox, ~ is private to your working folder and /tmp to this CLI (~/.cache is shared): put environments, toolchains and files another task or session needs inside the workspace.',
     `Argus's record of this project: ${store.dir(project.id)} (PROGRESS.md where the work stands, rebuilt from the rest; project.json holds the tasks and their state; events.jsonl every letter)`,
     project.chief && `You work for the operator across all their projects. Every project's record is in ${resolve(store.home, 'projects')}/<id>/, this one's among them: read them; only a project's own team changes it. The operator knows them by name:`,
     ...project.chief ? store.list().filter(other => other.id !== project.id).map(other => `- ${other.id}: ${other.name || other.request.split('\n')[0]!.slice(0, 80) || '(no request yet)'}`) : [],

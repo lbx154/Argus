@@ -1,0 +1,87 @@
+# Taxonomy tree: how the field partitions, and where this paper sits.
+# Archetype: the related-work or introduction figure of a survey, a position
+# paper, or any paper whose contribution is best understood as occupying an
+# empty cell in an existing partition.  The leaf that is *ours* is the only
+# one that carries colour.
+figure:
+  id: taxonomy
+  venue: cvpr
+  width: double
+  font: times
+  pad_top: 3
+
+layout: col
+gap: 14
+
+panels:
+  - id: root_row
+    frame: none
+    body:
+      - {id: root, text: "problem family", role: neutral, size: 7.0, minw: 120}
+
+  - id: branch_row
+    frame: none
+    body:
+      - row:
+          gap: 26
+          body:
+            - {id: b1, text: "axis 1: representation", role: baseline, minw: 118}
+            - {id: b2, text: "axis 2: supervision", role: baseline, minw: 118}
+            - {id: b3, text: "axis 3: deployment", role: baseline, minw: 118}
+
+  - id: leaf_row
+    frame: none
+    body:
+      - row:
+          gap: 26
+          align: start
+          body:
+            - id: g1
+              col:
+                gap: 4
+                body:
+                  - {id: l11, text: "dense grid", role: neutral, minw: 118}
+                  - {id: l12, text: "sparse query", role: neutral, minw: 118}
+                  - {id: l13, text: "implicit field", role: neutral, minw: 118}
+            - id: g2
+              col:
+                gap: 4
+                body:
+                  - {id: l21, text: "fully supervised", role: neutral, minw: 118}
+                  - {id: l22, text: "self-supervised", role: neutral, minw: 118}
+                  - {id: l23, text: "label-free audit", role: ours,
+                     lw: emphasis, minw: 118}
+            - id: g3
+              col:
+                gap: 4
+                body:
+                  - {id: l31, text: "offline batch", role: neutral, minw: 118}
+                  - {id: l32, text: "streaming", role: neutral, minw: 118}
+                  - {id: l33, text: "partial observation", role: ours,
+                     lw: emphasis, minw: 118}
+
+  - id: ours_row
+    frame: none
+    body:
+      - {id: ours, text: "**this work**", role: core, lw: emphasis, minw: 150}
+
+edges:
+  - {from: root.s, to: b1.n, lw: box}
+  - {from: root.s, to: b2.n, lw: box}
+  - {from: root.s, to: b3.n, lw: box}
+  - {from: b1.s, to: g1.n, lw: box}
+  - {from: b2.s, to: g2.n, lw: box}
+  - {from: b3.s, to: g3.n, lw: box}
+  - {from: l23.s, to: ours.n, color: orange.deep, lw: box, dash: true}
+  - {from: l33.s, to: ours.n, color: orange.deep, lw: box, dash: true}
+
+
+legend:
+  corner: se
+  items:
+    - {text: "cells this paper occupies", color: orange.deep, kind: dashed}
+
+caption: >-
+  \textbf{Where this work sits.} Prior work along three axes;
+  this paper occupies the label-free audit of partially observed systems
+  (orange).
