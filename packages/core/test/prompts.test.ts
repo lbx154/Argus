@@ -4,7 +4,7 @@ import os from 'node:os';
 import { syncBuiltinESMExports } from 'node:module';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statfsSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { instructions, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
+import { instructions, purpose, skillsHome, tools, toolsHome, wikiHome } from '../src/prompts.js';
 import { withTools } from '../src/flow.js';
 import { Store } from '../src/store.js';
 
@@ -112,4 +112,12 @@ test("the wiki's pages are listed with their length, which no one sees from a pa
   const store = new Store(home);
   const project = store.create({ workdir: home, request: '', backend: 'codex', model: null });
   assert.ok(instructions('engineer', project, store).includes(' Its pages: gif.md (2 lines), verus.md (5 lines).'));
+});
+
+test('a skill whose SKILL.md folds its description across lines is listed with its words, not >-', t => {
+  const dir = mkdtempSync(join(os.tmpdir(), 'argus-skill-purpose-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'SKILL.md'), '---\nname: cvpr-figure\ndescription: >-\n  Create and audit conference figures\n  for LaTeX and PowerPoint.\nversion: 1.0.0\n---\n');
+  assert.equal(purpose(dir), 'Create and audit conference figures for LaTeX and PowerPoint.');
+  assert.equal(purpose(dir, 'version'), '1.0.0');
 });

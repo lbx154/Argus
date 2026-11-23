@@ -74,10 +74,20 @@ export function packsHome(home: string): string {
 export const skills = (home: string): (readonly [string, string])[] => [SKILLS, packsHome(home), skillsHome(home)].flatMap(root => readdirSync(root)
   .map(name => [name, resolve(root, name)] as const)
   .filter(([, dir]) => lstatSync(dir).isDirectory() && lstatSync(resolve(dir, SKILL), { throwIfNoEntry: false })?.isFile()));
-/** What a skill is for: the description in its SKILL.md's front matter, plain or quoted. */
+/** What a skill is for: the description in its SKILL.md's front matter, plain, quoted or folded. */
 export function purpose(dir: string, key = 'description'): string {
   const matter = /^---\n([\s\S]*?)\n---/.exec(readFileSync(resolve(dir, SKILL), 'utf8'))?.[1] ?? '';
-  const said = new RegExp(`^${key}:[ \t]*(.*)$`, 'm').exec(matter)?.[1]?.trim() ?? '';
+  const match = new RegExp(`^${key}:[ \\t]*(.*)$`, 'm').exec(matter);
+  if (!match) return '';
+  const said = match[1]!.trim();
+  if (/^[>|][-+]?$/.test(said)) {
+    const lines: string[] = [];
+    for (const line of matter.slice(match.index + match[0].length).split('\n').slice(1)) {
+      if (line.trim() && !/^[ \t]/.test(line)) break;
+      if (line.trim()) lines.push(line.trim());
+    }
+    return lines.join(' ');
+  }
   try { if (said.startsWith('"')) return String(JSON.parse(said)); } catch { /* as written */ }
   return said.replace(/^'(.*)'$/, '$1');
 }
