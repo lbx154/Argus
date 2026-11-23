@@ -1,7 +1,0 @@
-{
-  "protocol": "argus.process-guard",
-  "version": 1,
-  "max_config_bytes": 16777216,
-  "max_frame_bytes": 65536,
-  "chunk_bytes": 8192
-}

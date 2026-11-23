@@ -74,6 +74,7 @@ export const copilot: StartBackend = (request, { confined, schema, stem }) => {
         for (const step of consume(event)) onStep(step);
         return event.type === 'result';
       });
+      if (/No session, task, or name matched\b/.test(cli.stderr.join('\n'))) threadId = null;
       const requests = Array.isArray(last?.toolRequests) ? last.toolRequests.filter(isJsonObject) : [];
       const states = join(process.env.COPILOT_HOME || join(homedir(), '.copilot'), 'session-state');
       return {

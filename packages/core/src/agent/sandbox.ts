@@ -210,6 +210,10 @@ export function confine(argv: string[], request: AgentRequest, temp?: string): s
     const writable = writes.includes(dir);
     if (!given.some(outer => outer !== dir && within(dir, outer) && writes.includes(outer) === writable)) bind(dir, writable);
   }
+  for (const dir of request.protectDirs ?? []) {
+    const target = resolve(dir);
+    if (target !== cwd && existsSync(target)) bind(target, false);
+  }
   const ordered = [...new Map(mounts.map(mount => [mount.join('\0'), mount])).values()]
     .sort((a, b) => depth(a[1]) - depth(b[1]) || Number(a[0] !== a[1]) - Number(b[0] !== b[1]));
   return [

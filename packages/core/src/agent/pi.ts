@@ -24,7 +24,7 @@ export const pi: StartBackend = (request, { schema, stem }) => {
     ...request.access === 'read' ? ['--tools', `read,grep,find,ls,${tool.name}`] : [],
     ...request.resume ? ['--session', request.resume] : [],
   ];
-  let threadId = request.resume ?? null;
+  let threadId: string | null = null;
   let settled = false;
   let last: Record<string, unknown> | null = null;
   let model: string | null = null;
@@ -61,7 +61,7 @@ export const pi: StartBackend = (request, { schema, stem }) => {
       const failed = last?.stopReason === 'error' || last?.stopReason === 'aborted';
       const content = Array.isArray(last?.content) ? last.content.filter(isJsonObject) : [];
       return {
-        threadId, completed: settled && !failed, model: model ?? request.model ?? null, usage,
+        threadId: threadId ?? (request.signal?.aborted ? request.resume ?? null : null), completed: settled && !failed, model: model ?? request.model ?? null, usage,
         error: failed ? String(last?.errorMessage || `Pi reported ${String(last?.stopReason)}.`) : null,
         output: content.find(part => part.type === 'toolCall' && part.name === tool.name)?.arguments,
       };

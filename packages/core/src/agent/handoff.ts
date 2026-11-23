@@ -43,7 +43,7 @@ const TO: Record<Form, Record<string, string>> = {
 
 const LETTER = 'Your letter, passed on as written. The reader sees the workspace and this letter.';
 const LETTERS = 'One letter per Engineer task; one letter to any other addressee.';
-const AFTER = 'Task ids this task waits for. Earlier letters take the next free ids in order. Empty to start now, or when writing to anyone else.';
+const AFTER = 'Task ids this task waits for; new tasks in this hand-off take the next free ids in order. Empty to start now, or when writing to anyone else.';
 const TASK = 'An open task id to send this letter to its holder. Empty to open a new task, or when writing to anyone except the Engineer.';
 const WITHDRAW = 'With task: true ends that open task now, this letter its last word: for a task whose work another has done, or that is no longer wanted. Its turn under way stops; nothing it did is undone. False otherwise.';
 const OPEN = 'Result file paths relative to the workspace, first to open first. Empty when handing over no files.';
@@ -65,7 +65,7 @@ export function formSchema(form: Form, giver?: AgentRequest['giver']): PayloadSc
       type: 'array', minItems: 1, description: LETTERS, items: {
         type: 'object', additionalProperties: false, required: ['letter', 'after', 'task', 'withdraw'],
         // Empty only to the Planner itself: a turn with nothing to steer says nothing.
-        properties: { letter: { type: 'string', maxLength: 20000 }, after: strings(AFTER), task: { type: 'string', description: TASK }, withdraw: { type: 'boolean', description: WITHDRAW } },
+        properties: { letter: { type: 'string', maxLength: 100000 }, after: strings(AFTER), task: { type: 'string', description: TASK }, withdraw: { type: 'boolean', description: WITHDRAW } },
       },
     },
   } : { letter: { ...letter, description: LETTER }, open: strings(OPEN),
