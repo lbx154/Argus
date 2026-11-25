@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import { effortOf, modelOf, type FlowEvent, type Note, type OperatorMessage, type ManagerLetter, type Project, type Question, type Status, type Store, type Task } from './store.js';
-import { answered, closedTo, copied, freshSession, overflow, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
+import { answered, closedTo, copied, reviewLetter, freshSession, overflow, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, freeze, isCheckout, makeWorktree } from './worktrees.js';
@@ -55,6 +55,21 @@ export interface FlowOptions {
   publishEveryMs?: number;
   /** The git credential helper Argus pushes with, in place of the host's own. */
   gitCredentialHelper?: string;
+  /** The Manager looks at how the team works, not only at what it has done: this long after its last such look
+   * (or since the work began), or once this many more dollars are spent, Argus gives it its own measures of the
+   * work (the pace, what Reviewers sent back, what the operator said) and asks what should change. Unset, never. */
+  reviewEveryMs?: number;
+  reviewEveryUsd?: number;
+}
+
+/** What Argus gathers for the Manager's next look at how the team works. */
+interface Watch {
+  since: number;
+  spent: number;
+  sentBack: string[];
+  operator: string[];
+  closed: string[];
+  timer?: ReturnType<typeof setTimeout> | undefined;
 }
 
 /** Waits, or stops waiting when the work is interrupted. */
@@ -109,6 +124,55 @@ export class Flow {
       ...quiet.length ? [`Quiet for over 30 minutes: ${quiet.map(task => task.id).join(', ')}.`] : [],
       ...long.length ? [`Open for over 3 hours: ${long.map(task => task.id).join(', ')}: one that has grown past one result is worth splitting.`] : [],
     ].join('\n');
+  }
+
+  /** Each working project's measures since the Manager's last look at how the team works. */
+  private readonly watching = new Map<string, Watch>();
+
+  /** The project's measures, begun now if none are under way, with the clock of its next look set. */
+  private watchOf(project: Project): Watch {
+    let watch = this.watching.get(project.id);
+    if (!watch) {
+      watch = { since: Date.now(), spent: 0, sentBack: [], operator: [], closed: [] };
+      this.watching.set(project.id, watch);
+    }
+    const every = this.options.reviewEveryMs;
+    if (every !== undefined && !watch.timer) {
+      const taken = watch;
+      taken.timer = setTimeout(() => {
+        taken.timer = undefined;
+        if (this.watching.get(project.id) === taken && this.going(project)) this.review(project, taken);
+      }, Math.max(0, taken.since + every - Date.now()));
+      taken.timer.unref?.();
+    }
+    return watch;
+  }
+
+  /** Each event adds to the measures; the work at rest ends them, and its next start begins them again. */
+  private watch(project: Project, event: FlowEvent): void {
+    const { reviewEveryMs, reviewEveryUsd } = this.options;
+    if (reviewEveryMs === undefined && reviewEveryUsd === undefined) return;
+    if (event.type === 'status' && event.status !== 'working') {
+      clearTimeout(this.watching.get(project.id)?.timer);
+      this.watching.delete(project.id);
+      return;
+    }
+    if (project.status !== 'working' && !(event.type === 'message' && event.from === 'operator')) return;
+    const watch = this.watchOf(project);
+    if (event.type === 'call.end') watch.spent += event.usage?.cost_usd ?? 0;
+    else if (event.type === 'handoff' && event.role === 'reviewer' && event.to === 'engineer') watch.sentBack.push(`${event.task ? `${event.task}: ` : ''}${firstLine(event.letter)}`);
+    else if (event.type === 'message' && event.from === 'operator') watch.operator.push(firstLine(event.text));
+    else if (event.type === 'task.closed') watch.closed.push(event.task);
+    if (reviewEveryUsd !== undefined && watch.spent >= reviewEveryUsd && this.going(project)) this.review(project, watch);
+  }
+
+  /** The Manager's look at how the team works: Argus's measures since the last one go to it, and new ones begin. */
+  private review(project: Project, watch: Watch): void {
+    clearTimeout(watch.timer);
+    this.watching.delete(project.id);
+    const { since, spent, sentBack, operator, closed } = watch;
+    this.watchOf(project);
+    this.tellManager(project, reviewLetter({ hours: (Date.now() - since) / 3_600_000, spent, pace: this.pace(project), sentBack, operator, closed }));
   }
 
   /** Each project's next push, while one waits; and the projects being pushed now. */
@@ -888,6 +952,7 @@ export class Flow {
     if (event.type === 'task.closed' || event.type === 'status') this.publishSoon(project);
     if (event.type === 'task.added') this.opened.set(`${project.id}/${event.task.id}`, Date.now());
     else if ('task' in event && typeof event.task === 'string') this.active.set(`${project.id}/${event.task}`, Date.now());
+    this.watch(project, event);
     this.options.onEvent?.(event);
   }
 }

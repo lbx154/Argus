@@ -232,6 +232,20 @@ export function closedTo(from: Role, task: Task, letter: string, pace = ''): str
   return `Task ${task.id} (${task.title}) closed with the ${NAMES[from]}'s letter to the Planner:\n${letter}${pace ? `\n\n${section('Pace, as Argus measures it', pace)}` : ''}`;
 }
 
+/** Argus's own measures of how the team works since the Manager's last look at it, and what the Manager answers. */
+export function reviewLetter(look: { hours: number; spent: number; pace: string; sentBack: string[]; operator: string[]; closed: string[] }): string {
+  const list = (items: string[]): string => items.length ? items.map(item => `- ${item}`).join('\n') : 'None.';
+  return join(
+    `From Argus: a look at how the team works, ${look.hours.toFixed(1)} h and $${look.spent.toFixed(2)} since the last one (or since the work began). It is about the team, not the code.`,
+    look.pace && section('Pace, as Argus measures it', look.pace),
+    section('What Reviewers sent back to the Engineer', list(look.sentBack)),
+    section('What the operator said', list(look.operator)),
+    section('Tasks closed', look.closed.length ? look.closed.join(', ') : 'None.'),
+    'Answer three things. What did the operator or a Reviewer catch first since your last look, and what rule or check would have let the team catch it itself? '
+      + 'Is the work split and run as it should be: a task open for hours with no result, tasks waiting while disjoint work could run beside them, a failure repeated, tools fighting over one resource? '
+      + 'What changes now? Send a change of split or route to the Planner; otherwise keep your answer as your note.');
+}
+
 /** A hand-over inside a task, which the Planner reads as the work goes, to steer it or the tasks beside it. */
 export function copied(from: Role, to: Role, task: Task, letter: string): string {
   return `From the ${NAMES[from]} to the ${NAMES[to]}, on task ${task.id} (${task.title}), as the work goes:\n${letter}`;
