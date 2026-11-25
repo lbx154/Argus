@@ -2063,3 +2063,46 @@ test('PROGRESS.md strips duplicate task-id prefixes and marks unstarted tasks as
   hold.open();
   await done;
 });
+
+test('once the work has spent the set amount, the Manager gets Argus\'s own measures of how the team works, and new ones begin', async t => {
+  const steps: Step[] = [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letter: 'Sum the columns of data.csv' },
+    { role: 'engineer', to: 'reviewer', letter: 'Delivered.' },
+    { role: 'reviewer', to: 'engineer', letter: 'Missing the empty-file case.\nsummary.py fails on an empty data.csv.' },
+    { role: 'engineer', to: 'reviewer', letter: 'Delivered again.' },
+    noted,
+    { role: 'reviewer', to: 'planner', letter: 'Accepted.' },
+    noted,
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ];
+  const home = await mkdtemp(join(tmpdir(), 'argus-flow-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  const { callAgent: scripted, requests } = agent(steps);
+  // The Engineer's second turn costs $3; every other turn costs nothing.
+  let engineerTurns = 0;
+  const callAgent: CallAgent = async request => {
+    const result = await scripted(request);
+    const cost = request.role === 'engineer' && ++engineerTurns === 2 ? 3 : 0;
+    return { ...result, usage: { input_tokens: 1, output_tokens: 1, cost_usd: cost } as NonNullable<typeof result.usage> };
+  };
+  const flow = new Flow(store, callAgent, { reviewEveryUsd: 2.5, reviewEveryMs: 3_600_000 });
+  const { id } = store.create({ workdir: home, request: 'the request', backend: 'codex', model: null });
+  const project = await say(flow, id, 'Sum the columns');
+  assert.equal(project.status, 'idle');
+  const looks = requests.filter(request => request.role === 'manager' && request.prompt.startsWith('From Argus: a look at how the team works'));
+  assert.equal(looks.length, 1);
+  const look = looks[0]!.prompt;
+  assert.match(look, /^From Argus: a look at how the team works, \d+\.\d h and \$3\.00 since the last one/);
+  assert.match(look, /## Pace, as Argus measures it\n\d of 1 open tasks have a turn under way/);
+  assert.match(look, /## What Reviewers sent back to the Engineer\n- t1: Missing the empty-file case\.\n/);
+  assert.match(look, /## What the operator said\n- Sum the columns\n/);
+  assert.match(look, /What did the operator or a Reviewer catch first since your last look/);
+  // Unset, the Manager never gets one.
+  const plain = await setup(t, [{ role: 'manager', to: 'planner', letter: brief }, { role: 'planner', to: 'engineer', letter: 'Sum' },
+    { role: 'engineer', to: 'planner', letter: 'Summed.' }, noted, { role: 'planner', to: 'manager', letter: 'Done.' }, report]);
+  await say(plain.flow, plain.id, 'Sum the columns');
+  assert.ok(!plain.requests.some(request => request.prompt.startsWith('From Argus: a look at how the team works')));
+});

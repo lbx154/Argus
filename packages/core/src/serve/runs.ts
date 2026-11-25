@@ -140,6 +140,9 @@ export class Runs {
       // A project with a publish remote is pushed 20 s after a task closes or the work rests, and every half hour as it works.
       publishAfterMs: 20_000,
       publishEveryMs: 30 * 60_000,
+      // The Manager looks at how the team works every two hours of work, or every $50 spent, whichever comes first.
+      reviewEveryMs: 2 * 3_600_000,
+      reviewEveryUsd: 50,
       ...process.env.ARGUS_GIT_CREDENTIAL_HELPER ? { gitCredentialHelper: process.env.ARGUS_GIT_CREDENTIAL_HELPER } : {},
       signal: controller.signal,
       onEvent: event => {
