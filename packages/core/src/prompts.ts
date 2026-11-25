@@ -2,7 +2,7 @@
 // every turn, then what this turn is about. A resumed session already holds the rules, so it is
 // sent only what is new. What each hand-off field means is in the form's own schema, not here.
 
-import { lstatSync, mkdirSync, readdirSync, readFileSync, statfsSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readdirSync, readFileSync, statfsSync, statSync, writeFileSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,12 +50,32 @@ export const tools = (home: string): (readonly [string, string])[] => readdirSyn
   return [[name, said] as const];
 });
 export const WIKI_INDEX = 'INDEX.md';
+/** A wiki page longer than this is read whole by no one: it is split by topic before more goes in. */
+export const WIKI_PAGE_LIMIT = 16_000;
 /** The wiki's pages as a reader meets them: each with its length, which no one sees from its name. */
 function pages(home: string): string {
   const dir = wikiHome(home);
   const found = readdirSync(dir).filter(name => name.endsWith('.md') && name !== WIKI_INDEX).sort()
-    .map(name => `${name} (${readFileSync(resolve(dir, name), 'utf8').split('\n').length} lines)`);
+    .map(name => {
+      const text = readFileSync(resolve(dir, name), 'utf8');
+      return `${name} (${text.split('\n').length} lines${Buffer.byteLength(text) > WIKI_PAGE_LIMIT ? ', too long: split it by topic before adding to it' : ''})`;
+    });
   return found.length ? ` Its pages: ${found.join(', ')}.` : '';
+}
+
+/** The library as the Manager's look at the team shows it: pages past the limit, and what changed since a time. */
+export function libraryState(home: string, since: number): { long: string[]; changed: string[] } {
+  const wiki = wikiHome(home);
+  const long = readdirSync(wiki).filter(name => name.endsWith('.md')).flatMap(name => {
+    const size = statSync(resolve(wiki, name)).size;
+    return size > WIKI_PAGE_LIMIT ? [`wiki/${name} (${Math.round(size / 1000)} KB)`] : [];
+  });
+  const changed: string[] = [];
+  const newer = (path: string): boolean => (lstatSync(path, { throwIfNoEntry: false })?.mtimeMs ?? 0) > since;
+  for (const name of readdirSync(wiki)) if (name.endsWith('.md') && newer(resolve(wiki, name))) changed.push(`wiki/${name}`);
+  for (const [name, dir] of skills(home)) if (dir.startsWith(skillsHome(home)) && newer(resolve(dir, SKILL))) changed.push(`skill ${name}`);
+  for (const [name] of tools(home)) if (newer(resolve(toolsHome(home), name))) changed.push(`tool ${name}`);
+  return { long, changed };
 }
 /** The team's wiki/: what earlier work learned that no script runs, a page a topic, under one index. */
 export function wikiHome(home: string): string {
@@ -233,17 +253,24 @@ export function closedTo(from: Role, task: Task, letter: string, pace = ''): str
 }
 
 /** Argus's own measures of how the team works since the Manager's last look at it, and what the Manager answers. */
-export function reviewLetter(look: { hours: number; spent: number; pace: string; sentBack: string[]; operator: string[]; closed: string[] }): string {
+export function reviewLetter(look: { hours: number; spent: number; pace: string; sentBack: string[]; operator: string[]; closed: string[];
+  repeated?: string[]; library?: { long: string[]; changed: string[] } }): string {
   const list = (items: string[]): string => items.length ? items.map(item => `- ${item}`).join('\n') : 'None.';
+  const library = look.library && join(
+    look.repeated?.length ? `Commands the tasks keep typing, each in three or more tasks (a team tool would save each task the typing and its mistakes):\n${list(look.repeated)}` : null,
+    look.library.long.length ? `Wiki pages too long to read whole, to split by topic:\n${list(look.library.long)}` : null,
+    `Changed in the library since your last look: ${look.library.changed.length ? look.library.changed.join(', ') : 'nothing'}.`);
   return join(
     `From Argus: a look at how the team works, ${look.hours.toFixed(1)} h and $${look.spent.toFixed(2)} since the last one (or since the work began). It is about the team, not the code.`,
     look.pace && section('Pace, as Argus measures it', look.pace),
     section('What Reviewers sent back to the Engineer', list(look.sentBack)),
     section('What the operator said', list(look.operator)),
     section('Tasks closed', look.closed.length ? look.closed.join(', ') : 'None.'),
-    'Answer three things. What did the operator or a Reviewer catch first since your last look, and what rule or check would have let the team catch it itself? '
+    library ? section('The team library', library) : null,
+    'Answer four things. What did the operator or a Reviewer catch first since your last look, and what rule or check would have let the team catch it itself? '
       + 'Is the work split and run as it should be: a task open for hours with no result, tasks waiting while disjoint work could run beside them, a failure repeated, tools fighting over one resource? '
-      + 'What changes now? Send a change of split or route to the Planner; otherwise keep your answer as your note.');
+      + 'What does the library need: a tool for a command the tasks keep typing, a page split, a skill that no longer earns its place? Each is a short task of its own, or a part of the task closest to it. '
+      + 'What changes now? Send a change of split or route, and library work, to the Planner; otherwise keep your answer as your note.');
 }
 
 /** A hand-over inside a task, which the Planner reads as the work goes, to steer it or the tasks beside it. */
