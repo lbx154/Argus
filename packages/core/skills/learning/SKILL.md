@@ -19,7 +19,11 @@ helped, misled or were out of date.
 **While you write a script.** When you write a script for a check or a step, ask then, while you
 know what it does: would another task, in this project or another, write the same thing? If so,
 write it as a tool from the start (its inputs as arguments) instead of as a one-off in your
-evidence folder, and use it yourself. A script only one kind of work needs belongs in that skill.
+evidence folder, and use it yourself. The second time you type the same thing (an environment
+prefix before each build, a parser for a tool's output, the same check run by hand), it is a tool
+already: write it then. A script only one kind of work needs belongs in that skill. The Manager
+hears from Argus which commands several tasks keep typing; a task opened to make one into a tool
+makes it, uses it in place of the command, and says in the wiki where the command was described.
 
 What you keep is read by agents who never saw your task. Write for them: no project ids, task ids or
 paths of this machine's workspaces; the case that taught it in a line, enough to recognize the next.
@@ -27,6 +31,9 @@ paths of this machine's workspaces; the case that taught it in a line, enough to
 **A skill**, for what an agent can run. A folder in the team's skills folder (Where things are names
 it) holding a SKILL.md: front matter with `name`, the folder's name, and `description`, one sentence
 on what work it is for; then how to use it, and the script that does the step or catches the failure.
+The description opens with when to reach for it, as the next agent will meet that moment: the error
+text it answers or the step it serves, not the story of how it was found. A skill that no task has
+loaded since it was written, or that only retells a page, is folded into the wiki and deleted.
 
 **A tool**, for a command many tasks run as it stands: an executable file in the team's tools
 folder, on every role's PATH by its name. Its second line is a comment saying in one sentence what
@@ -34,7 +41,9 @@ it does (Argus lists that); `--help` says how. It changes nothing it was not ask
 
 **A wiki page**, for what no script runs: a fact about a tool or library, a pitfall and how it
 showed, a route that failed and why, a decision and its reason. One topic a page, in Markdown in the
-wiki folder, opening with `# Title`, listed in the wiki's INDEX.md in one line. A fact says what was
+wiki folder, opening with `# Title`, listed in the wiki's INDEX.md in one line of one sentence. A
+page past 16 KB (Argus marks it too long) is read whole by no one: split it by topic before you add
+to it, each part a page with its own line in the index. A fact says what was
 seen and how to check it, and dates itself when it may go stale (a tool's version).
 
 Before adding any, read what is there: improve what covers it rather than adding beside it, and

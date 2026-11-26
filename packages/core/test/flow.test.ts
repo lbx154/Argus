@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentRequest, CallAgent, Role } from '../src/types.js';
 import { Store, type FlowEvent, type Project, type Question } from '../src/store.js';
-import { Flow, title, type FlowOptions } from '../src/flow.js';
+import { commandKey, Flow, title, type FlowOptions } from '../src/flow.js';
 import { conversationRows, daemon, named, progressMap, projectRecord, readEvents, readRecord, taskTrace } from '../src/serve/views.js';
 import { words } from './helpers/words.js';
 import { packsHome, SKILLS, wikiHome } from '../src/prompts.js';
@@ -45,6 +45,8 @@ interface Step {
   /** The context the turn's last step read, as a backend reports it. */
   context?: number;
   says?: string;
+  /** Commands the turn runs as it goes, as its steps. */
+  commands?: string[];
 }
 
 function agent(steps: Step[], controller?: AbortController): { callAgent: CallAgent; requests: AgentRequest[] } {
@@ -57,6 +59,7 @@ function agent(steps: Step[], controller?: AbortController): { callAgent: CallAg
     const [step] = steps.splice(at, 1) as [Step];
     if (step.later) await new Promise(resolve => setImmediate(resolve));
     if (step.says) request.onStep?.({ kind: 'message', text: step.says });
+    for (const command of step.commands ?? []) request.onStep?.({ kind: 'command', text: command });
     for (const { to, cc = [], text, refused } of step.posts ?? []) {
       const post = boxAt(new URL(request.letters!).pathname.split('/').pop()!)!;
       if (refused) await assert.rejects(post(to, cc, text), refused);
@@ -2105,4 +2108,50 @@ test('once the work has spent the set amount, the Manager gets Argus\'s own meas
     { role: 'engineer', to: 'planner', letter: 'Summed.' }, noted, { role: 'planner', to: 'manager', letter: 'Done.' }, report]);
   await say(plain.flow, plain.id, 'Sum the columns');
   assert.ok(!plain.requests.some(request => request.prompt.startsWith('From Argus: a look at how the team works')));
+});
+
+test('the Manager\'s look at the team names the commands several tasks keep typing and the wiki pages too long to read', async t => {
+  const build = 'RUSTUP_TOOLCHAIN=1.99.1 CARGO_HOME=/work/.tools/cargo verus-run verify . --package t1-crate';
+  const steps: Step[] = [
+    { role: 'manager', to: 'planner', letter: brief },
+    { role: 'planner', to: 'engineer', letters: ['Prove a', 'Prove b', 'Prove c'], tasks: [{ task: '', after: [] }, { task: '', after: ['t1'] }, { task: '', after: ['t2'] }] },
+    { role: 'engineer', to: 'planner', letter: 'a proved.', commands: [build, 'ls -la', build] },
+    noted,
+    { role: 'planner', to: 'planner', letter: '' },
+    { role: 'engineer', to: 'planner', letter: 'b proved.', commands: [build.replace('t1', 't2')] },
+    noted,
+    { role: 'planner', to: 'planner', letter: '' },
+    { role: 'engineer', to: 'planner', letter: 'c proved.', commands: [build.replace('t1', 't3')] },
+    noted, noted,
+    { role: 'planner', to: 'manager', letter: 'Done.' },
+    report,
+  ];
+  const home = await mkdtemp(join(tmpdir(), 'argus-flow-'));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const store = new Store(home);
+  writeFileSync(join(wikiHome(home), 'verus.md'), `# Verus\n${'A pitfall and how it showed.\n'.repeat(800)}`);
+  const { callAgent: scripted, requests } = agent(steps);
+  let engineerTurns = 0;
+  const callAgent: CallAgent = async request => {
+    const result = await scripted(request);
+    const cost = request.role === 'engineer' && ++engineerTurns === 3 ? 3 : 0;
+    return { ...result, usage: { input_tokens: 1, output_tokens: 1, cost_usd: cost } as NonNullable<typeof result.usage> };
+  };
+  const flow = new Flow(store, callAgent, { reviewEveryUsd: 2.5 });
+  const { id } = store.create({ workdir: home, request: 'the request', backend: 'codex', model: null });
+  await say(flow, id, 'Prove the three');
+  const look = requests.find(request => request.role === 'manager' && request.prompt.startsWith('From Argus: a look at how the team works'))?.prompt ?? '';
+  assert.match(look, /## The team library\nCommands the tasks keep typing, each in three or more tasks[^\n]*\n- typed 4 times in 3 tasks \(t1, t2, t3\): `RUSTUP_TOOLCHAIN=1\.99\.1 CARGO_HOME=\/work\/\.tools\/cargo verus-run verify \. --package tN-crate`\n/);
+  assert.doesNotMatch(look, /ls -la/);
+  assert.match(look, /Wiki pages too long to read whole, to split by topic:\n- wiki\/verus\.md \(23 KB\)/);
+  assert.match(look, /What does the library need: a tool for a command the tasks keep typing/);
+  // Each role is told which pages are too long to read whole.
+  assert.match(requests[0]!.instructions ?? '', /verus\.md \(802 lines, too long: split it by topic before adding to it\)/);
+});
+
+test('a command is known by its opening, with task ids and hashes masked; one that only looks around is none', () => {
+  assert.equal(commandKey('python3 - <<PY\nimport json\nprint(json.load(open(".system-proof/t12/run.json")))\nPY'), 'python3 - <<PY import json print(json.load(open(".system-proof/tN/run.json"))) PY');
+  assert.equal(commandKey('git -C /work log --oneline 1a2b3c4d'), null);
+  assert.equal(commandKey('ls'), null);
+  assert.equal(commandKey(`cargo build ${'x'.repeat(200)}`)?.length, 120);
 });

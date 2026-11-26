@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs';
 import type { UploadedAttachment } from '@argus/contracts';
 import type { Access, AgentResult, CallAgent, Form, HandOff, Role } from './types.js';
 import { effortOf, modelOf, type FlowEvent, type Note, type OperatorMessage, type ManagerLetter, type Project, type Question, type Status, type Store, type Task } from './store.js';
-import { answered, closedTo, copied, reviewLetter, freshSession, overflow, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
+import { answered, closedTo, copied, libraryState, reviewLetter, freshSession, overflow, NAMES, heldLetter, startedAfresh, steeredPrompt, handedTo, posted, reinstructed, instructions, lookPrompt, letterPrompt, unread, managerPrompt, packsHome, plannerPrompt, refusedPrompt, SKILLS, skillsHome, toolsHome, wikiHome, taskPrompt } from './prompts.js';
 import { keep, titleOf, under } from './serve/files.js';
 import { nameLegacyInputs } from './inputs.js';
 import { forgetWorktree, freeze, isCheckout, makeWorktree } from './worktrees.js';
@@ -128,6 +128,18 @@ export class Flow {
 
   /** Each working project's measures since the Manager's last look at how the team works. */
   private readonly watching = new Map<string, Watch>();
+  /** Each project's commands as the tasks typed them (their opening, task ids and hashes masked), with the
+   * tasks that typed each; and how many tasks each had when the Manager last heard of it. */
+  private readonly typed = new Map<string, Map<string, { count: number; tasks: Set<string>; told: number }>>();
+
+  /** Commands typed in three or more tasks, more than when the Manager last heard of them: a team tool's work. */
+  private repeated(project: Project): string[] {
+    const found = [...this.typed.get(project.id)?.entries() ?? []]
+      .filter(([, seen]) => seen.tasks.size >= 3 && seen.tasks.size > seen.told)
+      .sort(([, a], [, b]) => b.tasks.size - a.tasks.size || b.count - a.count).slice(0, 6);
+    for (const [, seen] of found) seen.told = seen.tasks.size;
+    return found.map(([key, seen]) => `typed ${seen.count} times in ${seen.tasks.size} tasks (${[...seen.tasks].sort().join(', ')}): \`${key}\``);
+  }
 
   /** The project's measures, begun now if none are under way, with the clock of its next look set. */
   private watchOf(project: Project): Watch {
@@ -163,6 +175,17 @@ export class Flow {
     else if (event.type === 'handoff' && event.role === 'reviewer' && event.to === 'engineer') watch.sentBack.push(`${event.task ? `${event.task}: ` : ''}${firstLine(event.letter)}`);
     else if (event.type === 'message' && event.from === 'operator') watch.operator.push(firstLine(event.text));
     else if (event.type === 'task.closed') watch.closed.push(event.task);
+    else if (event.type === 'step' && event.kind === 'command' && event.task) {
+      const key = commandKey(event.text);
+      if (key) {
+        const commands = this.typed.get(project.id) ?? new Map<string, { count: number; tasks: Set<string>; told: number }>();
+        this.typed.set(project.id, commands);
+        const seen = commands.get(key) ?? { count: 0, tasks: new Set<string>(), told: 0 };
+        commands.set(key, seen);
+        seen.count += 1;
+        seen.tasks.add(event.task);
+      }
+    }
     if (reviewEveryUsd !== undefined && watch.spent >= reviewEveryUsd && this.going(project)) this.review(project, watch);
   }
 
@@ -172,7 +195,10 @@ export class Flow {
     this.watching.delete(project.id);
     const { since, spent, sentBack, operator, closed } = watch;
     this.watchOf(project);
-    this.tellManager(project, reviewLetter({ hours: (Date.now() - since) / 3_600_000, spent, pace: this.pace(project), sentBack, operator, closed }));
+    let library: ReturnType<typeof libraryState> | undefined;
+    try { library = libraryState(this.store.home, since); } catch { /* a library that cannot be read is left out */ }
+    this.tellManager(project, reviewLetter({ hours: (Date.now() - since) / 3_600_000, spent, pace: this.pace(project), sentBack, operator, closed,
+      repeated: this.repeated(project), ...library ? { library } : {} }));
   }
 
   /** Each project's next push, while one waits; and the projects being pushed now. */
@@ -958,6 +984,17 @@ export class Flow {
 }
 
 export const openTasks = ({ tasks }: Project): Task[] => tasks.filter(task => task.status === 'open');
+
+/** Commands that only look around (a listing, a read, a search, a git query) are no tool's work. */
+const LOOKING = /^(?:cd|ls|cat|sed|head|tail|grep|rg|find|wc|echo|pwd|test|git|diff|stat|file|du|df|which|true|sleep)\b/;
+
+/** A command as the tasks type it: its opening 120 characters on one line, task ids and hashes masked;
+ * none for one that only looks around. */
+export const commandKey = (text: string): string | null => {
+  const line = text.replace(/\s+/g, ' ').trim().replace(/\bt\d+\b/g, 'tN').replace(/\b[0-9a-f]{7,40}\b/g, 'SHA');
+  if (line.length < 12 || LOOKING.test(line)) return null;
+  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+};
 
 /** A letter's first line as a heading reads it: a link as its words, without markup. It names the
  * task the letter opens. */
